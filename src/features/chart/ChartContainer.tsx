@@ -18,8 +18,9 @@ import {
 import { useCandleStore } from '@/stores/useCandleStore';
 import { useIndicatorStore } from '@/stores/useIndicatorStore';
 import { useChartStore } from '@/stores/useChartStore';
+import { useBacktestStore } from '@/stores/useBacktestStore';
 import { calculateAllIndicators } from '@/features/indicators/calculator';
-import type { IndicatorResult } from '@/models';
+import type { IndicatorResult, StrategySignal } from '@/models';
 import { isWeekend } from '@/utils/date';
 import {
   CHART_COLORS,
@@ -52,6 +53,7 @@ export default function ChartContainer() {
 
   const candles = useCandleStore((s) => s.candles);
   const actives = useIndicatorStore((s) => s.actives);
+  const signals = useBacktestStore((s) => s.signals);
   const candlesRef = useRef(candles);
   const activesRef = useRef(actives);
   const indicatorResultsRef = useRef<IndicatorResult[]>([]);
@@ -348,6 +350,31 @@ export default function ChartContainer() {
     volumeSeriesRef.current.setData(volData);
     mainChartRef.current?.timeScale().fitContent();
   }, [candles]);
+
+  // Signal markers on candlestick chart
+  useEffect(() => {
+    const series = candleSeriesRef.current;
+    if (!series || candles.length === 0) return;
+
+    const activeSignals = signals.filter((s) => s.action !== 'hold');
+    if (activeSignals.length === 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (series as any).setMarkers([]);
+      return;
+    }
+
+    const markers = activeSignals.map((s: StrategySignal) => ({
+      time: s.time as Time,
+      position: s.action === 'buy' ? 'belowBar' : 'aboveBar',
+      color: s.action === 'buy' ? '#22C55E' : '#EF4444',
+      shape: s.action === 'buy' ? 'arrowUp' : 'arrowDown',
+      text: s.action === 'buy' ? 'B' : 'S',
+      size: 2,
+    }));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (series as any).setMarkers(markers);
+  }, [signals, candles]);
 
   // Update overlay indicator series
   useEffect(() => {

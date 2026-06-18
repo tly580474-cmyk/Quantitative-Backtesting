@@ -47,7 +47,24 @@ export default function BacktestRunner() {
       setDatasets(ds);
       setLoadingDatasets(false);
       if (ds.length > 0 && !selectedDatasetId) {
-        setSelectedDatasetId(ds[0].id);
+        const firstId = ds[0].id;
+        setSelectedDatasetId(firstId);
+        // Auto-load candles for the first dataset so the chart and run
+        // button work immediately after page load.
+        getCandlesByDataset(firstId).then((loaded) => {
+          setCandles(loaded);
+          setImportResult({
+            success: true,
+            fileName: ds[0].sourceFileName ?? ds[0].name,
+            symbol: ds[0].symbol,
+            dateRange: { from: ds[0].startTime, to: ds[0].endTime },
+            totalRows: ds[0].count,
+            validRows: ds[0].count,
+            errors: [],
+            warnings: [],
+            candles: loaded,
+          });
+        });
       }
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

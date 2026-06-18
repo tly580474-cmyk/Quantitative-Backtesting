@@ -42,21 +42,20 @@ export function calculateMetrics(
 
   // Max drawdown
   let peak = equityCurve.length > 0 ? equityCurve[0].equity : initialCapital;
+  let peakTime = equityCurve.length > 0 ? equityCurve[0].time : '';
   let maxDrawdown = 0;
   let maxDdStart = '';
   let maxDdEnd = '';
-  let ddStart = '';
 
   for (const point of equityCurve) {
     if (point.equity > peak) {
       peak = point.equity;
-      ddStart = '';
+      peakTime = point.time;
     } else {
-      if (ddStart === '') ddStart = point.time;
       const dd = (peak - point.equity) / peak;
       if (dd > maxDrawdown) {
         maxDrawdown = dd;
-        maxDdStart = ddStart;
+        maxDdStart = peakTime;
         maxDdEnd = point.time;
       }
     }

@@ -40,9 +40,9 @@ describe('Metrics', () => {
     const equity = makeEquityCurve([100000, 105000, 95000, 102000, 98000]);
     const metrics = calculateMetrics(equity, [], 100000);
 
-    // Peak at 105000, trough at 95000 → DD = (105000 - 95000) / 105000 = 0.09524
+    // Peak at 105000 on 01-02, trough at 95000 on 01-03 → DD = (105000 - 95000) / 105000 = 0.09524
     expect(metrics.maxDrawdown).toBeCloseTo(10000 / 105000, 4);
-    expect(metrics.maxDrawdownStart).toBe('2021-01-03');
+    expect(metrics.maxDrawdownStart).toBe('2021-01-02');
     expect(metrics.maxDrawdownEnd).toBe('2021-01-03');
   });
 
