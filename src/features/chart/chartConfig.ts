@@ -12,13 +12,15 @@ export const CHART_COLORS = {
 };
 
 export const MAIN_CHART_HEIGHT_PERCENT = 60;
+export const VOLUME_CHART_HEIGHT_PERCENT = 20;
 export const INDICATOR_PANE_HEIGHT = 150;
 export const MAIN_CHART_MIN_HEIGHT = 320;
+export const RESERVED_INDICATOR_PANE_SLOTS = 2;
 
 export function calculateMainChartHeight(viewportHeight: number): number {
   return Math.max(
     MAIN_CHART_MIN_HEIGHT,
-    Math.round(viewportHeight * MAIN_CHART_HEIGHT_PERCENT / 100),
+    viewportHeight - RESERVED_INDICATOR_PANE_SLOTS * INDICATOR_PANE_HEIGHT,
   );
 }
 
