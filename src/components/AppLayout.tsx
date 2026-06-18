@@ -8,7 +8,7 @@ interface AppLayoutProps {
   topBar: ReactNode;
   leftPanel: ReactNode;
   center: ReactNode;
-  bottom: ReactNode;
+  bottom?: ReactNode;
 }
 
 export default function AppLayout({ topBar, leftPanel, center, bottom }: AppLayoutProps) {
