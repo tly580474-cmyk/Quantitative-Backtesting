@@ -23,12 +23,18 @@ describe('getMacdHistogramColor', () => {
 });
 
 describe('calculateMainChartHeight', () => {
-  it('reserves exactly two indicator pane slots', () => {
-    expect(calculateMainChartHeight(900)).toBe(600);
-    expect(calculateMainChartHeight(720)).toBe(420);
+  it('fills viewport when no panes', () => {
+    expect(calculateMainChartHeight(900)).toBe(900);
+    expect(calculateMainChartHeight(720)).toBe(720);
+  });
+
+  it('deducts pane space when panes are provided', () => {
+    expect(calculateMainChartHeight(900, 2)).toBe(600);
+    expect(calculateMainChartHeight(900, 3)).toBe(450);
   });
 
   it('keeps the main chart usable in a short viewport', () => {
-    expect(calculateMainChartHeight(500)).toBe(MAIN_CHART_MIN_HEIGHT);
+    expect(calculateMainChartHeight(500, 2)).toBe(MAIN_CHART_MIN_HEIGHT);
+    expect(calculateMainChartHeight(500, 3)).toBe(MAIN_CHART_MIN_HEIGHT);
   });
 });

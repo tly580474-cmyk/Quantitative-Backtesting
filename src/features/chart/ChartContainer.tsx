@@ -108,6 +108,40 @@ export default function ChartContainer() {
     }),
     [indicatorResults, actives],
   );
+  // Respect pane count in ResizeObserver callbacks without stale closures
+  const separatesCountRef = useRef(0);
+  separatesCountRef.current = separates.length;
+
+  // Recalculate main chart height when viewport resizes
+  useLayoutEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+
+    const updateHeight = () => {
+      const next = calculateMainChartHeight(
+        viewport.clientHeight,
+        separatesCountRef.current,
+      );
+      setMainChartHeight((prev) => prev === next ? prev : next);
+    };
+
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
+
+  // Recalculate when pane count changes
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const next = calculateMainChartHeight(
+      viewport.clientHeight,
+      separates.length,
+    );
+    setMainChartHeight((prev) => prev === next ? prev : next);
+  }, [separates.length]);
+
   candlesRef.current = candles;
   activesRef.current = actives;
   indicatorResultsRef.current = indicatorResults;
@@ -180,23 +214,6 @@ export default function ChartContainer() {
     setCrosshairIndicators(indicatorDetails);
     return index;
   };
-
-  useLayoutEffect(() => {
-    const viewport = scrollRef.current;
-    if (!viewport) return;
-
-    const updateMainChartHeight = () => {
-      const nextHeight = calculateMainChartHeight(viewport.clientHeight);
-      setMainChartHeight((currentHeight) =>
-        currentHeight === nextHeight ? currentHeight : nextHeight,
-      );
-    };
-
-    updateMainChartHeight();
-    const resizeObserver = new ResizeObserver(updateMainChartHeight);
-    resizeObserver.observe(viewport);
-    return () => resizeObserver.disconnect();
-  }, []);
 
   // Create main chart (once)
   useEffect(() => {

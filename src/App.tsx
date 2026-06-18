@@ -1,4 +1,5 @@
-import { ConfigProvider, App as AntApp } from 'antd';
+import { useState } from 'react';
+import { ConfigProvider, App as AntApp, Modal } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import AppLayout from './components/AppLayout';
 import FileUploader from './components/FileUploader';
@@ -8,16 +9,20 @@ import IndicatorPanel from './components/IndicatorPanel';
 import ChartContainer from './features/chart/ChartContainer';
 import { useImport } from './features/import/useImport';
 import { useCandleStore } from './stores/useCandleStore';
+import type { ImportResult } from './models';
 
 export default function App() {
   const { importFile, importResult, loading } = useImport();
-  const clear = useCandleStore((s) => s.clear);
+  const [alertResult, setAlertResult] = useState<ImportResult | null>(null);
 
   const handleImport = async (file: File) => {
     const result = await importFile(file);
     if (result) {
       useCandleStore.getState().setCandles(result.candles);
       useCandleStore.getState().setImportResult(result);
+      if (result.errors.length > 0 || result.warnings.length > 0) {
+        setAlertResult(result);
+      }
     }
   };
 
@@ -31,13 +36,6 @@ export default function App() {
   const leftPanel = <IndicatorPanel />;
 
   const center = <ChartContainer />;
-
-  const hasImportIssues = Boolean(
-    importResult && (importResult.errors.length > 0 || importResult.warnings.length > 0),
-  );
-  const bottom = hasImportIssues && importResult
-    ? <ImportResultPanel result={importResult} />
-    : null;
 
   return (
     <ConfigProvider
@@ -54,8 +52,17 @@ export default function App() {
           topBar={topBar}
           leftPanel={leftPanel}
           center={center}
-          bottom={bottom}
         />
+        <Modal
+          title="导入结果"
+          open={alertResult !== null}
+          onCancel={() => setAlertResult(null)}
+          footer={null}
+          width={520}
+          destroyOnClose
+        >
+          {alertResult && <ImportResultPanel result={alertResult} />}
+        </Modal>
       </AntApp>
     </ConfigProvider>
   );
