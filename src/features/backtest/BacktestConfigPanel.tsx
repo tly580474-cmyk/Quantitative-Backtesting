@@ -83,14 +83,18 @@ export default function BacktestConfigPanel() {
           />
         </Form.Item>
 
-        <Form.Item label="每手股数">
+        <Form.Item
+          label="最小交易金额"
+          extra="指数 ETF 默认按 1 元为最小交易单位"
+        >
           <InputNumber
-            value={config.lotSize}
-            onChange={(v) => v != null && setConfig({ lotSize: v })}
+            value={config.minimumTradeAmount}
+            onChange={(v) => v != null && setConfig({ minimumTradeAmount: v })}
             min={1}
-            max={10000}
-            step={100}
+            max={1000000}
+            step={1}
             style={{ width: '100%' }}
+            prefix="¥"
           />
         </Form.Item>
 

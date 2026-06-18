@@ -22,7 +22,7 @@ const baseConfig: BacktestConfig = {
   minimumCommission: 5,
   sellTaxRate: 0.001,
   slippageBps: 0, // Zero slippage for deterministic testing
-  lotSize: 100,
+  minimumTradeAmount: 1,
   execution: 'next_open',
   forceCloseAtEnd: true,
 };

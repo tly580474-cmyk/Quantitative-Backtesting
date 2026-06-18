@@ -138,9 +138,12 @@ export async function runBacktestAsync(
           const slippageFactor = config.slippageBps / 10000;
           const estimatedFillPrice = nextCandle.open * (1 + slippageFactor);
           const maxSpend = portfolio.cash * config.positionSizing.value;
-          const estimatedQty = Math.floor(maxSpend / estimatedFillPrice / config.lotSize) * config.lotSize;
+          const estimatedAmount = Math.floor(
+            maxSpend / config.minimumTradeAmount,
+          ) * config.minimumTradeAmount;
+          const estimatedQty = estimatedAmount / estimatedFillPrice;
 
-          if (estimatedQty >= config.lotSize) {
+          if (estimatedAmount >= config.minimumTradeAmount) {
             pendingOrder = {
               id: crypto.randomUUID(),
               signalTime: signal.time,
@@ -379,9 +382,12 @@ export function runBacktest(
           const slippageFactor = config.slippageBps / 10000;
           const estimatedFillPrice = nextCandle.open * (1 + slippageFactor);
           const maxSpend = portfolio.cash * config.positionSizing.value;
-          const estimatedQty = Math.floor(maxSpend / estimatedFillPrice / config.lotSize) * config.lotSize;
+          const estimatedAmount = Math.floor(
+            maxSpend / config.minimumTradeAmount,
+          ) * config.minimumTradeAmount;
+          const estimatedQty = estimatedAmount / estimatedFillPrice;
 
-          if (estimatedQty >= config.lotSize) {
+          if (estimatedAmount >= config.minimumTradeAmount) {
             pendingOrder = {
               id: crypto.randomUUID(),
               signalTime: signal.time,

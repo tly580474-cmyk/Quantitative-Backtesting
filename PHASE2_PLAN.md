@@ -238,7 +238,7 @@ interface BacktestConfig {
   minimumCommission: number;
   sellTaxRate: number;
   slippageBps: number;
-  lotSize: number;
+  minimumTradeAmount: number;
   execution: 'next_open';
   forceCloseAtEnd: boolean;
 }
@@ -277,7 +277,7 @@ interface BacktestResult {
 
 - 买入成交价：`nextOpen * (1 + slippageBps / 10000)`；
 - 卖出成交价：`nextOpen * (1 - slippageBps / 10000)`；
-- 买入数量按资金比例计算，并向下取整到 `lotSize`；
+- 买入金额按资金比例计算，并向下取整到 `minimumTradeAmount`；指数 ETF 默认最小交易金额为 1 元；
 - 买入成本包含成交额、滑点后的价格和手续费，不允许现金为负；
 - 卖出成本包含手续费和印花税；
 - 无持仓时的卖出信号、已有持仓时的重复买入信号默认忽略并记录原因；
@@ -370,7 +370,7 @@ interface BacktestResult {
 
 - 手工构造的小样例可逐日核对现金、持仓、手续费和权益；
 - 信号不得在同一根 K 线收盘价成交；
-- 余额不足时自动缩减至合法手数或拒绝，账户现金不为负；
+- 余额不足时自动缩减至合法交易金额或拒绝，账户现金不为负；
 - 1 万条日线数据的单策略回测目标在 1 秒内完成，页面无明显冻结；
 - 取消任务后不保存半成品为已完成结果。
 
@@ -455,7 +455,7 @@ interface BacktestResult {
 ### 阶段 3：撮合、账户与回测引擎（5～6 人日）
 
 - 实现回测主循环、下一日订单队列和指标上下文；
-- 实现仓位计算、手数取整、费用、税费、滑点和订单拒绝；
+- 实现仓位计算、交易金额取整、费用、税费、滑点和订单拒绝；
 - 实现每日账户估值、强制平仓和交易配对；
 - 接入 Web Worker、进度、取消和错误协议；
 - 使用黄金样例逐日验证。
@@ -501,7 +501,7 @@ interface BacktestResult {
 ### 9.3 撮合与账户测试
 
 - 正常买入卖出、余额不足、非法价格和无持仓卖出；
-- 手数取整、全仓和固定比例仓位；
+- 最小交易金额取整、全仓和固定比例仓位；
 - 最低手续费、卖出印花税和双向滑点；
 - 最后一日信号取消和期末强制平仓；
 - 现金、持仓、市值和总权益守恒；

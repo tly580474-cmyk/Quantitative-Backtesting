@@ -8,7 +8,7 @@ export interface BacktestConfig {
   minimumCommission: number;
   sellTaxRate: number;
   slippageBps: number;
-  lotSize: number;
+  minimumTradeAmount: number;
   execution: 'next_open';
   forceCloseAtEnd: boolean;
 }

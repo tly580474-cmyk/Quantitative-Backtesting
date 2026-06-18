@@ -18,7 +18,8 @@ import type { ImportResult } from './models';
 type TabKey = 'chart' | 'data' | 'backtest' | 'results';
 
 export default function App() {
-  const { importFile, importResult, loading } = useImport();
+  const { importFile, loading } = useImport();
+  const importResult = useCandleStore((state) => state.importResult);
   const [alertResult, setAlertResult] = useState<ImportResult | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('chart');
   const [saveModalOpen, setSaveModalOpen] = useState(false);
@@ -73,7 +74,7 @@ export default function App() {
       case 'chart':
         return <ChartContainer />;
       case 'data':
-        return <DataLibrary />;
+        return <DataLibrary onOpen={() => setActiveTab('chart')} />;
       case 'backtest':
         return <BacktestRunner />;
       case 'results':

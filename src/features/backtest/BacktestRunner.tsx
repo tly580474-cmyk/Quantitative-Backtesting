@@ -8,6 +8,7 @@ import {
   Tag,
   Drawer,
   Grid,
+  App as AntdApp,
 } from 'antd';
 import { PlayCircleOutlined, StopOutlined, SettingOutlined } from '@ant-design/icons';
 import StrategyConfigPanel from './StrategyConfigPanel';
@@ -39,6 +40,7 @@ export default function BacktestRunner() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const screens = Grid.useBreakpoint();
   const useSettingsDrawer = !screens.lg;
+  const { message } = AntdApp.useApp();
 
   const candles = useCandleStore((s) => s.candles);
   const setCandles = useCandleStore((s) => s.setCandles);
@@ -104,6 +106,19 @@ export default function BacktestRunner() {
     if (!selectedDatasetId || candles.length === 0) return;
     const ds = datasets.find((d) => d.id === selectedDatasetId);
     if (!ds) return;
+
+    const availableCapital = config.initialCapital * config.positionSizing.value;
+    const minimumOrderCost = config.minimumTradeAmount + config.minimumCommission;
+
+    if (availableCapital < minimumOrderCost) {
+      message.error(
+        `当前资金最多可用 ¥${availableCapital.toLocaleString()}，` +
+        `但最小订单至少需要 ¥${minimumOrderCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}。` +
+        '请降低最小交易金额或提高初始资金。',
+        6,
+      );
+      return;
+    }
 
     const cs = computeChecksum(candles);
     run(

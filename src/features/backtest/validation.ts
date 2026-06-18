@@ -74,8 +74,8 @@ export function validateBacktestInput(
     errors.push({ field: 'slippageBps', message: '滑点不能为负' });
   }
 
-  if (!Number.isFinite(config.lotSize) || config.lotSize <= 0 || !Number.isInteger(config.lotSize)) {
-    errors.push({ field: 'lotSize', message: '手数必须为正整数' });
+  if (!Number.isFinite(config.minimumTradeAmount) || config.minimumTradeAmount <= 0) {
+    errors.push({ field: 'minimumTradeAmount', message: '最小交易金额必须大于 0' });
   }
 
   return errors;

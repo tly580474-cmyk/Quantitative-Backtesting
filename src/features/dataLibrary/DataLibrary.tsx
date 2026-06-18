@@ -8,7 +8,11 @@ import type { MarketDataset } from '@/models';
 
 const { Text } = Typography;
 
-export default function DataLibrary() {
+interface DataLibraryProps {
+  onOpen?: () => void;
+}
+
+export default function DataLibrary({ onOpen }: DataLibraryProps) {
   const [datasets, setDatasets] = useState<MarketDataset[]>([]);
   const [search, setSearch] = useState('');
   const setCandles = useCandleStore((s) => s.setCandles);
@@ -36,6 +40,7 @@ export default function DataLibrary() {
       warnings: [],
       candles,
     });
+    onOpen?.();
   };
 
   const handleDelete = async (id: string) => {

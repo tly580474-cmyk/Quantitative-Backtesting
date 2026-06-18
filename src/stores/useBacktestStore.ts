@@ -13,7 +13,7 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   minimumCommission: 5,
   sellTaxRate: 0.001,
   slippageBps: 1,
-  lotSize: 100,
+  minimumTradeAmount: 1,
   execution: 'next_open',
   forceCloseAtEnd: true,
 };

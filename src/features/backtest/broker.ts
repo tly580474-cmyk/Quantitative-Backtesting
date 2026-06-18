@@ -42,52 +42,46 @@ function fillBuy(
 ): FillResult {
   const fillPrice = open * (1 + slippageFactor);
   const maxSpend = cash * config.positionSizing.value;
+  const minimumTradeAmount = config.minimumTradeAmount;
 
-  // Maximum quantity we can buy (rounded down to lot size)
-  const maxQty = Math.floor(maxSpend / fillPrice / config.lotSize) * config.lotSize;
+  // Index ETF orders use a monetary trading unit. Convert the rounded
+  // order amount back to a fractional index/ETF quantity for valuation.
+  const maxAmount = Math.floor(maxSpend / minimumTradeAmount) * minimumTradeAmount;
 
-  if (maxQty < config.lotSize) {
+  if (maxAmount < minimumTradeAmount) {
     return {
-      trade: createRejectedTrade(order, fillPrice, '现金不足，无法买入最小手数'),
+      trade: createRejectedTrade(order, fillPrice, '现金不足，无法达到最小交易金额'),
       error: '现金不足',
     };
   }
 
-  const quantity = Math.min(order.quantity, maxQty);
-  const amount = quantity * fillPrice;
-  const commission = Math.max(amount * config.commissionRate, config.minimumCommission);
+  const requestedAmount = order.quantity * fillPrice;
+  let amount = Math.floor(
+    Math.min(requestedAmount, maxAmount) / minimumTradeAmount,
+  ) * minimumTradeAmount;
+  let commission = Math.max(amount * config.commissionRate, config.minimumCommission);
 
   // Check if we can afford it
   if (amount + commission > cash) {
-    // Reduce quantity
-    const affordableQty = Math.floor((cash - commission) / fillPrice / config.lotSize) * config.lotSize;
-    if (affordableQty < config.lotSize) {
+    const affordableAmount = Math.floor(
+      Math.min(
+        cash - config.minimumCommission,
+        cash / (1 + config.commissionRate),
+      ) / minimumTradeAmount,
+    ) * minimumTradeAmount;
+
+    if (affordableAmount < minimumTradeAmount) {
       return {
         trade: createRejectedTrade(order, fillPrice, '扣除手续费后现金不足'),
         error: '现金不足',
       };
     }
-    // Recalculate with affordable quantity
-    const adjQty = Math.min(order.quantity, affordableQty);
-    const adjAmount = adjQty * fillPrice;
-    const adjCommission = Math.max(adjAmount * config.commissionRate, config.minimumCommission);
 
-    return {
-      trade: {
-        id: crypto.randomUUID(),
-        orderId: order.id,
-        time: order.executeTime,
-        side: 'buy',
-        quantity: adjQty,
-        rawPrice: open,
-        fillPrice,
-        commission: roundTo(adjCommission, 4),
-        tax: 0,
-        slippageCost: roundTo(adjQty * (fillPrice - open), 4),
-        amount: roundTo(adjAmount, 4),
-      },
-    };
+    amount = Math.min(amount, affordableAmount);
+    commission = Math.max(amount * config.commissionRate, config.minimumCommission);
   }
+
+  const quantity = amount / fillPrice;
 
   return {
     trade: {

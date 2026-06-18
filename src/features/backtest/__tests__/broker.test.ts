@@ -9,7 +9,7 @@ const baseConfig: BacktestConfig = {
   minimumCommission: 5,
   sellTaxRate: 0.001,
   slippageBps: 1,
-  lotSize: 100,
+  minimumTradeAmount: 1,
   execution: 'next_open',
   forceCloseAtEnd: false,
 };
@@ -47,10 +47,17 @@ describe('Broker - Buy', () => {
     expect(result.trade.tax).toBe(0); // No tax on buy
   });
 
-  it('rounds quantity down to lot size', () => {
-    // 100000 * 1 / 10 = 10000 shares, lot size 100 → 100 lots = 10000 shares
-    const result = fillOrder(buyOrder(10000), 10, 100000, 0, baseConfig);
-    expect(result.trade.quantity % 100).toBe(0);
+  it('rounds the order value down to the minimum monetary unit', () => {
+    const config = { ...baseConfig, minimumTradeAmount: 100 };
+    const result = fillOrder(buyOrder(10000), 10, 100000, 0, config);
+    expect(result.trade.amount % 100).toBe(0);
+  });
+
+  it('supports a one-yuan minimum order for high index prices', () => {
+    const result = fillOrder(buyOrder(100), 8500, 100000, 0, baseConfig);
+    expect(result.trade.quantity).toBeGreaterThan(0);
+    expect(result.trade.amount).toBeGreaterThanOrEqual(1);
+    expect(Number.isInteger(result.trade.amount)).toBe(true);
   });
 
   it('rejects buy when price is invalid', () => {
@@ -64,9 +71,9 @@ describe('Broker - Buy', () => {
   });
 
   it('reduces quantity when cash is insufficient', () => {
-    // Only 1000 cash, trying to buy 10000 shares at price 100
-    const result = fillOrder(buyOrder(10000), 100, 1000, 0, baseConfig);
-    expect(result.trade.quantity).toBe(0); // Can't afford even 1 lot
+    const config = { ...baseConfig, minimumTradeAmount: 2000 };
+    const result = fillOrder(buyOrder(10000), 100, 1000, 0, config);
+    expect(result.trade.quantity).toBe(0);
   });
 
   it('applies minimum commission', () => {
