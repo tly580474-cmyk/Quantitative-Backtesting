@@ -2,3 +2,6 @@ node_modules/
 dist/
 .vite/
 *.local
+.claude/
+*.tsbuildinfo
+新建 文本文档.txt
