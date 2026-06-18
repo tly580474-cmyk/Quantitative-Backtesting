@@ -14,50 +14,37 @@ interface AppLayoutProps {
 
 export default function AppLayout({ topBar, tabBar, leftPanel, center, bottom }: AppLayoutProps) {
   return (
-    <Layout style={{ height: '100%' }}>
+    <Layout className="app-shell">
       <Header
+        className="app-header"
         style={{
           background: '#fff',
           borderBottom: '1px solid #f0f0f0',
-          padding: '0 16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 16,
-          height: 48,
-          lineHeight: '48px',
         }}
       >
-        <Text strong style={{ fontSize: 16, whiteSpace: 'nowrap' }}>
+        <Text strong className="app-title">
           量化行情分析
         </Text>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="app-header-tools">
           {topBar}
         </div>
       </Header>
       {tabBar && (
-        <div
-          style={{
-            flexShrink: 0,
-            background: '#fff',
-            borderBottom: '1px solid #f0f0f0',
-            padding: '0 16px',
-          }}
-        >
+        <div className="app-tabs">
           {tabBar}
         </div>
       )}
       <Layout style={{ flex: 1, overflow: 'hidden' }}>
-        <Sider
-          width={280}
-          style={{
-            background: '#fff',
-            borderRight: '1px solid #f0f0f0',
-            overflow: 'auto',
-            padding: 12,
-          }}
-        >
-          {leftPanel}
-        </Sider>
+        {leftPanel && (
+          <Sider
+            width={280}
+            breakpoint="lg"
+            collapsedWidth={0}
+            className="app-sidebar"
+          >
+            {leftPanel}
+          </Sider>
+        )}
         <Content
           style={{
             display: 'flex',

@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react';
 import {
-  Row,
-  Col,
   Button,
   Select,
-  Space,
   Typography,
   Progress,
   Alert,
   Tag,
+  Drawer,
+  Grid,
 } from 'antd';
-import { PlayCircleOutlined, StopOutlined, HistoryOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, StopOutlined, SettingOutlined } from '@ant-design/icons';
 import StrategyConfigPanel from './StrategyConfigPanel';
 import BacktestConfigPanel from './BacktestConfigPanel';
 import ChartContainer from '@/features/chart/ChartContainer';
@@ -22,12 +21,24 @@ import { getDatasets, getCandlesByDataset } from '@/db/marketDataRepository';
 import { computeChecksum } from '@/db/marketDataRepository';
 import type { MarketDataset } from '@/models';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
+
+function BacktestSettings() {
+  return (
+    <div className="backtest-settings-stack">
+      <StrategyConfigPanel />
+      <BacktestConfigPanel />
+    </div>
+  );
+}
 
 export default function BacktestRunner() {
   const [datasets, setDatasets] = useState<MarketDataset[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [loadingDatasets, setLoadingDatasets] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const screens = Grid.useBreakpoint();
+  const useSettingsDrawer = !screens.lg;
 
   const candles = useCandleStore((s) => s.candles);
   const setCandles = useCandleStore((s) => s.setCandles);
@@ -120,25 +131,15 @@ export default function BacktestRunner() {
     : 0;
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className="backtest-page">
       {/* Top bar */}
-      <div
-        style={{
-          padding: '8px 16px',
-          borderBottom: '1px solid #f0f0f0',
-          background: '#fff',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          flexShrink: 0,
-        }}
-      >
-        <Text strong>数据集:</Text>
+      <div className="backtest-toolbar">
+        <Text strong className="backtest-dataset-label">数据集:</Text>
         <Select
           value={selectedDatasetId}
           onChange={handleSelectDataset}
           loading={loadingDatasets}
-          style={{ minWidth: 200 }}
+          className="backtest-dataset-select"
           placeholder="选择数据集"
           options={datasets.map((ds) => ({
             label: `${ds.name} (${ds.symbol})`,
@@ -155,6 +156,15 @@ export default function BacktestRunner() {
         >
           运行回测
         </Button>
+        {useSettingsDrawer && (
+          <Button
+            icon={<SettingOutlined />}
+            onClick={() => setSettingsOpen(true)}
+            aria-label="打开策略和回测参数"
+          >
+            参数
+          </Button>
+        )}
         {isRunning && (
           <Button danger icon={<StopOutlined />} onClick={cancel}>
             取消
@@ -194,48 +204,39 @@ export default function BacktestRunner() {
       )}
 
       {/* Main content */}
-      <div style={{ flex: 1, overflow: 'hidden' }}>
-        <Row style={{ height: '100%' }}>
-          {/* Left: Config panels */}
-          <Col
-            flex="320px"
-            style={{
-              height: '100%',
-              overflow: 'auto',
-              borderRight: '1px solid #f0f0f0',
-              padding: 8,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-            }}
-          >
-            <StrategyConfigPanel />
-            <BacktestConfigPanel />
-          </Col>
+      <div className="backtest-workspace">
+        {!useSettingsDrawer && (
+          <aside className="backtest-settings-panel" aria-label="策略和回测参数">
+            <BacktestSettings />
+          </aside>
+        )}
 
-          {/* Center: Chart */}
-          <Col flex="1" style={{ height: '100%', overflow: 'hidden' }}>
-            {candles.length > 0 ? (
-              <ChartContainer />
-            ) : (
-              <div
-                style={{
-                  height: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Text type="secondary">
-                  {datasets.length === 0
-                    ? '请先在数据管理中导入并保存行情数据'
-                    : '请选择数据集以查看行情'}
-                </Text>
-              </div>
-            )}
-          </Col>
-        </Row>
+        <main className="backtest-chart-area">
+          {candles.length > 0 ? (
+            <ChartContainer />
+          ) : (
+            <div className="backtest-empty-state">
+              <Text type="secondary">
+                {datasets.length === 0
+                  ? '请先在数据管理中导入并保存行情数据'
+                  : '请选择数据集以查看行情'}
+              </Text>
+            </div>
+          )}
+        </main>
       </div>
+
+      <Drawer
+        title="策略和回测参数"
+        placement="left"
+        open={useSettingsDrawer && settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        size="min(88vw, 360px)"
+        styles={{ body: { padding: 8 } }}
+        destroyOnHidden
+      >
+        <BacktestSettings />
+      </Drawer>
     </div>
   );
 }

@@ -13,3 +13,173 @@ html, body, #root {
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
+
+.app-shell {
+  width: 100%;
+  height: 100dvh;
+  min-width: 0;
+}
+
+.app-header {
+  min-height: 48px;
+  height: auto;
+  padding: 6px 16px;
+  line-height: normal;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.app-title {
+  flex: 0 0 auto;
+  font-size: 16px;
+  white-space: nowrap;
+}
+
+.app-header-tools {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.app-tabs {
+  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 16px;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.app-tabs .ant-tabs-nav {
+  margin-bottom: 0;
+}
+
+.app-sidebar {
+  overflow: auto;
+  padding: 12px;
+  background: #fff !important;
+  border-right: 1px solid #f0f0f0;
+}
+
+.backtest-page {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.backtest-toolbar {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.backtest-dataset-select {
+  width: clamp(180px, 22vw, 320px);
+}
+
+.backtest-workspace {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.backtest-settings-panel {
+  flex: 0 0 clamp(260px, 19vw, 320px);
+  min-width: 0;
+  height: 100%;
+  overflow: auto;
+  padding: 8px;
+  background: #f7f8fa;
+  border-right: 1px solid #f0f0f0;
+  scrollbar-gutter: stable;
+}
+
+.backtest-settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.backtest-chart-area {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+.backtest-empty-state {
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+@media (max-width: 991px) {
+  .app-header {
+    gap: 10px;
+    padding: 6px 12px;
+  }
+
+  .app-tabs {
+    padding: 0 12px;
+  }
+
+  .backtest-toolbar {
+    padding: 8px 12px;
+  }
+}
+
+@media (max-width: 575px) {
+  .app-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .app-header-tools {
+    width: 100%;
+  }
+
+  .app-tabs {
+    padding: 0 8px;
+  }
+
+  .app-tabs .ant-tabs-nav-list {
+    width: max-content;
+  }
+
+  .backtest-toolbar {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .backtest-dataset-label {
+    width: 100%;
+  }
+
+  .backtest-dataset-select {
+    flex: 1 1 180px;
+    width: auto;
+    min-width: 0;
+  }
+}
