@@ -1,0 +1,192 @@
+import { describe, it, expect } from 'vitest';
+import type { Candle } from '@/models';
+import { calculateSMA } from '../sma';
+import { calculateEMA } from '../ema';
+import { calculateBOLL } from '../boll';
+import { calculateMACD } from '../macd';
+import { calculateRSI } from '../rsi';
+import { calculateKDJ } from '../kdj';
+import { calculateATR } from '../atr';
+import { calculateCCI } from '../cci';
+import { calculateWR } from '../wr';
+import { calculateOBV } from '../obv';
+import { calculateVolumeMA } from '../volumeMa';
+
+function candles(count: number, basePrice = 100): Candle[] {
+  const result: Candle[] = [];
+  for (let i = 0; i < count; i++) {
+    result.push({
+      time: `2021-01-${String(i + 1).padStart(2, '0')}`,
+      symbol: 'TEST',
+      open: basePrice + i,
+      high: basePrice + i + 5,
+      low: basePrice + i - 5,
+      close: basePrice + i + 2,
+      volume: 1000000 + i * 10000,
+    });
+  }
+  return result;
+}
+
+describe('SMA', () => {
+  it('calculates simple moving average', () => {
+    const c = candles(30);
+    const result = calculateSMA(c, { period: 20 });
+    expect(result[19]).toBeCloseTo(111.5, 1);
+    expect(result[20]).not.toBeNull();
+    expect(result[29]).not.toBeNull();
+  });
+
+  it('returns null for warmup period', () => {
+    const c = candles(30);
+    const result = calculateSMA(c, { period: 20 });
+    for (let i = 0; i < 19; i++) {
+      expect(result[i]).toBeNull();
+    }
+  });
+
+  it('returns all null if not enough data', () => {
+    const c = candles(10);
+    const result = calculateSMA(c, { period: 20 });
+    expect(result.every((v) => v === null)).toBe(true);
+  });
+
+  it('result length matches input', () => {
+    const c = candles(50);
+    const result = calculateSMA(c, { period: 20 });
+    expect(result).toHaveLength(50);
+  });
+});
+
+describe('EMA', () => {
+  it('calculates exponential moving average', () => {
+    const c = candles(50);
+    const result = calculateEMA(c, { period: 20 });
+    expect(result[19]).not.toBeNull();
+    expect(result[30]).not.toBeNull();
+  });
+
+  it('returns null for warmup', () => {
+    const c = candles(30);
+    const result = calculateEMA(c, { period: 20 });
+    for (let i = 0; i < 19; i++) {
+      expect(result[i]).toBeNull();
+    }
+  });
+
+  it('result length matches input', () => {
+    const c = candles(30);
+    const result = calculateEMA(c, { period: 5 });
+    expect(result).toHaveLength(30);
+  });
+});
+
+describe('BOLL', () => {
+  it('calculates bollinger bands', () => {
+    const c = candles(30);
+    const { upper, middle, lower } = calculateBOLL(c, { period: 20, stdDev: 2 });
+    expect(upper).toHaveLength(30);
+    expect(middle).toHaveLength(30);
+    expect(lower).toHaveLength(30);
+    expect(middle[19]).not.toBeNull();
+    expect(upper[19]!).toBeGreaterThan(middle[19]!);
+    expect(lower[19]!).toBeLessThan(middle[19]!);
+  });
+});
+
+describe('MACD', () => {
+  it('calculates MACD', () => {
+    const c = candles(100);
+    const { dif, dea, histogram } = calculateMACD(c, { fast: 12, slow: 26, signal: 9 });
+    expect(dif).toHaveLength(100);
+    expect(histogram[34]).not.toBeNull(); // After warmup
+  });
+});
+
+describe('RSI', () => {
+  it('calculates RSI between 0 and 100', () => {
+    const c = candles(50);
+    const result = calculateRSI(c, { period: 14 });
+    for (let i = 14; i < result.length; i++) {
+      if (result[i] !== null) {
+        expect(result[i]!).toBeGreaterThanOrEqual(0);
+        expect(result[i]!).toBeLessThanOrEqual(100);
+      }
+    }
+  });
+
+  it('returns null for warmup', () => {
+    const c = candles(20);
+    const result = calculateRSI(c, { period: 14 });
+    expect(result[0]).toBeNull();
+    expect(result[13]).toBeNull();
+  });
+});
+
+describe('KDJ', () => {
+  it('calculates KDJ', () => {
+    const c = candles(50);
+    const { k, d, j } = calculateKDJ(c, { n: 9, m1: 3, m2: 3 });
+    expect(k).toHaveLength(50);
+    expect(d).toHaveLength(50);
+    expect(j).toHaveLength(50);
+    expect(k[8]).not.toBeNull();
+  });
+});
+
+describe('ATR', () => {
+  it('calculates ATR positive values', () => {
+    const c = candles(30);
+    const result = calculateATR(c, { period: 14 });
+    for (let i = 14; i < result.length; i++) {
+      if (result[i] !== null) {
+        expect(result[i]!).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe('CCI', () => {
+  it('calculates CCI', () => {
+    const c = candles(30);
+    const result = calculateCCI(c, { period: 20 });
+    expect(result[19]).not.toBeNull();
+    expect(result).toHaveLength(30);
+  });
+});
+
+describe('WR', () => {
+  it('calculates Williams %R in range [-100, 0]', () => {
+    const c = candles(30);
+    const result = calculateWR(c, { period: 10 });
+    for (let i = 10; i < result.length; i++) {
+      if (result[i] !== null) {
+        expect(result[i]!).toBeGreaterThanOrEqual(-100);
+        expect(result[i]!).toBeLessThanOrEqual(0);
+      }
+    }
+  });
+});
+
+describe('OBV', () => {
+  it('calculates OBV', () => {
+    const c = candles(20);
+    const result = calculateOBV(c);
+    expect(result).toHaveLength(20);
+    expect(result[0]).not.toBeNull();
+  });
+
+  it('returns empty array for empty input', () => {
+    const result = calculateOBV([]);
+    expect(result).toHaveLength(0);
+  });
+});
+
+describe('Volume MA', () => {
+  it('calculates volume moving average', () => {
+    const c = candles(50);
+    const result = calculateVolumeMA(c, { period: 20 });
+    expect(result[19]).not.toBeNull();
+    expect(result).toHaveLength(50);
+  });
+});
