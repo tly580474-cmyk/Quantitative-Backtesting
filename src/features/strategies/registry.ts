@@ -3,6 +3,7 @@ import { dualMaStrategy } from './builtins/dualMa';
 import { rsiStrategy } from './builtins/rsiStrategy';
 import { macdStrategy } from './builtins/macdStrategy';
 import { bollStrategy } from './builtins/bollStrategy';
+import { smaCrossStrategy } from './builtins/smaCrossStrategy';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const STRATEGY_REGISTRY: StrategyDefinition<any>[] = [
@@ -10,6 +11,7 @@ export const STRATEGY_REGISTRY: StrategyDefinition<any>[] = [
   rsiStrategy,
   macdStrategy,
   bollStrategy,
+  smaCrossStrategy,
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
