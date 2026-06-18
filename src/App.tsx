@@ -57,7 +57,6 @@ export default function App() {
     <Tabs
       activeKey={activeTab}
       onChange={(key) => setActiveTab(key as TabKey)}
-      style={{ flex: 1, marginBottom: 0 }}
       items={[
         { key: 'chart', label: '行情分析' },
         { key: 'data', label: '数据管理' },
@@ -94,13 +93,8 @@ export default function App() {
     >
       <AntApp>
         <AppLayout
-          topBar={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
-              {topBar}
-              <div style={{ flex: 1 }} />
-              {tabBar}
-            </div>
-          }
+          topBar={topBar}
+          tabBar={tabBar}
           leftPanel={leftPanel}
           center={center}
         />

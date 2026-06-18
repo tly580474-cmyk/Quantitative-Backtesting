@@ -6,12 +6,13 @@ const { Text } = Typography;
 
 interface AppLayoutProps {
   topBar: ReactNode;
+  tabBar?: ReactNode;
   leftPanel: ReactNode;
   center: ReactNode;
   bottom?: ReactNode;
 }
 
-export default function AppLayout({ topBar, leftPanel, center, bottom }: AppLayoutProps) {
+export default function AppLayout({ topBar, tabBar, leftPanel, center, bottom }: AppLayoutProps) {
   return (
     <Layout style={{ height: '100%' }}>
       <Header
@@ -33,6 +34,18 @@ export default function AppLayout({ topBar, leftPanel, center, bottom }: AppLayo
           {topBar}
         </div>
       </Header>
+      {tabBar && (
+        <div
+          style={{
+            flexShrink: 0,
+            background: '#fff',
+            borderBottom: '1px solid #f0f0f0',
+            padding: '0 16px',
+          }}
+        >
+          {tabBar}
+        </div>
+      )}
       <Layout style={{ flex: 1, overflow: 'hidden' }}>
         <Sider
           width={280}

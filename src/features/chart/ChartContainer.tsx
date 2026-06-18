@@ -356,24 +356,28 @@ export default function ChartContainer() {
     const series = candleSeriesRef.current;
     if (!series || candles.length === 0) return;
 
-    const activeSignals = signals.filter((s) => s.action !== 'hold');
-    if (activeSignals.length === 0) {
+    try {
+      const activeSignals = signals.filter((s) => s.action !== 'hold');
+      if (activeSignals.length === 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (series as any).setMarkers?.([]);
+        return;
+      }
+
+      const markers = activeSignals.map((s: StrategySignal) => ({
+        time: s.time as Time,
+        position: s.action === 'buy' ? 'belowBar' : 'aboveBar',
+        color: s.action === 'buy' ? '#22C55E' : '#EF4444',
+        shape: s.action === 'buy' ? 'arrowUp' : 'arrowDown',
+        text: s.action === 'buy' ? 'B' : 'S',
+        size: 2,
+      }));
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (series as any).setMarkers([]);
-      return;
+      (series as any).setMarkers?.(markers);
+    } catch {
+      // setMarkers may not be available in all lightweight-charts versions
     }
-
-    const markers = activeSignals.map((s: StrategySignal) => ({
-      time: s.time as Time,
-      position: s.action === 'buy' ? 'belowBar' : 'aboveBar',
-      color: s.action === 'buy' ? '#22C55E' : '#EF4444',
-      shape: s.action === 'buy' ? 'arrowUp' : 'arrowDown',
-      text: s.action === 'buy' ? 'B' : 'S',
-      size: 2,
-    }));
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (series as any).setMarkers(markers);
   }, [signals, candles]);
 
   // Update overlay indicator series
