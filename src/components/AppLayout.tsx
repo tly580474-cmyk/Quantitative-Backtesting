@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Layout, Typography } from 'antd';
 
-const { Header, Sider, Content, Footer } = Layout;
+const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
 interface AppLayoutProps {
@@ -45,10 +45,36 @@ export default function AppLayout({ topBar, leftPanel, center, bottom }: AppLayo
         >
           {leftPanel}
         </Sider>
-        <Content style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ flex: 1, minHeight: 0 }}>{center}</div>
+        <Content
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
+            overflowX: 'hidden',
+            overflowY: 'auto',
+            scrollbarGutter: 'stable',
+            overscrollBehavior: 'contain',
+          }}
+        >
+          <div
+            style={{
+              flex: bottom ? '0 0 75%' : '1 1 100%',
+              minHeight: 0,
+              overflow: 'hidden',
+            }}
+          >
+            {center}
+          </div>
           {bottom && (
-            <div style={{ flexShrink: 0, maxHeight: 200, overflow: 'auto', borderTop: '1px solid #f0f0f0' }}>
+            <div
+              style={{
+                flex: '0 0 25%',
+                minHeight: 0,
+                overflow: 'visible',
+                background: '#fff',
+                borderTop: '1px solid #f0f0f0',
+              }}
+            >
               {bottom}
             </div>
           )}

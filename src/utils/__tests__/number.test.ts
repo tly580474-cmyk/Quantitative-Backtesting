@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseNumber, roundTo } from '../number';
+import { parseNumber, parsePercentPoints, roundTo } from '../number';
 
 describe('parseNumber', () => {
   it('parses regular number string', () => {
@@ -44,6 +44,14 @@ describe('parseNumber', () => {
 
   it('returns NaN for Infinity', () => {
     expect(parseNumber(Infinity)).toBeNaN();
+  });
+});
+
+describe('parsePercentPoints', () => {
+  it('normalizes values with and without a percent sign', () => {
+    expect(parsePercentPoints('0.72')).toBe(0.72);
+    expect(parsePercentPoints('0.72%')).toBeCloseTo(0.72, 10);
+    expect(parsePercentPoints('-1.25%')).toBeCloseTo(-1.25, 10);
   });
 });
 

@@ -23,7 +23,9 @@ export function calculateRSI(candles: Candle[], params: RsiParams): (number | nu
   avgGain /= period;
   avgLoss /= period;
 
-  if (avgLoss === 0) {
+  if (avgGain === 0 && avgLoss === 0) {
+    result[period] = 50;
+  } else if (avgLoss === 0) {
     result[period] = 100;
   } else {
     const rs = avgGain / avgLoss;
@@ -39,7 +41,9 @@ export function calculateRSI(candles: Candle[], params: RsiParams): (number | nu
     avgGain = (avgGain * (period - 1) + gain) / period;
     avgLoss = (avgLoss * (period - 1) + loss) / period;
 
-    if (avgLoss === 0) {
+    if (avgGain === 0 && avgLoss === 0) {
+      result[i] = 50;
+    } else if (avgLoss === 0) {
       result[i] = 100;
     } else {
       const rs = avgGain / avgLoss;

@@ -34,6 +34,18 @@ export function parseNumber(raw: unknown): number {
 }
 
 /**
+ * Parse a percentage into percentage points, the unit used by Candle.changePercent.
+ * Both "0.72" and "0.72%" therefore become 0.72.
+ */
+export function parsePercentPoints(raw: unknown): number {
+  const value = parseNumber(raw);
+  if (Number.isNaN(value)) return NaN;
+
+  const hasPercentSign = typeof raw === 'string' && raw.trim().endsWith('%');
+  return hasPercentSign ? value * 100 : value;
+}
+
+/**
  * Round a number to a given number of decimal places.
  */
 export function roundTo(n: number, decimals: number): number {

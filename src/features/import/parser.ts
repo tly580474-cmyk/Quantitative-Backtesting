@@ -1,6 +1,6 @@
 import type { Candle } from '@/models';
 import { parseDate } from '@/utils/date';
-import { parseNumber } from '@/utils/number';
+import { parseNumber, parsePercentPoints } from '@/utils/number';
 import { mapHeaders } from './headerMapper';
 
 export interface ParseResult {
@@ -95,7 +95,7 @@ function buildCandle(
   const change = parseNumber(values['change']);
   if (!Number.isNaN(change)) candle.change = change;
 
-  const changePercent = parseNumber(values['changePercent']);
+  const changePercent = parsePercentPoints(values['changePercent']);
   if (!Number.isNaN(changePercent)) candle.changePercent = changePercent;
 
   const volume = parseNumber(values['volume']);

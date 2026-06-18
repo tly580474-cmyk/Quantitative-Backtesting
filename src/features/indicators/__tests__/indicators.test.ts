@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Candle } from '@/models';
+import type { ActiveIndicator, Candle } from '@/models';
 import { calculateSMA } from '../sma';
 import { calculateEMA } from '../ema';
 import { calculateBOLL } from '../boll';
@@ -11,6 +11,8 @@ import { calculateCCI } from '../cci';
 import { calculateWR } from '../wr';
 import { calculateOBV } from '../obv';
 import { calculateVolumeMA } from '../volumeMa';
+import { calculateAllIndicators } from '../calculator';
+import { getIndicatorById } from '../registry';
 
 function candles(count: number, basePrice = 100): Candle[] {
   const result: Candle[] = [];
@@ -26,6 +28,17 @@ function candles(count: number, basePrice = 100): Candle[] {
     });
   }
   return result;
+}
+
+function candlesFromCloses(closes: number[]): Candle[] {
+  return closes.map((close, index) => ({
+    time: `2021-02-${String(index + 1).padStart(2, '0')}`,
+    symbol: 'TEST',
+    open: close,
+    high: close + 1,
+    low: close - 1,
+    close,
+  }));
 }
 
 describe('SMA', () => {
@@ -81,6 +94,52 @@ describe('EMA', () => {
   });
 });
 
+describe('Multi moving averages', () => {
+  it.each(['sma', 'ema'] as const)('calculates four configurable %s lines', (id) => {
+    const definition = getIndicatorById(id)!;
+    const active: ActiveIndicator = {
+      id,
+      definition,
+      visible: true,
+      paramValues: { period1: 5, period2: 10, period3: 20, period4: 60 },
+    };
+    const result = calculateAllIndicators(candles(80), [active])[0];
+
+    expect(Object.keys(result.series)).toEqual([
+      `${id}1`, `${id}2`, `${id}3`, `${id}4`,
+    ]);
+    expect(result.series[`${id}1`][4]).not.toBeNull();
+    expect(result.series[`${id}4`][58]).toBeNull();
+    expect(result.series[`${id}4`][59]).not.toBeNull();
+  });
+
+  it.each(['sma', 'ema'] as const)('supports adding and deleting %s periods', (id) => {
+    const definition = getIndicatorById(id)!;
+    const active: ActiveIndicator = {
+      id,
+      definition,
+      visible: true,
+      paramValues: {
+        period1: 5,
+        period2: 0,
+        period3: 20,
+        period4: 60,
+        period5: 120,
+        period6: 0,
+        period7: 0,
+        period8: 0,
+      },
+    };
+    const result = calculateAllIndicators(candles(150), [active])[0];
+
+    expect(Object.keys(result.series)).toEqual([
+      `${id}1`, `${id}3`, `${id}4`, `${id}5`,
+    ]);
+    expect(result.series[`${id}2`]).toBeUndefined();
+    expect(result.series[`${id}5`][119]).not.toBeNull();
+  });
+});
+
 describe('BOLL', () => {
   it('calculates bollinger bands', () => {
     const c = candles(30);
@@ -101,6 +160,20 @@ describe('MACD', () => {
     expect(dif).toHaveLength(100);
     expect(histogram[34]).not.toBeNull(); // After warmup
   });
+
+  it('matches exact SMA-seeded EMA reference values', () => {
+    const c = candlesFromCloses([1, 2, 4, 8, 16, 8, 4, 2, 1, 2]);
+    const { dif, dea, histogram } = calculateMACD(c, {
+      fast: 3,
+      slow: 5,
+      signal: 2,
+    });
+
+    expect(dif[5]).toBeCloseTo(2.4916666667, 9);
+    expect(dea[5]).toBeCloseTo(3.4375, 9);
+    expect(histogram[5]).toBeCloseTo(-1.8916666667, 9);
+    expect(histogram[9]).toBeCloseTo(-0.1590920782, 9);
+  });
 });
 
 describe('RSI', () => {
@@ -120,6 +193,18 @@ describe('RSI', () => {
     const result = calculateRSI(c, { period: 14 });
     expect(result[0]).toBeNull();
     expect(result[13]).toBeNull();
+  });
+
+  it('matches Wilder RSI reference values', () => {
+    const result = calculateRSI(candlesFromCloses([1, 2, 3, 2, 2]), { period: 3 });
+    expect(result[3]).toBeCloseTo(66.6666666667, 9);
+    expect(result[4]).toBeCloseTo(66.6666666667, 9);
+  });
+
+  it('returns neutral 50 when price is completely flat', () => {
+    const result = calculateRSI(candlesFromCloses([10, 10, 10, 10, 10]), { period: 3 });
+    expect(result[3]).toBe(50);
+    expect(result[4]).toBe(50);
   });
 });
 
@@ -165,6 +250,16 @@ describe('WR', () => {
         expect(result[i]!).toBeLessThanOrEqual(0);
       }
     }
+  });
+
+  it('matches the standard negative Williams percent range', () => {
+    const c: Candle[] = [
+      { time: '2021-03-01', symbol: 'TEST', open: 7, high: 10, low: 5, close: 8 },
+      { time: '2021-03-02', symbol: 'TEST', open: 8, high: 12, low: 7, close: 10 },
+      { time: '2021-03-03', symbol: 'TEST', open: 9, high: 11, low: 6, close: 9 },
+    ];
+    const result = calculateWR(c, { period: 3 });
+    expect(result[2]).toBeCloseTo(-42.8571428571, 9);
   });
 });
 

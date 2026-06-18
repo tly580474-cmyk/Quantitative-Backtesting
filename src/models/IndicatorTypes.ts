@@ -24,6 +24,7 @@ export interface IndicatorSeriesConfig {
   color: string;
   key: string;
   label: string;
+  priceScale?: 'price' | 'volume';
 }
 
 export type IndicatorPaneType = 'overlay' | 'separate';

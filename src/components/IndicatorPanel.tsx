@@ -89,16 +89,24 @@ export default function IndicatorPanel() {
               }
               styles={{ body: { padding: '4px 12px' } }}
             >
-              {Object.entries(active.paramValues).map(([name, value]) => {
-                const paramDef = active.definition.params.find(
-                  (p) => p.name === name,
-                );
-                return (
-                  <Text key={name} type="secondary" style={{ fontSize: 11 }}>
-                    {paramDef?.label ?? name}: {value}
-                  </Text>
-                );
-              })}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px' }}>
+                {Object.entries(active.paramValues)
+                  .filter(([name, value]) =>
+                    !((active.id === 'sma' || active.id === 'ema')
+                      && name.startsWith('period')
+                      && value < 2),
+                  )
+                  .map(([name, value]) => {
+                  const paramDef = active.definition.params.find(
+                    (p) => p.name === name,
+                  );
+                  return (
+                    <Text key={name} type="secondary" style={{ fontSize: 11 }}>
+                      {paramDef?.label ?? name}: {value}
+                    </Text>
+                  );
+                  })}
+              </div>
             </Card>
           ))}
         </Space>

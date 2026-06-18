@@ -14,3 +14,26 @@ export const CHART_COLORS = {
 export const MAIN_CHART_HEIGHT_PERCENT = 60;
 export const VOLUME_CHART_HEIGHT_PERCENT = 20;
 export const INDICATOR_PANE_HEIGHT = 150;
+export const MAIN_CHART_MIN_HEIGHT = 320;
+export const RESERVED_INDICATOR_PANE_SLOTS = 2;
+
+export function calculateMainChartHeight(viewportHeight: number): number {
+  return Math.max(
+    MAIN_CHART_MIN_HEIGHT,
+    viewportHeight - RESERVED_INDICATOR_PANE_SLOTS * INDICATOR_PANE_HEIGHT,
+  );
+}
+
+export function formatVolumeInYi(value: number): string {
+  return `${(value / 1e8).toFixed(2)}亿`;
+}
+
+export const VOLUME_PRICE_FORMAT = {
+  type: 'custom' as const,
+  minMove: 1,
+  formatter: formatVolumeInYi,
+};
+
+export function getMacdHistogramColor(value: number): string {
+  return value >= 0 ? CHART_COLORS.up : CHART_COLORS.down;
+}

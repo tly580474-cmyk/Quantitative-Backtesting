@@ -35,12 +35,25 @@ export function mapHeaders(headerRow: unknown[]): {
 
   for (let i = 0; i < headerRow.length; i++) {
     const raw = String(headerRow[i] ?? '').trim();
-    for (const fm of FIELD_MAPPINGS) {
-      if (fm.aliases.some(a => raw === a || raw.includes(a))) {
-        mapping[i] = fm.field;
-        foundFields.add(fm.field);
-        break;
-      }
+    const exactMatch = FIELD_MAPPINGS.find((fm) =>
+      fm.aliases.some((alias) => raw === alias),
+    );
+    if (exactMatch) {
+      mapping[i] = exactMatch.field;
+      foundFields.add(exactMatch.field);
+      continue;
+    }
+
+    const partialMatches = FIELD_MAPPINGS.flatMap((fm) =>
+      fm.aliases
+        .filter((alias) => raw.includes(alias))
+        .map((alias) => ({ field: fm.field, aliasLength: alias.length })),
+    ).sort((a, b) => b.aliasLength - a.aliasLength);
+
+    const bestMatch = partialMatches[0];
+    if (bestMatch) {
+      mapping[i] = bestMatch.field;
+      foundFields.add(bestMatch.field);
     }
   }
 

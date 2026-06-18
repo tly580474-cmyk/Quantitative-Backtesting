@@ -4,6 +4,7 @@ import { roundTo } from '@/utils/number';
 export default function CandleDetail() {
   const time = useChartStore((s) => s.crosshairTime);
   const data = useChartStore((s) => s.crosshairData);
+  const indicators = useChartStore((s) => s.crosshairIndicators);
 
   if (!time || !data) return null;
 
@@ -21,7 +22,9 @@ export default function CandleDetail() {
         borderRadius: 8,
         padding: '12px 16px',
         fontSize: 12,
-        minWidth: 180,
+        minWidth: 210,
+        maxHeight: 'calc(100vh - 80px)',
+        overflowY: 'auto',
         boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
         zIndex: 10,
         pointerEvents: 'none',
@@ -55,6 +58,24 @@ export default function CandleDetail() {
       {data.turnover != null && (
         <Row label="成交额" value={`${data.turnover.toFixed(2)} 亿`} />
       )}
+      {indicators.map((indicator) => (
+        <div
+          key={indicator.id}
+          style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #E5E7EB' }}
+        >
+          <div style={{ marginBottom: 2, fontWeight: 600, color: '#555' }}>
+            {indicator.name}
+          </div>
+          {indicator.values.map((item) => (
+            <Row
+              key={`${indicator.id}-${item.label}`}
+              label={item.label}
+              value={formatIndicatorValue(item.value)}
+              color={item.color}
+            />
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
@@ -87,4 +108,11 @@ function formatVolume(v: number): string {
   if (v >= 1e8) return `${roundTo(v / 1e8, 2)} 亿`;
   if (v >= 1e4) return `${roundTo(v / 1e4, 2)} 万`;
   return v.toFixed(0);
+}
+
+function formatIndicatorValue(value: number): string {
+  const absValue = Math.abs(value);
+  if (absValue >= 1e8) return `${roundTo(value / 1e8, 2)} 亿`;
+  if (absValue >= 1e4) return `${roundTo(value / 1e4, 2)} 万`;
+  return value.toFixed(2);
 }

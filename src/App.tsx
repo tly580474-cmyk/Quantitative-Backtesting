@@ -32,7 +32,12 @@ export default function App() {
 
   const center = <ChartContainer />;
 
-  const bottom = importResult ? <ImportResultPanel result={importResult} /> : null;
+  const hasImportIssues = Boolean(
+    importResult && (importResult.errors.length > 0 || importResult.warnings.length > 0),
+  );
+  const bottom = hasImportIssues && importResult
+    ? <ImportResultPanel result={importResult} />
+    : null;
 
   return (
     <ConfigProvider

@@ -35,6 +35,8 @@ describe('parseSheetData', () => {
       high: 110,
       low: 95,
       close: 105,
+      change: 5,
+      changePercent: 5,
     });
   });
 
@@ -73,5 +75,16 @@ describe('parseSheetData', () => {
     ];
     const result = parseSheetData(rows);
     expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it('stores change percent consistently in percentage points', () => {
+    const numericRow = makeRow('20210621', 100, 110, 95, 105);
+    const percentRow = makeRow('20210622', 105, 115, 100, 110);
+    numericRow[11] = '4.76';
+    percentRow[11] = '4.76%';
+
+    const result = parseSheetData([sampleHeader, numericRow, percentRow]);
+    expect(result.candles[0].changePercent).toBeCloseTo(4.76, 10);
+    expect(result.candles[1].changePercent).toBeCloseTo(4.76, 10);
   });
 });

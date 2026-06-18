@@ -32,11 +32,11 @@ export default function ImportResultPanel({ result }: ImportResultPanelProps) {
   ];
 
   return (
-    <div style={{ padding: '8px 12px' }}>
+    <div style={{ minHeight: '100%', padding: '8px 12px' }}>
       {result.errors.length > 0 && (
         <Alert
           type="error"
-          message={`${result.errors.length} 个错误`}
+          title={`${result.errors.length} 个错误`}
           style={{ marginBottom: 8 }}
           showIcon
         />
@@ -44,7 +44,7 @@ export default function ImportResultPanel({ result }: ImportResultPanelProps) {
       {result.warnings.length > 0 && (
         <Alert
           type="warning"
-          message={`${result.warnings.length} 个警告`}
+          title={`${result.warnings.length} 个警告`}
           style={{ marginBottom: 8 }}
           showIcon
         />
@@ -54,7 +54,6 @@ export default function ImportResultPanel({ result }: ImportResultPanelProps) {
         columns={columns}
         size="small"
         pagination={false}
-        scroll={{ y: 120 }}
       />
     </div>
   );

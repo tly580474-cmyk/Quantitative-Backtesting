@@ -29,12 +29,34 @@ function calculateOne(candles: Candle[], active: ActiveIndicator): IndicatorResu
 
   switch (id) {
     case 'sma': {
-      const values = calculateSMA(candles, { period: paramValues.period });
-      return { id, series: { sma: values } };
+      const legacyPeriod = paramValues.period;
+      const periods = Array.from({ length: 8 }, (_, index) =>
+        paramValues[`period${index + 1}`]
+          ?? (index === 0 ? legacyPeriod ?? 5 : [10, 20, 60][index - 1] ?? 0),
+      );
+      return {
+        id,
+        series: Object.fromEntries(periods.flatMap((period, index) =>
+          period >= 2
+            ? [[`sma${index + 1}`, calculateSMA(candles, { period })]]
+            : [],
+        )),
+      };
     }
     case 'ema': {
-      const values = calculateEMA(candles, { period: paramValues.period });
-      return { id, series: { ema: values } };
+      const legacyPeriod = paramValues.period;
+      const periods = Array.from({ length: 8 }, (_, index) =>
+        paramValues[`period${index + 1}`]
+          ?? (index === 0 ? legacyPeriod ?? 5 : [10, 20, 60][index - 1] ?? 0),
+      );
+      return {
+        id,
+        series: Object.fromEntries(periods.flatMap((period, index) =>
+          period >= 2
+            ? [[`ema${index + 1}`, calculateEMA(candles, { period })]]
+            : [],
+        )),
+      };
     }
     case 'boll': {
       const { upper, middle, lower } = calculateBOLL(candles, {
