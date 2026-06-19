@@ -5,6 +5,7 @@ export interface PortfolioState {
   cash: number;
   positionQuantity: number;
   avgCost: number;
+  entryTime: string | null;
   totalCommission: number;
   totalTax: number;
   totalSlippage: number;
@@ -15,6 +16,7 @@ export function createPortfolio(initialCapital: number): PortfolioState {
     cash: initialCapital,
     positionQuantity: 0,
     avgCost: 0,
+    entryTime: null,
     totalCommission: 0,
     totalTax: 0,
     totalSlippage: 0,
@@ -30,6 +32,10 @@ export function applyTrade(portfolio: PortfolioState, trade: Trade): PortfolioSt
   if (trade.side === 'buy') {
     const totalCost = trade.amount + trade.commission;
     const newTotalCost = next.positionQuantity * next.avgCost + trade.amount;
+    // Track entry time for holding days calculation
+    if (next.positionQuantity === 0) {
+      next.entryTime = trade.time;
+    }
     next.positionQuantity += trade.quantity;
     next.avgCost = next.positionQuantity > 0 ? newTotalCost / next.positionQuantity : 0;
     next.cash -= totalCost;
@@ -39,6 +45,7 @@ export function applyTrade(portfolio: PortfolioState, trade: Trade): PortfolioSt
     next.positionQuantity -= trade.quantity;
     if (next.positionQuantity === 0) {
       next.avgCost = 0;
+      next.entryTime = null;
     }
     next.cash += proceeds;
   }

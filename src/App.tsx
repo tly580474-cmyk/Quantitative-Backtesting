@@ -10,12 +10,13 @@ import ChartContainer from './features/chart/ChartContainer';
 import DataLibrary from './features/dataLibrary/DataLibrary';
 import BacktestRunner from './features/backtest/BacktestRunner';
 import BacktestResultsPage from './features/backtestResults/BacktestResultsPage';
+import StrategyStudioPage from './features/strategyStudio/StrategyStudioPage';
 import SaveDatasetModal from './features/dataLibrary/SaveDatasetModal';
 import { useImport } from './features/import/useImport';
 import { useCandleStore } from './stores/useCandleStore';
 import type { ImportResult } from './models';
 
-type TabKey = 'chart' | 'data' | 'backtest' | 'results';
+type TabKey = 'chart' | 'data' | 'backtest' | 'results' | 'studio';
 
 export default function App() {
   const { importFile, loading } = useImport();
@@ -63,6 +64,7 @@ export default function App() {
         { key: 'data', label: '数据管理' },
         { key: 'backtest', label: '策略回测' },
         { key: 'results', label: '回测结果' },
+        { key: 'studio', label: '策略工作室' },
       ]}
     />
   );
@@ -79,6 +81,8 @@ export default function App() {
         return <BacktestRunner />;
       case 'results':
         return <BacktestResultsPage />;
+      case 'studio':
+        return <StrategyStudioPage />;
     }
   })();
 

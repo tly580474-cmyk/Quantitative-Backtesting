@@ -49,6 +49,8 @@ export default function BacktestRunner() {
   const activeStrategyId = useStrategyStore((s) => s.activeStrategyId);
   const activeParams = useStrategyStore((s) => s.activeParams);
   const config = useBacktestStore((s) => s.config);
+  const strategySource = useBacktestStore((s) => s.strategySource);
+  const visualStrategyDocument = useBacktestStore((s) => s.visualStrategyDocument);
   const addResult = useBacktestStore((s) => s.addResult);
   const setSignals = useBacktestStore((s) => s.setSignals);
 
@@ -129,6 +131,10 @@ export default function BacktestRunner() {
       ds.id,
       cs,
       `${ds.symbol} - ${activeStrategyId} - ${new Date().toLocaleString()}`,
+      {
+        strategySource,
+        strategyDocument: visualStrategyDocument ?? undefined,
+      },
     );
   };
 

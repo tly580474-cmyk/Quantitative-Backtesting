@@ -114,6 +114,7 @@ export async function runBacktestAsync(
     const position: PositionSnapshot = {
       quantity: portfolio.positionQuantity,
       avgCost: portfolio.avgCost,
+      entryTime: portfolio.entryTime ?? undefined,
     };
 
     const slicedCandles = candles.slice(0, i + 1);
@@ -359,6 +360,7 @@ export function runBacktest(
     const position: PositionSnapshot = {
       quantity: portfolio.positionQuantity,
       avgCost: portfolio.avgCost,
+      entryTime: portfolio.entryTime ?? undefined,
     };
 
     const slicedCandles = candles.slice(0, i + 1);

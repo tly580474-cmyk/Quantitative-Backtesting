@@ -135,6 +135,69 @@ body {
   text-align: center;
 }
 
+.strategy-parameter-card .ant-card-body {
+  container-type: inline-size;
+}
+
+.strategy-parameter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.strategy-parameter-row {
+  display: grid;
+  grid-template-columns:
+    minmax(80px, 0.9fr)
+    minmax(100px, 1.2fr)
+    88px
+    minmax(80px, 0.8fr)
+    32px;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.strategy-parameter-row > * {
+  width: 100% !important;
+  min-width: 0;
+}
+
+.strategy-parameter-delete {
+  padding-inline: 4px !important;
+}
+
+@container (max-width: 430px) {
+  .strategy-parameter-row {
+    grid-template-columns: minmax(80px, 1fr) minmax(100px, 1.25fr) 32px;
+  }
+
+  .strategy-parameter-name {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .strategy-parameter-label {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .strategy-parameter-delete {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .strategy-parameter-type {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .strategy-parameter-value {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
 @media (max-width: 991px) {
   .app-header {
     gap: 10px;

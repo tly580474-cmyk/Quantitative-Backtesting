@@ -1,11 +1,17 @@
 import type { Candle, BacktestConfig, BacktestResult } from '@/models';
+import type { VisualStrategyDocument, StrategySignalWithTrace } from '@/features/visualStrategies/types';
+
+export type StrategySource = 'builtin' | 'visual';
 
 export interface RunBacktestRequest {
   type: 'run';
   taskId: string;
   candles: Candle[];
+  strategySource: StrategySource;
   strategyId: string;
   strategyParams: Record<string, number | boolean | string>;
+  /** Visual strategy DSL — required when strategySource is 'visual' */
+  strategyDocument?: VisualStrategyDocument;
   config: BacktestConfig;
   datasetId: string;
   datasetChecksum: string;
@@ -17,7 +23,15 @@ export interface CancelRequest {
   taskId: string;
 }
 
-export type WorkerRequest = RunBacktestRequest | CancelRequest;
+export interface PreviewStrategyRequest {
+  type: 'preview';
+  taskId: string;
+  candles: Candle[];
+  document: VisualStrategyDocument;
+  params: Record<string, number | boolean | string>;
+}
+
+export type WorkerRequest = RunBacktestRequest | CancelRequest | PreviewStrategyRequest;
 
 export interface ProgressResponse {
   type: 'progress';
@@ -44,8 +58,15 @@ export interface CancelledResponse {
   taskId: string;
 }
 
+export interface PreviewResponse {
+  type: 'previewResult';
+  taskId: string;
+  signals: StrategySignalWithTrace[];
+}
+
 export type WorkerResponse =
   | ProgressResponse
   | ResultResponse
   | ErrorResponse
-  | CancelledResponse;
+  | CancelledResponse
+  | PreviewResponse;

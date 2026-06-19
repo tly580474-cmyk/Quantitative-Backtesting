@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type { BacktestConfig, BacktestResult, StrategySignal } from '@/models';
+import type { VisualStrategyDocument } from '@/features/visualStrategies/types';
+import type { StrategySource } from '@/workers/protocol';
 import {
   saveResult,
   getResults,
@@ -25,10 +27,16 @@ interface BacktestState {
   results: BacktestResult[];
   selectedResultIds: string[];
 
+  // Visual strategy support
+  strategySource: StrategySource;
+  visualStrategyDocument: VisualStrategyDocument | null;
+
   setConfig: (config: Partial<BacktestConfig>) => void;
   resetConfig: () => void;
   setSignals: (signals: StrategySignal[]) => void;
   setShowSignals: (mode: 'raw' | 'executed') => void;
+  setStrategySource: (source: StrategySource) => void;
+  setVisualStrategyDocument: (doc: VisualStrategyDocument | null) => void;
 
   loadResults: () => Promise<void>;
   addResult: (result: BacktestResult) => Promise<void>;
@@ -43,6 +51,8 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   showSignals: 'raw',
   results: [],
   selectedResultIds: [],
+  strategySource: 'builtin',
+  visualStrategyDocument: null,
 
   setConfig: (partial) =>
     set((s) => ({ config: { ...s.config, ...partial } })),
@@ -52,6 +62,9 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   setSignals: (signals) => set({ signals }),
 
   setShowSignals: (mode) => set({ showSignals: mode }),
+
+  setStrategySource: (source) => set({ strategySource: source }),
+  setVisualStrategyDocument: (doc) => set({ visualStrategyDocument: doc }),
 
   loadResults: async () => {
     set({ results: await getResults() });

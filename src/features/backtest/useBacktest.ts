@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback } from 'react';
 import type { BacktestResult, Candle, BacktestConfig } from '@/models';
-import type { WorkerRequest, WorkerResponse } from '@/workers/protocol';
+import type { VisualStrategyDocument } from '@/features/visualStrategies/types';
+import type { WorkerRequest, WorkerResponse, StrategySource } from '@/workers/protocol';
 
 export interface BacktestProgress {
   current: number;
@@ -27,6 +28,10 @@ export function useBacktest() {
       datasetId: string,
       datasetChecksum: string,
       resultName: string,
+      options?: {
+        strategySource?: StrategySource;
+        strategyDocument?: VisualStrategyDocument;
+      },
     ) => {
       // Clean up previous worker
       if (workerRef.current) {
@@ -87,7 +92,9 @@ export function useBacktest() {
         type: 'run',
         taskId,
         candles,
+        strategySource: options?.strategySource ?? 'builtin',
         strategyId,
+        strategyDocument: options?.strategyDocument,
         strategyParams,
         config,
         datasetId,

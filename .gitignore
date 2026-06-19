@@ -2,6 +2,9 @@ node_modules/
 dist/
 .vite/
 *.local
+.env
+.env.*
+!.env.example
 .claude/
 *.tsbuildinfo
 新建 文本文档.txt

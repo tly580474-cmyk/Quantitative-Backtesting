@@ -1,9 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, Select, Form, InputNumber, Button, Space, Typography, Divider } from 'antd';
 import { UndoOutlined } from '@ant-design/icons';
 import { useStrategyStore } from '@/stores/useStrategyStore';
+import { useBacktestStore } from '@/stores/useBacktestStore';
 import { getAllStrategies } from '@/features/strategies/registry';
+import { getAllVisualStrategies } from '@/db/visualStrategyRepository';
 import type { StrategyParamDef } from '@/models';
+import type { VisualStrategyDocument } from '@/features/visualStrategies/types';
 
 const { Text, Paragraph } = Typography;
 
@@ -13,16 +16,51 @@ export default function StrategyConfigPanel() {
   const selectStrategy = useStrategyStore((s) => s.selectStrategy);
   const setParam = useStrategyStore((s) => s.setParam);
   const resetParams = useStrategyStore((s) => s.resetParams);
+  // Track visual strategy document for backtest
+  const setStrategySource = useBacktestStore((s) => s.setStrategySource);
+  const setVisualStrategyDocument = useBacktestStore((s) => s.setVisualStrategyDocument);
+
+  const [visualStrategies, setVisualStrategies] = useState<
+    { id: string; name: string; document: VisualStrategyDocument }[]
+  >([]);
+
+  useEffect(() => {
+    getAllVisualStrategies().then((list) =>
+      setVisualStrategies(
+        list
+          .filter((s) => s.status === 'published')
+          .map((s) => ({ id: s.id, name: s.name, document: s.document })),
+      ),
+    );
+  }, []);
 
   const strategies = getAllStrategies();
-  const strategy = strategies.find((s) => s.id === activeId);
+  const builtinStrategy = strategies.find((s) => s.id === activeId);
+  const visualStrategy = visualStrategies.find((s) => s.id === activeId);
+
+  const activeStrategy = builtinStrategy ?? visualStrategy;
 
   // Initialize on first render
   useEffect(() => {
-    if (strategy && Object.keys(activeParams).length === 0) {
+    if (builtinStrategy && Object.keys(activeParams).length === 0) {
       resetParams();
     }
   }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSelectStrategy = (id: string) => {
+    // Check if it's a visual strategy
+    const visual = visualStrategies.find((s) => s.id === id);
+    if (visual) {
+      setStrategySource('visual');
+      setVisualStrategyDocument(visual.document);
+      // Use visual strategy ID + name
+      selectStrategy(id);
+    } else {
+      setStrategySource('builtin');
+      setVisualStrategyDocument(null);
+      selectStrategy(id);
+    }
+  };
 
   const renderParamInput = (def: StrategyParamDef) => {
     const value = activeParams[def.name] ?? def.defaultValue;
@@ -59,27 +97,41 @@ export default function StrategyConfigPanel() {
         <Form.Item label="选择策略">
           <Select
             value={activeId}
-            onChange={selectStrategy}
-            options={strategies.map((s) => ({
-              label: s.name,
-              value: s.id,
-            }))}
+            onChange={handleSelectStrategy}
+            options={[
+              {
+                label: '内置策略',
+                options: strategies.map((s) => ({
+                  label: s.name,
+                  value: s.id,
+                })),
+              },
+              ...(visualStrategies.length > 0
+                ? [{
+                    label: '自定义策略（可视化）',
+                    options: visualStrategies.map((s) => ({
+                      label: s.name,
+                      value: s.id,
+                    })),
+                  }]
+                : []),
+            ]}
           />
         </Form.Item>
       </Form>
 
-      {strategy && (
+      {builtinStrategy && (
         <>
           <Divider style={{ margin: '8px 0' }} />
           <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-            {strategy.description}
+            {builtinStrategy.description}
           </Paragraph>
           <Text type="secondary" style={{ fontSize: 11 }}>
-            预热期: {strategy.warmupBars(activeParams)} 根 K 线
+            预热期: {builtinStrategy.warmupBars(activeParams)} 根 K 线
           </Text>
 
           <Form layout="vertical" size="small" style={{ marginTop: 12 }}>
-            {strategy.paramsSchema.map(renderParamInput)}
+            {builtinStrategy.paramsSchema.map(renderParamInput)}
           </Form>
 
           <Space style={{ marginTop: 8 }}>
@@ -87,6 +139,18 @@ export default function StrategyConfigPanel() {
               恢复默认
             </Button>
           </Space>
+        </>
+      )}
+
+      {visualStrategy && !builtinStrategy && (
+        <>
+          <Divider style={{ margin: '8px 0' }} />
+          <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+            {visualStrategy.document.description || '可视化自定义策略'}
+          </Paragraph>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            版本: {visualStrategy.document.strategyVersion}
+          </Text>
         </>
       )}
     </Card>
