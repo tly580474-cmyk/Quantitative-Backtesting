@@ -18,10 +18,11 @@ async function main(): Promise<void> {
   if (aiConfigured) {
     provider = new OpenAIStrategyGenerationProvider(
       config.OPENAI_API_KEY,
+      config.OPENAI_BASE_URL,
       config.OPENAI_MODEL,
       parseInt(config.OPENAI_TIMEOUT_MS, 10),
     );
-    console.log(`[AI] OpenAI provider configured (model: ${config.OPENAI_MODEL})`);
+    console.log(`[AI] Provider configured (baseURL: ${config.OPENAI_BASE_URL}, model: ${config.OPENAI_MODEL})`);
   } else {
     provider = new MockStrategyGenerationProvider();
     console.log('[AI] Using mock provider (no API key configured)');
@@ -36,7 +37,14 @@ async function main(): Promise<void> {
   });
 
   // Register AI routes
-  registerAiRoutes(app, provider, aiEnabled, aiConfigured);
+  registerAiRoutes(
+    app,
+    provider,
+    aiEnabled,
+    aiConfigured,
+    config.OPENAI_MODEL,
+    ['deepseek-v4-flash', 'deepseek-v4-pro'],
+  );
 
   // Health check
   app.get('/api/health', async () => ({ status: 'ok' }));

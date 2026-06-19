@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { StrategyGenerationProvider } from '../services/strategyGeneration/provider.js';
+import { StrategyOutputValidationError } from '../services/strategyGeneration/schema.js';
 
 /**
  * Register AI strategy generation routes on the Fastify app.
@@ -9,6 +10,8 @@ export function registerAiRoutes(
   provider: StrategyGenerationProvider,
   aiEnabled: boolean,
   aiConfigured: boolean,
+  currentModel: string,
+  availableModels: string[],
 ): void {
   // GET /api/ai/status
   app.get('/api/ai/status', async (_req, reply) => {
@@ -16,6 +19,8 @@ export function registerAiRoutes(
       enabled: aiEnabled,
       configured: aiConfigured,
       provider: aiConfigured ? 'openai' : 'mock',
+      currentModel,
+      availableModels,
     });
   });
 
@@ -43,9 +48,19 @@ export function registerAiRoutes(
       });
     }
 
+    if (body.model !== undefined && (
+      typeof body.model !== 'string' || !availableModels.includes(body.model)
+    )) {
+      return reply.status(400).send({
+        error: 'INVALID_MODEL',
+        message: '请求的模型不在允许列表中',
+      });
+    }
+
     try {
       const result = await provider.generate({
         prompt: body.prompt as string,
+        model: body.model as string | undefined,
         datasetContext: body.datasetContext as { timeframe: string; availableFields: string[] } | undefined,
         dslVersion: (body.dslVersion as string) ?? '1.0',
       });
@@ -54,6 +69,13 @@ export function registerAiRoutes(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       req.log.error({ err: message }, 'AI generation failed');
+      if (err instanceof StrategyOutputValidationError) {
+        return reply.status(422).send({
+          error: 'INVALID_MODEL_OUTPUT',
+          message: '模型返回的策略未通过 DSL 校验',
+          details: err.validationErrors,
+        });
+      }
       return reply.status(500).send({
         error: 'GENERATION_FAILED',
         message: '策略生成失败，请稍后重试',
@@ -72,16 +94,26 @@ export function registerAiRoutes(
       return reply.status(400).send({ error: 'INVALID_REQUEST', message: '缺少必要参数' });
     }
 
+    if (body.model !== undefined && (
+      typeof body.model !== 'string' || !availableModels.includes(body.model)
+    )) {
+      return reply.status(400).send({ error: 'INVALID_MODEL', message: '请求的模型不在允许列表中' });
+    }
+
     try {
       const result = await provider.refine({
         currentStrategy: body.currentStrategy as Record<string, unknown>,
         modification: body.modification as string,
+        model: body.model as string | undefined,
         dslVersion: (body.dslVersion as string) ?? '1.0',
       });
       return reply.send(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       req.log.error({ err: message }, 'AI refinement failed');
+      if (err instanceof StrategyOutputValidationError) {
+        return reply.status(422).send({ error: 'INVALID_MODEL_OUTPUT', message: '模型返回的策略未通过 DSL 校验', details: err.validationErrors });
+      }
       return reply.status(500).send({ error: 'REFINEMENT_FAILED', message: '策略修改失败' });
     }
   });

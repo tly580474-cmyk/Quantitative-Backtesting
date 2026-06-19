@@ -264,12 +264,14 @@ export const useStrategyStudioStore = create<StrategyStudioState>((set, get) => 
         updatedAt: new Date().toISOString(),
       },
     };
+    const validationResult = validateDocument(newDoc);
     set({
       document: newDoc,
       documentId: newDoc.id,
       undoStack: [],
       redoStack: [],
       selectedNodeId: null,
+      validationResult,
       isDirty: true,
     });
   },

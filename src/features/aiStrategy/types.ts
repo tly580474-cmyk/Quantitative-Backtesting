@@ -4,10 +4,13 @@ export interface AIStatus {
   enabled: boolean;
   configured: boolean;
   provider: string;
+  currentModel: string;
+  availableModels: string[];
 }
 
 export interface GenerateStrategyRequest {
   prompt: string;
+  model?: string;
   datasetContext?: {
     timeframe: string;
     availableFields: string[];

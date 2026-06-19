@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Drawer, Button, Input, Typography, Space, Alert,
+  Drawer, Button, Input, Select, Typography, Space, Alert,
   Tag, Spin, Result, Divider, message,
 } from 'antd';
 import { BulbOutlined, CheckCircleOutlined } from '@ant-design/icons';
@@ -19,6 +19,7 @@ interface Props {
 
 export default function GenerateStrategyDrawer({ open, onClose }: Props) {
   const [prompt, setPrompt] = useState('');
+  const [model, setModel] = useState<string>('deepseek-v4-flash');
   const [aiStatus, setAiStatus] = useState<AIStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -32,11 +33,15 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
     try {
       const status = await getAIStatus();
       setAiStatus(status);
+      if (status.currentModel) setModel(status.currentModel);
       if (!status.configured && !status.enabled) {
         message.info('AI 功能未配置，使用 Mock 模式演示');
       }
     } catch {
-      setAiStatus({ enabled: true, configured: false, provider: 'mock' });
+      setAiStatus({
+        enabled: true, configured: false, provider: 'mock',
+        currentModel: 'mock', availableModels: [],
+      });
       message.info('无法连接 AI 服务，使用本地 Mock 模式');
     } finally {
       setStatusLoading(false);
@@ -61,6 +66,7 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
         try {
           res = await generateStrategy({
             prompt: prompt.trim(),
+            model,
             dslVersion: '1.0',
           });
         } catch {
@@ -147,6 +153,19 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
             showCount
           />
         </div>
+
+        {/* Model selector */}
+        {aiStatus?.configured && aiStatus.availableModels.length > 0 && (
+          <div>
+            <Text strong style={{ fontSize: 12 }}>模型</Text>
+            <Select
+              value={model}
+              onChange={setModel}
+              style={{ width: '100%', marginTop: 4 }}
+              options={aiStatus.availableModels.map((m) => ({ label: m, value: m }))}
+            />
+          </div>
+        )}
 
         <Button
           type="primary"

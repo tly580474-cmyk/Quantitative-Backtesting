@@ -3,6 +3,7 @@ export type StrategyDocument = Record<string, any>;
 
 export interface GenerateStrategyRequest {
   prompt: string;
+  model?: string;
   datasetContext?: {
     timeframe: string;
     availableFields: string[];
@@ -13,6 +14,7 @@ export interface GenerateStrategyRequest {
 export interface RefineStrategyRequest {
   currentStrategy: StrategyDocument;
   modification: string;
+  model?: string;
   dslVersion: string;
 }
 
