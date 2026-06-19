@@ -19,7 +19,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
     cancelled = false;
     const {
       taskId, candles, strategySource, strategyId,
-      strategyParams, config, datasetId, datasetChecksum, resultName,
+      strategyParams, config, datasetId, datasetName, datasetChecksum, resultName,
     } = msg;
 
     let strategy;
@@ -59,7 +59,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
 
     // Use async engine so cancel messages can be processed between chunks
     runBacktestAsync(
-      { candles, strategy, strategyParams, config, datasetId, datasetChecksum, resultName },
+      { candles, strategy, strategyParams, config, datasetId, datasetName, datasetChecksum, resultName },
       (progress) => {
         if (cancelled) return;
         self.postMessage({ type: 'progress', taskId, ...progress } as WorkerResponse);

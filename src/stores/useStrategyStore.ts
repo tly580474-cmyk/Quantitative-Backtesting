@@ -13,7 +13,10 @@ interface StrategyState {
   activeParams: Record<string, number | boolean | string>;
 
   loadConfigs: () => Promise<void>;
-  selectStrategy: (strategyId: string) => void;
+  selectStrategy: (
+    strategyId: string,
+    defaultParams?: Record<string, number | boolean | string>,
+  ) => void;
   setParam: (name: string, value: number | boolean | string) => void;
   resetParams: () => void;
   saveConfig: (name: string) => Promise<void>;
@@ -31,10 +34,12 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
     set({ configs });
   },
 
-  selectStrategy: (strategyId) => {
+  selectStrategy: (strategyId, defaultParams) => {
     const strategy = getStrategyById(strategyId);
-    if (!strategy) return;
-    const activeParams = { ...strategy.defaultParams };
+    if (!strategy && !defaultParams) return;
+    const activeParams = strategy
+      ? { ...strategy.defaultParams }
+      : { ...defaultParams };
     set({ activeStrategyId: strategyId, activeParams });
   },
 

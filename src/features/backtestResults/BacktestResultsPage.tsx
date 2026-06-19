@@ -100,7 +100,8 @@ export default function BacktestResultsPage() {
                   <EquityChart
                     height={400}
                     series={selectedResults.map((r, i) => ({
-                      label: r.id,
+                      id: r.id,
+                      label: r.datasetSnapshot.name || r.datasetSnapshot.symbol,
                       color: COMPARISON_COLORS[i],
                       data: r.equityCurve,
                     }))}
@@ -139,7 +140,8 @@ export default function BacktestResultsPage() {
                     height={350}
                     series={[
                       {
-                        label: detailResult.id,
+                        id: detailResult.id,
+                        label: detailResult.datasetSnapshot.name || detailResult.datasetSnapshot.symbol,
                         color: '#1677FF',
                         data: detailResult.equityCurve,
                       },

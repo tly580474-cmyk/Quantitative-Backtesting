@@ -129,6 +129,7 @@ export default function BacktestRunner() {
       activeParams,
       config,
       ds.id,
+      ds.name,
       cs,
       `${ds.symbol} - ${activeStrategyId} - ${new Date().toLocaleString()}`,
       {

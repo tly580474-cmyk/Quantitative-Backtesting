@@ -167,6 +167,75 @@ body {
   padding-inline: 4px !important;
 }
 
+.equity-chart-wrapper {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.equity-chart-tooltip {
+  position: absolute;
+  z-index: 20;
+  display: none;
+  min-width: 220px;
+  max-width: min(420px, calc(100% - 16px));
+  padding: 10px 12px;
+  pointer-events: none;
+  color: #1f2937;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.equity-tooltip-time {
+  margin-bottom: 6px;
+  color: #475569;
+  font-weight: 600;
+}
+
+.equity-tooltip-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.equity-tooltip-row + .equity-tooltip-row {
+  margin-top: 4px;
+}
+
+.equity-tooltip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.equity-tooltip-label i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+}
+
+.equity-tooltip-equity,
+.equity-tooltip-change {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.equity-tooltip-change.is-positive {
+  color: #cf1322;
+}
+
+.equity-tooltip-change.is-negative {
+  color: #389e0d;
+}
+
 @container (max-width: 430px) {
   .strategy-parameter-row {
     grid-template-columns: minmax(80px, 1fr) minmax(100px, 1.25fr) 32px;

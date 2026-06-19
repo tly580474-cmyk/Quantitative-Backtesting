@@ -49,6 +49,7 @@ export interface BacktestResult {
   status: 'completed' | 'failed' | 'cancelled';
   datasetSnapshot: {
     id: string;
+    name?: string;
     symbol: string;
     startTime: string;
     endTime: string;

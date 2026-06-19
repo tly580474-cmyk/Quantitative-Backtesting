@@ -27,6 +27,7 @@ export interface BacktestInput {
   strategyParams: Record<string, number | boolean | string>;
   config: BacktestConfig;
   datasetId: string;
+  datasetName?: string;
   datasetChecksum: string;
   resultName: string;
 }
@@ -53,7 +54,7 @@ export async function runBacktestAsync(
   onProgress?: (progress: BacktestProgress) => void,
   isCancelled?: () => boolean,
 ): Promise<BacktestResult> {
-  const { candles, strategy, strategyParams, config, datasetId, datasetChecksum, resultName } = input;
+  const { candles, strategy, strategyParams, config, datasetId, datasetName, datasetChecksum, resultName } = input;
   const totalBars = candles.length;
 
   // Pre-flight validation
@@ -284,6 +285,7 @@ export async function runBacktestAsync(
     status: 'completed',
     datasetSnapshot: {
       id: datasetId,
+      name: datasetName,
       symbol: candles[0]?.symbol ?? '',
       startTime: candles[0]?.time ?? '',
       endTime: candles[candles.length - 1]?.time ?? '',
@@ -310,7 +312,7 @@ export function runBacktest(
   input: BacktestInput,
   onProgress?: (progress: BacktestProgress) => void,
 ): BacktestResult {
-  const { candles, strategy, strategyParams, config, datasetId, datasetChecksum, resultName } = input;
+  const { candles, strategy, strategyParams, config, datasetId, datasetName, datasetChecksum, resultName } = input;
   const totalBars = candles.length;
 
   const errors = validateBacktestInput(candles, config);
@@ -527,6 +529,7 @@ export function runBacktest(
     status: 'completed',
     datasetSnapshot: {
       id: datasetId,
+      name: datasetName,
       symbol: candles[0]?.symbol ?? '',
       startTime: candles[0]?.time ?? '',
       endTime: candles[candles.length - 1]?.time ?? '',
@@ -547,13 +550,14 @@ export function runBacktest(
 
 function createCancelledResult(input: BacktestInput): BacktestResult {
   const now = new Date().toISOString();
-  const { candles, strategy, strategyParams, config, datasetId, datasetChecksum, resultName } = input;
+  const { candles, strategy, strategyParams, config, datasetId, datasetName, datasetChecksum, resultName } = input;
   return {
     id: crypto.randomUUID(),
     name: resultName,
     status: 'cancelled',
     datasetSnapshot: {
       id: datasetId,
+      name: datasetName,
       symbol: candles[0]?.symbol ?? '',
       startTime: candles[0]?.time ?? '',
       endTime: candles.length > 0 ? candles[candles.length - 1].time : '',
@@ -574,13 +578,14 @@ function createCancelledResult(input: BacktestInput): BacktestResult {
 
 function createFailedResult(input: BacktestInput, error: string): BacktestResult {
   const now = new Date().toISOString();
-  const { candles, strategy, strategyParams, config, datasetId, datasetChecksum, resultName } = input;
+  const { candles, strategy, strategyParams, config, datasetId, datasetName, datasetChecksum, resultName } = input;
   return {
     id: crypto.randomUUID(),
     name: resultName,
     status: 'failed',
     datasetSnapshot: {
       id: datasetId,
+      name: datasetName,
       symbol: candles[0]?.symbol ?? '',
       startTime: candles[0]?.time ?? '',
       endTime: candles.length > 0 ? candles[candles.length - 1].time : '',

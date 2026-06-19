@@ -14,6 +14,7 @@ export interface RunBacktestRequest {
   strategyDocument?: VisualStrategyDocument;
   config: BacktestConfig;
   datasetId: string;
+  datasetName?: string;
   datasetChecksum: string;
   resultName: string;
 }

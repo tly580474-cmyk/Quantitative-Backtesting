@@ -26,6 +26,7 @@ export function useBacktest() {
       strategyParams: Record<string, number | boolean | string>,
       config: BacktestConfig,
       datasetId: string,
+      datasetName: string,
       datasetChecksum: string,
       resultName: string,
       options?: {
@@ -98,6 +99,7 @@ export function useBacktest() {
         strategyParams,
         config,
         datasetId,
+        datasetName,
         datasetChecksum,
         resultName,
       };
