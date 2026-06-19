@@ -166,6 +166,8 @@ src/
 - [一期开发计划](./PHASE1_PLAN.md)
 - [二期回测开发计划](./PHASE2_PLAN.md)
 - [三期可视化策略与 AI 生成开发计划](./PHASE3_PLAN.md)
+- [3.5 阶段目标与验收](./PHASE3_5_PLAN.md)
+- [第四阶段参数研究与策略稳健性分析计划](./PHASE4_PLAN.md)
 
 ## 数据说明
 
