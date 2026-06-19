@@ -11,21 +11,31 @@ export function calculateMetrics(
   const finalEquity = equityCurve.length > 0
     ? equityCurve[equityCurve.length - 1].equity
     : initialCapital;
+  const netContributions = equityCurve.length > 0
+    ? equityCurve[equityCurve.length - 1].contributedCapital ?? initialCapital
+    : initialCapital;
 
-  const totalReturn = (finalEquity - initialCapital) / initialCapital;
-  const tradingDays = equityCurve.length;
-  const annualizedReturn = tradingDays > 0
-    ? Math.pow(1 + totalReturn, TRADING_DAYS_PER_YEAR / tradingDays) - 1
+  const totalReturn = netContributions > 0
+    ? (finalEquity - netContributions) / netContributions
     : 0;
+  const tradingDays = equityCurve.length;
 
-  // Annualized volatility
+  // Time-weighted daily returns remove external DCA contributions before
+  // measuring investment performance.
   const dailyReturns: number[] = [];
   for (let i = 1; i < equityCurve.length; i++) {
     const prev = equityCurve[i - 1].equity;
     if (prev > 0) {
-      dailyReturns.push(equityCurve[i].equity / prev - 1);
+      const previousContributions = equityCurve[i - 1].contributedCapital ?? initialCapital;
+      const currentContributions = equityCurve[i].contributedCapital ?? previousContributions;
+      const externalFlow = currentContributions - previousContributions;
+      dailyReturns.push((equityCurve[i].equity - externalFlow) / prev - 1);
     }
   }
+  const timeWeightedGrowth = dailyReturns.reduce((growth, value) => growth * (1 + value), 1);
+  const annualizedReturn = dailyReturns.length > 0 && timeWeightedGrowth > 0
+    ? Math.pow(timeWeightedGrowth, TRADING_DAYS_PER_YEAR / dailyReturns.length) - 1
+    : 0;
   const avgDailyReturn = dailyReturns.length > 0
     ? dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length
     : 0;
@@ -40,19 +50,22 @@ export function calculateMetrics(
     ? (annualizedReturn - riskFreeRate) / annualizedVolatility
     : 0;
 
-  // Max drawdown
-  let peak = equityCurve.length > 0 ? equityCurve[0].equity : initialCapital;
+  // Max drawdown on a unitized NAV, so deposits do not hide drawdowns.
+  let nav = 1;
+  let peak = 1;
   let peakTime = equityCurve.length > 0 ? equityCurve[0].time : '';
   let maxDrawdown = 0;
   let maxDdStart = '';
   let maxDdEnd = '';
 
-  for (const point of equityCurve) {
-    if (point.equity > peak) {
-      peak = point.equity;
+  for (let i = 1; i < equityCurve.length; i++) {
+    nav *= 1 + dailyReturns[i - 1];
+    const point = equityCurve[i];
+    if (nav > peak) {
+      peak = nav;
       peakTime = point.time;
     } else {
-      const dd = (peak - point.equity) / peak;
+      const dd = (peak - nav) / peak;
       if (dd > maxDrawdown) {
         maxDrawdown = dd;
         maxDdStart = peakTime;
@@ -73,13 +86,34 @@ export function calculateMetrics(
   let totalHoldingDays = 0;
   let pairCount = 0;
 
-  // Match buy-sell pairs
-  let buyIdx = 0;
+  // Match quantities FIFO so recurring investments and partial exits do not
+  // count the same sell proceeds more than once.
+  const lots = buyTrades.map((buy) => ({
+    remaining: buy.quantity,
+    unitCost: (buy.amount + buy.commission) / buy.quantity,
+    time: buy.time,
+  }));
+  let lotIndex = 0;
   for (const sell of sellTrades) {
-    // Find matching buy
-    while (buyIdx < buyTrades.length && buyTrades[buyIdx].time <= sell.time) {
-      const buy = buyTrades[buyIdx];
-      const pnl = sell.amount - sell.commission - sell.tax - buy.amount - buy.commission;
+    let quantityToMatch = sell.quantity;
+    let matchedCost = 0;
+    let weightedHoldingDays = 0;
+    let matchedQuantity = 0;
+    while (quantityToMatch > 0 && lotIndex < lots.length) {
+      const lot = lots[lotIndex];
+      const matched = Math.min(quantityToMatch, lot.remaining);
+      matchedCost += matched * lot.unitCost;
+      weightedHoldingDays += matched * (
+        (new Date(sell.time).getTime() - new Date(lot.time).getTime()) / 86400000
+      );
+      matchedQuantity += matched;
+      lot.remaining -= matched;
+      quantityToMatch -= matched;
+      if (lot.remaining <= 1e-10) lotIndex++;
+    }
+    if (matchedQuantity > 0) {
+      const netProceeds = sell.amount - sell.commission - sell.tax;
+      const pnl = netProceeds - matchedCost;
       if (pnl > 0) {
         winCount++;
         totalProfit += pnl;
@@ -87,11 +121,8 @@ export function calculateMetrics(
         lossCount++;
         totalLoss += Math.abs(pnl);
       }
-      const buyDate = new Date(buy.time);
-      const sellDate = new Date(sell.time);
-      totalHoldingDays += (sellDate.getTime() - buyDate.getTime()) / 86400000;
+      totalHoldingDays += weightedHoldingDays / matchedQuantity;
       pairCount++;
-      buyIdx++;
     }
   }
 
@@ -106,6 +137,7 @@ export function calculateMetrics(
 
   return {
     initialCapital: roundTo(initialCapital, 2),
+    netContributions: roundTo(netContributions, 2),
     finalEquity: roundTo(finalEquity, 2),
     totalReturn: roundTo(totalReturn, 6),
     annualizedReturn: roundTo(annualizedReturn, 6),

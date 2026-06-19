@@ -3,13 +3,17 @@ import { fillOrder } from '../broker';
 import type { Order, BacktestConfig } from '@/models';
 
 const baseConfig: BacktestConfig = {
+  backtestMode: 'strategy',
   initialCapital: 100000,
+  tradingDays: 0,
   positionSizing: { type: 'percent', value: 1 },
   commissionRate: 0.0003,
   minimumCommission: 5,
   sellTaxRate: 0.001,
   slippageBps: 1,
+  tradingUnitMode: 'index',
   minimumTradeAmount: 1,
+  dca: { amount: 1000, frequency: 'monthly' },
   execution: 'next_open',
   forceCloseAtEnd: false,
 };
@@ -58,6 +62,18 @@ describe('Broker - Buy', () => {
     expect(result.trade.quantity).toBeGreaterThan(0);
     expect(result.trade.amount).toBeGreaterThanOrEqual(1);
     expect(Number.isInteger(result.trade.amount)).toBe(true);
+  });
+
+  it('rounds stock-mode purchases down to board lots of 100 shares', () => {
+    const config = { ...baseConfig, tradingUnitMode: 'stock' as const };
+    const result = fillOrder(buyOrder(255), 10, 100000, 0, config);
+    expect(result.trade.quantity).toBe(200);
+  });
+
+  it('rejects stock-mode purchases that cannot afford one board lot', () => {
+    const config = { ...baseConfig, tradingUnitMode: 'stock' as const };
+    const result = fillOrder(buyOrder(100), 10, 900, 0, config);
+    expect(result.trade.quantity).toBe(0);
   });
 
   it('rejects buy when price is invalid', () => {

@@ -41,8 +41,46 @@ function fillBuy(
   config: BacktestConfig,
 ): FillResult {
   const fillPrice = open * (1 + slippageFactor);
-  const maxSpend = cash * config.positionSizing.value;
-  const minimumTradeAmount = config.minimumTradeAmount;
+  const requestedSpend = order.quantity * fillPrice;
+  const maxSpend = Math.min(
+    cash * config.positionSizing.value,
+    config.backtestMode === 'dca' ? config.dca.amount : Number.POSITIVE_INFINITY,
+  );
+  const unitMode = config.tradingUnitMode ?? 'index';
+
+  if (unitMode === 'stock') {
+    const lotSize = 100;
+    const affordableQuantity = Math.floor(
+      Math.min(order.quantity, maxSpend / fillPrice) / lotSize,
+    ) * lotSize;
+
+    if (affordableQuantity < lotSize) {
+      return {
+        trade: createRejectedTrade(order, fillPrice, '现金不足，无法购买一手（100 股）'),
+        error: '现金不足',
+      };
+    }
+
+    let quantity = affordableQuantity;
+    let amount = quantity * fillPrice;
+    let commission = Math.max(amount * config.commissionRate, config.minimumCommission);
+    while (quantity >= lotSize && amount + commission > cash) {
+      quantity -= lotSize;
+      amount = quantity * fillPrice;
+      commission = Math.max(amount * config.commissionRate, config.minimumCommission);
+    }
+
+    if (quantity < lotSize) {
+      return {
+        trade: createRejectedTrade(order, fillPrice, '扣除手续费后现金不足'),
+        error: '现金不足',
+      };
+    }
+
+    return createBuyFill(order, open, fillPrice, quantity, amount, commission);
+  }
+
+  const minimumTradeAmount = config.minimumTradeAmount ?? 1;
 
   // Index ETF orders use a monetary trading unit. Convert the rounded
   // order amount back to a fractional index/ETF quantity for valuation.
@@ -55,9 +93,8 @@ function fillBuy(
     };
   }
 
-  const requestedAmount = order.quantity * fillPrice;
   let amount = Math.floor(
-    Math.min(requestedAmount, maxAmount) / minimumTradeAmount,
+    Math.min(requestedSpend, maxAmount) / minimumTradeAmount,
   ) * minimumTradeAmount;
   let commission = Math.max(amount * config.commissionRate, config.minimumCommission);
 
@@ -81,8 +118,17 @@ function fillBuy(
     commission = Math.max(amount * config.commissionRate, config.minimumCommission);
   }
 
-  const quantity = amount / fillPrice;
+  return createBuyFill(order, open, fillPrice, amount / fillPrice, amount, commission);
+}
 
+function createBuyFill(
+  order: Order,
+  open: number,
+  fillPrice: number,
+  quantity: number,
+  amount: number,
+  commission: number,
+): FillResult {
   return {
     trade: {
       id: crypto.randomUUID(),

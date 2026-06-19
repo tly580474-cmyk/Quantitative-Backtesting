@@ -14,6 +14,7 @@ import { fillOrder } from './broker';
 import {
   createPortfolio,
   applyTrade,
+  applyCashContribution,
   createEquityPoint,
   type PortfolioState,
 } from './portfolio';
@@ -23,7 +24,7 @@ import { validateBacktestInput } from './validation';
 export interface BacktestInput {
   candles: Candle[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  strategy: StrategyDefinition<any>;
+  strategy?: StrategyDefinition<any>;
   strategyParams: Record<string, number | boolean | string>;
   config: BacktestConfig;
   datasetId: string;
@@ -40,6 +41,119 @@ export interface BacktestProgress {
 
 /** Number of bars to process before yielding to the event loop. */
 const YIELD_EVERY = 200;
+
+function isDcaDue(candles: Candle[], index: number, frequency: BacktestConfig['dca']['frequency']): boolean {
+  if (frequency === 'daily' || index === 0) return true;
+  const current = new Date(`${candles[index].time}T00:00:00`);
+  const previous = new Date(`${candles[index - 1].time}T00:00:00`);
+  if (frequency === 'monthly') {
+    return current.getFullYear() !== previous.getFullYear() || current.getMonth() !== previous.getMonth();
+  }
+  const day = (date: Date) => (date.getDay() + 6) % 7;
+  const currentMonday = new Date(current);
+  currentMonday.setDate(current.getDate() - day(current));
+  const previousMonday = new Date(previous);
+  previousMonday.setDate(previous.getDate() - day(previous));
+  return currentMonday.getTime() !== previousMonday.getTime();
+}
+
+function createDcaSignal(candles: Candle[], index: number, config: BacktestConfig): StrategySignal {
+  const candle = candles[index];
+  const due = isDcaDue(candles, index, config.dca.frequency);
+  return {
+    time: candle.time,
+    action: due ? 'buy' : 'hold',
+    reason: due ? `定投计划：${config.dca.frequency}投入 ¥${config.dca.amount}` : '等待下一个定投日',
+  };
+}
+
+function createBuyOrder(
+  signal: StrategySignal,
+  nextCandle: Candle,
+  cash: number,
+  config: BacktestConfig,
+): Order | null {
+  const slippageFactor = config.slippageBps / 10000;
+  const estimatedFillPrice = nextCandle.open * (1 + slippageFactor);
+  const spendLimit = config.backtestMode === 'dca'
+    ? Math.min(config.dca.amount, cash * config.positionSizing.value)
+    : cash * config.positionSizing.value;
+  const quantity = config.tradingUnitMode === 'stock'
+    ? Math.floor(spendLimit / estimatedFillPrice / 100) * 100
+    : Math.floor(spendLimit / (config.minimumTradeAmount ?? 1))
+      * (config.minimumTradeAmount ?? 1) / estimatedFillPrice;
+  if (quantity <= 0) return null;
+  return {
+    id: crypto.randomUUID(),
+    signalTime: signal.time,
+    executeTime: '',
+    side: 'buy',
+    orderType: 'market',
+    quantity,
+    status: 'pending',
+  };
+}
+
+function executeDcaPurchase(
+  signal: StrategySignal,
+  candle: Candle,
+  portfolio: PortfolioState,
+  config: BacktestConfig,
+  orders: Order[],
+  trades: Trade[],
+  investmentAmount: number,
+): void {
+  const spendLimit = investmentAmount;
+  const quantity = config.tradingUnitMode === 'stock'
+    ? Math.floor(spendLimit / candle.close / 100) * 100
+    : Math.floor(spendLimit / (config.minimumTradeAmount ?? 1))
+      * (config.minimumTradeAmount ?? 1) / candle.close;
+  const order: Order = {
+    id: crypto.randomUUID(),
+    signalTime: signal.time,
+    executeTime: candle.time,
+    side: 'buy',
+    orderType: 'market',
+    quantity,
+    status: 'pending',
+  };
+  if (quantity <= 0) {
+    orders.push({ ...order, status: 'rejected', rejectReason: '现金不足' });
+    return;
+  }
+
+
+  const purchaseAmount = quantity * candle.close;
+  const commission = Math.max(
+    purchaseAmount * config.commissionRate,
+    config.minimumCommission,
+  );
+  Object.assign(
+    portfolio,
+    applyCashContribution(portfolio, purchaseAmount + commission),
+  );
+
+  const result = fillOrder(
+    order,
+    candle.close,
+    portfolio.cash,
+    portfolio.positionQuantity,
+    {
+      ...config,
+      dca: { ...config.dca, amount: investmentAmount },
+      slippageBps: 0,
+      positionSizing: { type: 'percent', value: 1 },
+    },
+  );
+  if (result.trade.quantity > 0) {
+    Object.assign(portfolio, applyTrade(portfolio, result.trade));
+    trades.push(result.trade);
+    orders.push({ ...order, status: 'filled', quantity: result.trade.quantity });
+  } else {
+    trades.push(result.trade);
+    orders.push({ ...order, status: 'rejected', rejectReason: result.error });
+  }
+}
 
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -63,7 +177,9 @@ export async function runBacktestAsync(
     return createFailedResult(input, errors.map((e) => e.message).join('; '));
   }
 
-  const portfolio: PortfolioState = createPortfolio(config.initialCapital);
+  const portfolio: PortfolioState = createPortfolio(
+    config.backtestMode === 'dca' ? 0 : config.initialCapital,
+  );
   const signals: StrategySignal[] = [];
   const orders: Order[] = [];
   const trades: Trade[] = [];
@@ -84,7 +200,7 @@ export async function runBacktestAsync(
     const candle = candles[i];
 
     // --- Step 1: Execute pending order at today's open ---
-    if (pendingOrder) {
+    if (pendingOrder && config.backtestMode === 'strategy') {
       const execTime = candle.time;
       const orderWithTime = { ...pendingOrder, executeTime: execTime };
 
@@ -128,41 +244,36 @@ export async function runBacktestAsync(
       position,
     };
 
-    const signal = strategy.evaluate(context, strategyParams);
+    const signal = config.backtestMode === 'dca'
+      ? createDcaSignal(candles, i, config)
+      : strategy!.evaluate(context, strategyParams);
     signals.push(signal);
 
     // --- Step 3: Create order from signal ---
-    if (signal.action !== 'hold' && i < totalBars - 1) {
+    if (config.backtestMode === 'dca' && signal.action === 'buy') {
+      executeDcaPurchase(
+        signal,
+        candle,
+        portfolio,
+        config,
+        orders,
+        trades,
+        i === 0 ? config.initialCapital : config.dca.amount,
+      );
+    } else if (signal.action !== 'hold' && i < totalBars - 1) {
       const nextCandle = candles[i + 1];
 
       if (signal.action === 'buy') {
         if (portfolio.positionQuantity === 0) {
-          const slippageFactor = config.slippageBps / 10000;
-          const estimatedFillPrice = nextCandle.open * (1 + slippageFactor);
-          const maxSpend = portfolio.cash * config.positionSizing.value;
-          const estimatedAmount = Math.floor(
-            maxSpend / config.minimumTradeAmount,
-          ) * config.minimumTradeAmount;
-          const estimatedQty = estimatedAmount / estimatedFillPrice;
-
-          if (estimatedAmount >= config.minimumTradeAmount) {
-            pendingOrder = {
-              id: crypto.randomUUID(),
-              signalTime: signal.time,
-              executeTime: '',
-              side: 'buy',
-              orderType: 'market',
-              quantity: estimatedQty,
-              status: 'pending',
-            };
-          } else {
+          pendingOrder = createBuyOrder(signal, nextCandle, portfolio.cash, config);
+          if (!pendingOrder) {
             orders.push({
               id: crypto.randomUUID(),
               signalTime: signal.time,
               executeTime: nextCandle.time,
               side: 'buy',
               orderType: 'market',
-              quantity: estimatedQty,
+              quantity: 0,
               status: 'rejected',
               rejectReason: '现金不足',
             });
@@ -203,7 +314,7 @@ export async function runBacktestAsync(
           });
         }
       }
-    } else if (signal.action !== 'hold' && i === totalBars - 1) {
+    } else if (config.backtestMode === 'strategy' && signal.action !== 'hold' && i === totalBars - 1) {
       signals[signals.length - 1] = {
         ...signal,
         action: 'hold',
@@ -219,7 +330,7 @@ export async function runBacktestAsync(
     equityCurve.push(point);
 
     // --- Step 5: Force close at end ---
-    if (i === totalBars - 1 && config.forceCloseAtEnd && portfolio.positionQuantity > 0) {
+    if (i === totalBars - 1 && config.backtestMode === 'strategy' && config.forceCloseAtEnd && portfolio.positionQuantity > 0) {
       if (pendingOrder) {
         pendingOrder = null;
       }
@@ -291,9 +402,9 @@ export async function runBacktestAsync(
       endTime: candles[candles.length - 1]?.time ?? '',
       checksum: datasetChecksum,
     },
-    strategyId: strategy.id,
-    strategyVersion: strategy.version,
-    strategyParams,
+    strategyId: config.backtestMode === 'dca' ? 'dca' : strategy!.id,
+    strategyVersion: config.backtestMode === 'dca' ? '1.0' : strategy!.version,
+    strategyParams: config.backtestMode === 'dca' ? {} : strategyParams,
     config,
     startedAt: now,
     completedAt: now,
@@ -320,7 +431,9 @@ export function runBacktest(
     return createFailedResult(input, errors.map((e) => e.message).join('; '));
   }
 
-  const portfolio: PortfolioState = createPortfolio(config.initialCapital);
+  const portfolio: PortfolioState = createPortfolio(
+    config.backtestMode === 'dca' ? 0 : config.initialCapital,
+  );
   const signals: StrategySignal[] = [];
   const orders: Order[] = [];
   const trades: Trade[] = [];
@@ -332,7 +445,7 @@ export function runBacktest(
   for (let i = 0; i < totalBars; i++) {
     const candle = candles[i];
 
-    if (pendingOrder) {
+    if (pendingOrder && config.backtestMode === 'strategy') {
       const execTime = candle.time;
       const orderWithTime = { ...pendingOrder, executeTime: execTime };
 
@@ -375,40 +488,35 @@ export function runBacktest(
       position,
     };
 
-    const signal = strategy.evaluate(context, strategyParams);
+    const signal = config.backtestMode === 'dca'
+      ? createDcaSignal(candles, i, config)
+      : strategy!.evaluate(context, strategyParams);
     signals.push(signal);
 
-    if (signal.action !== 'hold' && i < totalBars - 1) {
+    if (config.backtestMode === 'dca' && signal.action === 'buy') {
+      executeDcaPurchase(
+        signal,
+        candle,
+        portfolio,
+        config,
+        orders,
+        trades,
+        i === 0 ? config.initialCapital : config.dca.amount,
+      );
+    } else if (signal.action !== 'hold' && i < totalBars - 1) {
       const nextCandle = candles[i + 1];
 
       if (signal.action === 'buy') {
         if (portfolio.positionQuantity === 0) {
-          const slippageFactor = config.slippageBps / 10000;
-          const estimatedFillPrice = nextCandle.open * (1 + slippageFactor);
-          const maxSpend = portfolio.cash * config.positionSizing.value;
-          const estimatedAmount = Math.floor(
-            maxSpend / config.minimumTradeAmount,
-          ) * config.minimumTradeAmount;
-          const estimatedQty = estimatedAmount / estimatedFillPrice;
-
-          if (estimatedAmount >= config.minimumTradeAmount) {
-            pendingOrder = {
-              id: crypto.randomUUID(),
-              signalTime: signal.time,
-              executeTime: '',
-              side: 'buy',
-              orderType: 'market',
-              quantity: estimatedQty,
-              status: 'pending',
-            };
-          } else {
+          pendingOrder = createBuyOrder(signal, nextCandle, portfolio.cash, config);
+          if (!pendingOrder) {
             orders.push({
               id: crypto.randomUUID(),
               signalTime: signal.time,
               executeTime: nextCandle.time,
               side: 'buy',
               orderType: 'market',
-              quantity: estimatedQty,
+              quantity: 0,
               status: 'rejected',
               rejectReason: '现金不足',
             });
@@ -449,7 +557,7 @@ export function runBacktest(
           });
         }
       }
-    } else if (signal.action !== 'hold' && i === totalBars - 1) {
+    } else if (config.backtestMode === 'strategy' && signal.action !== 'hold' && i === totalBars - 1) {
       signals[signals.length - 1] = {
         ...signal,
         action: 'hold',
@@ -463,7 +571,7 @@ export function runBacktest(
     }
     equityCurve.push(point);
 
-    if (i === totalBars - 1 && config.forceCloseAtEnd && portfolio.positionQuantity > 0) {
+    if (i === totalBars - 1 && config.backtestMode === 'strategy' && config.forceCloseAtEnd && portfolio.positionQuantity > 0) {
       if (pendingOrder) {
         pendingOrder = null;
       }
@@ -535,9 +643,9 @@ export function runBacktest(
       endTime: candles[candles.length - 1]?.time ?? '',
       checksum: datasetChecksum,
     },
-    strategyId: strategy.id,
-    strategyVersion: strategy.version,
-    strategyParams,
+    strategyId: config.backtestMode === 'dca' ? 'dca' : strategy!.id,
+    strategyVersion: config.backtestMode === 'dca' ? '1.0' : strategy!.version,
+    strategyParams: config.backtestMode === 'dca' ? {} : strategyParams,
     config,
     startedAt: now,
     completedAt: now,
@@ -563,9 +671,9 @@ function createCancelledResult(input: BacktestInput): BacktestResult {
       endTime: candles.length > 0 ? candles[candles.length - 1].time : '',
       checksum: datasetChecksum,
     },
-    strategyId: strategy.id,
-    strategyVersion: strategy.version,
-    strategyParams,
+    strategyId: config.backtestMode === 'dca' ? 'dca' : strategy!.id,
+    strategyVersion: config.backtestMode === 'dca' ? '1.0' : strategy!.version,
+    strategyParams: config.backtestMode === 'dca' ? {} : strategyParams,
     config,
     startedAt: now,
     completedAt: now,
@@ -591,9 +699,9 @@ function createFailedResult(input: BacktestInput, error: string): BacktestResult
       endTime: candles.length > 0 ? candles[candles.length - 1].time : '',
       checksum: datasetChecksum,
     },
-    strategyId: strategy.id,
-    strategyVersion: strategy.version,
-    strategyParams,
+    strategyId: config.backtestMode === 'dca' ? 'dca' : strategy!.id,
+    strategyVersion: config.backtestMode === 'dca' ? '1.0' : strategy!.version,
+    strategyParams: config.backtestMode === 'dca' ? {} : strategyParams,
     config,
     startedAt: now,
     completedAt: now,
@@ -608,6 +716,7 @@ function createFailedResult(input: BacktestInput, error: string): BacktestResult
 function createZeroMetrics(initialCapital: number): BacktestMetrics {
   return {
     initialCapital,
+    netContributions: initialCapital,
     finalEquity: initialCapital,
     totalReturn: 0,
     annualizedReturn: 0,

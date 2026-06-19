@@ -52,6 +52,27 @@ export function validateBacktestInput(
     errors.push({ field: 'initialCapital', message: '初始资金必须大于 0' });
   }
 
+  if (!['strategy', 'dca'].includes(config.backtestMode)) {
+    errors.push({ field: 'backtestMode', message: '回测模式无效' });
+  }
+
+  if (!Number.isInteger(config.tradingDays) || config.tradingDays < 0) {
+    errors.push({ field: 'tradingDays', message: '交易天数必须为非负整数' });
+  }
+
+  if (!['stock', 'index'].includes(config.tradingUnitMode)) {
+    errors.push({ field: 'tradingUnitMode', message: '交易单位模式无效' });
+  }
+
+  if (config.backtestMode === 'dca') {
+    if (!Number.isFinite(config.dca.amount) || config.dca.amount <= 0) {
+      errors.push({ field: 'dca.amount', message: '定投金额必须大于 0' });
+    }
+    if (!['daily', 'weekly', 'monthly'].includes(config.dca.frequency)) {
+      errors.push({ field: 'dca.frequency', message: '定投频率无效' });
+    }
+  }
+
   if (config.positionSizing.type !== 'percent') {
     errors.push({ field: 'positionSizing', message: '仅支持按比例仓位' });
   } else if (config.positionSizing.value <= 0 || config.positionSizing.value > 1) {

@@ -24,11 +24,12 @@ import type { MarketDataset } from '@/models';
 
 const { Text } = Typography;
 
-function BacktestSettings() {
+function BacktestSettings({ maximumTradingDays }: { maximumTradingDays: number }) {
+  const backtestMode = useBacktestStore((s) => s.config.backtestMode);
   return (
     <div className="backtest-settings-stack">
-      <StrategyConfigPanel />
-      <BacktestConfigPanel />
+      {backtestMode === 'strategy' && <StrategyConfigPanel />}
+      <BacktestConfigPanel maximumTradingDays={maximumTradingDays} />
     </div>
   );
 }
@@ -109,29 +110,36 @@ export default function BacktestRunner() {
     const ds = datasets.find((d) => d.id === selectedDatasetId);
     if (!ds) return;
 
-    const availableCapital = config.initialCapital * config.positionSizing.value;
-    const minimumOrderCost = config.minimumTradeAmount + config.minimumCommission;
+    const runCandles = config.tradingDays > 0 ? candles.slice(-config.tradingDays) : candles;
+    const availableCapital = config.backtestMode === 'dca'
+      ? config.initialCapital
+      : config.initialCapital * config.positionSizing.value;
+    const referencePrice = config.backtestMode === 'dca'
+      ? runCandles[0]?.close ?? 0
+      : runCandles[0]?.open ?? 0;
+    const minimumOrderCost = (config.tradingUnitMode === 'stock' ? referencePrice * 100 : 1)
+      + config.minimumCommission;
 
     if (availableCapital < minimumOrderCost) {
       message.error(
         `当前资金最多可用 ¥${availableCapital.toLocaleString()}，` +
         `但最小订单至少需要 ¥${minimumOrderCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}。` +
-        '请降低最小交易金额或提高初始资金。',
+        `请提高${config.backtestMode === 'dca' ? '首日买入金额' : '初始资金或仓位比例'}。`,
         6,
       );
       return;
     }
 
-    const cs = computeChecksum(candles);
+    const cs = computeChecksum(runCandles);
     run(
-      candles,
+      runCandles,
       activeStrategyId,
       activeParams,
       config,
       ds.id,
       ds.name,
       cs,
-      `${ds.symbol} - ${activeStrategyId} - ${new Date().toLocaleString()}`,
+      `${ds.symbol} - ${config.backtestMode === 'dca' ? '定投' : activeStrategyId} - ${new Date().toLocaleString()}`,
       {
         strategySource,
         strategyDocument: visualStrategyDocument ?? undefined,
@@ -229,7 +237,7 @@ export default function BacktestRunner() {
       <div className="backtest-workspace">
         {!useSettingsDrawer && (
           <aside className="backtest-settings-panel" aria-label="策略和回测参数">
-            <BacktestSettings />
+            <BacktestSettings maximumTradingDays={candles.length} />
           </aside>
         )}
 
@@ -257,7 +265,7 @@ export default function BacktestRunner() {
         styles={{ body: { padding: 8 } }}
         destroyOnHidden
       >
-        <BacktestSettings />
+        <BacktestSettings maximumTradingDays={candles.length} />
       </Drawer>
     </div>
   );

@@ -24,7 +24,10 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
 
     let strategy;
 
-    if (strategySource === 'visual') {
+    if (config.backtestMode === 'dca') {
+      // DCA is strategy-independent and buys directly on scheduled closes.
+      strategy = undefined;
+    } else if (strategySource === 'visual') {
       if (!msg.strategyDocument) {
         const response: WorkerResponse = {
           type: 'error', taskId,

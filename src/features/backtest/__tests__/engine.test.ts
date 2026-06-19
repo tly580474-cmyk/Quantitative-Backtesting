@@ -16,18 +16,76 @@ function makeCandles(closes: number[]): Candle[] {
 }
 
 const baseConfig: BacktestConfig = {
+  backtestMode: 'strategy',
   initialCapital: 100000,
+  tradingDays: 0,
   positionSizing: { type: 'percent', value: 1 },
   commissionRate: 0.0003,
   minimumCommission: 5,
   sellTaxRate: 0.001,
   slippageBps: 0, // Zero slippage for deterministic testing
+  tradingUnitMode: 'index',
   minimumTradeAmount: 1,
+  dca: { amount: 1000, frequency: 'monthly' },
   execution: 'next_open',
   forceCloseAtEnd: true,
 };
 
 describe('Backtest Engine', () => {
+  it('buys unconditionally at each scheduled close without a strategy or sell', () => {
+    const candles: Candle[] = ['2021-01-04', '2021-02-01', '2021-03-01', '2021-04-01'].map((time) => ({
+      time, symbol: 'TEST', open: 10, high: 11, low: 9, close: 10, volume: 1000,
+    }));
+    const result = runBacktest({
+      candles,
+      strategyParams: { shortPeriod: 5, longPeriod: 20 },
+      config: {
+        ...baseConfig,
+        backtestMode: 'dca',
+        dca: { amount: 1000, frequency: 'monthly' },
+        slippageBps: 50,
+        forceCloseAtEnd: true,
+      },
+      datasetId: 'ds-dca',
+      datasetChecksum: 'dca',
+      resultName: 'dca-test',
+    });
+    expect(result.status).toBe('completed');
+    const buys = result.trades.filter((trade) => trade.side === 'buy' && trade.quantity > 0);
+    expect(buys).toHaveLength(4);
+    expect(buys.every((trade) => trade.fillPrice === 10)).toBe(true);
+    expect(result.trades.some((trade) => trade.side === 'sell')).toBe(false);
+    expect(result.strategyId).toBe('dca');
+    expect(result.strategyParams).toEqual({});
+    expect(result.metrics.netContributions).toBeCloseTo(103045, 2);
+    expect(result.equityCurve[result.equityCurve.length - 1]?.positionQuantity).toBeGreaterThan(0);
+  });
+
+  it('continues daily DCA through external contributions after the initial purchase', () => {
+    const candles: Candle[] = Array.from({ length: 20 }, (_, index) => ({
+      time: `2021-01-${String(index + 1).padStart(2, '0')}`,
+      symbol: 'TEST', open: 10, high: 11, low: 9, close: 10, volume: 1000,
+    }));
+    const result = runBacktest({
+      candles,
+      strategyParams: {},
+      config: {
+        ...baseConfig,
+        initialCapital: 100,
+        backtestMode: 'dca',
+        dca: { amount: 100, frequency: 'daily' },
+        commissionRate: 0,
+        minimumCommission: 0,
+      },
+      datasetId: 'ds-dca-daily',
+      datasetChecksum: 'dca-daily',
+      resultName: 'dca-daily-test',
+    });
+    expect(result.trades.filter((trade) => trade.quantity > 0)).toHaveLength(20);
+    expect(result.metrics.netContributions).toBe(2000);
+    expect(result.metrics.totalReturn).toBe(0);
+  });
+
   it('completes with no trades on flat prices', () => {
     const closes = Array.from({ length: 30 }, () => 10);
     const candles = makeCandles(closes);

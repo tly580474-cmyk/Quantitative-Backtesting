@@ -9,6 +9,7 @@ export interface PortfolioState {
   totalCommission: number;
   totalTax: number;
   totalSlippage: number;
+  totalContributions: number;
 }
 
 export function createPortfolio(initialCapital: number): PortfolioState {
@@ -20,6 +21,18 @@ export function createPortfolio(initialCapital: number): PortfolioState {
     totalCommission: 0,
     totalTax: 0,
     totalSlippage: 0,
+    totalContributions: initialCapital,
+  };
+}
+
+export function applyCashContribution(
+  portfolio: PortfolioState,
+  amount: number,
+): PortfolioState {
+  return {
+    ...portfolio,
+    cash: portfolio.cash + amount,
+    totalContributions: portfolio.totalContributions + amount,
   };
 }
 
@@ -85,5 +98,6 @@ export function createEquityPoint(
     equity: roundTo(equity, 4),
     drawdown: roundTo(Math.min(drawdown, 0), 6),
     positionQuantity: portfolio.positionQuantity,
+    contributedCapital: roundTo(portfolio.totalContributions, 4),
   };
 }

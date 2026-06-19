@@ -112,4 +112,17 @@ describe('Metrics', () => {
     expect(metrics.profitFactor).not.toBe(Infinity);
     expect(Number.isFinite(metrics.profitFactor)).toBe(true);
   });
+
+  it('matches multiple DCA buys to one sell without duplicating proceeds', () => {
+    const equity = makeEquityCurve([100000, 99800]);
+    const trades: Trade[] = [
+      { id: 'b1', orderId: 'o1', time: '2021-01-01', side: 'buy', quantity: 100, rawPrice: 10, fillPrice: 10, commission: 0, tax: 0, slippageCost: 0, amount: 1000 },
+      { id: 'b2', orderId: 'o2', time: '2021-02-01', side: 'buy', quantity: 100, rawPrice: 20, fillPrice: 20, commission: 0, tax: 0, slippageCost: 0, amount: 2000 },
+      { id: 's1', orderId: 'o3', time: '2021-03-01', side: 'sell', quantity: 200, rawPrice: 14, fillPrice: 14, commission: 0, tax: 0, slippageCost: 0, amount: 2800 },
+    ];
+    const metrics = calculateMetrics(equity, trades, 100000);
+    expect(metrics.tradeCount).toBe(1);
+    expect(metrics.winRate).toBe(0);
+    expect(metrics.profitFactor).toBe(0);
+  });
 });

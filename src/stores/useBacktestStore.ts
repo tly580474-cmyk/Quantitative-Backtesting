@@ -6,16 +6,21 @@ import {
   saveResult,
   getResults,
   deleteResult as deleteResultFromDb,
+  deleteResults as deleteResultsFromDb,
 } from '@/db/resultRepository';
 
 export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
+  backtestMode: 'strategy',
   initialCapital: 100000,
+  tradingDays: 0,
   positionSizing: { type: 'percent', value: 1 },
   commissionRate: 0.0003,
   minimumCommission: 5,
   sellTaxRate: 0.001,
   slippageBps: 1,
+  tradingUnitMode: 'index',
   minimumTradeAmount: 1,
+  dca: { amount: 1000, frequency: 'monthly' },
   execution: 'next_open',
   forceCloseAtEnd: true,
 };
@@ -41,7 +46,9 @@ interface BacktestState {
   loadResults: () => Promise<void>;
   addResult: (result: BacktestResult) => Promise<void>;
   removeResult: (id: string) => Promise<void>;
+  removeResults: (ids: string[]) => Promise<void>;
   toggleResultSelection: (id: string) => void;
+  selectAllResults: () => void;
   clearSelection: () => void;
 }
 
@@ -85,13 +92,26 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
     }));
   },
 
+  removeResults: async (ids) => {
+    await deleteResultsFromDb(ids);
+    const removed = new Set(ids);
+    set((s) => ({
+      results: s.results.filter((r) => !removed.has(r.id)),
+      selectedResultIds: s.selectedResultIds.filter((id) => !removed.has(id)),
+    }));
+  },
+
   toggleResultSelection: (id) =>
     set((s) => {
       const selected = s.selectedResultIds.includes(id)
         ? s.selectedResultIds.filter((rid) => rid !== id)
-        : [...s.selectedResultIds, id].slice(0, 3); // Max 3 for comparison
+        : [...s.selectedResultIds, id];
       return { selectedResultIds: selected };
     }),
+
+  selectAllResults: () => set((s) => ({
+    selectedResultIds: s.results.map((result) => result.id),
+  })),
 
   clearSelection: () => set({ selectedResultIds: [] }),
 }));

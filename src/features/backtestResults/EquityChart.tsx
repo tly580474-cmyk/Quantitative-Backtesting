@@ -10,14 +10,19 @@ import {
   type Time,
   CrosshairMode,
 } from 'lightweight-charts';
-import type { EquityPoint } from '@/models';
 import { CHART_COLORS } from '@/features/chart/chartConfig';
+
+export interface EquitySeriesPoint {
+  time: string;
+  value: number;
+}
 
 interface SeriesData {
   id?: string;
   label: string;
   color: string;
-  data: EquityPoint[];
+  data: EquitySeriesPoint[];
+  valueFormat?: 'currency' | 'normalized';
 }
 
 interface Props {
@@ -35,6 +40,7 @@ export default function EquityChart({ series, height = 300 }: Props) {
     label: string;
     color: string;
     initialEquity: number;
+    valueFormat: 'currency' | 'normalized';
   }>>(new Map());
 
   useEffect(() => {
@@ -84,7 +90,7 @@ export default function EquityChart({ series, height = 300 }: Props) {
             <span class="equity-tooltip-label">
               <i style="background:${meta.color}"></i>${escapeHtml(meta.label)}
             </span>
-            <span class="equity-tooltip-equity">¥${formatMoney(point.value)}</span>
+            <span class="equity-tooltip-equity">${meta.valueFormat === 'currency' ? `¥${formatMoney(point.value)}` : point.value.toFixed(2)}</span>
             <span class="equity-tooltip-change ${changeClass}">${formatPercent(change)}</span>
           </div>
         `);
@@ -147,21 +153,25 @@ export default function EquityChart({ series, height = 300 }: Props) {
         lineSeries = chart.addSeries(LineSeries, {
           color: s.color,
           lineWidth: 1,
+          priceFormat: s.valueFormat === 'normalized'
+            ? { type: 'custom', formatter: (value: number) => value.toFixed(2) }
+            : { type: 'price', precision: 2, minMove: 0.01 },
         });
         seriesRef.current.set(seriesId, lineSeries);
       }
 
       const data: LineData[] = s.data
-        .filter((p) => p.equity > 0)
+        .filter((p) => p.value > 0)
         .map((p) => ({
           time: p.time as Time,
-          value: p.equity,
+          value: p.value,
         }));
       lineSeries.setData(data);
       seriesMetaRef.current.set(lineSeries, {
         label: s.label,
         color: s.color,
-        initialEquity: s.data.find((point) => point.equity > 0)?.equity ?? 0,
+        initialEquity: s.data.find((point) => point.value > 0)?.value ?? 0,
+        valueFormat: s.valueFormat ?? 'currency',
       });
     }
 

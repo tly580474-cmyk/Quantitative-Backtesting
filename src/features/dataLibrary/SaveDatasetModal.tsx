@@ -73,7 +73,7 @@ export default function SaveDatasetModal({ open, onClose }: Props) {
       onCancel={onClose}
       okText="保存"
       cancelText="取消"
-      destroyOnClose
+      destroyOnHidden
     >
       {!importResult || candles.length === 0 ? (
         <Alert type="warning" message="请先导入行情数据" showIcon />

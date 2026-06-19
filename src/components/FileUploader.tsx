@@ -3,25 +3,25 @@ import { UploadOutlined } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 
 interface FileUploaderProps {
-  onImport: (file: File) => void;
+  onImport: (files: File[]) => void;
   loading: boolean;
 }
 
 export default function FileUploader({ onImport, loading }: FileUploaderProps) {
   const props: UploadProps = {
     accept: '.xlsx',
-    maxCount: 1,
+    multiple: true,
     showUploadList: false,
-    beforeUpload: (file) => {
-      onImport(file);
-      return false; // Prevent auto-upload
+    beforeUpload: (file, fileList) => {
+      if (file.uid === fileList[0]?.uid) onImport(fileList as File[]);
+      return false;
     },
   };
 
   return (
     <Upload {...props}>
       <Button icon={<UploadOutlined />} loading={loading}>
-        导入 Excel
+        批量导入 Excel
       </Button>
     </Upload>
   );

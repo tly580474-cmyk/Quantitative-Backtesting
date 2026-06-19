@@ -66,6 +66,20 @@ body {
   border-right: 1px solid #f0f0f0;
 }
 
+.results-page {
+  height: 100%;
+  padding: 16px;
+  overflow: auto;
+}
+
+.results-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
 .backtest-page {
   width: 100%;
   height: 100%;
@@ -171,6 +185,14 @@ body {
   position: relative;
   width: 100%;
   overflow: hidden;
+}
+
+.benchmark-toggle-row {
+  min-height: 32px;
+  padding: 4px 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
 }
 
 .equity-chart-tooltip {
@@ -280,6 +302,10 @@ body {
   .backtest-toolbar {
     padding: 8px 12px;
   }
+
+  .app-sidebar {
+    display: none !important;
+  }
 }
 
 @media (max-width: 575px) {
@@ -313,5 +339,15 @@ body {
     flex: 1 1 180px;
     width: auto;
     min-width: 0;
+  }
+
+
+  .results-page {
+    padding: 12px 8px;
+  }
+
+  .results-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

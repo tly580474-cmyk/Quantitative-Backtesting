@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { List, Button, Popconfirm, Tag, Typography, Empty, Space, Input } from 'antd';
-import { DeleteOutlined, FolderOpenOutlined, SearchOutlined } from '@ant-design/icons';
+import { DeleteOutlined, FolderOpenOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import { getDatasets, deleteDataset } from '@/db/marketDataRepository';
 import { getCandlesByDataset } from '@/db/marketDataRepository';
 import { useCandleStore } from '@/stores/useCandleStore';
 import type { MarketDataset } from '@/models';
+import { exportDatabaseToExcel } from '@/db/databaseExport';
 
 const { Text } = Typography;
 
@@ -60,14 +61,19 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
     <div style={{ padding: 16, height: '100%', overflow: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         <Text strong style={{ fontSize: 16 }}>本地行情数据集</Text>
-        <Input
-          prefix={<SearchOutlined />}
-          placeholder="搜索名称或标的"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ width: 240 }}
-          allowClear
-        />
+        <Space wrap>
+          <Input
+            prefix={<SearchOutlined />}
+            placeholder="搜索名称或标的"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: 240 }}
+            allowClear
+          />
+          <Button icon={<ExportOutlined />} onClick={() => exportDatabaseToExcel()}>
+            导出数据库
+          </Button>
+        </Space>
       </div>
       {filtered.length === 0 ? (
         <Empty description="暂无保存的数据集" />

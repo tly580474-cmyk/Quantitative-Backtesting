@@ -2,13 +2,22 @@ import type { StrategySignal } from './Strategy';
 import type { Trade } from './Trade';
 
 export interface BacktestConfig {
+  backtestMode: 'strategy' | 'dca';
   initialCapital: number;
+  /** Number of most-recent trading days to include. 0 means all available data. */
+  tradingDays: number;
   positionSizing: { type: 'percent'; value: number };
   commissionRate: number;
   minimumCommission: number;
   sellTaxRate: number;
   slippageBps: number;
+  tradingUnitMode: 'stock' | 'index';
+  /** Kept for backwards compatibility with results created before 3.5. */
   minimumTradeAmount: number;
+  dca: {
+    amount: number;
+    frequency: 'daily' | 'weekly' | 'monthly';
+  };
   execution: 'next_open';
   forceCloseAtEnd: boolean;
 }
@@ -20,10 +29,13 @@ export interface EquityPoint {
   equity: number;
   drawdown: number;
   positionQuantity: number;
+  /** Cumulative external cash contributed to the account. */
+  contributedCapital?: number;
 }
 
 export interface BacktestMetrics {
   initialCapital: number;
+  netContributions: number;
   finalEquity: number;
   totalReturn: number;
   annualizedReturn: number;

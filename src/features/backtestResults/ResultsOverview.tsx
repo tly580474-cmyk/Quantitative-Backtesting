@@ -22,6 +22,9 @@ export default function ResultsOverview({ metrics, name, color }: Props) {
     <Card size="small" title={name} style={color ? { borderColor: color, borderWidth: 2 } : undefined}>
       <Row gutter={[16, 12]}>
         <Col span={8}>
+          <Statistic title="累计投入" value={num(metrics.netContributions ?? metrics.initialCapital)} prefix="¥" />
+        </Col>
+        <Col span={8}>
           <Statistic title="期末权益" value={num(metrics.finalEquity)} prefix="¥" />
         </Col>
         <Col span={8}>
