@@ -1,18 +1,6 @@
 import { db } from './database';
 import type { MarketDataset, StoredCandle, Candle } from '@/models';
-
-function checksum(candles: Candle[]): string {
-  let hash = 0;
-  for (const c of candles) {
-    const s = `${c.time}|${c.open}|${c.high}|${c.low}|${c.close}|${c.volume ?? 0}`;
-    for (let i = 0; i < s.length; i++) {
-      const ch = s.charCodeAt(i);
-      hash = ((hash << 5) - hash) + ch;
-      hash |= 0;
-    }
-  }
-  return hash.toString(16);
-}
+import { computeDataChecksum } from '@/utils/checksum';
 
 export async function saveDataset(
   dataset: MarketDataset,
@@ -53,7 +41,7 @@ export async function findDuplicateByChecksum(cs: string): Promise<MarketDataset
 }
 
 export function computeChecksum(candles: Candle[]): string {
-  return checksum(candles);
+  return computeDataChecksum(candles);
 }
 
 export async function datasetExists(id: string): Promise<boolean> {

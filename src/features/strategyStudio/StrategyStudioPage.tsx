@@ -328,7 +328,7 @@ function ConditionEditor({
       }
       extra={
         <Popconfirm title="删除此条件？" onConfirm={onDelete}>
-          <Button size="small" type="link" danger icon={<DeleteOutlined />} />
+          <Button size="small" type="link" danger icon={<DeleteOutlined />} aria-label="删除条件" />
         </Popconfirm>
       }
     >
@@ -449,10 +449,10 @@ function RuleGroupEditor({
         extra={
           <Space size="small">
             <Tooltip title="添加条件">
-              <Button size="small" icon={<PlusOutlined />} onClick={addCondition} />
+              <Button size="small" icon={<PlusOutlined />} onClick={addCondition} aria-label="添加条件" />
             </Tooltip>
             <Tooltip title="添加子组">
-              <Button size="small" icon={<CopyOutlined />} onClick={addSubGroup} />
+              <Button size="small" icon={<CopyOutlined />} onClick={addSubGroup} aria-label="添加子组" />
             </Tooltip>
           </Space>
         }
@@ -913,6 +913,7 @@ export default function StrategyStudioPage() {
               icon={<UndoOutlined />}
               disabled={undoStack.length === 0}
               onClick={undo}
+              aria-label="撤销"
             />
           </Tooltip>
           <Tooltip title="重做">
@@ -921,6 +922,7 @@ export default function StrategyStudioPage() {
               icon={<RedoOutlined />}
               disabled={redoStack.length === 0}
               onClick={redo}
+              aria-label="重做"
             />
           </Tooltip>
 
@@ -938,7 +940,7 @@ export default function StrategyStudioPage() {
           <Divider type="vertical" />
 
           <Tooltip title="导入策略 JSON">
-            <Button size="small" icon={<ImportOutlined />} onClick={handleImport} />
+            <Button size="small" icon={<ImportOutlined />} onClick={handleImport} aria-label="导入策略 JSON" />
           </Tooltip>
           <input
             ref={fileInputRef}
@@ -948,7 +950,7 @@ export default function StrategyStudioPage() {
             onChange={handleFileChange}
           />
           <Tooltip title="导出策略 JSON">
-            <Button size="small" icon={<ExportOutlined />} onClick={handleExport} />
+            <Button size="small" icon={<ExportOutlined />} onClick={handleExport} aria-label="导出策略 JSON" />
           </Tooltip>
 
           <Tooltip title="AI 生成策略">

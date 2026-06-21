@@ -308,6 +308,41 @@ body {
   }
 }
 
+@media (min-width: 1440px) {
+  .backtest-settings-panel {
+    flex: 0 0 clamp(280px, 16vw, 360px);
+  }
+}
+
+@media (min-width: 1024px) and (max-width: 1439px) {
+  .backtest-settings-panel {
+    flex: 0 0 clamp(240px, 18vw, 300px);
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .app-sidebar {
+    width: 220px !important;
+    max-width: 220px !important;
+    min-width: 220px !important;
+  }
+
+  .backtest-settings-panel {
+    flex: 0 0 240px;
+  }
+
+  .results-page {
+    padding: 12px;
+  }
+}
+
+@media (min-width: 576px) and (max-width: 767px) {
+  .app-tabs .ant-tabs-tab {
+    font-size: 13px;
+    padding: 8px 10px;
+  }
+}
+
 @media (max-width: 575px) {
   .app-header {
     align-items: flex-start;
@@ -341,7 +376,6 @@ body {
     min-width: 0;
   }
 
-
   .results-page {
     padding: 12px 8px;
   }
@@ -350,4 +384,65 @@ body {
     align-items: flex-start;
     flex-direction: column;
   }
+}
+
+@media (max-width: 374px) {
+  .app-header {
+    padding: 4px 6px;
+    gap: 6px;
+  }
+
+  .app-tabs {
+    padding: 0 4px;
+  }
+
+  .app-tabs .ant-tabs-tab {
+    font-size: 11px;
+    padding: 6px 4px;
+  }
+
+  .backtest-toolbar {
+    padding: 6px;
+    gap: 6px;
+  }
+
+  .backtest-dataset-select {
+    min-width: 120px;
+    font-size: 12px;
+  }
+
+  .results-page {
+    padding: 8px 4px;
+  }
+}
+
+/* ─── Accessibility ─────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid #1677FF !important;
+  outline-offset: 2px !important;
+  border-radius: 4px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.ant-btn:focus-visible,
+.ant-select-selector:focus-visible,
+.ant-input:focus-visible,
+a:focus-visible {
+  outline: 2px solid #1677FF !important;
+  outline-offset: 2px !important;
 }

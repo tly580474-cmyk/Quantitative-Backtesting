@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, lazy, Suspense } from 'react';
+import { HashRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { ConfigProvider, App as AntApp, Modal, Tabs } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import AppLayout from './components/AppLayout';
@@ -6,26 +7,40 @@ import FileUploader from './components/FileUploader';
 import StockInfoBar from './components/StockInfoBar';
 import ImportResultPanel from './components/ImportResultPanel';
 import IndicatorPanel from './components/IndicatorPanel';
-import ChartContainer from './features/chart/ChartContainer';
-import DataLibrary from './features/dataLibrary/DataLibrary';
-import BacktestRunner from './features/backtest/BacktestRunner';
-import BacktestResultsPage from './features/backtestResults/BacktestResultsPage';
-import StrategyStudioPage from './features/strategyStudio/StrategyStudioPage';
+import PageSkeleton from './components/PageSkeleton';
 import SaveDatasetModal from './features/dataLibrary/SaveDatasetModal';
 import { useImport } from './features/import/useImport';
 import { useCandleStore } from './stores/useCandleStore';
 import { computeChecksum, findDuplicateByChecksum, saveDataset } from './db/marketDataRepository';
 import type { ImportResult } from './models';
 
-type TabKey = 'chart' | 'data' | 'backtest' | 'results' | 'studio';
+const ChartContainer = lazy(() => import('./features/chart/ChartContainer'));
+const DataLibrary = lazy(() => import('./features/dataLibrary/DataLibrary'));
+const BacktestRunner = lazy(() => import('./features/backtest/BacktestRunner'));
+const BacktestResultsPage = lazy(() => import('./features/backtestResults/BacktestResultsPage'));
+const StrategyStudioPage = lazy(() => import('./features/strategyStudio/StrategyStudioPage'));
 
-export default function App() {
+const TAB_ITEMS = [
+  { key: '/', label: '行情分析' },
+  { key: '/data', label: '数据管理' },
+  { key: '/backtest', label: '策略回测' },
+  { key: '/results', label: '回测结果' },
+  { key: '/studio', label: '策略工作室' },
+];
+
+function DataLibraryRoute() {
+  const navigate = useNavigate();
+  return <DataLibrary onOpen={() => navigate('/')} />;
+}
+
+function AppContent() {
   const { importFile, importFiles, loading } = useImport();
   const importResult = useCandleStore((state) => state.importResult);
   const [alertResult, setAlertResult] = useState<ImportResult | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>('chart');
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [batchSummary, setBatchSummary] = useState<string[] | null>(null);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const handleImport = useCallback(async (files: File[]) => {
     const results = files.length === 1
@@ -36,7 +51,7 @@ export default function App() {
     if (result) {
       useCandleStore.getState().setCandles(result.candles);
       useCandleStore.getState().setImportResult(result);
-      setActiveTab('chart');
+      navigate('/');
       if (result.errors.length > 0 || result.warnings.length > 0) {
         setAlertResult(result);
       }
@@ -79,7 +94,7 @@ export default function App() {
         `失败 ${failed} 个文件`,
       ]);
     }
-  }, [importFile, importFiles]);
+  }, [importFile, importFiles, navigate]);
 
   const handleSaveToDb = useCallback(() => {
     setSaveModalOpen(true);
@@ -89,46 +104,25 @@ export default function App() {
     <>
       <FileUploader onImport={handleImport} loading={loading} />
       {importResult && (
-        <>
-          <StockInfoBar
-            result={importResult}
-            onSaveToDb={handleSaveToDb}
-          />
-        </>
+        <StockInfoBar
+          result={importResult}
+          onSaveToDb={handleSaveToDb}
+        />
       )}
     </>
   );
 
+  const activeKey = location.pathname === '/' ? '/' : location.pathname.startsWith('/') ? location.pathname : '/';
+
   const tabBar = (
     <Tabs
-      activeKey={activeTab}
-      onChange={(key) => setActiveTab(key as TabKey)}
-      items={[
-        { key: 'chart', label: '行情分析' },
-        { key: 'data', label: '数据管理' },
-        { key: 'backtest', label: '策略回测' },
-        { key: 'results', label: '回测结果' },
-        { key: 'studio', label: '策略工作室' },
-      ]}
+      activeKey={activeKey}
+      onChange={(key) => navigate(key)}
+      items={TAB_ITEMS}
     />
   );
 
-  const leftPanel = activeTab === 'chart' ? <IndicatorPanel /> : undefined;
-
-  const center = (() => {
-    switch (activeTab) {
-      case 'chart':
-        return <ChartContainer />;
-      case 'data':
-        return <DataLibrary onOpen={() => setActiveTab('chart')} />;
-      case 'backtest':
-        return <BacktestRunner />;
-      case 'results':
-        return <BacktestResultsPage />;
-      case 'studio':
-        return <StrategyStudioPage />;
-    }
-  })();
+  const leftPanel = activeKey === '/' ? <IndicatorPanel /> : undefined;
 
   return (
     <ConfigProvider
@@ -145,7 +139,17 @@ export default function App() {
           topBar={topBar}
           tabBar={tabBar}
           leftPanel={leftPanel}
-          center={center}
+          center={
+            <Suspense fallback={<PageSkeleton />}>
+              <Routes>
+                <Route path="/" element={<ChartContainer />} />
+                <Route path="/data" element={<DataLibraryRoute />} />
+                <Route path="/backtest" element={<BacktestRunner />} />
+                <Route path="/results" element={<BacktestResultsPage />} />
+                <Route path="/studio" element={<StrategyStudioPage />} />
+              </Routes>
+            </Suspense>
+          }
         />
         <Modal
           title="导入结果"
@@ -172,5 +176,13 @@ export default function App() {
         </Modal>
       </AntApp>
     </ConfigProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <HashRouter>
+      <AppContent />
+    </HashRouter>
   );
 }
