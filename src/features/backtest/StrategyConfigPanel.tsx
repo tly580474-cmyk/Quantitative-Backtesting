@@ -4,7 +4,7 @@ import { UndoOutlined } from '@ant-design/icons';
 import { useStrategyStore } from '@/stores/useStrategyStore';
 import { useBacktestStore } from '@/stores/useBacktestStore';
 import { getAllStrategies } from '@/features/strategies/registry';
-import { getAllVisualStrategies } from '@/db/visualStrategyRepository';
+import { getRepository } from '@/api/useRepository';
 import { validateDocument } from '@/features/visualStrategies/validator';
 import type { StrategyParamDef } from '@/models';
 import type { StoredVisualStrategy, VisualStrategyDocument } from '@/features/visualStrategies/types';
@@ -24,7 +24,7 @@ export default function StrategyConfigPanel() {
   const [visualStrategies, setVisualStrategies] = useState<StoredVisualStrategy[]>([]);
 
   useEffect(() => {
-    getAllVisualStrategies().then((list) => {
+    getRepository().getAllVisualStrategies().then((list) => {
       setVisualStrategies(list.filter((strategy) => validateDocument(strategy.document).valid));
     });
   }, []);

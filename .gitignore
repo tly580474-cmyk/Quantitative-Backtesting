@@ -5,6 +5,7 @@ dist/
 .env
 .env.*
 !.env.example
+server/.env
 .claude/
 *.tsbuildinfo
 新建 文本文档.txt

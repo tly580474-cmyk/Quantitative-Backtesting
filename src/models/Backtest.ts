@@ -53,6 +53,7 @@ export interface BacktestMetrics {
   totalSlippage: number;
   benchmarkReturn: number;
   excessReturn: number;
+  metricsNote?: string;
 }
 
 export interface BacktestResult {

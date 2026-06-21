@@ -2,12 +2,7 @@ import { create } from 'zustand';
 import type { BacktestConfig, BacktestResult, StrategySignal } from '@/models';
 import type { VisualStrategyDocument } from '@/features/visualStrategies/types';
 import type { StrategySource } from '@/workers/protocol';
-import {
-  saveResult,
-  getResults,
-  deleteResult as deleteResultFromDb,
-  deleteResults as deleteResultsFromDb,
-} from '@/db/resultRepository';
+import { getRepository } from '@/api/useRepository';
 
 export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   backtestMode: 'strategy',
@@ -74,18 +69,18 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   setVisualStrategyDocument: (doc) => set({ visualStrategyDocument: doc }),
 
   loadResults: async () => {
-    set({ results: await getResults() });
+    set({ results: await getRepository().getResults() });
   },
 
   addResult: async (result) => {
-    await saveResult(result, result.equityCurve);
+    await getRepository().saveResult(result, result.equityCurve);
     set((s) => ({
       results: [result, ...s.results],
     }));
   },
 
   removeResult: async (id) => {
-    await deleteResultFromDb(id);
+    await getRepository().deleteResult(id);
     set((s) => ({
       results: s.results.filter((r) => r.id !== id),
       selectedResultIds: s.selectedResultIds.filter((rid) => rid !== id),
@@ -93,7 +88,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   },
 
   removeResults: async (ids) => {
-    await deleteResultsFromDb(ids);
+    await getRepository().deleteResults(ids);
     const removed = new Set(ids);
     set((s) => ({
       results: s.results.filter((r) => !removed.has(r.id)),

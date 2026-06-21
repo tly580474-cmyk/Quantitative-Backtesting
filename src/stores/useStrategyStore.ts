@@ -1,10 +1,6 @@
 import { create } from 'zustand';
+import { getRepository } from '@/api/useRepository';
 import { getStrategyById } from '@/features/strategies/registry';
-import {
-  saveStrategyConfig,
-  getStrategyConfigs,
-  deleteStrategyConfig as deleteConfig,
-} from '@/db/strategyRepository';
 import type { StrategyConfig } from '@/models';
 
 interface StrategyState {
@@ -30,7 +26,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   activeParams: {},
 
   loadConfigs: async () => {
-    const configs = await getStrategyConfigs();
+    const configs = await getRepository().getStrategyConfigs();
     set({ configs });
   },
 
@@ -66,12 +62,12 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    await saveStrategyConfig(config);
+    await getRepository().saveStrategyConfig(config);
     await get().loadConfigs();
   },
 
   deleteConfig: async (id) => {
-    await deleteConfig(id);
+    await getRepository().deleteStrategyConfig(id);
     await get().loadConfigs();
   },
 
@@ -85,7 +81,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    await saveStrategyConfig(newConfig);
+    await getRepository().saveStrategyConfig(newConfig);
     await get().loadConfigs();
   },
 }));

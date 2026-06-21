@@ -8,10 +8,12 @@ import StockInfoBar from './components/StockInfoBar';
 import ImportResultPanel from './components/ImportResultPanel';
 import IndicatorPanel from './components/IndicatorPanel';
 import PageSkeleton from './components/PageSkeleton';
+import RangeChangePanel from './features/chart/RangeChangePanel';
 import SaveDatasetModal from './features/dataLibrary/SaveDatasetModal';
 import { useImport } from './features/import/useImport';
 import { useCandleStore } from './stores/useCandleStore';
-import { computeChecksum, findDuplicateByChecksum, saveDataset } from './db/marketDataRepository';
+import { getRepository } from './api/useRepository';
+import { computeChecksum } from './db/marketDataRepository';
 import type { ImportResult } from './models';
 
 const ChartContainer = lazy(() => import('./features/chart/ChartContainer'));
@@ -31,6 +33,23 @@ const TAB_ITEMS = [
 function DataLibraryRoute() {
   const navigate = useNavigate();
   return <DataLibrary onOpen={() => navigate('/')} />;
+}
+
+function MarketAnalysisRoute() {
+  const [rangeSelectionEnabled, setRangeSelectionEnabled] = useState(true);
+
+  return (
+    <>
+      <RangeChangePanel
+        enabled={rangeSelectionEnabled}
+        onEnabledChange={setRangeSelectionEnabled}
+      />
+      <ChartContainer
+        key={rangeSelectionEnabled ? 'range-selection-on' : 'range-selection-off'}
+        showRangeLines={rangeSelectionEnabled}
+      />
+    </>
+  );
 }
 
 function AppContent() {
@@ -67,13 +86,13 @@ function AppContent() {
           continue;
         }
         const checksum = computeChecksum(item.candles);
-        if (await findDuplicateByChecksum(checksum)) {
+        if (await getRepository().findDuplicateByChecksum(checksum)) {
           skipped++;
           continue;
         }
         const now = new Date().toISOString();
         const baseName = item.fileName.replace(/\.xlsx$/i, '');
-        await saveDataset({
+        await getRepository().saveDataset({
           id: crypto.randomUUID(),
           name: item.symbol || baseName,
           symbol: item.symbol || baseName,
@@ -142,7 +161,7 @@ function AppContent() {
           center={
             <Suspense fallback={<PageSkeleton />}>
               <Routes>
-                <Route path="/" element={<ChartContainer />} />
+                <Route path="/" element={<MarketAnalysisRoute />} />
                 <Route path="/data" element={<DataLibraryRoute />} />
                 <Route path="/backtest" element={<BacktestRunner />} />
                 <Route path="/results" element={<BacktestResultsPage />} />

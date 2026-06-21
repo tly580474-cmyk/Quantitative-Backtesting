@@ -2,18 +2,8 @@ import { create } from 'zustand';
 import { produce } from 'immer';
 import type { VisualStrategyDocument, ValidationResult } from '@/features/visualStrategies/types';
 import type { StoredVisualStrategy } from '@/features/visualStrategies/types';
+import { getRepository } from '@/api/useRepository';
 import { validateDocument } from '@/features/visualStrategies/validator';
-import {
-  getAllVisualStrategies,
-  getVisualStrategyById,
-  saveVisualStrategy,
-  deleteVisualStrategy,
-  publishVisualStrategy,
-  getVersionsForStrategy,
-  saveDraft,
-  getDraftForStrategy,
-  deleteDraft,
-} from '@/db/visualStrategyRepository';
 
 const MAX_UNDO = 50;
 
@@ -99,7 +89,7 @@ export const useStrategyStudioStore = create<StrategyStudioState>((set, get) => 
   },
 
   loadStrategy: async (id: string) => {
-    const stored = await getVisualStrategyById(id);
+    const stored = await getRepository().getVisualStrategyById(id);
     if (!stored) return;
     set({
       document: stored.document,
@@ -184,10 +174,10 @@ export const useStrategyStudioStore = create<StrategyStudioState>((set, get) => 
       updatedAt: new Date().toISOString(),
     };
 
-    await saveVisualStrategy(stored);
+    await getRepository().saveVisualStrategy(stored);
 
     // Also save draft
-    await saveDraft({
+    await getRepository().saveDraft({
       id: `draft_${documentId}`,
       strategyId: documentId,
       document,
@@ -217,13 +207,13 @@ export const useStrategyStudioStore = create<StrategyStudioState>((set, get) => 
       createdAt: document.metadata.createdAt,
       updatedAt: new Date().toISOString(),
     };
-    await saveVisualStrategy(stored);
+    await getRepository().saveVisualStrategy(stored);
 
     // Publish (creates immutable version)
-    await publishVisualStrategy(documentId, document);
+    await getRepository().publishVisualStrategy(documentId, document);
 
     // Read back the published version to get the updated strategyVersion
-    const versions = await getVersionsForStrategy(documentId);
+    const versions = await getRepository().getVersionsForStrategy(documentId);
     const latestVersion = versions[versions.length - 1];
     const updatedDoc = latestVersion?.document ?? document;
 
@@ -235,7 +225,7 @@ export const useStrategyStudioStore = create<StrategyStudioState>((set, get) => 
   },
 
   remove: async (id: string) => {
-    await deleteVisualStrategy(id);
+    await getRepository().deleteVisualStrategy(id);
     await get().loadList();
     const { documentId } = get();
     if (documentId === id) {
@@ -249,7 +239,7 @@ export const useStrategyStudioStore = create<StrategyStudioState>((set, get) => 
   },
 
   loadList: async () => {
-    const strategies = await getAllVisualStrategies();
+    const strategies = await getRepository().getAllVisualStrategies();
     set({ strategies });
   },
 

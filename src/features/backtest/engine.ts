@@ -107,6 +107,10 @@ function createBuyOrder(
   };
 }
 
+// DCA purchases execute at the same bar's close rather than T+1 open.
+// The contribution is predetermined (not signal-driven), so there is no
+// look-ahead concern. Strategy mode uses next-open to avoid peeking at the
+// signal bar's close price before deciding.
 function executeDcaPurchase(
   signal: StrategySignal,
   candle: Candle,

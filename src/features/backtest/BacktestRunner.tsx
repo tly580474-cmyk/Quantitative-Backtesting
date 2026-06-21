@@ -18,7 +18,7 @@ import { useBacktest } from './useBacktest';
 import { useCandleStore } from '@/stores/useCandleStore';
 import { useStrategyStore } from '@/stores/useStrategyStore';
 import { useBacktestStore } from '@/stores/useBacktestStore';
-import { getDatasets, getCandlesByDataset } from '@/db/marketDataRepository';
+import { getRepository } from '@/api/useRepository';
 import { computeChecksum } from '@/db/marketDataRepository';
 import type { MarketDataset } from '@/models';
 
@@ -59,7 +59,7 @@ export default function BacktestRunner() {
 
   useEffect(() => {
     setLoadingDatasets(true);
-    getDatasets().then((ds) => {
+    getRepository().getDatasets().then((ds) => {
       setDatasets(ds);
       setLoadingDatasets(false);
       if (ds.length > 0 && !selectedDatasetId) {
@@ -67,7 +67,7 @@ export default function BacktestRunner() {
         setSelectedDatasetId(firstId);
         // Auto-load candles for the first dataset so the chart and run
         // button work immediately after page load.
-        getCandlesByDataset(firstId).then((loaded) => {
+        getRepository().getCandlesByDataset(firstId).then((loaded) => {
           setCandles(loaded);
           setImportResult({
             success: true,
@@ -89,7 +89,7 @@ export default function BacktestRunner() {
     setSelectedDatasetId(id);
     const ds = datasets.find((d) => d.id === id);
     if (ds) {
-      const loadedCandles = await getCandlesByDataset(id);
+      const loadedCandles = await getRepository().getCandlesByDataset(id);
       setCandles(loadedCandles);
       setImportResult({
         success: true,

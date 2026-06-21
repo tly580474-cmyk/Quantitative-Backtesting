@@ -31,6 +31,7 @@ import {
   getMacdHistogramColor,
 } from './chartConfig';
 import CandleDetail from './CandleDetail';
+import { RangeLinePrimitive } from './RangeLinePrimitive';
 
 interface IndicatorPaneEntry {
   chart: IChartApi;
@@ -40,7 +41,11 @@ interface IndicatorPaneEntry {
   unsubscribeCrosshair?: () => void;
 }
 
-export default function ChartContainer() {
+interface ChartContainerProps {
+  showRangeLines?: boolean;
+}
+
+export default function ChartContainer({ showRangeLines = false }: ChartContainerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
   const panesRef = useRef<HTMLDivElement>(null);
@@ -60,6 +65,12 @@ export default function ChartContainer() {
   const setCrosshairTime = useChartStore((s) => s.setCrosshairTime);
   const setCrosshairData = useChartStore((s) => s.setCrosshairData);
   const setCrosshairIndicators = useChartStore((s) => s.setCrosshairIndicators);
+  const setVisibleRange = useChartStore((s) => s.setVisibleRange);
+  const setRangeLineState = useChartStore((s) => s.setRangeLineState);
+  const rangeLineDragging = useChartStore((s) => s.rangeLineDragging);
+  const visibleRangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rangeLineRef = useRef<RangeLinePrimitive | null>(null);
+  const rangeLineHoveredRef = useRef<'start' | 'end' | null>(null);
 
   const indicatorResults = useMemo(
     () => calculateAllIndicators(candles, actives),
@@ -94,6 +105,35 @@ export default function ChartContainer() {
     });
     return () => scrollContainer.removeEventListener('wheel', onWheel, true);
   }, []);
+
+  // End range-line dragging when the pointer is released anywhere on the page.
+  useEffect(() => {
+    const onMouseUp = () => {
+      if (rangeLineRef.current?.getDragging()) {
+        rangeLineRef.current.setDragging(null);
+      }
+    };
+    document.addEventListener('mouseup', onMouseUp);
+    return () => document.removeEventListener('mouseup', onMouseUp);
+  }, []);
+
+  // Initialize range lines from first/last candle if not yet set
+  useEffect(() => {
+    const rl = rangeLineRef.current;
+    if (!rl || candles.length < 2) return;
+    if (rl.getStartTime() && rl.getEndTime()) return;
+
+    const total = candles.length;
+    const startIdx = Math.floor(total * 0.2);
+    const endIdx = Math.floor(total * 0.8);
+    rl.setStartTime(candles[startIdx].time);
+    rl.setEndTime(candles[endIdx].time);
+    setRangeLineState({
+      startTime: candles[startIdx].time,
+      endTime: candles[endIdx].time,
+      dragging: null,
+    });
+  }, [candles]);
 
   const overlays = useMemo(
     () => indicatorResults.filter((r) => {
@@ -269,7 +309,77 @@ export default function ChartContainer() {
     });
     volumeSeriesRef.current = volSeries;
 
+    let handleRangeMouseDown: ((event: MouseEvent) => void) | undefined;
+
+    // Attach draggable range lines (only on chart page, not backtest)
+    if (showRangeLines) {
+      const rangeLine = new RangeLinePrimitive();
+      rangeLineRef.current = rangeLine;
+      rangeLine.onChange = (state) => {
+        setRangeLineState(state);
+      };
+      candleSeries.attachPrimitive(rangeLine);
+
+      // The chart primitive is attached after the earlier initialization effect
+      // runs. When candles are already loaded on mount, initialize here as well
+      // so the selector cannot remain invisible until the dataset changes.
+      const currentCandles = candlesRef.current;
+      if (currentCandles.length >= 2) {
+        const startCandle = currentCandles[Math.floor(currentCandles.length * 0.2)];
+        const endCandle = currentCandles[Math.floor(currentCandles.length * 0.8)];
+        rangeLine.setStartTime(startCandle.time);
+        rangeLine.setEndTime(endCandle.time);
+        setRangeLineState({
+          startTime: startCandle.time,
+          endTime: endCandle.time,
+          dragging: null,
+        });
+      }
+
+      handleRangeMouseDown = (event: MouseEvent) => {
+        const rect = container.getBoundingClientRect();
+        const hit = rangeLine.hitTest(event.clientX - rect.left, event.clientY - rect.top);
+        if (!hit) return;
+
+        const which = hit.externalId === 'range-line-start' ? 'start' : 'end';
+        rangeLine.setDragging(which);
+        event.preventDefault();
+        event.stopPropagation();
+      };
+      container.addEventListener('mousedown', handleRangeMouseDown, true);
+    }
+
     chart.subscribeCrosshairMove((param) => {
+      // Range line drag handling
+      const rl = rangeLineRef.current;
+      if (rl) {
+        if (rl.getDragging() && param.point) {
+          const newTime = chart.timeScale().coordinateToTime(param.point.x);
+          if (newTime) {
+            const timeStr = String(newTime);
+            const otherEnd = rl.getDragging() === 'start' ? rl.getEndTime() : rl.getStartTime();
+            // Enforce order: start < end
+            if (rl.getDragging() === 'start' && otherEnd && timeStr >= otherEnd) {
+              // clamped
+            } else if (rl.getDragging() === 'end' && otherEnd && timeStr <= otherEnd) {
+              // clamped
+            } else {
+              if (rl.getDragging() === 'start') rl.setStartTime(timeStr);
+              else rl.setEndTime(timeStr);
+            }
+          }
+        }
+        // Update hovered state
+        if (param.point) {
+          const hit = rl.hitTest(param.point.x, param.point.y);
+          const newHovered = hit ? (hit.externalId === 'range-line-start' ? 'start' : 'end') : null;
+          if (newHovered !== rangeLineHoveredRef.current) {
+            rangeLineHoveredRef.current = newHovered;
+            rl.setHovered(newHovered);
+          }
+        }
+      }
+
       if (!param.time || !param.point) {
         clearCrosshairDetails();
         for (const pane of indicatorPanesRef.current.values()) {
@@ -299,6 +409,28 @@ export default function ChartContainer() {
 
     mainChartRef.current = chart;
 
+    const handleVisibleRangeChange = (range: IRange<number> | null) => {
+      if (visibleRangeTimerRef.current) {
+        clearTimeout(visibleRangeTimerRef.current);
+      }
+      visibleRangeTimerRef.current = setTimeout(() => {
+        const currentCandles = candlesRef.current;
+        if (!range || currentCandles.length === 0) {
+          setVisibleRange(null);
+          return;
+        }
+        const fromIdx = Math.max(0, Math.floor(range.from));
+        const toIdx = Math.min(currentCandles.length - 1, Math.ceil(range.to));
+        if (fromIdx <= toIdx) {
+          setVisibleRange({
+            from: currentCandles[fromIdx].time,
+            to: currentCandles[toIdx].time,
+          });
+        }
+      }, 150);
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
+
     const onResize = () => {
       if (mainChartRef.current && container.clientWidth && container.clientHeight) {
         mainChartRef.current.applyOptions({
@@ -320,6 +452,16 @@ export default function ChartContainer() {
 
     return () => {
       resizeObserver.disconnect();
+      if (visibleRangeTimerRef.current) clearTimeout(visibleRangeTimerRef.current);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
+      if (handleRangeMouseDown) {
+        container.removeEventListener('mousedown', handleRangeMouseDown, true);
+      }
+      setVisibleRange(null);
+      if (rangeLineRef.current) {
+        candleSeries.detachPrimitive(rangeLineRef.current);
+        rangeLineRef.current = null;
+      }
       for (const entry of indicatorPanesRef.current.values()) {
         entry.unsubscribeRange?.();
         entry.unsubscribeCrosshair?.();

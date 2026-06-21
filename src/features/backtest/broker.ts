@@ -82,6 +82,39 @@ function fillBuy(
 
   const minimumTradeAmount = config.minimumTradeAmount ?? 1;
 
+  // DCA uses the raw investment amount; skip the minimum trade constraint so
+  // small scheduled contributions are not blocked.
+  if (config.backtestMode === 'dca') {
+    let amount = Math.min(requestedSpend, maxSpend);
+    if (amount <= 0) {
+      return {
+        trade: createRejectedTrade(order, fillPrice, '定投金额不足'),
+        error: '现金不足',
+      };
+    }
+    let commission = Math.max(amount * config.commissionRate, config.minimumCommission);
+    if (amount + commission > cash) {
+      amount = cash - commission;
+      if (amount <= 0) {
+        return {
+          trade: createRejectedTrade(order, fillPrice, '扣除手续费后现金不足'),
+          error: '现金不足',
+        };
+      }
+      commission = Math.max(amount * config.commissionRate, config.minimumCommission);
+      if (amount + commission > cash) {
+        amount = cash - commission;
+      }
+    }
+    if (amount <= 0 || amount + commission > cash) {
+      return {
+        trade: createRejectedTrade(order, fillPrice, '扣除手续费后现金不足'),
+        error: '现金不足',
+      };
+    }
+    return createBuyFill(order, open, fillPrice, amount / fillPrice, amount, commission);
+  }
+
   // Index ETF orders use a monetary trading unit. Convert the rounded
   // order amount back to a fractional index/ETF quantity for valuation.
   const maxAmount = Math.floor(maxSpend / minimumTradeAmount) * minimumTradeAmount;

@@ -14,8 +14,8 @@ import { useStrategyStudioStore } from '@/stores/useStrategyStudioStore';
 import { explainStrategy } from '@/features/visualStrategies/explainer';
 import { validateDocument } from '@/features/visualStrategies/validator';
 import { INDICATOR_REGISTRY } from '@/features/indicators/registry';
+import { getRepository } from '@/api/useRepository';
 import {
-  getAllVisualStrategies,
   downloadStrategyFile,
   parseImportedStrategy,
 } from '@/db/visualStrategyRepository';
@@ -809,7 +809,7 @@ export default function StrategyStudioPage() {
   // Load last draft on mount
   useEffect(() => {
     const load = async () => {
-      const strategies = await getAllVisualStrategies();
+      const strategies = await getRepository().getAllVisualStrategies();
       if (strategies.length > 0) {
         useStrategyStudioStore.getState().loadStrategy(strategies[0].id);
       } else {

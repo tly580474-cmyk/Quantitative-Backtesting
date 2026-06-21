@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { List, Button, Popconfirm, Tag, Typography, Empty, Space, Input } from 'antd';
 import { DeleteOutlined, FolderOpenOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
-import { getDatasets, deleteDataset } from '@/db/marketDataRepository';
-import { getCandlesByDataset } from '@/db/marketDataRepository';
+import { getRepository } from '@/api/useRepository';
 import { useCandleStore } from '@/stores/useCandleStore';
 import type { MarketDataset } from '@/models';
 import { exportDatabaseToExcel } from '@/db/databaseExport';
+import MigrationPanel from '@/components/MigrationPanel';
 
 const { Text } = Typography;
 
@@ -20,7 +20,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
   const setImportResult = useCandleStore((s) => s.setImportResult);
 
   const refresh = async () => {
-    setDatasets(await getDatasets());
+    setDatasets(await getRepository().getDatasets());
   };
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
   }, []);
 
   const handleOpen = async (ds: MarketDataset) => {
-    const candles = await getCandlesByDataset(ds.id);
+    const candles = await getRepository().getCandlesByDataset(ds.id);
     setCandles(candles);
     setImportResult({
       success: true,
@@ -45,7 +45,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
   };
 
   const handleDelete = async (id: string) => {
-    await deleteDataset(id);
+    await getRepository().deleteDataset(id);
     await refresh();
   };
 
@@ -121,6 +121,9 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
           )}
         />
       )}
+      <div style={{ marginTop: 16 }}>
+        <MigrationPanel />
+      </div>
     </div>
   );
 }

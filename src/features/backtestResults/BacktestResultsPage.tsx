@@ -24,7 +24,7 @@ import EquityChart from './EquityChart';
 import TradeList from './TradeList';
 import type { BacktestResult } from '@/models';
 import type { Candle } from '@/models';
-import { getCandlesByDataset } from '@/db/marketDataRepository';
+import { getRepository } from '@/api/useRepository';
 import { normalizeBenchmark, normalizeDcaEquity, toEquitySeries } from './comparison';
 import type { SeriesMarker, Time } from 'lightweight-charts';
 
@@ -119,7 +119,7 @@ export default function BacktestResultsPage() {
     if (!showBenchmark || !detailResult) return;
     let active = true;
     setBenchmarkLoading(true);
-    getCandlesByDataset(detailResult.datasetSnapshot.id)
+    getRepository().getCandlesByDataset(detailResult.datasetSnapshot.id)
       .then((candles) => {
         if (active) setBenchmarkCandles(candles);
       })

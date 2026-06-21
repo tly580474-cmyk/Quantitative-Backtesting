@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
 const envSchema = z.object({
+  // Database
+  DB_HOST: z.string().default('127.0.0.1'),
+  DB_PORT: z.string().default('3306'),
+  DB_USER: z.string().default('root'),
+  DB_PASSWORD: z.string().default(''),
+  DB_NAME: z.string().default('quant_backtest'),
+
+  // AI Strategy
   AI_STRATEGY_ENABLED: z.enum(['true', 'false']).default('false'),
   OPENAI_API_KEY: z.string().default(''),
   OPENAI_BASE_URL: z.string().default('https://api.openai.com/v1'),
@@ -12,6 +20,5 @@ const envSchema = z.object({
 export type EnvConfig = z.infer<typeof envSchema>;
 
 export function loadConfig(): EnvConfig {
-  // dotenv populates process.env before this runs
   return envSchema.parse(process.env);
 }

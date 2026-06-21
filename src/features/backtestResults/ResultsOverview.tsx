@@ -1,4 +1,4 @@
-import { Card, Row, Col, Statistic, Typography } from 'antd';
+import { Card, Row, Col, Statistic, Typography, Tooltip } from 'antd';
 import type { BacktestMetrics } from '@/models';
 
 const { Text } = Typography;
@@ -44,11 +44,13 @@ export default function ResultsOverview({ metrics, name, color }: Props) {
           <Statistic title="夏普比率" value={num(metrics.sharpeRatio)} />
         </Col>
         <Col span={8}>
-          <Statistic
-            title="最大回撤"
-            value={pct(metrics.maxDrawdown)}
-            valueStyle={{ color: '#cf1322' }}
-          />
+          <Tooltip title="基于单位净值计算，剔除新增资金影响">
+            <Statistic
+              title="最大回撤"
+              value={pct(metrics.maxDrawdown)}
+              valueStyle={{ color: '#cf1322' }}
+            />
+          </Tooltip>
         </Col>
         <Col span={8}>
           <Statistic title="交易次数" value={metrics.tradeCount} />
@@ -73,6 +75,11 @@ export default function ResultsOverview({ metrics, name, color }: Props) {
             基准收益: {pct(metrics.benchmarkReturn)} | 超额收益: {pct(metrics.excessReturn)}
           </Text>
         </Col>
+        {metrics.metricsNote && (
+          <Col span={24}>
+            <Text type="secondary" style={{ fontSize: 12 }}>{metrics.metricsNote}</Text>
+          </Col>
+        )}
       </Row>
     </Card>
   );

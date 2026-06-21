@@ -135,6 +135,13 @@ export function calculateMetrics(
   // This is approximate — actual benchmark depends on the underlying
   const benchmarkReturn = totalReturn; // Placeholder; will be replaced with actual benchmark
 
+  let metricsNote: string | undefined;
+  if (equityCurve.length <= 1) {
+    metricsNote = '单期数据，年化指标不可计算';
+  } else if (netContributions <= 0) {
+    metricsNote = '累计投入为零，收益率不可计算';
+  }
+
   return {
     initialCapital: roundTo(initialCapital, 2),
     netContributions: roundTo(netContributions, 2),
@@ -161,5 +168,6 @@ export function calculateMetrics(
     ),
     benchmarkReturn: roundTo(benchmarkReturn, 6),
     excessReturn: roundTo(totalReturn - benchmarkReturn, 6),
+    ...(metricsNote ? { metricsNote } : {}),
   };
 }

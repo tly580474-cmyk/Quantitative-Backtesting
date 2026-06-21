@@ -1,6 +1,7 @@
 import { Modal, Form, Input, Alert } from 'antd';
 import { useCandleStore } from '@/stores/useCandleStore';
-import { saveDataset, computeChecksum, findDuplicateByChecksum } from '@/db/marketDataRepository';
+import { getRepository } from '@/api/useRepository';
+import { computeChecksum } from '@/db/marketDataRepository';
 import type { MarketDataset } from '@/models';
 
 interface Props {
@@ -16,14 +17,14 @@ export default function SaveDatasetModal({ open, onClose }: Props) {
   const handleOk = async () => {
     const values = await form.validateFields();
     const cs = computeChecksum(candles);
-    const existing = await findDuplicateByChecksum(cs);
+    const existing = await getRepository().findDuplicateByChecksum(cs);
 
     if (existing) {
       Modal.confirm({
         title: '数据集已存在',
         content: `检测到相同数据已保存为"${existing.name}"。是否覆盖？`,
         onOk: async () => {
-          await saveDataset(
+          await getRepository().saveDataset(
             {
               id: existing.id,
               name: values.name,
@@ -61,7 +62,7 @@ export default function SaveDatasetModal({ open, onClose }: Props) {
       updatedAt: now,
     };
 
-    await saveDataset(dataset, candles);
+    await getRepository().saveDataset(dataset, candles);
     onClose();
   };
 
