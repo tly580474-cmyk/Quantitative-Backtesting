@@ -53,6 +53,28 @@ function createBuyMarkers(trades: BacktestResult['trades']): SeriesMarker<Time>[
     }));
 }
 
+function createSellMarkers(trades: BacktestResult['trades']): SeriesMarker<Time>[] {
+  return trades
+    .filter((t) => t.side === 'sell' && t.quantity > 0)
+    .map((t) => ({
+      time: t.time as Time,
+      position: 'aboveBar' as const,
+      color: '#2B8A3E',
+      shape: 'arrowDown' as const,
+      text: '卖',
+      size: 2,
+    }));
+}
+
+function createTradeMarkers(trades: BacktestResult['trades']): SeriesMarker<Time>[] {
+  return [...createBuyMarkers(trades), ...createSellMarkers(trades)];
+}
+
+function normalizeStrategyEquity(points: BacktestResult['equityCurve'], initialCapital: number): Array<{ time: string; value: number }> {
+  if (initialCapital <= 0) return [];
+  return points.map((p) => ({ time: p.time, value: p.equity / initialCapital * 100 }));
+}
+
 export default function BacktestResultsPage() {
   const results = useBacktestStore((s) => s.results);
   const selectedIds = useBacktestStore((s) => s.selectedResultIds);
@@ -94,7 +116,7 @@ export default function BacktestResultsPage() {
   };
 
   useEffect(() => {
-    if (!showBenchmark || !detailResult || detailResult.config.backtestMode !== 'dca') return;
+    if (!showBenchmark || !detailResult) return;
     let active = true;
     setBenchmarkLoading(true);
     getCandlesByDataset(detailResult.datasetSnapshot.id)
@@ -220,37 +242,43 @@ export default function BacktestResultsPage() {
                 label: '权益曲线',
                 children: (
                   <Space direction="vertical" style={{ width: '100%' }} size={8}>
-                    {detailResult.config.backtestMode === 'dca' && (
-                      <div className="benchmark-toggle-row">
-                        <Space wrap>
-                          <Switch
-                            checked={showBenchmark}
-                            loading={benchmarkLoading}
-                            onChange={setShowBenchmark}
-                            aria-label="显示同期指数变化"
-                          />
-                          <Text>显示同期指数变化</Text>
-                          <Switch
-                            checked={showBuyMarkers}
-                            onChange={setShowBuyMarkers}
-                            aria-label="显示买点"
-                          />
-                          <Text>显示买点</Text>
-                          <Switch
-                            checked={showCostCurve}
-                            onChange={setShowCostCurve}
-                            aria-label="显示成本曲线"
-                          />
-                          <Text>显示成本曲线</Text>
-                          {showBenchmark && (
-                            <Text type="secondary">蓝线为当前权益 ÷ 累计投入 × 100，橙线为同期指数首日归一至 100</Text>
-                          )}
-                          {showBenchmark && !benchmarkLoading && benchmarkCandles.length === 0 && (
-                            <Text type="danger">原行情数据集不可用，暂时无法显示同期指数</Text>
-                          )}
-                        </Space>
-                      </div>
-                    )}
+                    <div className="benchmark-toggle-row">
+                      <Space wrap>
+                        <Switch
+                          checked={showBenchmark}
+                          loading={benchmarkLoading}
+                          onChange={setShowBenchmark}
+                          aria-label="显示同期指数变化"
+                        />
+                        <Text>显示同期指数变化</Text>
+                        <Switch
+                          checked={showBuyMarkers}
+                          onChange={setShowBuyMarkers}
+                          aria-label="显示买卖点"
+                        />
+                        <Text>显示买卖点</Text>
+                        {detailResult.config.backtestMode === 'dca' && (
+                          <>
+                            <Switch
+                              checked={showCostCurve}
+                              onChange={setShowCostCurve}
+                              aria-label="显示成本曲线"
+                            />
+                            <Text>显示成本曲线</Text>
+                          </>
+                        )}
+                        {showBenchmark && (
+                          <Text type="secondary">
+                            {detailResult.config.backtestMode === 'dca'
+                              ? '蓝线为当前权益 ÷ 累计投入 × 100，橙线为同期指数首日归一至 100'
+                              : '蓝线为策略权益归一至 100，橙线为同期指数首日归一至 100'}
+                          </Text>
+                        )}
+                        {showBenchmark && !benchmarkLoading && benchmarkCandles.length === 0 && (
+                          <Text type="danger">原行情数据集不可用，暂时无法显示同期指数</Text>
+                        )}
+                      </Space>
+                    </div>
                     <EquityChart
                       key={`${detailResult.id}-${showBenchmark ? 'b' : ''}${showCostCurve ? 'c' : ''}`}
                       height={350}
@@ -266,14 +294,21 @@ export default function BacktestResultsPage() {
                           dashed?: boolean;
                         }> = [];
 
-                        if (showBenchmark && detailResult.config.backtestMode === 'dca') {
+                        const isDCA = detailResult.config.backtestMode === 'dca';
+                        const markers = showBuyMarkers
+                          ? (isDCA ? createBuyMarkers(detailResult.trades) : createTradeMarkers(detailResult.trades))
+                          : undefined;
+
+                        if (showBenchmark) {
                           builtSeries.push({
                             id: `${detailResult.id}-normalized`,
-                            label: '定投累计收益',
+                            label: isDCA ? '定投累计收益' : '策略权益',
                             color: '#1677FF',
                             valueFormat: 'normalized',
-                            data: normalizeDcaEquity(detailResult.equityCurve),
-                            markers: showBuyMarkers ? createBuyMarkers(detailResult.trades) : undefined,
+                            data: isDCA
+                              ? normalizeDcaEquity(detailResult.equityCurve)
+                              : normalizeStrategyEquity(detailResult.equityCurve, detailResult.metrics.initialCapital),
+                            markers,
                           });
                           builtSeries.push({
                             id: `${detailResult.id}-benchmark`,
@@ -293,13 +328,11 @@ export default function BacktestResultsPage() {
                             color: '#1677FF',
                             valueFormat: 'currency',
                             data: toEquitySeries(detailResult.equityCurve),
-                            markers: detailResult.config.backtestMode === 'dca' && showBuyMarkers
-                              ? createBuyMarkers(detailResult.trades)
-                              : undefined,
+                            markers,
                           });
                         }
 
-                        if (showCostCurve && detailResult.config.backtestMode === 'dca') {
+                        if (showCostCurve && isDCA) {
                           const costData = detailResult.equityCurve
                             .filter((p) => (p.contributedCapital ?? 0) > 0)
                             .map((p) => ({
