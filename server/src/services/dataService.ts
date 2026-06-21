@@ -128,10 +128,19 @@ export async function createResult(
   result: typeof backtestResults.$inferInsert,
   equityRows: (typeof equityPoints.$inferInsert)[],
 ) {
+  // Equity points originate from BacktestResult.equityCurve, whose domain model
+  // deliberately has no persistence-only resultId field.  Attach the foreign
+  // key at the service boundary so both regular saves and migration imports are
+  // written atomically instead of failing the entire transaction on result_id.
+  const linkedEquityRows = equityRows.map((point) => ({
+    ...point,
+    resultId: result.id,
+  }));
+
   await getDb().transaction(async (tx) => {
     await tx.insert(backtestResults).values(result);
-    for (let i = 0; i < equityRows.length; i += CHUNK_SIZE) {
-      await tx.insert(equityPoints).values(equityRows.slice(i, i + CHUNK_SIZE));
+    for (let i = 0; i < linkedEquityRows.length; i += CHUNK_SIZE) {
+      await tx.insert(equityPoints).values(linkedEquityRows.slice(i, i + CHUNK_SIZE));
     }
   });
 }

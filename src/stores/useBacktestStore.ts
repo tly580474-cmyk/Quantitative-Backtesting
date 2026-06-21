@@ -69,14 +69,25 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   setVisualStrategyDocument: (doc) => set({ visualStrategyDocument: doc }),
 
   loadResults: async () => {
-    set({ results: await getRepository().getResults() });
+    try {
+      set({ results: await getRepository().getResults() });
+    } catch (err) {
+      console.error('加载回测结果失败:', err);
+    }
   },
 
   addResult: async (result) => {
-    await getRepository().saveResult(result, result.equityCurve);
     set((s) => ({
       results: [result, ...s.results],
     }));
+    try {
+      await getRepository().saveResult(result, result.equityCurve);
+    } catch (err) {
+      console.error('保存回测结果失败:', err);
+      set((s) => ({
+        results: s.results.filter((r) => r.id !== result.id),
+      }));
+    }
   },
 
   removeResult: async (id) => {

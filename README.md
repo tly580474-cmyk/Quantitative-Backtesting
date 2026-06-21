@@ -163,6 +163,7 @@ src/
 
 ## 设计与开发计划
 
+- [项目总览与完整业务流程](./PROJECT_OVERVIEW.md)
 - [一期开发计划](./PHASE1_PLAN.md)
 - [二期回测开发计划](./PHASE2_PLAN.md)
 - [三期可视化策略与 AI 生成开发计划](./PHASE3_PLAN.md)
