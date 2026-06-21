@@ -39,8 +39,21 @@ export interface BacktestProgress {
   message: string;
 }
 
-/** Number of bars to process before yielding to the event loop. */
 const YIELD_EVERY = 200;
+
+// ─── Bar-level mutable state ───────────────────────────────────────
+
+interface BacktestState {
+  portfolio: PortfolioState;
+  signals: StrategySignal[];
+  orders: Order[];
+  trades: Trade[];
+  equityCurve: EquityPoint[];
+  peakEquity: number;
+  pendingOrder: Order | null;
+}
+
+// ─── DCA helpers ───────────────────────────────────────────────────
 
 function isDcaDue(candles: Candle[], index: number, frequency: BacktestConfig['dca']['frequency']): boolean {
   if (frequency === 'daily' || index === 0) return true;
@@ -103,35 +116,27 @@ function executeDcaPurchase(
   trades: Trade[],
   investmentAmount: number,
 ): void {
-  const spendLimit = investmentAmount;
-  const quantity = config.tradingUnitMode === 'stock'
-    ? Math.floor(spendLimit / candle.close / 100) * 100
-    : Math.floor(spendLimit / (config.minimumTradeAmount ?? 1))
-      * (config.minimumTradeAmount ?? 1) / candle.close;
+  Object.assign(
+    portfolio,
+    applyCashContribution(portfolio, investmentAmount),
+  );
+
   const order: Order = {
     id: crypto.randomUUID(),
     signalTime: signal.time,
     executeTime: candle.time,
     side: 'buy',
     orderType: 'market',
-    quantity,
+    quantity: config.tradingUnitMode === 'stock'
+      ? Math.floor(investmentAmount / candle.close / 100) * 100
+      : Math.floor(investmentAmount / (config.minimumTradeAmount ?? 1))
+        * (config.minimumTradeAmount ?? 1) / candle.close,
     status: 'pending',
   };
-  if (quantity <= 0) {
+  if (order.quantity <= 0) {
     orders.push({ ...order, status: 'rejected', rejectReason: '现金不足' });
     return;
   }
-
-
-  const purchaseAmount = quantity * candle.close;
-  const commission = Math.max(
-    purchaseAmount * config.commissionRate,
-    config.minimumCommission,
-  );
-  Object.assign(
-    portfolio,
-    applyCashContribution(portfolio, purchaseAmount + commission),
-  );
 
   const result = fillOrder(
     order,
@@ -159,217 +164,268 @@ function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/**
- * Async backtest engine. Periodically yields to the event loop so
- * Web Worker cancellation messages can be processed between chunks.
- */
+// ─── Shared per-bar processing ─────────────────────────────────────
+
+function processBar(
+  i: number,
+  totalBars: number,
+  candles: Candle[],
+  state: BacktestState,
+  input: BacktestInput,
+): void {
+  const { config } = input;
+  const { strategy, strategyParams } = input;
+  const candle = candles[i];
+
+  // Step 1: Execute pending order at today's open
+  if (state.pendingOrder && config.backtestMode === 'strategy') {
+    const execTime = candle.time;
+    const orderWithTime = { ...state.pendingOrder, executeTime: execTime };
+
+    const result = fillOrder(
+      orderWithTime,
+      candle.open,
+      state.portfolio.cash,
+      state.portfolio.positionQuantity,
+      config,
+    );
+
+    if (result.trade.quantity > 0) {
+      Object.assign(state.portfolio, applyTrade(state.portfolio, result.trade));
+      state.trades.push(result.trade);
+      orderWithTime.status = 'filled';
+      state.orders.push(orderWithTime);
+    } else {
+      orderWithTime.status = 'rejected';
+      orderWithTime.rejectReason = result.error;
+      state.orders.push(orderWithTime);
+      state.trades.push(result.trade);
+    }
+
+    state.pendingOrder = null;
+  }
+
+  // Step 2: Generate signal
+  const position: PositionSnapshot = {
+    quantity: state.portfolio.positionQuantity,
+    avgCost: state.portfolio.avgCost,
+    entryTime: state.portfolio.entryTime ?? undefined,
+  };
+
+  const slicedCandles = candles.slice(0, i + 1);
+  const indicators: Record<string, readonly (number | null)[]> = {};
+
+  const context = {
+    index: i,
+    candles: slicedCandles,
+    indicators,
+    position,
+  };
+
+  const signal = config.backtestMode === 'dca'
+    ? createDcaSignal(candles, i, config)
+    : strategy!.evaluate(context, strategyParams);
+  state.signals.push(signal);
+
+  // Step 3: Create order from signal
+  if (config.backtestMode === 'dca' && signal.action === 'buy') {
+    executeDcaPurchase(
+      signal,
+      candle,
+      state.portfolio,
+      config,
+      state.orders,
+      state.trades,
+      i === 0 ? config.initialCapital : config.dca.amount,
+    );
+  } else if (signal.action !== 'hold' && i < totalBars - 1) {
+    const nextCandle = candles[i + 1];
+
+    if (signal.action === 'buy') {
+      if (state.portfolio.positionQuantity === 0) {
+        state.pendingOrder = createBuyOrder(signal, nextCandle, state.portfolio.cash, config);
+        if (!state.pendingOrder) {
+          state.orders.push({
+            id: crypto.randomUUID(),
+            signalTime: signal.time,
+            executeTime: nextCandle.time,
+            side: 'buy',
+            orderType: 'market',
+            quantity: 0,
+            status: 'rejected',
+            rejectReason: '现金不足',
+          });
+        }
+      } else {
+        state.orders.push({
+          id: crypto.randomUUID(),
+          signalTime: signal.time,
+          executeTime: nextCandle.time,
+          side: 'buy',
+          orderType: 'market',
+          quantity: 0,
+          status: 'cancelled',
+          rejectReason: '已有持仓',
+        });
+      }
+    } else if (signal.action === 'sell') {
+      if (state.portfolio.positionQuantity > 0) {
+        state.pendingOrder = {
+          id: crypto.randomUUID(),
+          signalTime: signal.time,
+          executeTime: '',
+          side: 'sell',
+          orderType: 'market',
+          quantity: state.portfolio.positionQuantity,
+          status: 'pending',
+        };
+      } else {
+        state.orders.push({
+          id: crypto.randomUUID(),
+          signalTime: signal.time,
+          executeTime: nextCandle.time,
+          side: 'sell',
+          orderType: 'market',
+          quantity: 0,
+          status: 'cancelled',
+          rejectReason: '无持仓',
+        });
+      }
+    }
+  } else if (config.backtestMode === 'strategy' && signal.action !== 'hold' && i === totalBars - 1) {
+    state.signals[state.signals.length - 1] = {
+      ...signal,
+      action: 'hold',
+      reason: '最后一根 K 线信号取消',
+    };
+  }
+
+  // Step 4: Daily equity snapshot
+  const point = createEquityPoint(candle.time, state.portfolio, candle.close, state.peakEquity);
+  if (point.equity > state.peakEquity) {
+    state.peakEquity = point.equity;
+  }
+  state.equityCurve.push(point);
+
+  // Step 5: Force close at end
+  if (i === totalBars - 1 && config.backtestMode === 'strategy' && config.forceCloseAtEnd && state.portfolio.positionQuantity > 0) {
+    state.pendingOrder = null;
+
+    const forceCloseTrade: Trade = {
+      id: crypto.randomUUID(),
+      orderId: 'force-close',
+      time: candle.time,
+      side: 'sell',
+      quantity: state.portfolio.positionQuantity,
+      rawPrice: candle.close,
+      fillPrice: candle.close,
+      commission: Math.max(
+        state.portfolio.positionQuantity * candle.close * config.commissionRate,
+        config.minimumCommission,
+      ),
+      tax: state.portfolio.positionQuantity * candle.close * config.sellTaxRate,
+      slippageCost: 0,
+      amount: state.portfolio.positionQuantity * candle.close,
+      forceClose: true,
+    };
+
+    Object.assign(state.portfolio, applyTrade(state.portfolio, forceCloseTrade));
+    state.trades.push(forceCloseTrade);
+
+    const forceCloseOrder: Order = {
+      id: 'force-close',
+      signalTime: candle.time,
+      executeTime: candle.time,
+      side: 'sell',
+      orderType: 'market',
+      quantity: forceCloseTrade.quantity,
+      status: 'filled',
+    };
+    state.orders.push(forceCloseOrder);
+
+    const finalPoint = createEquityPoint(candle.time, state.portfolio, candle.close, state.peakEquity);
+    state.equityCurve[state.equityCurve.length - 1] = finalPoint;
+  }
+}
+
+// ─── Result assembly ───────────────────────────────────────────────
+
+function buildResult(input: BacktestInput, state: BacktestState): BacktestResult {
+  const { candles, config, strategy, strategyParams, datasetId, datasetName, datasetChecksum, resultName } = input;
+
+  const metrics = calculateMetrics(state.equityCurve, state.trades, config.initialCapital);
+
+  if (candles.length > 0) {
+    const firstClose = candles[0].close;
+    const lastClose = candles[candles.length - 1].close;
+    if (firstClose > 0) {
+      metrics.benchmarkReturn = (lastClose - firstClose) / firstClose;
+      metrics.excessReturn = metrics.totalReturn - metrics.benchmarkReturn;
+    }
+  }
+
+  const now = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    name: resultName,
+    status: 'completed',
+    datasetSnapshot: {
+      id: datasetId,
+      name: datasetName,
+      symbol: candles[0]?.symbol ?? '',
+      startTime: candles[0]?.time ?? '',
+      endTime: candles[candles.length - 1]?.time ?? '',
+      checksum: datasetChecksum,
+    },
+    strategyId: config.backtestMode === 'dca' ? 'dca' : strategy!.id,
+    strategyVersion: config.backtestMode === 'dca' ? '1.0' : strategy!.version,
+    strategyParams: config.backtestMode === 'dca' ? {} : strategyParams,
+    config,
+    startedAt: now,
+    completedAt: now,
+    metrics,
+    signals: state.signals,
+    trades: state.trades,
+    equityCurve: state.equityCurve,
+  };
+}
+
+function createInitialState(input: BacktestInput): BacktestState {
+  return {
+    portfolio: createPortfolio(
+      input.config.backtestMode === 'dca' ? 0 : input.config.initialCapital,
+    ),
+    signals: [],
+    orders: [],
+    trades: [],
+    equityCurve: [],
+    peakEquity: input.config.initialCapital,
+    pendingOrder: null,
+  };
+}
+
+// ─── Public API ────────────────────────────────────────────────────
+
 export async function runBacktestAsync(
   input: BacktestInput,
   onProgress?: (progress: BacktestProgress) => void,
   isCancelled?: () => boolean,
 ): Promise<BacktestResult> {
-  const { candles, strategy, strategyParams, config, datasetId, datasetName, datasetChecksum, resultName } = input;
-  const totalBars = candles.length;
-
-  // Pre-flight validation
-  const errors = validateBacktestInput(candles, config);
+  const errors = validateBacktestInput(input.candles, input.config);
   if (errors.length > 0) {
     return createFailedResult(input, errors.map((e) => e.message).join('; '));
   }
 
-  const portfolio: PortfolioState = createPortfolio(
-    config.backtestMode === 'dca' ? 0 : config.initialCapital,
-  );
-  const signals: StrategySignal[] = [];
-  const orders: Order[] = [];
-  const trades: Trade[] = [];
-  const equityCurve: EquityPoint[] = [];
-  let peakEquity = config.initialCapital;
-
-  let pendingOrder: Order | null = null;
+  const state = createInitialState(input);
+  const totalBars = input.candles.length;
 
   for (let i = 0; i < totalBars; i++) {
-    // Yield every N bars so the event loop can process cancel messages
     if (i > 0 && i % YIELD_EVERY === 0) {
-      if (isCancelled?.()) {
-        return createCancelledResult(input);
-      }
+      if (isCancelled?.()) return createCancelledResult(input);
       await yieldToEventLoop();
     }
 
-    const candle = candles[i];
-
-    // --- Step 1: Execute pending order at today's open ---
-    if (pendingOrder && config.backtestMode === 'strategy') {
-      const execTime = candle.time;
-      const orderWithTime = { ...pendingOrder, executeTime: execTime };
-
-      const result = fillOrder(
-        orderWithTime,
-        candle.open,
-        portfolio.cash,
-        portfolio.positionQuantity,
-        config,
-      );
-
-      if (result.trade.quantity > 0) {
-        Object.assign(portfolio, applyTrade(portfolio, result.trade));
-        trades.push(result.trade);
-        orderWithTime.status = 'filled';
-        orders.push(orderWithTime);
-      } else {
-        orderWithTime.status = 'rejected';
-        orderWithTime.rejectReason = result.error;
-        orders.push(orderWithTime);
-        trades.push(result.trade);
-      }
-
-      pendingOrder = null;
-    }
-
-    // --- Step 2: Generate signal ---
-    const position: PositionSnapshot = {
-      quantity: portfolio.positionQuantity,
-      avgCost: portfolio.avgCost,
-      entryTime: portfolio.entryTime ?? undefined,
-    };
-
-    const slicedCandles = candles.slice(0, i + 1);
-    const indicators: Record<string, readonly (number | null)[]> = {};
-
-    const context = {
-      index: i,
-      candles: slicedCandles,
-      indicators,
-      position,
-    };
-
-    const signal = config.backtestMode === 'dca'
-      ? createDcaSignal(candles, i, config)
-      : strategy!.evaluate(context, strategyParams);
-    signals.push(signal);
-
-    // --- Step 3: Create order from signal ---
-    if (config.backtestMode === 'dca' && signal.action === 'buy') {
-      executeDcaPurchase(
-        signal,
-        candle,
-        portfolio,
-        config,
-        orders,
-        trades,
-        i === 0 ? config.initialCapital : config.dca.amount,
-      );
-    } else if (signal.action !== 'hold' && i < totalBars - 1) {
-      const nextCandle = candles[i + 1];
-
-      if (signal.action === 'buy') {
-        if (portfolio.positionQuantity === 0) {
-          pendingOrder = createBuyOrder(signal, nextCandle, portfolio.cash, config);
-          if (!pendingOrder) {
-            orders.push({
-              id: crypto.randomUUID(),
-              signalTime: signal.time,
-              executeTime: nextCandle.time,
-              side: 'buy',
-              orderType: 'market',
-              quantity: 0,
-              status: 'rejected',
-              rejectReason: '现金不足',
-            });
-          }
-        } else {
-          orders.push({
-            id: crypto.randomUUID(),
-            signalTime: signal.time,
-            executeTime: nextCandle.time,
-            side: 'buy',
-            orderType: 'market',
-            quantity: 0,
-            status: 'cancelled',
-            rejectReason: '已有持仓',
-          });
-        }
-      } else if (signal.action === 'sell') {
-        if (portfolio.positionQuantity > 0) {
-          pendingOrder = {
-            id: crypto.randomUUID(),
-            signalTime: signal.time,
-            executeTime: '',
-            side: 'sell',
-            orderType: 'market',
-            quantity: portfolio.positionQuantity,
-            status: 'pending',
-          };
-        } else {
-          orders.push({
-            id: crypto.randomUUID(),
-            signalTime: signal.time,
-            executeTime: nextCandle.time,
-            side: 'sell',
-            orderType: 'market',
-            quantity: 0,
-            status: 'cancelled',
-            rejectReason: '无持仓',
-          });
-        }
-      }
-    } else if (config.backtestMode === 'strategy' && signal.action !== 'hold' && i === totalBars - 1) {
-      signals[signals.length - 1] = {
-        ...signal,
-        action: 'hold',
-        reason: '最后一根 K 线信号取消',
-      };
-    }
-
-    // --- Step 4: Daily equity snapshot ---
-    const point = createEquityPoint(candle.time, portfolio, candle.close, peakEquity);
-    if (point.equity > peakEquity) {
-      peakEquity = point.equity;
-    }
-    equityCurve.push(point);
-
-    // --- Step 5: Force close at end ---
-    if (i === totalBars - 1 && config.backtestMode === 'strategy' && config.forceCloseAtEnd && portfolio.positionQuantity > 0) {
-      if (pendingOrder) {
-        pendingOrder = null;
-      }
-
-      const forceCloseTrade: Trade = {
-        id: crypto.randomUUID(),
-        orderId: 'force-close',
-        time: candle.time,
-        side: 'sell',
-        quantity: portfolio.positionQuantity,
-        rawPrice: candle.close,
-        fillPrice: candle.close,
-        commission: Math.max(
-          portfolio.positionQuantity * candle.close * config.commissionRate,
-          config.minimumCommission,
-        ),
-        tax: portfolio.positionQuantity * candle.close * config.sellTaxRate,
-        slippageCost: 0,
-        amount: portfolio.positionQuantity * candle.close,
-        forceClose: true,
-      };
-
-      Object.assign(portfolio, applyTrade(portfolio, forceCloseTrade));
-      trades.push(forceCloseTrade);
-
-      const forceCloseOrder: Order = {
-        id: 'force-close',
-        signalTime: candle.time,
-        executeTime: candle.time,
-        side: 'sell',
-        orderType: 'market',
-        quantity: forceCloseTrade.quantity,
-        status: 'filled',
-      };
-      orders.push(forceCloseOrder);
-
-      const finalPoint = createEquityPoint(candle.time, portfolio, candle.close, peakEquity);
-      equityCurve[equityCurve.length - 1] = finalPoint;
-    }
+    processBar(i, totalBars, input.candles, state, input);
 
     onProgress?.({
       current: i + 1,
@@ -378,239 +434,23 @@ export async function runBacktestAsync(
     });
   }
 
-  const metrics = calculateMetrics(equityCurve, trades, config.initialCapital);
-
-  if (candles.length > 0) {
-    const firstClose = candles[0].close;
-    const lastClose = candles[candles.length - 1].close;
-    if (firstClose > 0) {
-      metrics.benchmarkReturn = (lastClose - firstClose) / firstClose;
-      metrics.excessReturn = metrics.totalReturn - metrics.benchmarkReturn;
-    }
-  }
-
-  const now = new Date().toISOString();
-  return {
-    id: crypto.randomUUID(),
-    name: resultName,
-    status: 'completed',
-    datasetSnapshot: {
-      id: datasetId,
-      name: datasetName,
-      symbol: candles[0]?.symbol ?? '',
-      startTime: candles[0]?.time ?? '',
-      endTime: candles[candles.length - 1]?.time ?? '',
-      checksum: datasetChecksum,
-    },
-    strategyId: config.backtestMode === 'dca' ? 'dca' : strategy!.id,
-    strategyVersion: config.backtestMode === 'dca' ? '1.0' : strategy!.version,
-    strategyParams: config.backtestMode === 'dca' ? {} : strategyParams,
-    config,
-    startedAt: now,
-    completedAt: now,
-    metrics,
-    signals,
-    trades,
-    equityCurve,
-  };
+  return buildResult(input, state);
 }
 
-/**
- * Synchronous backtest — thin wrapper for tests and callers that
- * don't need event-loop yielding.
- */
 export function runBacktest(
   input: BacktestInput,
   onProgress?: (progress: BacktestProgress) => void,
 ): BacktestResult {
-  const { candles, strategy, strategyParams, config, datasetId, datasetName, datasetChecksum, resultName } = input;
-  const totalBars = candles.length;
-
-  const errors = validateBacktestInput(candles, config);
+  const errors = validateBacktestInput(input.candles, input.config);
   if (errors.length > 0) {
     return createFailedResult(input, errors.map((e) => e.message).join('; '));
   }
 
-  const portfolio: PortfolioState = createPortfolio(
-    config.backtestMode === 'dca' ? 0 : config.initialCapital,
-  );
-  const signals: StrategySignal[] = [];
-  const orders: Order[] = [];
-  const trades: Trade[] = [];
-  const equityCurve: EquityPoint[] = [];
-  let peakEquity = config.initialCapital;
-
-  let pendingOrder: Order | null = null;
+  const state = createInitialState(input);
+  const totalBars = input.candles.length;
 
   for (let i = 0; i < totalBars; i++) {
-    const candle = candles[i];
-
-    if (pendingOrder && config.backtestMode === 'strategy') {
-      const execTime = candle.time;
-      const orderWithTime = { ...pendingOrder, executeTime: execTime };
-
-      const result = fillOrder(
-        orderWithTime,
-        candle.open,
-        portfolio.cash,
-        portfolio.positionQuantity,
-        config,
-      );
-
-      if (result.trade.quantity > 0) {
-        Object.assign(portfolio, applyTrade(portfolio, result.trade));
-        trades.push(result.trade);
-        orderWithTime.status = 'filled';
-        orders.push(orderWithTime);
-      } else {
-        orderWithTime.status = 'rejected';
-        orderWithTime.rejectReason = result.error;
-        orders.push(orderWithTime);
-        trades.push(result.trade);
-      }
-
-      pendingOrder = null;
-    }
-
-    const position: PositionSnapshot = {
-      quantity: portfolio.positionQuantity,
-      avgCost: portfolio.avgCost,
-      entryTime: portfolio.entryTime ?? undefined,
-    };
-
-    const slicedCandles = candles.slice(0, i + 1);
-    const indicators: Record<string, readonly (number | null)[]> = {};
-
-    const context = {
-      index: i,
-      candles: slicedCandles,
-      indicators,
-      position,
-    };
-
-    const signal = config.backtestMode === 'dca'
-      ? createDcaSignal(candles, i, config)
-      : strategy!.evaluate(context, strategyParams);
-    signals.push(signal);
-
-    if (config.backtestMode === 'dca' && signal.action === 'buy') {
-      executeDcaPurchase(
-        signal,
-        candle,
-        portfolio,
-        config,
-        orders,
-        trades,
-        i === 0 ? config.initialCapital : config.dca.amount,
-      );
-    } else if (signal.action !== 'hold' && i < totalBars - 1) {
-      const nextCandle = candles[i + 1];
-
-      if (signal.action === 'buy') {
-        if (portfolio.positionQuantity === 0) {
-          pendingOrder = createBuyOrder(signal, nextCandle, portfolio.cash, config);
-          if (!pendingOrder) {
-            orders.push({
-              id: crypto.randomUUID(),
-              signalTime: signal.time,
-              executeTime: nextCandle.time,
-              side: 'buy',
-              orderType: 'market',
-              quantity: 0,
-              status: 'rejected',
-              rejectReason: '现金不足',
-            });
-          }
-        } else {
-          orders.push({
-            id: crypto.randomUUID(),
-            signalTime: signal.time,
-            executeTime: nextCandle.time,
-            side: 'buy',
-            orderType: 'market',
-            quantity: 0,
-            status: 'cancelled',
-            rejectReason: '已有持仓',
-          });
-        }
-      } else if (signal.action === 'sell') {
-        if (portfolio.positionQuantity > 0) {
-          pendingOrder = {
-            id: crypto.randomUUID(),
-            signalTime: signal.time,
-            executeTime: '',
-            side: 'sell',
-            orderType: 'market',
-            quantity: portfolio.positionQuantity,
-            status: 'pending',
-          };
-        } else {
-          orders.push({
-            id: crypto.randomUUID(),
-            signalTime: signal.time,
-            executeTime: nextCandle.time,
-            side: 'sell',
-            orderType: 'market',
-            quantity: 0,
-            status: 'cancelled',
-            rejectReason: '无持仓',
-          });
-        }
-      }
-    } else if (config.backtestMode === 'strategy' && signal.action !== 'hold' && i === totalBars - 1) {
-      signals[signals.length - 1] = {
-        ...signal,
-        action: 'hold',
-        reason: '最后一根 K 线信号取消',
-      };
-    }
-
-    const point = createEquityPoint(candle.time, portfolio, candle.close, peakEquity);
-    if (point.equity > peakEquity) {
-      peakEquity = point.equity;
-    }
-    equityCurve.push(point);
-
-    if (i === totalBars - 1 && config.backtestMode === 'strategy' && config.forceCloseAtEnd && portfolio.positionQuantity > 0) {
-      if (pendingOrder) {
-        pendingOrder = null;
-      }
-
-      const forceCloseTrade: Trade = {
-        id: crypto.randomUUID(),
-        orderId: 'force-close',
-        time: candle.time,
-        side: 'sell',
-        quantity: portfolio.positionQuantity,
-        rawPrice: candle.close,
-        fillPrice: candle.close,
-        commission: Math.max(
-          portfolio.positionQuantity * candle.close * config.commissionRate,
-          config.minimumCommission,
-        ),
-        tax: portfolio.positionQuantity * candle.close * config.sellTaxRate,
-        slippageCost: 0,
-        amount: portfolio.positionQuantity * candle.close,
-        forceClose: true,
-      };
-
-      Object.assign(portfolio, applyTrade(portfolio, forceCloseTrade));
-      trades.push(forceCloseTrade);
-
-      const forceCloseOrder: Order = {
-        id: 'force-close',
-        signalTime: candle.time,
-        executeTime: candle.time,
-        side: 'sell',
-        orderType: 'market',
-        quantity: forceCloseTrade.quantity,
-        status: 'filled',
-      };
-      orders.push(forceCloseOrder);
-
-      const finalPoint = createEquityPoint(candle.time, portfolio, candle.close, peakEquity);
-      equityCurve[equityCurve.length - 1] = finalPoint;
-    }
+    processBar(i, totalBars, input.candles, state, input);
 
     onProgress?.({
       current: i + 1,
@@ -619,42 +459,10 @@ export function runBacktest(
     });
   }
 
-  const metrics = calculateMetrics(equityCurve, trades, config.initialCapital);
-
-  if (candles.length > 0) {
-    const firstClose = candles[0].close;
-    const lastClose = candles[candles.length - 1].close;
-    if (firstClose > 0) {
-      metrics.benchmarkReturn = (lastClose - firstClose) / firstClose;
-      metrics.excessReturn = metrics.totalReturn - metrics.benchmarkReturn;
-    }
-  }
-
-  const now = new Date().toISOString();
-  return {
-    id: crypto.randomUUID(),
-    name: resultName,
-    status: 'completed',
-    datasetSnapshot: {
-      id: datasetId,
-      name: datasetName,
-      symbol: candles[0]?.symbol ?? '',
-      startTime: candles[0]?.time ?? '',
-      endTime: candles[candles.length - 1]?.time ?? '',
-      checksum: datasetChecksum,
-    },
-    strategyId: config.backtestMode === 'dca' ? 'dca' : strategy!.id,
-    strategyVersion: config.backtestMode === 'dca' ? '1.0' : strategy!.version,
-    strategyParams: config.backtestMode === 'dca' ? {} : strategyParams,
-    config,
-    startedAt: now,
-    completedAt: now,
-    metrics,
-    signals,
-    trades,
-    equityCurve,
-  };
+  return buildResult(input, state);
 }
+
+// ─── Error / cancelled result factories ────────────────────────────
 
 function createCancelledResult(input: BacktestInput): BacktestResult {
   const now = new Date().toISOString();

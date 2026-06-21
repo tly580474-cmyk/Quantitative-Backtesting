@@ -57,7 +57,7 @@ describe('Backtest Engine', () => {
     expect(result.trades.some((trade) => trade.side === 'sell')).toBe(false);
     expect(result.strategyId).toBe('dca');
     expect(result.strategyParams).toEqual({});
-    expect(result.metrics.netContributions).toBeCloseTo(103045, 2);
+    expect(result.metrics.netContributions).toBeCloseTo(103000, 2);
     expect(result.equityCurve[result.equityCurve.length - 1]?.positionQuantity).toBeGreaterThan(0);
   });
 

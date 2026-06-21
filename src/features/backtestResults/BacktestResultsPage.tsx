@@ -26,6 +26,7 @@ import type { BacktestResult } from '@/models';
 import type { Candle } from '@/models';
 import { getCandlesByDataset } from '@/db/marketDataRepository';
 import { normalizeBenchmark, normalizeDcaEquity, toEquitySeries } from './comparison';
+import type { SeriesMarker, Time } from 'lightweight-charts';
 
 const { Text } = Typography;
 
@@ -37,6 +38,19 @@ function comparisonColor(index: number): string {
 
 function contributionBase(result: BacktestResult): number {
   return result.metrics.netContributions ?? result.metrics.initialCapital;
+}
+
+function createBuyMarkers(trades: BacktestResult['trades']): SeriesMarker<Time>[] {
+  return trades
+    .filter((t) => t.side === 'buy' && t.quantity > 0)
+    .map((t) => ({
+      time: t.time as Time,
+      position: 'belowBar' as const,
+      color: '#E8590C',
+      shape: 'arrowUp' as const,
+      text: '买',
+      size: 2,
+    }));
 }
 
 export default function BacktestResultsPage() {
@@ -55,6 +69,8 @@ export default function BacktestResultsPage() {
   const [showBenchmark, setShowBenchmark] = useState(false);
   const [benchmarkCandles, setBenchmarkCandles] = useState<Candle[]>([]);
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
+  const [showBuyMarkers, setShowBuyMarkers] = useState(true);
+  const [showCostCurve, setShowCostCurve] = useState(false);
 
   useEffect(() => {
     loadResults();
@@ -73,6 +89,8 @@ export default function BacktestResultsPage() {
     setCompareMode(false);
     setShowBenchmark(false);
     setBenchmarkCandles([]);
+    setShowBuyMarkers(true);
+    setShowCostCurve(false);
   };
 
   useEffect(() => {
@@ -212,6 +230,18 @@ export default function BacktestResultsPage() {
                             aria-label="显示同期指数变化"
                           />
                           <Text>显示同期指数变化</Text>
+                          <Switch
+                            checked={showBuyMarkers}
+                            onChange={setShowBuyMarkers}
+                            aria-label="显示买点"
+                          />
+                          <Text>显示买点</Text>
+                          <Switch
+                            checked={showCostCurve}
+                            onChange={setShowCostCurve}
+                            aria-label="显示成本曲线"
+                          />
+                          <Text>显示成本曲线</Text>
                           {showBenchmark && (
                             <Text type="secondary">蓝线为当前权益 ÷ 累计投入 × 100，橙线为同期指数首日归一至 100</Text>
                           )}
@@ -222,37 +252,75 @@ export default function BacktestResultsPage() {
                       </div>
                     )}
                     <EquityChart
+                      key={`${detailResult.id}-${showBenchmark ? 'b' : ''}${showCostCurve ? 'c' : ''}`}
                       height={350}
-                      series={showBenchmark && detailResult.config.backtestMode === 'dca'
-                        ? [
-                            {
-                              id: `${detailResult.id}-normalized`,
-                              label: '定投累计收益',
-                              color: '#1677FF',
-                              valueFormat: 'normalized',
-                              data: normalizeDcaEquity(detailResult.equityCurve),
-                            },
-                            {
-                              id: `${detailResult.id}-benchmark`,
-                              label: `${detailResult.datasetSnapshot.symbol} 同期指数`,
-                              color: '#E8590C',
-                              valueFormat: 'normalized',
-                              data: normalizeBenchmark(
-                                benchmarkCandles,
-                                detailResult.datasetSnapshot.startTime,
-                                detailResult.datasetSnapshot.endTime,
-                              ),
-                            },
-                          ]
-                        : [
-                            {
-                              id: detailResult.id,
-                              label: detailResult.datasetSnapshot.name || detailResult.datasetSnapshot.symbol,
-                              color: '#1677FF',
+                      series={(() => {
+                        const builtSeries: Array<{
+                          id: string;
+                          label: string;
+                          color: string;
+                          valueFormat: 'currency' | 'normalized';
+                          data: Array<{ time: string; value: number; costBasis?: number }>;
+                          markers?: Array<SeriesMarker<Time>>;
+                          showChange?: boolean;
+                          dashed?: boolean;
+                        }> = [];
+
+                        if (showBenchmark && detailResult.config.backtestMode === 'dca') {
+                          builtSeries.push({
+                            id: `${detailResult.id}-normalized`,
+                            label: '定投累计收益',
+                            color: '#1677FF',
+                            valueFormat: 'normalized',
+                            data: normalizeDcaEquity(detailResult.equityCurve),
+                            markers: showBuyMarkers ? createBuyMarkers(detailResult.trades) : undefined,
+                          });
+                          builtSeries.push({
+                            id: `${detailResult.id}-benchmark`,
+                            label: `${detailResult.datasetSnapshot.symbol} 同期指数`,
+                            color: '#E8590C',
+                            valueFormat: 'normalized',
+                            data: normalizeBenchmark(
+                              benchmarkCandles,
+                              detailResult.datasetSnapshot.startTime,
+                              detailResult.datasetSnapshot.endTime,
+                            ),
+                          });
+                        } else {
+                          builtSeries.push({
+                            id: detailResult.id,
+                            label: detailResult.datasetSnapshot.name || detailResult.datasetSnapshot.symbol,
+                            color: '#1677FF',
+                            valueFormat: 'currency',
+                            data: toEquitySeries(detailResult.equityCurve),
+                            markers: detailResult.config.backtestMode === 'dca' && showBuyMarkers
+                              ? createBuyMarkers(detailResult.trades)
+                              : undefined,
+                          });
+                        }
+
+                        if (showCostCurve && detailResult.config.backtestMode === 'dca') {
+                          const costData = detailResult.equityCurve
+                            .filter((p) => (p.contributedCapital ?? 0) > 0)
+                            .map((p) => ({
+                              time: p.time,
+                              value: p.contributedCapital!,
+                            }));
+                          if (costData.length > 0) {
+                            builtSeries.push({
+                              id: `${detailResult.id}-cost`,
+                              label: '累计投入成本',
+                              color: '#2B8A3E',
                               valueFormat: 'currency',
-                              data: toEquitySeries(detailResult.equityCurve),
-                            },
-                          ]}
+                              data: costData,
+                              showChange: false,
+                              dashed: true,
+                            });
+                          }
+                        }
+
+                        return builtSeries;
+                      })()}
                     />
                   </Space>
                 ),

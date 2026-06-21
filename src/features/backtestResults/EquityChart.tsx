@@ -3,18 +3,24 @@ import {
   createChart,
   LineSeries,
   ColorType,
+  CrosshairMode,
+  createSeriesMarkers,
+  LineStyle,
   type IChartApi,
   type ISeriesApi,
   type LineData,
   type MouseEventParams,
   type Time,
-  CrosshairMode,
+  type SeriesMarker,
+  type ISeriesMarkersPluginApi,
 } from 'lightweight-charts';
 import { CHART_COLORS } from '@/features/chart/chartConfig';
 
 export interface EquitySeriesPoint {
   time: string;
   value: number;
+  /** Cumulative contributed capital at this point, used as cost basis for DCA return %. */
+  costBasis?: number;
 }
 
 interface SeriesData {
@@ -23,6 +29,11 @@ interface SeriesData {
   color: string;
   data: EquitySeriesPoint[];
   valueFormat?: 'currency' | 'normalized';
+  markers?: SeriesMarker<Time>[];
+  /** Whether to show percentage change in the tooltip. Defaults to true. */
+  showChange?: boolean;
+  /** Render the line as dashed. */
+  dashed?: boolean;
 }
 
 interface Props {
@@ -41,7 +52,10 @@ export default function EquityChart({ series, height = 300 }: Props) {
     color: string;
     initialEquity: number;
     valueFormat: 'currency' | 'normalized';
+    showChange: boolean;
   }>>(new Map());
+  const costBasisMapRef = useRef<Map<ISeriesApi<'Line'>, Map<string, number>>>(new Map());
+  const markerPluginsRef = useRef<Map<string, ISeriesMarkersPluginApi<Time>>>(new Map());
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -83,15 +97,20 @@ export default function EquityChart({ series, height = 300 }: Props) {
       for (const [lineSeries, meta] of seriesMetaRef.current) {
         const point = param.seriesData.get(lineSeries) as LineData<Time> | undefined;
         if (!point || typeof point.value !== 'number' || meta.initialEquity <= 0) continue;
-        const change = (point.value / meta.initialEquity - 1) * 100;
-        const changeClass = change > 0 ? 'is-positive' : change < 0 ? 'is-negative' : '';
+        const costBasisMap = costBasisMapRef.current.get(lineSeries);
+        const costBasis = costBasisMap?.get(String(param.time));
+        const baseline = costBasis ?? meta.initialEquity;
+        const change = meta.showChange ? (point.value / baseline - 1) * 100 : null;
+        const changeClass = change !== null
+          ? (change > 0 ? 'is-positive' : change < 0 ? 'is-negative' : '')
+          : '';
         rows.push(`
           <div class="equity-tooltip-row">
             <span class="equity-tooltip-label">
               <i style="background:${meta.color}"></i>${escapeHtml(meta.label)}
             </span>
             <span class="equity-tooltip-equity">${meta.valueFormat === 'currency' ? `¥${formatMoney(point.value)}` : point.value.toFixed(2)}</span>
-            <span class="equity-tooltip-change ${changeClass}">${formatPercent(change)}</span>
+            <span class="equity-tooltip-change ${changeClass}">${change !== null ? formatPercent(change) : ''}</span>
           </div>
         `);
       }
@@ -134,6 +153,11 @@ export default function EquityChart({ series, height = 300 }: Props) {
       chartRef.current = null;
       seriesRef.current.clear();
       seriesMetaRef.current.clear();
+      costBasisMapRef.current.clear();
+      for (const plugin of markerPluginsRef.current.values()) {
+        plugin.detach();
+      }
+      markerPluginsRef.current.clear();
     };
   }, [height]);
 
@@ -153,6 +177,7 @@ export default function EquityChart({ series, height = 300 }: Props) {
         lineSeries = chart.addSeries(LineSeries, {
           color: s.color,
           lineWidth: 1,
+          lineStyle: s.dashed ? LineStyle.Dashed : LineStyle.Solid,
           priceFormat: s.valueFormat === 'normalized'
             ? { type: 'custom', formatter: (value: number) => value.toFixed(2) }
             : { type: 'price', precision: 2, minMove: 0.01 },
@@ -167,19 +192,47 @@ export default function EquityChart({ series, height = 300 }: Props) {
           value: p.value,
         }));
       lineSeries.setData(data);
+
+      const existingMarker = markerPluginsRef.current.get(seriesId);
+      if (existingMarker) {
+        existingMarker.detach();
+        markerPluginsRef.current.delete(seriesId);
+      }
+      if (s.markers && s.markers.length > 0) {
+        const markerPlugin = createSeriesMarkers(lineSeries, s.markers);
+        markerPluginsRef.current.set(seriesId, markerPlugin);
+      }
+
+      const costBasisByTime = new Map<string, number>();
+      for (const pt of s.data) {
+        if (pt.costBasis !== undefined) {
+          costBasisByTime.set(pt.time, pt.costBasis);
+        }
+      }
+      if (costBasisByTime.size > 0) {
+        costBasisMapRef.current.set(lineSeries, costBasisByTime);
+      }
+
       seriesMetaRef.current.set(lineSeries, {
         label: s.label,
         color: s.color,
         initialEquity: s.data.find((point) => point.value > 0)?.value ?? 0,
         valueFormat: s.valueFormat ?? 'currency',
+        showChange: s.showChange ?? true,
       });
     }
 
     // Remove stale series
     for (const [seriesId, s] of seriesRef.current) {
       if (!activeLabels.has(seriesId)) {
+        const markerPlugin = markerPluginsRef.current.get(seriesId);
+        if (markerPlugin) {
+          markerPlugin.detach();
+          markerPluginsRef.current.delete(seriesId);
+        }
         chart.removeSeries(s);
         seriesMetaRef.current.delete(s);
+        costBasisMapRef.current.delete(s);
         seriesRef.current.delete(seriesId);
       }
     }

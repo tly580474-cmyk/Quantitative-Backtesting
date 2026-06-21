@@ -2,7 +2,11 @@ import type { Candle, EquityPoint } from '@/models';
 import type { EquitySeriesPoint } from './EquityChart';
 
 export function toEquitySeries(points: EquityPoint[]): EquitySeriesPoint[] {
-  return points.map((point) => ({ time: point.time, value: point.equity }));
+  return points.map((point) => ({
+    time: point.time,
+    value: point.equity,
+    costBasis: point.contributedCapital,
+  }));
 }
 
 export function normalizeDcaEquity(points: EquityPoint[]): EquitySeriesPoint[] {
