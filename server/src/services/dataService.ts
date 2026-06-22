@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { getDb, schema } from '../db/index.js';
 
 const {
@@ -109,10 +109,29 @@ export async function deleteStrategyConfig(id: string) {
 // ─── Backtest Results ────────────────────────────────────────────
 
 export async function listResults() {
-  return getDb()
-    .select()
+  // Avoid sorting rows containing large JSON payloads in MySQL's sort buffer.
+  // First sort only the indexed IDs, then fetch full rows in bounded chunks.
+  const orderedIds = await getDb()
+    .select({ id: backtestResults.id })
     .from(backtestResults)
     .orderBy(desc(backtestResults.startedAt));
+
+  if (orderedIds.length === 0) return [];
+
+  const rows: (typeof backtestResults.$inferSelect)[] = [];
+  for (let i = 0; i < orderedIds.length; i += CHUNK_SIZE) {
+    const ids = orderedIds.slice(i, i + CHUNK_SIZE).map(({ id }) => id);
+    rows.push(...await getDb()
+      .select()
+      .from(backtestResults)
+      .where(inArray(backtestResults.id, ids)));
+  }
+
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  return orderedIds.flatMap(({ id }) => {
+    const row = rowsById.get(id);
+    return row ? [row] : [];
+  });
 }
 
 export async function getResult(id: string) {
@@ -151,7 +170,9 @@ export async function deleteResult(id: string) {
 
 export async function bulkDeleteResults(ids: string[]) {
   if (ids.length === 0) return;
-  await getDb().delete(backtestResults).where(sql`${backtestResults.id} IN (${ids.join(',')})`);
+  await getDb()
+    .delete(backtestResults)
+    .where(inArray(backtestResults.id, ids));
 }
 
 export async function getEquityPoints(
