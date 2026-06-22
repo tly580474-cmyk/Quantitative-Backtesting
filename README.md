@@ -1,25 +1,64 @@
 # 量化行情分析与策略回测
 
-一个运行在浏览器本地的量化行情分析与策略回测应用。项目支持 Excel 行情导入、K 线与技术指标展示、本地数据持久化、策略信号生成、回测撮合和绩效分析。
+面向 A 股研究的浏览器端行情分析、数据管理、策略构建与回测应用。项目支持 Excel 行情导入、全市场自选股、实时行情、K 线与技术指标、机构研报、AI 调研、可视化策略、回测撮合和绩效分析。
 
-所有行情、策略配置和回测结果默认保存在浏览器的 IndexedDB 中，不会上传到服务器。
+> 本项目用于研究和学习，不构成投资建议。公开行情接口可能受网络状态、上游限流或接口调整影响。
 
-## 功能
+## 主要功能
 
 ### 行情分析
 
 - 导入 `.xlsx` 日频行情文件；
-- 自动映射中英文表头并校验日期、重复记录和 OHLC 数据；
-- 展示 K 线、成交量、十字光标和行情详情；
+- 自动映射中英文表头，校验日期、重复记录和 OHLC 数据；
+- 展示 K 线、成交量、十字光标和区间涨跌；
 - 支持 SMA、EMA、BOLL、MACD、RSI、KDJ、ATR、CCI、WR、OBV 和成交量均线；
-- 指标支持添加、隐藏、删除和参数调整。
+- 技术指标支持添加、隐藏、删除和参数调整。
 
 ### 数据管理
 
-- 将导入的行情保存到浏览器本地；
-- 按名称或标的查询数据集；
-- 打开或删除已经保存的数据集；
-- 通过数据校验和识别重复导入。
+- 将导入行情保存到 IndexedDB 或 MySQL；
+- 按名称、代码查询并打开数据集；
+- 通过校验和识别重复导入；
+- 支持数据迁移、导出及质量检查。
+
+### 市场数据
+
+- 按股票代码、简称或拼音搜索 5000+ A 股；
+- 使用自选股模式按需展示标的，不预加载全市场列表；
+- 展示实时价格、涨跌幅、开高低收、涨跌停、换手率、振幅、量比和成交额；
+- 展示 PE(TTM)、静态 PE、PB、总市值、流通市值、上市日期和所属行业；
+- 支持日 K、周 K、年 K 和前复权价格；
+- K 线叠加 MA5、MA10、MA20，并计算 RSI14、MACD；
+- 鼠标悬停时在图表右上角显示固定的半透明数据卡，包括 OHLC、涨跌、成交量和技术指标；
+- 机构研报支持分页、PDF 查看及独立刷新，刷新失败不会清空已有结果；
+- 自选股、当前股票、K 线周期、行情、研报和 Agent 结果会在页面切换时缓存，不会重复加载；
+- 页面支持桌面、平板和手机窗口，并提供独立纵向滚动区域。
+
+市场数据来源：
+
+| 数据 | 来源 | 说明 |
+| --- | --- | --- |
+| 实时行情、估值 | 腾讯财经 | GBK 行情接口，按需请求 |
+| 日/周/月线 | 腾讯财经 | 年 K 由长期月线聚合 |
+| 行业、上市日期 | 东方财富 | 串行限流，失败不影响腾讯行情 |
+| 个股研报、PDF | 东方财富 | 独立刷新，内置请求间隔 |
+
+### 调研 Agent
+
+- 复用策略工作室配置的 OpenAI 兼容模型、地址和密钥；
+- 自动整合实时行情、日 K、周 K 和机构研报；
+- 输出行情、估值、趋势、机构观点、风险和待验证项；
+- 报告使用 Markdown 渲染，支持标题、列表、表格、引用和代码样式；
+- 运行时展开调研过程摘要，完成后自动折叠；
+- 过程摘要只展示可审计的取数和分析步骤，不展示模型隐藏思维链；
+- 已生成的报告会在页面切换后保留。
+
+### 策略工作室
+
+- 使用自然语言生成策略 DSL；
+- 支持模型选择、策略修改、解释和结构校验；
+- 支持可视化策略节点编辑、校验、编译及信号预览；
+- AI 输出仅作为策略草稿，需经过预览和回测确认。
 
 ### 策略回测
 
@@ -30,62 +69,148 @@
 - MACD 金叉死叉；
 - BOLL 布林带回归。
 
-回测支持：
+回测能力：
 
 - 初始资金和仓位比例；
 - 手续费、最低手续费、卖出印花税和滑点；
-- 指数 ETF 按 1 元最小交易金额下单；
 - 收盘后生成信号，下一交易日开盘成交；
 - 期末强制平仓；
 - 买卖信号、成交记录和权益曲线；
 - 累计收益、年化收益、夏普比率、最大回撤、胜率和盈亏比；
-- 历史结果保存及最多三组结果对比。
+- 历史结果保存及多组结果对比。
+
+## 技术架构
+
+```text
+浏览器
+├── React + Ant Design 界面
+├── Lightweight Charts 图表
+├── IndexedDB 本地数据
+├── Zustand 页面/业务状态
+└── Web Worker 回测引擎
+        │
+        ▼
+Fastify 服务（localhost:3001）
+├── MySQL 持久化（可选）
+├── 腾讯/东方财富公开数据适配
+├── 市场数据限流与重试
+└── OpenAI 兼容 AI Provider
+```
+
+普通 Excel 导入和本地回测可以只使用浏览器。市场数据、MySQL 持久化和 AI 功能需要启动后端服务。
 
 ## 环境要求
 
 - Node.js `^20.19.0` 或 `>=22.12.0`；
 - npm；
-- 支持 IndexedDB 和 Web Worker 的现代浏览器。
+- 支持 IndexedDB、Web Worker 和现代 CSS 的浏览器；
+- MySQL 8.x（仅 API 持久化模式需要）。
 
 ## 快速开始
 
-安装依赖：
+### Windows 一键启动
 
-```bash
-npm install
-```
-
-启动开发服务器：
-
-```bash
-npm run dev
-```
-
-访问：
-
-```text
-http://localhost:5173/
-```
-
-Windows 用户也可以直接运行：
+双击：
 
 ```text
 start.bat
 ```
 
+脚本会：
+
+1. 安装缺失的前后端依赖；
+2. 检查 3001 端口上的后端版本；
+3. 自动替换缺少当前市场数据路由的旧后端进程；
+4. 启动后端 `http://localhost:3001`；
+5. 启动前端并打开 `http://localhost:5173`。
+
+### 手动启动
+
+安装前端依赖：
+
+```bash
+npm install
+```
+
+安装后端依赖：
+
+```bash
+cd server
+npm install
+cd ..
+```
+
+分别启动两个终端：
+
+```bash
+# 终端 1：后端
+cd server
+npm run dev
+
+# 终端 2：前端
+npm run dev
+```
+
+访问 `http://localhost:5173/`。
+
+## 配置
+
+### 前端配置
+
+复制 `.env.example` 为 `.env`：
+
+```dotenv
+# indexeddb：浏览器本地存储；api：后端/MySQL
+VITE_DATA_SOURCE=indexeddb
+VITE_API_URL=http://localhost:3001
+```
+
+### 后端与 AI 配置
+
+复制 `server/.env.example` 为 `server/.env`：
+
+```dotenv
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=quant_backtest
+
+AI_STRATEGY_ENABLED=true
+OPENAI_API_KEY=your-api-key
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=deepseek-v4-flash
+OPENAI_TIMEOUT_MS=60000
+
+PORT=3001
+```
+
+`OPENAI_BASE_URL` 支持 OpenAI、DeepSeek 及其他兼容 Chat Completions 的服务。密钥仅保存在后端环境变量中，不发送到浏览器。
+
 ## 使用流程
+
+### 使用公开市场数据
+
+1. 启动前端和后端；
+2. 打开“市场数据”；
+3. 搜索股票代码、简称或拼音并加入自选；
+4. 查看实时指标，切换日 K、周 K 或年 K；
+5. 将鼠标移到 K 线上查看对应日期和技术指标；
+6. 在“机构研报”中查看 PDF，网络失败时点击该卡片右上角“刷新”；
+7. 输入关注问题并运行调研 Agent。
+
+### 导入数据并回测
 
 1. 点击“导入 Excel”，选择本地日频行情文件；
 2. 检查导入结果和异常警告；
-3. 点击“保存到数据库”，将行情保存到浏览器本地；
-4. 在“数据管理”中打开已保存的数据集；
-5. 进入“策略回测”，选择策略并设置参数；
-6. 设置资金、费用、滑点和最小交易金额；
-7. 运行回测，在“回测结果”中查看绩效和交易明细。
+3. 保存数据集并在“数据管理”中打开；
+4. 进入“策略回测”，选择策略并设置参数；
+5. 设置资金、费用和滑点；
+6. 运行回测，在“回测结果”中查看绩效和交易明细。
 
 ## Excel 数据格式
 
-当前面向单工作表、单标的、日频行情。必填字段包括：
+当前面向单工作表、单标的、日频行情。必填字段：
 
 | 字段 | 说明 |
 | --- | --- |
@@ -96,34 +221,35 @@ start.bat
 | Low | 最低价 |
 | Close | 收盘价 |
 
-可选字段包括涨跌、涨跌幅、成交量、成交金额和样本数量。导入器兼容项目现有的中英文混合表头。
-
-示例行情文件 `000852perf (1).xlsx` 已加入 `.gitignore`，不会提交到 Git 仓库。
+可选字段包括涨跌、涨跌幅、成交量、成交金额和样本数量。导入器兼容中英文混合表头。
 
 ## 回测规则
 
 - 第 `T` 根 K 线只允许使用第 `T` 根及以前的数据；
 - 第 `T` 日收盘后生成信号，第 `T+1` 个交易日开盘撮合；
 - 买入金额按仓位比例计算，并按最小交易金额向下取整；
-- 指数 ETF 默认最小交易金额为 1 元，成交数量允许为小数；
 - 买入成交价加入正向滑点，卖出成交价扣除滑点；
 - 买入收取手续费，卖出收取手续费和印花税；
-- 页面中的回测结果仅供研究和学习，不构成投资建议。
+- 当前版本以日频、单标的、只做多回测为主。
 
 ## 常用命令
 
 ```bash
-# 开发服务器
+# 前端开发服务器
 npm run dev
 
-# 运行全部测试
-npm test
+# 前端生产构建与类型检查
+npm run build
 
-# 监听模式测试
+# 前端测试
+npm test
 npm run test:watch
 
-# 类型检查并构建生产版本
-npm run build
+# 后端开发服务器
+cd server && npm run dev
+
+# 后端类型检查
+cd server && npm run typecheck
 
 # 预览生产构建
 npm run preview
@@ -133,35 +259,67 @@ npm run preview
 
 ```text
 src/
-  components/              通用页面组件
-  db/                      IndexedDB 数据库及 Repository
+  api/                       前端 API 与 Repository
+  components/                通用页面组件
+  db/                        IndexedDB 数据库
   features/
-    import/                Excel 解析与行情校验
-    chart/                 K 线、成交量、指标和信号图表
-    indicators/            技术指标计算
-    dataLibrary/           本地行情数据管理
-    strategies/            策略协议及内置策略
-    backtest/              撮合、账户、指标和回测引擎
-    backtestResults/       回测报告和结果对比
-  models/                  TypeScript 业务模型
-  stores/                  Zustand 状态管理
-  workers/                 Web Worker 回测入口
-  utils/                   日期和数值工具
+    import/                  Excel 解析与行情校验
+    chart/                   行情分析图表
+    indicators/              技术指标计算
+    marketData/              自选股、实时行情、K线、研报和 Agent
+    dataLibrary/             数据集管理
+    strategies/              策略协议及内置策略
+    visualStrategies/        可视化策略编辑与编译
+    strategyStudio/          AI 策略工作室
+    backtest/                撮合、账户和回测引擎
+    backtestResults/         回测报告和结果对比
+  models/                    TypeScript 业务模型
+  stores/                    Zustand 状态管理
+  workers/                   Web Worker 回测入口
+
+server/src/
+  marketData/                数据源、标准化、缓存、同步和质量检查
+  routes/                    Fastify API 路由
+  services/                  AI 策略与股票调研服务
+  db/                        MySQL Schema 和迁移
 ```
 
 ## 技术栈
 
-- React 19 + TypeScript；
-- Vite；
+- React 19、TypeScript、Vite；
 - Ant Design；
 - TradingView Lightweight Charts；
-- Zustand；
-- Dexie / IndexedDB；
-- SheetJS；
-- Zod；
-- Vitest。
+- React Markdown / remark-gfm；
+- Zustand、Dexie / IndexedDB；
+- Fastify、Drizzle ORM、MySQL；
+- OpenAI 兼容 SDK；
+- SheetJS、Zod、Vitest。
 
-## 设计与开发计划
+## 故障排查
+
+### 市场数据接口返回 404
+
+通常是 3001 端口上仍运行着旧后端。重新运行 `start.bat`，脚本会检查 `/api/market-data/research-agent/status` 并替换旧进程。
+
+### 行情或 K 线首次加载失败
+
+- 点击行情卡片的“刷新行情”；
+- 检查后端是否运行在 `localhost:3001`；
+- 腾讯接口偶发网络抖动时稍后重试。
+
+### 机构研报为空
+
+- 点击“机构研报”卡片右上角“刷新”；
+- 东方财富存在频率控制，系统会串行请求并保留上次成功数据；
+- 避免短时间对大量股票连续刷新。
+
+### Agent 不可用
+
+- 检查 `server/.env` 中 `AI_STRATEGY_ENABLED=true`；
+- 检查 API Key、Base URL 和模型名称；
+- 模型调用可能超过 30 秒，市场调研接口使用更长的前端超时。
+
+## 相关文档
 
 - [项目总览与完整业务流程](./PROJECT_OVERVIEW.md)
 - [一期开发计划](./PHASE1_PLAN.md)
@@ -169,10 +327,14 @@ src/
 - [三期可视化策略与 AI 生成开发计划](./PHASE3_PLAN.md)
 - [3.5 阶段目标与验收](./PHASE3_5_PLAN.md)
 - [第四阶段参数研究与策略稳健性分析计划](./PHASE4_PLAN.md)
+- [第五阶段市场数据平台计划](./PHASE5_PLAN.md)
 
-## 数据说明
+## 数据与隐私说明
 
-- 浏览器缓存被清理后，本地行情和回测结果可能丢失；
-- 不同浏览器及不同域名下的 IndexedDB 数据互不共享；
-- 当前版本以日频、单标的、只做多回测为主；
-- 暂不模拟停牌、涨跌停、成交量限制、融资融券和实盘交易。
+- 默认 IndexedDB 模式下，导入行情和回测结果保存在当前浏览器；
+- 不同浏览器、域名和端口下的 IndexedDB 数据互不共享；
+- 自选股保存在浏览器 Local Storage；
+- AI 请求会将当前股票的公开行情、K线、研报元数据和用户问题发送到配置的模型服务；
+- API Key 仅由后端读取；
+- 清理浏览器缓存可能删除本地数据；
+- 暂不模拟停牌、涨跌停成交限制、成交量限制、融资融券和实盘交易。
