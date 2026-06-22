@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, desc, sql } from 'drizzle-orm';
+import { eq, and, gte, lte, desc, inArray, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import type {
   DailyCandle,
@@ -48,6 +48,20 @@ export async function getDailyCandles(
   ]);
 
   return { data: data as DailyCandle[], total: Number(countRow?.count ?? 0) };
+}
+
+export async function getInstrumentDataSummaries(instrumentIds: string[]) {
+  if (instrumentIds.length === 0) return [];
+  return getDb()
+    .select({
+      instrumentId: dailyCandles.instrumentId,
+      startDate: sql<string>`min(${dailyCandles.tradeDate})`,
+      endDate: sql<string>`max(${dailyCandles.tradeDate})`,
+      recordCount: sql<number>`count(*)`,
+    })
+    .from(dailyCandles)
+    .where(inArray(dailyCandles.instrumentId, instrumentIds))
+    .groupBy(dailyCandles.instrumentId);
 }
 
 export async function upsertDailyCandles(

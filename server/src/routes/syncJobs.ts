@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
 import {
-  createSyncJob, getSyncJob, listSyncJobs, getRunningJob,
+  createSyncJob, getSyncJob, getSyncJobItems, listSyncJobs, getRunningJob,
 } from '../marketData/repositories/syncJobRepository.js';
 import { executeSyncJob, cancelSyncJob } from '../marketData/jobs/syncExecutor.js';
 import { getActiveProvider, getProvider } from '../marketData/providers/providerRegistry.js';
@@ -270,7 +270,7 @@ export function registerSyncJobRoutes(app: FastifyInstance, dbOnline: boolean): 
     if (status) filters.status = status;
 
     const result = await listSyncJobs({ ...filters, offset, limit });
-    return reply.send(result);
+    return reply.send({ items: result.data, total: result.total });
   });
 
   // GET /api/sync/jobs/:id — Single job with items
@@ -281,7 +281,7 @@ export function registerSyncJobRoutes(app: FastifyInstance, dbOnline: boolean): 
         apiError(ErrorCodes.SYNC_JOB_NOT_FOUND, '同步任务不存在'),
       );
     }
-    return reply.send(job);
+    return reply.send({ ...job, items: await getSyncJobItems(job.id) });
   });
 
   // POST /api/sync/jobs/:id/cancel — Cancel a running job

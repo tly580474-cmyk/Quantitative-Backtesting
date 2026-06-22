@@ -71,7 +71,7 @@ async function main(): Promise<void> {
   const app = Fastify({ logger: true, bodyLimit: 104857600 }); // 100MB for data migration
 
   await app.register(cors, {
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type'],
   });
@@ -122,7 +122,13 @@ async function main(): Promise<void> {
   }
 
   registerInstrumentRoutes(app, dbOnline);
-  registerMarketDataRoutes(app, dbOnline);
+  registerMarketDataRoutes(app, dbOnline, {
+    apiKey: aiConfigured ? config.OPENAI_API_KEY : '',
+    baseURL: config.OPENAI_BASE_URL,
+    model: config.OPENAI_MODEL,
+    timeoutMs: parseInt(config.OPENAI_TIMEOUT_MS, 10),
+    availableModels: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+  });
   registerSyncJobRoutes(app, dbOnline);
   registerDataQualityRoutes(app, dbOnline);
 

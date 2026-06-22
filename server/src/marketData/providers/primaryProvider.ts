@@ -26,6 +26,12 @@ import type {
   AdjustmentRequest,
   AdjustmentFactor,
 } from './provider.js';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // ═══════════════════════════════════════════════════════════════════════
 // Seeded PRNG — simple linear congruential generator
@@ -66,28 +72,17 @@ interface MockInstrument {
   listDate: string;
 }
 
-const MOCK_INSTRUMENTS: MockInstrument[] = [
-  { symbol: '000001', name: '平安银行', market: 'SZ', type: 'stock', listDate: '1991-04-03' },
-  { symbol: '000333', name: '美的集团', market: 'SZ', type: 'stock', listDate: '2013-09-18' },
-  { symbol: '000725', name: '京东方A', market: 'SZ', type: 'stock', listDate: '2001-01-12' },
-  { symbol: '000858', name: '五粮液', market: 'SZ', type: 'stock', listDate: '1998-04-27' },
-  { symbol: '002142', name: '宁波银行', market: 'SZ', type: 'stock', listDate: '2007-07-19' },
-  { symbol: '002415', name: '海康威视', market: 'SZ', type: 'stock', listDate: '2010-05-28' },
-  { symbol: '002594', name: '比亚迪', market: 'SZ', type: 'stock', listDate: '2011-06-30' },
-  { symbol: '300059', name: '东方财富', market: 'SZ', type: 'stock', listDate: '2010-03-19' },
-  { symbol: '300124', name: '汇川技术', market: 'SZ', type: 'stock', listDate: '2010-09-28' },
-  { symbol: '300750', name: '宁德时代', market: 'SZ', type: 'stock', listDate: '2018-06-11' },
-  { symbol: '600030', name: '中信证券', market: 'SH', type: 'stock', listDate: '2003-01-06' },
-  { symbol: '600036', name: '招商银行', market: 'SH', type: 'stock', listDate: '2002-04-09' },
-  { symbol: '600276', name: '恒瑞医药', market: 'SH', type: 'stock', listDate: '2000-10-18' },
-  { symbol: '600519', name: '贵州茅台', market: 'SH', type: 'stock', listDate: '2001-08-27' },
-  { symbol: '600809', name: '山西汾酒', market: 'SH', type: 'stock', listDate: '1994-01-06' },
-  { symbol: '600887', name: '伊利股份', market: 'SH', type: 'stock', listDate: '1996-03-12' },
-  { symbol: '601012', name: '隆基绿能', market: 'SH', type: 'stock', listDate: '2012-04-11' },
-  { symbol: '601166', name: '兴业银行', market: 'SH', type: 'stock', listDate: '2007-02-05' },
-  { symbol: '601318', name: '中国平安', market: 'SH', type: 'stock', listDate: '2007-03-01' },
-  { symbol: '603259', name: '药明康德', market: 'SH', type: 'stock', listDate: '2018-05-08' },
-];
+function loadMockInstruments(): MockInstrument[] {
+  try {
+    const dataPath = resolve(__dirname, '..', 'data', 'instruments.json');
+    const raw = readFileSync(dataPath, 'utf-8');
+    return JSON.parse(raw) as MockInstrument[];
+  } catch {
+    return [];
+  }
+}
+
+const MOCK_INSTRUMENTS: MockInstrument[] = loadMockInstruments();
 
 // Base prices for the 5 instruments explicitly required by the spec.
 // Other instruments derive a base price from their symbol hash.

@@ -5,10 +5,13 @@ import {
   listInstruments, getInstrument, createInstrument,
 } from '../marketData/repositories/instrumentRepository.js';
 import type { Market, InstrumentType } from '../marketData/types.js';
+import { getInstrumentDataSummaries } from '../marketData/repositories/marketDataRepository.js';
+import { getOpenQualitySeverities } from '../marketData/repositories/dataQualityRepository.js';
 
 const listQuerySchema = z.object({
   market: z.string().optional(),
   symbol: z.string().optional(),
+  search: z.string().optional(),
   type: z.string().optional(),
   status: z.string().optional(),
   offset: z.coerce.number().int().min(0).default(0),
@@ -42,16 +45,41 @@ export function registerInstrumentRoutes(app: FastifyInstance, dbOnline: boolean
       );
     }
 
-    const { market, symbol, type, status, offset, limit } = parsed.data;
+    const { market, symbol, search, type, status, offset, limit } = parsed.data;
 
     const filters: Record<string, string> = {};
     if (market) filters.market = market;
     if (symbol) filters.symbol = symbol;
+    if (search) filters.search = search;
     if (type) filters.type = type;
     if (status) filters.status = status;
 
     const result = await listInstruments({ ...filters, offset, limit });
-    return reply.send(result);
+    const ids = result.data.map((instrument) => instrument.id);
+    const [summaries, severities] = await Promise.all([
+      getInstrumentDataSummaries(ids),
+      getOpenQualitySeverities(ids),
+    ]);
+    const summaryById = new Map(summaries.map((summary) => [summary.instrumentId, summary]));
+    const severityById = new Map<string, 'warning' | 'blocked'>();
+    for (const issue of severities) {
+      const current = severityById.get(issue.instrumentId);
+      if (issue.severity === 'blocked' || !current) {
+        severityById.set(issue.instrumentId, issue.severity as 'warning' | 'blocked');
+      }
+    }
+    const items = result.data.map((instrument) => {
+      const summary = summaryById.get(instrument.id);
+      return {
+        ...instrument,
+        startDate: summary?.startDate,
+        endDate: summary?.endDate,
+        qualityStatus: summary
+          ? (severityById.get(instrument.id) ?? 'pass')
+          : undefined,
+      };
+    });
+    return reply.send({ items, total: result.total });
   });
 
   // GET /api/instruments/:id — Single instrument

@@ -1,4 +1,4 @@
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, like, or, sql, type SQL } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import type { Instrument } from '../../marketData/types.js';
 
@@ -8,6 +8,7 @@ const CHUNK_SIZE = 500;
 interface ListFilters {
   market?: string;
   symbol?: string;
+  search?: string;
   type?: string;
   status?: string;
   offset?: number;
@@ -17,10 +18,17 @@ interface ListFilters {
 export async function listInstruments(
   filters?: ListFilters,
 ): Promise<{ data: Instrument[]; total: number }> {
-  const conditions: ReturnType<typeof eq>[] = [];
+  const conditions: SQL[] = [];
 
   if (filters?.market) conditions.push(eq(instruments.market, filters.market));
   if (filters?.symbol) conditions.push(eq(instruments.symbol, filters.symbol));
+  if (filters?.search) {
+    const keyword = `%${filters.search.trim()}%`;
+    conditions.push(or(
+      like(instruments.symbol, keyword),
+      like(instruments.name, keyword),
+    )!);
+  }
   if (filters?.type) conditions.push(eq(instruments.type, filters.type));
   if (filters?.status) conditions.push(eq(instruments.status, filters.status));
 

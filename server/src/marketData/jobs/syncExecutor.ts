@@ -8,6 +8,7 @@ import { ProviderError } from '../providers/provider.js';
 import { classifyError, calculateBackoff, shouldRetry } from './retryPolicy.js';
 import { validateCandleSet } from '../quality/validators.js';
 import { normalizeCandles } from '../normalization/candleNormalizer.js';
+import { listProviders } from '../providers/providerRegistry.js';
 
 import { listInstruments, upsertInstrument } from '../repositories/instrumentRepository.js';
 import { upsertCalendarEntries } from '../repositories/calendarRepository.js';
@@ -15,7 +16,9 @@ import { getDailyCandles, upsertDailyCandles } from '../repositories/marketDataR
 import {
   getSyncJob,
   updateSyncJobStatus,
+  updateSyncJobCounts,
   updateSyncJobItem,
+  createSyncJobItems,
   getSyncJobItems,
   getPendingItems,
 } from '../repositories/syncJobRepository.js';
@@ -143,6 +146,8 @@ export async function executeSyncJob(
       };
     }
 
+    await updateSyncJobCounts(job.id, totalProcessed, succeeded, failed);
+
     // A job with failed symbols must not masquerade as completed.
     await updateSyncJobStatus(
       job.id,
@@ -188,22 +193,36 @@ async function executeInstrumentsSync(
   const { market } = job.requestSnapshot;
   let cursor: string | undefined;
 
+  // Try the active provider first; if it returns empty, try others.
+  // Some providers (e.g. Tencent) only support single-symbol lookups.
+  let effectiveProvider = provider;
+  let firstPage = await provider.fetchInstruments({ market, cursor, pageSize: 100 });
+  if (firstPage.items.length === 0 && firstPage.hasMore === false) {
+    for (const fallback of listProviders()) {
+      if (fallback.id === provider.id) continue;
+      const page = await fallback.fetchInstruments({ market, cursor, pageSize: 100 });
+      if (page.items.length > 0 || page.hasMore) {
+        effectiveProvider = fallback;
+        firstPage = page;
+        break;
+      }
+    }
+  }
+
   do {
     if (await isJobCancelled(job.id)) {
       await skipRemainingItems(job.id);
       return;
     }
 
-    const page = await provider.fetchInstruments({
-      market,
-      cursor,
-      pageSize: 100,
-    });
+    const page = cursor
+      ? await effectiveProvider.fetchInstruments({ market, cursor, pageSize: 100 })
+      : firstPage;
 
     for (const item of page.items) {
       try {
         await upsertInstrument({
-          id: '', // repo generates UUID
+          id: crypto.randomUUID(),
           market: item.market as never,
           symbol: item.symbol,
           name: item.name,
@@ -292,6 +311,14 @@ async function executeHistorySync(
     }
 
     const symbol = targetSymbols[i];
+    const itemId = crypto.randomUUID();
+    await createSyncJobItems([{
+      id: itemId,
+      jobId: job.id,
+      instrumentId: symbol,
+      status: 'running',
+      attempts: 1,
+    }]);
     try {
       await processSymbolCandles(
         symbol,
@@ -300,9 +327,15 @@ async function executeHistorySync(
         job,
         provider,
       );
+      await updateSyncJobItem(itemId, { status: 'completed' });
       onSuccess();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      await updateSyncJobItem(itemId, {
+        status: 'failed',
+        errorCode: err instanceof ProviderError ? err.category : 'data_error',
+        errorMessage: message,
+      });
       onError({ symbol, error: message });
     }
     onProcessed();
@@ -435,7 +468,7 @@ async function processSymbolCandles(
   // Create quality issues for validation errors
   for (const err of validation.errors) {
     await createQualityIssue({
-      id: '',
+      id: crypto.randomUUID(),
       instrumentId,
       tradeDate: err.tradeDate,
       ruleCode: err.ruleCode,
@@ -449,7 +482,7 @@ async function processSymbolCandles(
   // Create quality issues for validation warnings
   for (const warn of validation.warnings) {
     await createQualityIssue({
-      id: '',
+      id: crypto.randomUUID(),
       instrumentId,
       tradeDate: warn.tradeDate,
       ruleCode: warn.ruleCode,
@@ -620,11 +653,7 @@ async function updateSyncJobProgress(jobId: string): Promise<void> {
   const failed = items.filter((i) => i.status === 'failed').length;
 
   if (job.completedItems !== completed || job.failedItems !== failed) {
-    // Repository's updateSyncJobStatus only exposes status transitions.
-    // Counter updates require a separate direct DB call. For now,
-    // counters are reconciled once at job completion via the status
-    // finalization. The items table is the source of truth for
-    // per-symbol progress.
+    await updateSyncJobCounts(jobId, job.totalItems, completed, failed);
   }
 }
 

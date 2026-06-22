@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import type { DataQualityIssue } from '../../marketData/types.js';
 
@@ -67,6 +67,20 @@ export async function listQualityIssues(
     data: data as DataQualityIssue[],
     total: Number(countRow?.count ?? 0),
   };
+}
+
+export async function getOpenQualitySeverities(instrumentIds: string[]) {
+  if (instrumentIds.length === 0) return [];
+  return getDb()
+    .select({
+      instrumentId: dataQualityIssues.instrumentId,
+      severity: dataQualityIssues.severity,
+    })
+    .from(dataQualityIssues)
+    .where(and(
+      inArray(dataQualityIssues.instrumentId, instrumentIds),
+      eq(dataQualityIssues.status, 'open'),
+    ));
 }
 
 export async function updateQualityIssue(

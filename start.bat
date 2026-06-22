@@ -33,9 +33,16 @@ if not exist "server\.env" (
     echo [INFO] App works with browser-only storage without backend config
 )
 
-:: Start backend
-echo [BE] Starting backend (localhost:3001)...
-start "Quant-Backend" cmd /c "cd /d server && npx tsx src/app.ts"
+:: Start backend. Reuse a current server, but replace a stale project server that
+:: still owns port 3001 and does not expose the market-data routes.
+powershell -NoProfile -Command "try { $r = Invoke-WebRequest -UseBasicParsing 'http://localhost:3001/api/market-data/research-agent/status' -TimeoutSec 2; if ($r.StatusCode -eq 200) { exit 0 } } catch {}; exit 1" >nul 2>nul
+if %ERRORLEVEL% EQU 0 (
+    echo [BE] Backend already running with current routes
+) else (
+    powershell -NoProfile -Command "$c = Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction SilentlyContinue; if ($c) { $p = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $c.OwningProcess); if ($p.Name -eq 'node.exe' -and $p.CommandLine -like '*server*src/app.ts*') { Stop-Process -Id $c.OwningProcess -Force; Start-Sleep -Milliseconds 500 } }" >nul 2>nul
+    echo [BE] Starting backend (localhost:3001)...
+    start "Quant-Backend" cmd /c "cd /d server && npx tsx src/app.ts"
+)
 
 :: Wait briefly for backend
 echo [INFO] Waiting for backend...

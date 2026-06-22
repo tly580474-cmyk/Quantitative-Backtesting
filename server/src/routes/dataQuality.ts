@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
-import { getInstrument } from '../marketData/repositories/instrumentRepository.js';
+import { getInstrument, listInstruments } from '../marketData/repositories/instrumentRepository.js';
 import {
   listQualityIssues, updateQualityIssue, createQualityIssue, deleteQualityIssuesByInstrument,
 } from '../marketData/repositories/dataQualityRepository.js';
@@ -22,7 +22,7 @@ const resolveBodySchema = z.object({
 });
 
 const recheckBodySchema = z.object({
-  instrumentId: z.string().min(1),
+  instrumentId: z.string().min(1).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
 });
@@ -112,7 +112,7 @@ export function registerDataQualityRoutes(app: FastifyInstance, dbOnline: boolea
     if (instrumentId) filters.instrumentId = instrumentId;
 
     const result = await listQualityIssues({ ...filters, offset, limit });
-    return reply.send(result);
+    return reply.send({ items: result.data, total: result.total });
   });
 
   // POST /api/data-quality/issues/:id/resolve — Update issue resolution
@@ -153,53 +153,42 @@ export function registerDataQualityRoutes(app: FastifyInstance, dbOnline: boolea
 
       const { instrumentId, startDate, endDate } = parsed.data;
 
-      // Verify instrument exists
-      const inst = await getInstrument(instrumentId);
-      if (!inst) {
+      const now = new Date().toISOString();
+      let newIssues = 0;
+      let totalChecked = 0;
+      const targets = instrumentId
+        ? [await getInstrument(instrumentId)].filter((item) => item != null)
+        : (await listInstruments({ offset: 0, limit: 100000 })).data;
+      if (instrumentId && targets.length === 0) {
         return reply.status(404).send(
           apiError(ErrorCodes.INSTRUMENT_NOT_FOUND, '交易标的不存在'),
         );
       }
 
-      // Fetch candles in the specified date range
-      const candleResult = await getDailyCandles(instrumentId, {
-        startDate,
-        endDate,
-        offset: 0,
-        limit: 10000,
-      });
-      const candles = candleResult.data as unknown as Record<string, unknown>[];
+      for (const instrument of targets) {
+        const candleResult = await getDailyCandles(instrument.id, {
+          startDate, endDate, offset: 0, limit: 10000,
+        });
+        const candles = candleResult.data as unknown as Record<string, unknown>[];
+        totalChecked += candles.length;
+        await deleteQualityIssuesByInstrument(instrument.id);
 
-      // Delete existing issues for this instrument so we can re-check cleanly
-      await deleteQualityIssuesByInstrument(instrumentId);
-
-      const now = new Date().toISOString();
-      let newIssues = 0;
-
-      // Run each quality rule against each candle
-      for (const candle of candles) {
-        for (const rule of QUALITY_RULES) {
-          const detail = rule.check(candle);
-          if (detail) {
+        for (const candle of candles) {
+          for (const rule of QUALITY_RULES) {
+            const detail = rule.check(candle);
+            if (!detail) continue;
             await createQualityIssue({
-              id: crypto.randomUUID(),
-              instrumentId,
-              tradeDate: (candle.tradeDate as string) || (candle.time as string) || '',
-              ruleCode: rule.code,
-              severity: rule.severity,
-              status: 'open' as const,
-              details: { message: detail },
-              detectedAt: now,
+              id: crypto.randomUUID(), instrumentId: instrument.id,
+              tradeDate: (candle.tradeDate as string) || '',
+              ruleCode: rule.code, severity: rule.severity, status: 'open',
+              details: { message: detail }, detectedAt: now,
             });
             newIssues++;
           }
         }
       }
 
-      return reply.send({
-        newIssues,
-        totalChecked: candles.length,
-      });
+      return reply.send({ newIssues, totalChecked, instrumentsChecked: targets.length });
     },
   );
 }

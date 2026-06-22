@@ -81,6 +81,18 @@ export async function updateSyncJobStatus(
     .where(eq(syncJobs.id, id));
 }
 
+export async function updateSyncJobCounts(
+  id: string,
+  totalItems: number,
+  completedItems: number,
+  failedItems: number,
+): Promise<void> {
+  await getDb()
+    .update(syncJobs)
+    .set({ totalItems, completedItems, failedItems })
+    .where(eq(syncJobs.id, id));
+}
+
 // ─── Sync Job Items ─────────────────────────────────────────────────
 
 export async function createSyncJobItems(
@@ -161,7 +173,7 @@ export async function getPendingItems(
 
 export async function getRunningJob(type?: string): Promise<SyncJob | null> {
   const conditions: ReturnType<typeof eq>[] = [
-    eq(syncJobs.status, 'running'),
+    sql`${syncJobs.status} IN ('pending', 'running')`,
   ];
 
   if (type) conditions.push(eq(syncJobs.jobType, type));
