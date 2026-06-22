@@ -26,6 +26,7 @@ import type { BacktestResult } from '@/models';
 import type { Candle } from '@/models';
 import { getRepository } from '@/api/useRepository';
 import { normalizeBenchmark, normalizeDcaEquity, toEquitySeries } from './comparison';
+import { createTradeMarkers } from './tradeMarkers';
 import type { SeriesMarker, Time } from 'lightweight-charts';
 
 const { Text } = Typography;
@@ -38,36 +39,6 @@ function comparisonColor(index: number): string {
 
 function contributionBase(result: BacktestResult): number {
   return result.metrics.netContributions ?? result.metrics.initialCapital;
-}
-
-function createBuyMarkers(trades: BacktestResult['trades']): SeriesMarker<Time>[] {
-  return trades
-    .filter((t) => t.side === 'buy' && t.quantity > 0)
-    .map((t) => ({
-      time: t.time as Time,
-      position: 'belowBar' as const,
-      color: '#E8590C',
-      shape: 'arrowUp' as const,
-      text: '买',
-      size: 2,
-    }));
-}
-
-function createSellMarkers(trades: BacktestResult['trades']): SeriesMarker<Time>[] {
-  return trades
-    .filter((t) => t.side === 'sell' && t.quantity > 0)
-    .map((t) => ({
-      time: t.time as Time,
-      position: 'aboveBar' as const,
-      color: '#2B8A3E',
-      shape: 'arrowDown' as const,
-      text: '卖',
-      size: 2,
-    }));
-}
-
-function createTradeMarkers(trades: BacktestResult['trades']): SeriesMarker<Time>[] {
-  return [...createBuyMarkers(trades), ...createSellMarkers(trades)];
 }
 
 function normalizeStrategyEquity(points: BacktestResult['equityCurve'], initialCapital: number): Array<{ time: string; value: number }> {
@@ -296,7 +267,7 @@ export default function BacktestResultsPage() {
 
                         const isDCA = detailResult.config.backtestMode === 'dca';
                         const markers = showBuyMarkers
-                          ? (isDCA ? createBuyMarkers(detailResult.trades) : createTradeMarkers(detailResult.trades))
+                          ? createTradeMarkers(detailResult.trades, isDCA ? ['buy'] : ['buy', 'sell'])
                           : undefined;
 
                         if (showBenchmark) {

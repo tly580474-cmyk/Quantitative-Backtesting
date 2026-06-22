@@ -34,7 +34,7 @@ export async function apiFetch<T>(
       ...fetchOptions,
       signal: controller.signal,
       headers: {
-        'Content-Type': 'application/json',
+        ...(fetchOptions.body != null ? { 'Content-Type': 'application/json' } : {}),
         ...fetchOptions.headers,
       },
     });
