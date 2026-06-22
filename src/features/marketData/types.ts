@@ -1,0 +1,61 @@
+export interface Instrument {
+  id: string;
+  market: string;
+  symbol: string;
+  name: string;
+  type: string;
+  listDate?: string;
+  delistDate?: string;
+  status: string;
+  startDate?: string;
+  endDate?: string;
+  qualityStatus?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DataFreshness {
+  totalInstruments: number;
+  syncedInstruments: number;
+  latestTradeDate: string | null;
+  pendingTradeDates: number;
+  failedSyncCount: number;
+  openIssueCount: number;
+}
+
+export interface SyncJob {
+  id: string;
+  jobType: string;
+  status: string;
+  providerId: string;
+  requestSnapshot: Record<string, unknown>;
+  totalItems: number;
+  completedItems: number;
+  failedItems: number;
+  startedAt?: string;
+  finishedAt?: string;
+  createdAt: string;
+  items?: SyncJobItem[];
+}
+
+export interface SyncJobItem {
+  id: string;
+  jobId: string;
+  instrumentId: string;
+  status: string;
+  attempts: number;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface DataQualityIssue {
+  id: string;
+  instrumentId: string;
+  tradeDate: string;
+  ruleCode: string;
+  severity: string;
+  status: string;
+  details?: Record<string, unknown>;
+  detectedAt: string;
+  resolvedAt?: string;
+}

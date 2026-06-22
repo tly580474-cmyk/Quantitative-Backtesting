@@ -133,3 +133,146 @@ export const strategyDrafts = mysqlTable('strategy_drafts', {
 }, (table) => ({
   strategyIdIdx: index('idx_sd_strategy_id').on(table.strategyId),
 }));
+
+// ─── Phase 5: instruments ─────────────────────────────────────────
+export const instruments = mysqlTable('instruments', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  market: varchar('market', { length: 16 }).notNull(),
+  symbol: varchar('symbol', { length: 20 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  type: varchar('type', { length: 32 }).notNull(),
+  listDate: varchar('list_date', { length: 10 }),
+  delistDate: varchar('delist_date', { length: 10 }),
+  status: varchar('status', { length: 16 }).notNull().default('active'),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+}, (table) => ({
+  marketSymbolTypeUnique: uniqueIndex('idx_inst_market_symbol_type').on(table.market, table.symbol, table.type),
+  statusIdx: index('idx_inst_status').on(table.status),
+  symbolIdx: index('idx_inst_symbol').on(table.symbol),
+}));
+
+// ─── Phase 5: provider_symbol_mappings ────────────────────────────
+export const providerSymbolMappings = mysqlTable('provider_symbol_mappings', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  providerId: varchar('provider_id', { length: 64 }).notNull(),
+  instrumentId: varchar('instrument_id', { length: 36 }).notNull(),
+  providerSymbol: varchar('provider_symbol', { length: 64 }).notNull(),
+}, (table) => ({
+  providerInstUnique: uniqueIndex('idx_psm_provider_inst').on(table.providerId, table.instrumentId),
+  providerSymbolIdx: index('idx_psm_provider_symbol').on(table.providerId, table.providerSymbol),
+  instrumentIdx: index('idx_psm_instrument').on(table.instrumentId),
+}));
+
+// ─── Phase 5: trading_calendar ────────────────────────────────────
+export const tradingCalendar = mysqlTable('trading_calendar', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  market: varchar('market', { length: 16 }).notNull(),
+  tradeDate: varchar('trade_date', { length: 10 }).notNull(),
+  isOpen: int('is_open').notNull().default(1),
+  sessionMetadata: json('session_metadata'),
+}, (table) => ({
+  marketDateUnique: uniqueIndex('idx_tcal_market_date').on(table.market, table.tradeDate),
+  dateIdx: index('idx_tcal_date').on(table.tradeDate),
+}));
+
+// ─── Phase 5: daily_candles ───────────────────────────────────────
+export const dailyCandles = mysqlTable('daily_candles', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  instrumentId: varchar('instrument_id', { length: 36 }).notNull(),
+  tradeDate: varchar('trade_date', { length: 10 }).notNull(),
+  open: double('open').notNull(),
+  high: double('high').notNull(),
+  low: double('low').notNull(),
+  close: double('close').notNull(),
+  volume: double('volume').notNull(),
+  turnover: double('turnover'),
+  sourceId: varchar('source_id', { length: 64 }).notNull(),
+  sourceVersion: varchar('source_version', { length: 32 }).notNull().default('1'),
+  fetchedAt: varchar('fetched_at', { length: 24 }).notNull(),
+}, (table) => ({
+  instDateSourceUnique: uniqueIndex('idx_dc_inst_date_src').on(table.instrumentId, table.tradeDate, table.sourceId),
+  instrumentIdx: index('idx_dc_instrument').on(table.instrumentId),
+  dateIdx: index('idx_dc_date').on(table.tradeDate),
+  sourceIdx: index('idx_dc_source').on(table.sourceId),
+}));
+
+// ─── Phase 5: adjustment_factors ──────────────────────────────────
+export const adjustmentFactors = mysqlTable('adjustment_factors', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  instrumentId: varchar('instrument_id', { length: 36 }).notNull(),
+  tradeDate: varchar('trade_date', { length: 10 }).notNull(),
+  factor: double('factor').notNull(),
+  sourceId: varchar('source_id', { length: 64 }).notNull(),
+  fetchedAt: varchar('fetched_at', { length: 24 }).notNull(),
+}, (table) => ({
+  instDateSourceUnique: uniqueIndex('idx_af_inst_date_src').on(table.instrumentId, table.tradeDate, table.sourceId),
+  instrumentIdx: index('idx_af_instrument').on(table.instrumentId),
+  dateIdx: index('idx_af_date').on(table.tradeDate),
+}));
+
+// ─── Phase 5: market_data_versions ────────────────────────────────
+export const marketDataVersions = mysqlTable('market_data_versions', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  instrumentId: varchar('instrument_id', { length: 36 }).notNull(),
+  startDate: varchar('start_date', { length: 10 }).notNull(),
+  endDate: varchar('end_date', { length: 10 }).notNull(),
+  checksum: varchar('checksum', { length: 64 }).notNull(),
+  adjustmentVersion: varchar('adjustment_version', { length: 16 }).notNull().default('1'),
+  qualityStatus: varchar('quality_status', { length: 16 }).notNull().default('pass'),
+  recordCount: int('record_count').notNull().default(0),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  instrumentIdx: index('idx_mdv_instrument').on(table.instrumentId),
+  qualityIdx: index('idx_mdv_quality').on(table.qualityStatus),
+  createdIdx: index('idx_mdv_created').on(table.createdAt),
+}));
+
+// ─── Phase 5: sync_jobs ───────────────────────────────────────────
+export const syncJobs = mysqlTable('sync_jobs', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  jobType: varchar('job_type', { length: 32 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('pending'),
+  providerId: varchar('provider_id', { length: 64 }).notNull(),
+  requestSnapshot: json('request_snapshot').notNull(),
+  totalItems: int('total_items').notNull().default(0),
+  completedItems: int('completed_items').notNull().default(0),
+  failedItems: int('failed_items').notNull().default(0),
+  startedAt: varchar('started_at', { length: 24 }),
+  finishedAt: varchar('finished_at', { length: 24 }),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  statusCreatedIdx: index('idx_sj_status_created').on(table.status, table.createdAt),
+  typeIdx: index('idx_sj_type').on(table.jobType),
+}));
+
+// ─── Phase 5: sync_job_items ──────────────────────────────────────
+export const syncJobItems = mysqlTable('sync_job_items', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  jobId: varchar('job_id', { length: 36 }).notNull(),
+  instrumentId: varchar('instrument_id', { length: 36 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('pending'),
+  attempts: int('attempts').notNull().default(0),
+  errorCode: varchar('error_code', { length: 32 }),
+  errorMessage: varchar('error_message', { length: 1000 }),
+}, (table) => ({
+  jobIdx: index('idx_sji_job').on(table.jobId),
+  statusIdx: index('idx_sji_status').on(table.status),
+}));
+
+// ─── Phase 5: data_quality_issues ─────────────────────────────────
+export const dataQualityIssues = mysqlTable('data_quality_issues', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  instrumentId: varchar('instrument_id', { length: 36 }).notNull(),
+  tradeDate: varchar('trade_date', { length: 10 }).notNull(),
+  ruleCode: varchar('rule_code', { length: 64 }).notNull(),
+  severity: varchar('severity', { length: 16 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('open'),
+  details: json('details'),
+  detectedAt: varchar('detected_at', { length: 24 }).notNull(),
+  resolvedAt: varchar('resolved_at', { length: 24 }),
+}, (table) => ({
+  statusSeverityIdx: index('idx_dqi_status_severity').on(table.status, table.severity, table.detectedAt),
+  instrumentIdx: index('idx_dqi_instrument').on(table.instrumentId),
+  dateIdx: index('idx_dqi_date').on(table.tradeDate),
+}));

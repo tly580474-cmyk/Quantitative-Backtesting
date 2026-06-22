@@ -12,9 +12,17 @@ import { registerResultRoutes } from './routes/results.js';
 import { registerVisualStrategyRoutes } from './routes/visualStrategies.js';
 import { registerMigrationRoutes } from './routes/migration.js';
 import { registerExportRoutes } from './routes/export.js';
+import { registerInstrumentRoutes } from './routes/instruments.js';
+import { registerMarketDataRoutes } from './routes/marketData.js';
+import { registerSyncJobRoutes } from './routes/syncJobs.js';
+import { registerDataQualityRoutes } from './routes/dataQuality.js';
 import { MockStrategyGenerationProvider } from './services/strategyGeneration/mockProvider.js';
 import { OpenAIStrategyGenerationProvider } from './services/strategyGeneration/openaiProvider.js';
 import type { StrategyGenerationProvider } from './services/strategyGeneration/provider.js';
+import { registerProvider } from './marketData/providers/providerRegistry.js';
+import { primaryProvider } from './marketData/providers/primaryProvider.js';
+import { tencentProvider } from './marketData/providers/tencentProvider.js';
+import { startScheduler } from './marketData/jobs/syncScheduler.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -93,9 +101,36 @@ async function main(): Promise<void> {
   registerMigrationRoutes(app, dbOnline);
   registerExportRoutes(app, dbOnline);
 
+  // Phase 5: Market data platform
+  if (dbOnline) {
+    const providers = [tencentProvider, primaryProvider]
+      .sort((a, b) => Number(b.id === config.MARKET_DATA_PROVIDER) - Number(a.id === config.MARKET_DATA_PROVIDER));
+    for (const marketProvider of providers) {
+      registerProvider(marketProvider);
+      console.log(`[MarketData] Registered provider: ${marketProvider.id}`);
+    }
+
+    if (config.MARKET_DATA_ENABLED === 'true' && config.MARKET_DATA_SYNC_TIME) {
+      startScheduler({
+        enabled: true,
+        dailySyncTime: config.MARKET_DATA_SYNC_TIME,
+        markets: ['SH', 'SZ'],
+        providerId: providers[0].id,
+      });
+      console.log(`[MarketData] Scheduler started, daily sync at ${config.MARKET_DATA_SYNC_TIME}`);
+    }
+  }
+
+  registerInstrumentRoutes(app, dbOnline);
+  registerMarketDataRoutes(app, dbOnline);
+  registerSyncJobRoutes(app, dbOnline);
+  registerDataQualityRoutes(app, dbOnline);
+
   // Graceful shutdown
   const shutdown = async () => {
     console.log('[Server] Shutting down...');
+    const { stopScheduler } = await import('./marketData/jobs/syncScheduler.js');
+    stopScheduler();
     await app.close();
     closeDb();
     await closePool(pool);

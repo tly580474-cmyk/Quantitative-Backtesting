@@ -48,9 +48,10 @@ export async function runMigrations(
     try {
       const sql = readFileSync(join(migrationsDir, file), 'utf-8');
       const statements = sql
+        .replace(/^\s*--.*$/gm, '')
         .split(';')
         .map((s) => s.trim())
-        .filter((s) => s.length > 0 && !s.startsWith('--'));
+        .filter((s) => s.length > 0);
 
       for (const stmt of statements) {
         await pool.execute(stmt);
