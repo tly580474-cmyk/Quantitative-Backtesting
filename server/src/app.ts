@@ -23,6 +23,7 @@ import { registerProvider } from './marketData/providers/providerRegistry.js';
 import { primaryProvider } from './marketData/providers/primaryProvider.js';
 import { tencentProvider } from './marketData/providers/tencentProvider.js';
 import { startScheduler } from './marketData/jobs/syncScheduler.js';
+import { startIndexDatasetScheduler } from './marketData/jobs/indexDatasetScheduler.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -119,6 +120,14 @@ async function main(): Promise<void> {
       });
       console.log(`[MarketData] Scheduler started, daily sync at ${config.MARKET_DATA_SYNC_TIME}`);
     }
+
+    if (config.MARKET_INDEX_AUTO_UPDATE_ENABLED === 'true') {
+      startIndexDatasetScheduler({
+        enabled: true,
+        cnUpdateTime: config.MARKET_CN_INDEX_UPDATE_TIME,
+        usUpdateTime: config.MARKET_US_INDEX_UPDATE_TIME,
+      }, tencentProvider);
+    }
   }
 
   registerInstrumentRoutes(app, dbOnline);
@@ -136,7 +145,9 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     console.log('[Server] Shutting down...');
     const { stopScheduler } = await import('./marketData/jobs/syncScheduler.js');
+    const { stopIndexDatasetScheduler } = await import('./marketData/jobs/indexDatasetScheduler.js');
     stopScheduler();
+    stopIndexDatasetScheduler();
     await app.close();
     closeDb();
     await closePool(pool);

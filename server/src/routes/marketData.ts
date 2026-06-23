@@ -13,6 +13,8 @@ import {
   fetchStockQuote,
   searchStocks,
 } from '../marketData/aStockDataService.js';
+import { tencentProvider } from '../marketData/providers/tencentProvider.js';
+import { updateIndexDatasets } from '../marketData/jobs/indexDatasetUpdater.js';
 import { StockResearchAgent } from '../services/stockResearchAgent.js';
 
 const candlesQuerySchema = z.object({
@@ -116,8 +118,23 @@ export function registerMarketDataRoutes(
     app.get('/api/instruments/:id/candles', stub);
     app.get('/api/market-data/freshness', stub);
     app.get('/api/market-data/providers', stub);
+    app.post('/api/market-data/index-datasets/update', stub);
     return;
   }
+
+  app.post('/api/market-data/index-datasets/update', async (req, reply) => {
+    const body = z.object({
+      group: z.enum(['cn-index', 'us-index']),
+      force: z.boolean().optional(),
+    }).safeParse(req.body ?? {});
+    if (!body.success) return reply.status(400).send({ message: '请指定 group: cn-index 或 us-index' });
+    try {
+      return reply.send(await updateIndexDatasets(body.data.group, tencentProvider, new Date(), { force: body.data.force }));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '指数数据集更新失败' });
+    }
+  });
 
   // GET /api/instruments/:id/candles — Daily candles for synced data
   app.get<{ Params: { id: string } }>(

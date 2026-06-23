@@ -21,6 +21,9 @@ const envSchema = z.object({
   MARKET_DATA_API_KEY: z.string().default(''),
   MARKET_DATA_BASE_URL: z.string().default(''),
   MARKET_DATA_SYNC_TIME: z.string().default('20:00'),
+  MARKET_INDEX_AUTO_UPDATE_ENABLED: z.enum(['true', 'false']).default('true'),
+  MARKET_CN_INDEX_UPDATE_TIME: z.string().default('15:05'),
+  MARKET_US_INDEX_UPDATE_TIME: z.string().default('05:00'),
 
   PORT: z.string().default('3001'),
 });

@@ -16,6 +16,7 @@ import { ProviderError } from './provider.js';
 const BASE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';
 const MAX_WINDOW_DAYS = 700;
 const MIN_REQUEST_INTERVAL_MS = 1800;
+const SH_INDEX_SYMBOLS = new Set(['000001', '000300', '000905', '000852', '000688', '000680']);
 
 type Adjustment = NonNullable<DailyCandleRequest['adjustment']>;
 
@@ -215,6 +216,7 @@ export function toTencentCode(symbol: string, market?: string): string {
     ? 'sh'
     : market?.toUpperCase() === 'SZ'
       ? 'sz'
+      : SH_INDEX_SYMBOLS.has(value) ? 'sh'
       : /^[569]/.test(value) ? 'sh' : 'sz';
   return `${prefix}${value}`;
 }
