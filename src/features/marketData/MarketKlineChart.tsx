@@ -16,6 +16,7 @@ interface IndicatorPoint {
 interface HoverPoint extends KlinePoint, IndicatorPoint {
   change: number | null;
   changePct: number | null;
+  side?: 'left' | 'right';
 }
 
 type IntradayIndicator = 'volumeRatio' | 'rsi14' | 'macd' | 'none';
@@ -168,16 +169,16 @@ export default function MarketKlineChart({ data, period, previousClose }: { data
     const times = data.map((item) => chartTime(item.date));
     const fixedRange = intradayRange(data[0].date);
     const baseOptions = {
-      layout: { background: { type: ColorType.Solid, color: '#0b1020' }, textColor: '#cbd5e1' },
-      grid: { vertLines: { color: '#263145' }, horzLines: { color: '#1f2937' } },
-      crosshair: { vertLine: { color: '#64748b', labelVisible: false }, horzLine: { color: '#64748b', labelVisible: false } },
+      layout: { background: { type: ColorType.Solid, color: '#fff' }, textColor: '#64748b' },
+      grid: { vertLines: { color: '#e8eef6' }, horzLines: { color: '#e8eef6' } },
+      crosshair: { vertLine: { color: '#94a3b8', labelVisible: false }, horzLine: { color: '#94a3b8', labelVisible: false } },
       localization: { timeFormatter: formatChinaTime },
-      rightPriceScale: { borderColor: '#1e293b' },
-      timeScale: { borderColor: '#1e293b', timeVisible: true, secondsVisible: false, rightOffset: 0, fixRightEdge: true, lockVisibleTimeRangeOnResize: true, tickMarkFormatter: formatChinaTime },
+      rightPriceScale: { borderColor: '#e2e8f0' },
+      timeScale: { borderColor: '#e2e8f0', timeVisible: true, secondsVisible: false, rightOffset: 0, fixRightEdge: true, lockVisibleTimeRangeOnResize: true, tickMarkFormatter: formatChinaTime },
       handleScale: false,
       handleScroll: false,
     } as const;
-    const priceChart = createChart(priceEl, { ...baseOptions, width: priceEl.clientWidth, height: priceEl.clientHeight, leftPriceScale: { visible: true, borderColor: '#1e293b' } });
+    const priceChart = createChart(priceEl, { ...baseOptions, width: priceEl.clientWidth, height: priceEl.clientHeight, leftPriceScale: { visible: true, borderColor: '#e2e8f0' } });
     const volumeChart = createChart(volumeEl, { ...baseOptions, width: volumeEl.clientWidth, height: volumeEl.clientHeight, timeScale: { ...baseOptions.timeScale, visible: false } });
     const indicatorChart = indicatorEl && subIndicator !== 'none'
       ? createChart(indicatorEl, { ...baseOptions, width: indicatorEl.clientWidth, height: indicatorEl.clientHeight })
@@ -188,7 +189,7 @@ export default function MarketKlineChart({ data, period, previousClose }: { data
     const avgLine = priceChart.addSeries(LineSeries, { color: '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
     avgLine.setData(avgPrices.map((value, index) => ({ time: times[index], value })));
     if (previousClose && Number.isFinite(previousClose)) {
-      const zeroLine = priceChart.addSeries(LineSeries, { color: '#475569', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+      const zeroLine = priceChart.addSeries(LineSeries, { color: '#cbd5e1', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
       zeroLine.setData(times.map((time) => ({ time, value: previousClose })));
     }
 
@@ -200,7 +201,7 @@ export default function MarketKlineChart({ data, period, previousClose }: { data
 
     if (indicatorChart) {
       if (subIndicator === 'volumeRatio') {
-        const ratio = indicatorChart.addSeries(LineSeries, { color: '#cbd5e1', lineWidth: 1, priceLineVisible: false });
+        const ratio = indicatorChart.addSeries(LineSeries, { color: '#64748b', lineWidth: 1, priceLineVisible: false });
         ratio.setData(volumeRatios.flatMap((value, index) => value == null ? [] : [{ time: times[index], value }]));
       } else if (subIndicator === 'rsi14') {
         const rsiLine = indicatorChart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 1, priceLineVisible: false });
@@ -229,6 +230,7 @@ export default function MarketKlineChart({ data, period, previousClose }: { data
       setHover({
         ...item, ...indicators[index], change,
         changePct: change != null && base ? change / base * 100 : null,
+        side: param.point.x > priceEl.clientWidth / 2 ? 'left' : 'right',
       });
     });
     if (fixedRange) {
@@ -355,7 +357,7 @@ export default function MarketKlineChart({ data, period, previousClose }: { data
         <div className="market-intraday-subchart-label">{subIndicator === 'volumeRatio' ? `量比 ${fmt(latestRatio)}` : subIndicator === 'rsi14' ? `RSI14 ${fmt(latest?.rsi14 ?? null)}` : `MACD ${fmt(latest?.macd ?? null)}`}</div>
         <div ref={intradayIndicatorRef} className="market-intraday-indicator" aria-label="分时技术指标副图" />
       </div>}
-      {hover && <div className="market-chart-tooltip market-intraday-tooltip" role="status">
+      {hover && <div className={`market-chart-tooltip market-intraday-tooltip is-${hover.side ?? 'right'}`} role="status">
         <strong>{hover.date}</strong>
         <dl>
           <dt>价格</dt><dd>{fmt(hover.close)}</dd>
