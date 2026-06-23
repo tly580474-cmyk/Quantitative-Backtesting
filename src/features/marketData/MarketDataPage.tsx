@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm';
 import { apiFetch } from '../../api/client';
 import MarketKlineChart from './MarketKlineChart';
 import { klineCacheKey, marketDataCache } from './marketDataCache';
-import type { AgentStatus, KlinePoint, ResearchReport, StockQuote, StockSearchItem } from './types';
+import type { AgentStatus, KlinePoint, MarketKlinePeriod, ResearchReport, StockQuote, StockSearchItem } from './types';
 
 const { Text, Title, Paragraph } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
@@ -61,7 +61,7 @@ export default function MarketDataPage() {
   const [searching, setSearching] = useState(false);
   const [quote, setQuote] = useState<StockQuote | null>(() => marketDataCache.quotes[marketDataCache.selectedCode ?? initial[0]?.code ?? '600519'] ?? null);
   const [quoteLoading, setQuoteLoading] = useState(false);
-  const [period, setPeriod] = useState<'day' | 'week' | 'year'>(marketDataCache.period);
+  const [period, setPeriod] = useState<MarketKlinePeriod>(marketDataCache.period);
   const [klines, setKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(marketDataCache.selectedCode ?? initial[0]?.code ?? '600519', marketDataCache.period)] ?? []);
   const [klineLoading, setKlineLoading] = useState(false);
   const [reports, setReports] = useState<ResearchReport[]>(() => marketDataCache.reports[marketDataCache.selectedCode ?? initial[0]?.code ?? '600519'] ?? []);
@@ -87,13 +87,18 @@ export default function MarketDataPage() {
     catch (e) { message.error(e instanceof Error ? e.message : '实时行情获取失败'); setQuote(null); }
     finally { setQuoteLoading(false); }
   }, [message]);
-  const loadKline = useCallback(async (code: string, nextPeriod: typeof period) => {
-    setKlineLoading(true);
+  const loadKline = useCallback(async (code: string, nextPeriod: MarketKlinePeriod, silent = false) => {
+    if (!silent) setKlineLoading(true);
     try {
       const data = await apiFetch<{ items: KlinePoint[] }>(`/api/market-data/stocks/${code}/kline?period=${nextPeriod}`);
       const next = data.items ?? []; marketDataCache.klines[klineCacheKey(code, nextPeriod)] = next; setKlines(next);
-    } catch (e) { message.error(e instanceof Error ? e.message : 'K 线获取失败'); setKlines([]); }
-    finally { setKlineLoading(false); }
+    } catch (e) {
+      if (!silent) {
+        message.error(e instanceof Error ? e.message : 'K 线获取失败');
+        setKlines([]);
+      }
+    }
+    finally { if (!silent) setKlineLoading(false); }
   }, [message]);
   const loadReports = useCallback(async (code: string) => {
     setReportsLoading(true);
@@ -125,6 +130,13 @@ export default function MarketDataPage() {
     if (marketDataCache.agentStatus) return;
     void apiFetch<AgentStatus>('/api/market-data/research-agent/status').then((s) => { marketDataCache.agentStatus = s; setAgentStatus(s); if (!marketDataCache.agentModel) setAgentModel(s.currentModel); }).catch(() => undefined);
   }, []);
+  useEffect(() => {
+    if (period !== 'intraday') return undefined;
+    const timer = window.setInterval(() => {
+      void loadKline(selectedCode, 'intraday', true);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [loadKline, period, selectedCode]);
 
   const search = (value: string) => {
     setSearchText(value);
@@ -158,7 +170,7 @@ export default function MarketDataPage() {
     finally { setAgentRunning(false); }
   };
 
-  const changePeriod = (nextPeriod: typeof period) => {
+  const changePeriod = (nextPeriod: MarketKlinePeriod) => {
     setPeriod(nextPeriod);
     const cached = marketDataCache.klines[klineCacheKey(selectedCode, nextPeriod)];
     if (cached) setKlines(cached);
@@ -185,7 +197,7 @@ export default function MarketDataPage() {
           {quote ? <><div className="market-quote-head"><div><Space align="baseline"><Title level={3}>{quote.name}</Title><Text type="secondary">{quote.code} · {quote.market}</Text></Space><Space wrap><Tag color="blue">{quote.industry || '行业待补充'}</Tag>{quote.source.map((s) => <Tag key={s}>{s}</Tag>)}</Space></div><div className="market-price-block"><span className={accent && `market-${accent}`}>{fmt(quote.price)}</span><Text className={accent && `market-${accent}`}>{fmt(quote.changeAmount)} / {fmt(quote.changePct)}%</Text></div><Button icon={<ReloadOutlined />} onClick={() => loadQuote(selectedCode)}>刷新行情</Button></div>
           <div className="market-metrics-grid"><Metric label="今开 / 最高 / 最低" value={`${fmt(quote.open)} / ${fmt(quote.high)} / ${fmt(quote.low)}`} /><Metric label="昨收 / 涨停 / 跌停" value={`${fmt(quote.previousClose)} / ${fmt(quote.limitUp)} / ${fmt(quote.limitDown)}`} /><Metric label="换手率" value={`${fmt(quote.turnoverPct)}%`} /><Metric label="振幅" value={`${fmt(quote.amplitudePct)}%`} /><Metric label="量比" value={fmt(quote.volumeRatio)} /><Metric label="成交额" value={amount(quote.amountWan)} /><Metric label="PE(TTM) / PE(静)" value={`${fmt(quote.peTtm)} / ${fmt(quote.peStatic)}`} /><Metric label="PB" value={fmt(quote.pb)} /><Metric label="总市值" value={`${fmt(quote.marketCapYi)} 亿`} /><Metric label="流通市值" value={`${fmt(quote.floatMarketCapYi)} 亿`} /><Metric label="上市日期" value={quote.listDate || '—'} /><Metric label="所属行业" value={quote.industry || '—'} /></div></> : <Empty description={`无法加载 ${selected?.name ?? selectedCode} 行情`} />}
         </Skeleton></Card>
-        <Card className="market-chart-card" variant="borderless" title={<Space wrap><span>价格走势</span><Tag color="gold">MA5/10/20</Tag><Tag color="blue">RSI14</Tag><Tag color="purple">MACD</Tag></Space>} extra={<Segmented value={period} onChange={(v) => changePeriod(v as typeof period)} options={[{ label: '日K', value: 'day' }, { label: '周K', value: 'week' }, { label: '年K', value: 'year' }]} />}><Spin spinning={klineLoading}><MarketKlineChart data={klines} /></Spin></Card>
+        <Card className="market-chart-card" variant="borderless" title={<Space wrap><span>价格走势</span><Tag color="gold">MA5/10/20</Tag><Tag color="blue">RSI14</Tag><Tag color="purple">MACD</Tag>{period === 'intraday' && <Tag color="cyan">5秒刷新</Tag>}</Space>} extra={<Segmented value={period} onChange={(v) => changePeriod(v as MarketKlinePeriod)} options={[{ label: '分时', value: 'intraday' }, { label: '日K', value: 'day' }, { label: '周K', value: 'week' }, { label: '年K', value: 'year' }]} />}><Spin spinning={klineLoading}><MarketKlineChart data={klines} period={period} previousClose={quote?.previousClose} /></Spin></Card>
         <div className="market-lower-grid">
           <Card className="market-reports-card" variant="borderless" title={<Space><FileSearchOutlined />机构研报</Space>} extra={<Space><Tag>{reports.length} 篇</Tag><Tooltip title="仅刷新机构研报"><Button size="small" icon={<ReloadOutlined />} loading={reportsLoading} onClick={() => loadReports(selectedCode)}>刷新</Button></Tooltip></Space>}><Table<ResearchReport> size="small" loading={reportsLoading} rowKey="infoCode" scroll={{ x: 560 }} pagination={{ pageSize: 6, hideOnSinglePage: true, responsive: true }} dataSource={reports} columns={[{ title: '日期', dataIndex: 'publishDate', width: 104 }, { title: '机构', dataIndex: 'organization', width: 100, ellipsis: true }, { title: '标题', dataIndex: 'title', width: 280, ellipsis: true, render: (title, row) => row.pdfUrl ? <a href={row.pdfUrl} target="_blank" rel="noreferrer">{title}</a> : title }, { title: '评级', dataIndex: 'rating', width: 76, render: (v) => v ? <Tag color="blue">{v}</Tag> : '—' }]} locale={{ emptyText: <Empty description="暂无机构研报，可点击右上角刷新" /> }} /></Card>
           <Card className="market-agent-card" variant="borderless" title={<Space><RobotOutlined />调研 Agent</Space>} extra={<Tag color={agentStatus?.configured ? 'green' : 'orange'}>{agentStatus?.configured ? agentStatus.currentModel : '待配置'}</Tag>}>

@@ -8,6 +8,7 @@ import { listProviders } from '../marketData/providers/providerRegistry.js';
 import { getInstrument } from '../marketData/repositories/instrumentRepository.js';
 import {
   fetchResearchReports,
+  fetchStockIntraday,
   fetchStockKline,
   fetchStockQuote,
   searchStocks,
@@ -62,10 +63,13 @@ export function registerMarketDataRoutes(
   });
 
   app.get<{ Params: { code: string } }>('/api/market-data/stocks/:code/kline', async (req, reply) => {
-    const query = z.object({ period: z.enum(['day', 'week', 'year']).default('day') }).safeParse(req.query);
+    const query = z.object({ period: z.enum(['intraday', 'day', 'week', 'year']).default('day') }).safeParse(req.query);
     if (!query.success) return reply.status(400).send({ message: '不支持的 K 线周期' });
     try {
-      return reply.send({ period: query.data.period, items: await fetchStockKline(req.params.code, query.data.period) });
+      const items = query.data.period === 'intraday'
+        ? await fetchStockIntraday(req.params.code)
+        : await fetchStockKline(req.params.code, query.data.period);
+      return reply.send({ period: query.data.period, items });
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : 'K 线获取失败' });
     }

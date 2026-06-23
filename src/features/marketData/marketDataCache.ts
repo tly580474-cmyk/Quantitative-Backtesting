@@ -1,4 +1,4 @@
-import type { AgentStatus, KlinePoint, ResearchReport, StockQuote, StockSearchItem } from './types';
+import type { AgentStatus, KlinePoint, MarketKlinePeriod, ResearchReport, StockQuote, StockSearchItem } from './types';
 
 interface AgentResultCache {
   content: string;
@@ -8,7 +8,7 @@ interface AgentResultCache {
 interface MarketDataPageCache {
   watchlist?: StockSearchItem[];
   selectedCode?: string;
-  period: 'day' | 'week' | 'year';
+  period: MarketKlinePeriod;
   quotes: Record<string, StockQuote>;
   klines: Record<string, KlinePoint[]>;
   reports: Record<string, ResearchReport[]>;

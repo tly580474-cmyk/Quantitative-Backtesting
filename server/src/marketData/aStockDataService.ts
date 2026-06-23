@@ -1,5 +1,6 @@
 const TENCENT_QUOTE_URL = 'https://qt.gtimg.cn/q=';
 const TENCENT_KLINE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';
+const TENCENT_MINUTE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/minute/query';
 const TENCENT_SEARCH_URL = 'https://smartbox.gtimg.cn/s3/';
 const EASTMONEY_REPORT_URL = 'https://reportapi.eastmoney.com/report/list';
 const EASTMONEY_INFO_URL = 'https://push2.eastmoney.com/api/qt/stock/get';
@@ -48,6 +49,8 @@ export interface KlinePoint {
   low: number;
   volume: number;
 }
+
+export type StockKlinePeriod = 'intraday' | 'day' | 'week' | 'year';
 
 export interface ResearchReport {
   title: string;
@@ -269,6 +272,54 @@ export async function fetchStockKline(input: string, period: 'day' | 'week' | 'y
     }
   }
   return Array.from(grouped.values()).slice(-30);
+}
+
+export async function fetchStockIntraday(input: string): Promise<KlinePoint[]> {
+  const code = normalizeCode(input);
+  const prefixed = prefixOf(code);
+  const params = new URLSearchParams({
+    code: prefixed,
+    r: Math.random().toString(),
+  });
+  const response = await fetchWithRetry(`${TENCENT_MINUTE_URL}?${params.toString()}`, {
+    headers: { ...BROWSER_HEADERS, Referer: 'https://stock.qq.com/' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) throw new Error(`腾讯分时接口 HTTP ${response.status}`);
+  const payload = await response.json() as {
+    data?: Record<string, {
+      data?: { date?: string; data?: string[] };
+      qt?: Record<string, string[]>;
+    }>;
+  };
+  const node = payload.data?.[prefixed];
+  const rows = node?.data?.data ?? [];
+  const tradeDate = String(node?.data?.date ?? new Date().toISOString().slice(0, 10).replaceAll('-', ''));
+  const datePrefix = /^\d{8}$/.test(tradeDate)
+    ? `${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6, 8)}`
+    : new Date().toISOString().slice(0, 10);
+
+  let previousVolume = 0;
+  return rows.flatMap((row) => {
+    const fields = row.trim().split(/\s+/);
+    if (fields.length < 2) return [];
+    const rawTime = fields[0];
+    const price = Number(fields[1]);
+    const rawVolume = Number(fields[2] ?? 0);
+    if (!/^\d{4}$/.test(rawTime) || !Number.isFinite(price)) return [];
+    const cumulativeVolume = Number.isFinite(rawVolume) ? rawVolume : 0;
+    const volume = Math.max(0, cumulativeVolume - previousVolume);
+    previousVolume = cumulativeVolume;
+    const time = `${datePrefix} ${rawTime.slice(0, 2)}:${rawTime.slice(2, 4)}`;
+    return [{
+      date: time,
+      open: price,
+      high: price,
+      low: price,
+      close: price,
+      volume,
+    }];
+  });
 }
 
 export async function fetchResearchReports(input: string, limit = 20): Promise<ResearchReport[]> {

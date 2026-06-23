@@ -101,6 +101,8 @@ export interface KlinePoint {
   volume: number;
 }
 
+export type MarketKlinePeriod = 'intraday' | 'day' | 'week' | 'year';
+
 export interface ResearchReport {
   title: string;
   publishDate: string;
