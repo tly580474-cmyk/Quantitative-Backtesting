@@ -1,6 +1,8 @@
 import * as XLSX from 'xlsx';
 import { db } from './database';
 import type { BacktestResult } from '@/models';
+import { DATA_SOURCE } from '@/api/config';
+import { apiFetch } from '@/api/client';
 
 type CellValue = string | number | boolean | null;
 type TableRow = Record<string, CellValue>;
@@ -9,6 +11,40 @@ interface ExportTable {
   name: string;
   rows: TableRow[];
   headers?: string[];
+}
+
+interface ApiExportPayload {
+  datasets: unknown[];
+  candlesByDataset: Record<string, unknown[]>;
+  results: BacktestResult[];
+  equityByResult: Record<string, unknown[]>;
+  configs: unknown[];
+  strategies: Array<{
+    id: string;
+    name: string;
+    status: string;
+    document: {
+      schemaVersion?: string;
+      strategyVersion?: string | number;
+      name?: string;
+      metadata?: { source?: string };
+    };
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  versionsByStrategy: Record<string, Array<{
+    id: string;
+    strategyId: string;
+    version: number;
+    document: { name?: string };
+    createdAt: string;
+  }>>;
+  draftsByStrategy: Record<string, Array<{
+    id: string;
+    strategyId: string;
+    document: { name?: string };
+    updatedAt: string;
+  }>>;
 }
 
 function downloadWorkbook(workbook: XLSX.WorkBook, fileName: string): void {
@@ -79,62 +115,54 @@ function resultSummary(result: BacktestResult): TableRow {
   });
 }
 
-function addTableSheet(workbook: XLSX.WorkBook, table: ExportTable): void {
-  const headers = table.headers ?? Array.from(new Set(table.rows.flatMap((row) => Object.keys(row))));
-  const sheet = XLSX.utils.json_to_sheet(table.rows, { header: headers, skipHeader: false });
-  if (headers.length > 0) {
-    const lastRow = Math.max(1, table.rows.length + 1);
-    const lastColumn = XLSX.utils.encode_col(headers.length - 1);
-    sheet['!autofilter'] = { ref: `A1:${lastColumn}${lastRow}` };
-    sheet['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
-    sheet['!cols'] = headers.map((header) => {
-      const sampleWidth = table.rows.slice(0, 200).reduce(
-        (max, row) => Math.max(max, String(row[header] ?? '').length),
-        header.length,
-      );
-      return { wch: Math.min(32, Math.max(10, sampleWidth + 2)) };
-    });
-    for (let column = 0; column < headers.length; column++) {
-      const cell = sheet[XLSX.utils.encode_cell({ r: 0, c: column })];
-      if (cell) {
-        cell.s = {
-          font: { bold: true, color: { rgb: 'FFFFFF' } },
-          fill: { patternType: 'solid', fgColor: { rgb: '1677FF' } },
-          alignment: { horizontal: 'center', vertical: 'center' },
-        };
-      }
-    }
-  }
-  XLSX.utils.book_append_sheet(workbook, sheet, table.name);
-}
-
-export async function exportDatabaseToExcel(): Promise<string> {
-  const [
-    datasets,
-    candles,
-    results,
-    equityPoints,
-    strategyConfigs,
-    visualStrategies,
-    strategyVersions,
-    strategyDrafts,
-  ] = await Promise.all([
-    db.marketDatasets.toArray(),
-    db.candles.toArray(),
-    db.backtestResults.toArray(),
-    db.equityPoints.toArray(),
-    db.strategyConfigs.toArray(),
-    db.visualStrategies.toArray(),
-    db.strategyVersions.toArray(),
-    db.strategyDrafts.toArray(),
-  ]);
-
+function buildExportTables({
+  datasets,
+  candles,
+  results,
+  equityPoints,
+  strategyConfigs,
+  visualStrategies,
+  strategyVersions,
+  strategyDrafts,
+}: {
+  datasets: unknown[];
+  candles: unknown[];
+  results: BacktestResult[];
+  equityPoints: unknown[];
+  strategyConfigs: unknown[];
+  visualStrategies: Array<{
+    id: string;
+    name: string;
+    status: string;
+    document: {
+      schemaVersion?: string;
+      strategyVersion?: string | number;
+      name?: string;
+      metadata?: { source?: string };
+    };
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  strategyVersions: Array<{
+    id: string;
+    strategyId: string;
+    version: number;
+    document: { name?: string };
+    createdAt: string;
+  }>;
+  strategyDrafts: Array<{
+    id: string;
+    strategyId: string;
+    document: { name?: string };
+    updatedAt: string;
+  }>;
+}): ExportTable[] {
   const strategyFieldRows: TableRow[] = [];
   visualStrategies.forEach((record) => flattenLeaves(record.document, 'visualStrategy', record.id, '', strategyFieldRows));
   strategyVersions.forEach((record) => flattenLeaves(record.document, 'strategyVersion', record.id, '', strategyFieldRows));
   strategyDrafts.forEach((record) => flattenLeaves(record.document, 'strategyDraft', record.id, '', strategyFieldRows));
 
-  const tables: ExportTable[] = [
+  return [
     { name: '数据集', rows: datasets.map((row) => flattenRecord(row)) },
     { name: '行情数据', rows: candles.map((row) => flattenRecord(row)) },
     { name: '回测结果', rows: results.map(resultSummary) },
@@ -164,7 +192,7 @@ export async function exportDatabaseToExcel(): Promise<string> {
         status: row.status,
         schemaVersion: row.document.schemaVersion,
         strategyVersion: row.document.strategyVersion,
-        source: row.document.metadata.source,
+        source: row.document.metadata?.source,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       })),
@@ -194,6 +222,88 @@ export async function exportDatabaseToExcel(): Promise<string> {
       headers: ['recordType', 'recordId', 'path', 'value'],
     },
   ];
+}
+
+function addTableSheet(workbook: XLSX.WorkBook, table: ExportTable): void {
+  const headers = table.headers ?? Array.from(new Set(table.rows.flatMap((row) => Object.keys(row))));
+  const sheet = XLSX.utils.json_to_sheet(table.rows, { header: headers, skipHeader: false });
+  if (headers.length > 0) {
+    const lastRow = Math.max(1, table.rows.length + 1);
+    const lastColumn = XLSX.utils.encode_col(headers.length - 1);
+    sheet['!autofilter'] = { ref: `A1:${lastColumn}${lastRow}` };
+    sheet['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
+    sheet['!cols'] = headers.map((header) => {
+      const sampleWidth = table.rows.slice(0, 200).reduce(
+        (max, row) => Math.max(max, String(row[header] ?? '').length),
+        header.length,
+      );
+      return { wch: Math.min(32, Math.max(10, sampleWidth + 2)) };
+    });
+    for (let column = 0; column < headers.length; column++) {
+      const cell = sheet[XLSX.utils.encode_cell({ r: 0, c: column })];
+      if (cell) {
+        cell.s = {
+          font: { bold: true, color: { rgb: 'FFFFFF' } },
+          fill: { patternType: 'solid', fgColor: { rgb: '1677FF' } },
+          alignment: { horizontal: 'center', vertical: 'center' },
+        };
+      }
+    }
+  }
+  XLSX.utils.book_append_sheet(workbook, sheet, table.name);
+}
+
+async function loadIndexedDbExportTables(): Promise<ExportTable[]> {
+  const [
+    datasets,
+    candles,
+    results,
+    equityPoints,
+    strategyConfigs,
+    visualStrategies,
+    strategyVersions,
+    strategyDrafts,
+  ] = await Promise.all([
+    db.marketDatasets.toArray(),
+    db.candles.toArray(),
+    db.backtestResults.toArray(),
+    db.equityPoints.toArray(),
+    db.strategyConfigs.toArray(),
+    db.visualStrategies.toArray(),
+    db.strategyVersions.toArray(),
+    db.strategyDrafts.toArray(),
+  ]);
+
+  return buildExportTables({
+    datasets,
+    candles,
+    results,
+    equityPoints,
+    strategyConfigs,
+    visualStrategies,
+    strategyVersions,
+    strategyDrafts,
+  });
+}
+
+async function loadApiExportTables(): Promise<ExportTable[]> {
+  const payload = await apiFetch<ApiExportPayload>('/api/export/all', { timeoutMs: 300000 });
+  return buildExportTables({
+    datasets: payload.datasets,
+    candles: Object.values(payload.candlesByDataset).flat(),
+    results: payload.results,
+    equityPoints: Object.values(payload.equityByResult).flat(),
+    strategyConfigs: payload.configs,
+    visualStrategies: payload.strategies,
+    strategyVersions: Object.values(payload.versionsByStrategy).flat(),
+    strategyDrafts: Object.values(payload.draftsByStrategy).flat(),
+  });
+}
+
+export async function exportDatabaseToExcel(): Promise<string> {
+  const tables = DATA_SOURCE === 'api'
+    ? await loadApiExportTables()
+    : await loadIndexedDbExportTables();
 
   const workbook = XLSX.utils.book_new();
   tables.forEach((table) => addTableSheet(workbook, table));

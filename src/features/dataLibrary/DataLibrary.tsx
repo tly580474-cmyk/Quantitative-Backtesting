@@ -71,6 +71,15 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
     await refresh();
   };
 
+  const handleExportDatabase = async () => {
+    try {
+      const fileName = await exportDatabaseToExcel();
+      message.success(`已导出 ${fileName}`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '数据库导出失败');
+    }
+  };
+
   const handleIndexUpdate = async (group: IndexDatasetUpdateResult['group']) => {
     if (DATA_SOURCE !== 'api') {
       message.info('当前使用浏览器本地 IndexedDB，手动指数更新需要切换到 MySQL/API 数据源。');
@@ -148,7 +157,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
             style={{ width: 240 }}
             allowClear
           />
-          <Button icon={<ExportOutlined />} onClick={() => exportDatabaseToExcel()}>
+          <Button icon={<ExportOutlined />} onClick={handleExportDatabase}>
             导出数据库
           </Button>
           <Button

@@ -36,6 +36,27 @@ type Rule = z.infer<typeof conditionSchema> | {
   children: Rule[];
 };
 
+function collectParameterReferencesFromOperand(value: unknown, output: Set<string>): void {
+  const input = record(value);
+  if (input?.type === 'parameter' && typeof input.name === 'string') {
+    output.add(input.name);
+  }
+}
+
+function collectParameterReferencesFromRule(value: unknown, output: Set<string>): void {
+  const input = record(value);
+  if (!input) return;
+  if (input.type === 'condition') {
+    collectParameterReferencesFromOperand(input.left, output);
+    collectParameterReferencesFromOperand(input.right, output);
+    collectParameterReferencesFromOperand(input.upper, output);
+    return;
+  }
+  if (input.type === 'group' && Array.isArray(input.children)) {
+    for (const child of input.children) collectParameterReferencesFromRule(child, output);
+  }
+}
+
 const ruleSchema: z.ZodType<Rule> = z.lazy(() => z.discriminatedUnion('type', [
   conditionSchema,
   z.object({
@@ -58,6 +79,11 @@ const indicatorOutputs: Record<string, Set<string>> = {
   wr: new Set(['wr']),
   obv: new Set(['obv']),
   volumeMa: new Set(['volumeMa']),
+  bias: new Set(['bias']),
+  volatility: new Set(['volatility', 'annualVolatility']),
+  volCluster: new Set(['volCluster']),
+  hold: new Set(['holdReturn', 'holdNav']),
+  reversal: new Set(['reversal']),
 };
 
 export const strategyDocumentSchema = z.object({
@@ -102,6 +128,9 @@ export const strategyDocumentSchema = z.object({
 }).superRefine((doc, ctx) => {
   const nodes = new Map(doc.indicators.map((node) => [node.id, node]));
   const parameterNames = new Set(doc.parameters.map((parameter) => parameter.name));
+  const referencedParameterNames = new Set<string>();
+  collectParameterReferencesFromRule(doc.entry, referencedParameterNames);
+  collectParameterReferencesFromRule(doc.exit, referencedParameterNames);
 
   for (const [index, node] of doc.indicators.entries()) {
     const allowed = indicatorOutputs[node.indicatorId];
@@ -113,6 +142,27 @@ export const strategyDocumentSchema = z.object({
       if (!allowed.has(output.key)) {
         ctx.addIssue({ code: 'custom', path: ['indicators', index, 'outputs', outputIndex, 'key'], message: `指标 ${node.indicatorId} 不支持输出 ${output.key}` });
       }
+    }
+  }
+
+  for (const [index, parameter] of doc.parameters.entries()) {
+    if (!referencedParameterNames.has(parameter.name)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['parameters', index, 'name'],
+        message: `策略参数 ${parameter.name} 未被 entry/exit 条件引用，不会影响交易`,
+      });
+    }
+    if (
+      parameter.type === 'number'
+      && parameter.defaultValue === 0
+      && /period|周期|threshold|阈值|upper|lower|上限|下限|fast|slow|signal|std|rsi|macd|boll|vol/i.test(`${parameter.name} ${parameter.label}`)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['parameters', index, 'defaultValue'],
+        message: `策略参数 ${parameter.name} 的默认值疑似占位 0，请填写真实数值`,
+      });
     }
   }
 
@@ -233,6 +283,11 @@ export function normalizeStrategyCandidate(value: unknown, generationId: string)
   if (!input) return value;
   const now = new Date().toISOString();
   const metadata = record(input.metadata) ?? {};
+  const normalizedEntry = normalizeRule(input.entry, 'entry_root');
+  const normalizedExit = normalizeRule(input.exit, 'exit_root');
+  const referencedParameters = new Set<string>();
+  collectParameterReferencesFromRule(normalizedEntry, referencedParameters);
+  collectParameterReferencesFromRule(normalizedExit, referencedParameters);
   const parameters = Array.isArray(input.parameters) ? input.parameters.map((item) => {
     const parameter = record(item);
     if (!parameter) return item;
@@ -246,6 +301,9 @@ export function normalizeStrategyCandidate(value: unknown, generationId: string)
       ...(parameter.max === undefined ? {} : { max: numeric(parameter.max) }),
       ...(parameter.step === undefined ? {} : { step: numeric(parameter.step) }),
     };
+  }).filter((item) => {
+    const parameter = record(item);
+    return typeof parameter?.name === 'string' && referencedParameters.has(parameter.name);
   }) : [];
   const indicators = Array.isArray(input.indicators) ? input.indicators.map((item, index) => {
     const indicator = record(item);
@@ -270,8 +328,8 @@ export function normalizeStrategyCandidate(value: unknown, generationId: string)
     strategyVersion: Math.max(1, Math.trunc(numeric(input.strategyVersion, 1))),
     parameters,
     indicators,
-    entry: normalizeRule(input.entry, 'entry_root'),
-    exit: normalizeRule(input.exit, 'exit_root'),
+    entry: normalizedEntry,
+    exit: normalizedExit,
     risk: normalizeRisk(input.risk),
     metadata: {
       ...metadata,

@@ -76,7 +76,7 @@ export function validateBacktestInput(
   if (config.positionSizing.type !== 'percent') {
     errors.push({ field: 'positionSizing', message: '仅支持按比例仓位' });
   } else if (config.positionSizing.value <= 0 || config.positionSizing.value > 1) {
-    errors.push({ field: 'positionSizing', message: '仓位比例应在 (0, 1] 范围内' });
+    errors.push({ field: 'positionSizing', message: '单次调仓比例应在 (0, 1] 范围内' });
   }
 
   if (!Number.isFinite(config.commissionRate) || config.commissionRate < 0) {

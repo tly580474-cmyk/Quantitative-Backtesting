@@ -39,6 +39,7 @@ export function validateDocument(doc: unknown): ValidationResult {
   validateConditions(document, errors);
   validateCrossOperands(document, errors);
   validateParameterReferences(document, errors);
+  validateUnusedParameters(document, warnings);
   validateRiskRules(document, errors);
 
   return {
@@ -292,6 +293,41 @@ function validateParameterReferences(
 
   walkGroup(doc.entry, 'entry');
   walkGroup(doc.exit, 'exit');
+}
+
+function validateUnusedParameters(
+  doc: VisualStrategyDocument,
+  warnings: ValidationError[],
+): void {
+  const referenced = new Set<string>();
+
+  const checkOperand = (op: Operand): void => {
+    if (op.type === 'parameter') referenced.add(op.name);
+  };
+
+  const walkGroup = (group: RuleGroup): void => {
+    for (const child of group.children) {
+      if (child.type === 'condition') {
+        checkOperand(child.left);
+        checkOperand(child.right);
+        if (child.upper) checkOperand(child.upper);
+      } else {
+        walkGroup(child);
+      }
+    }
+  };
+
+  walkGroup(doc.entry);
+  walkGroup(doc.exit);
+
+  for (const param of doc.parameters) {
+    if (!referenced.has(param.name)) {
+      warnings.push({
+        path: `parameters.${param.name}`,
+        message: `策略参数 ${param.label || param.name} 未被买入/卖出条件引用，不会影响交易`,
+      });
+    }
+  }
 }
 
 /**

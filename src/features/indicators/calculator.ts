@@ -10,6 +10,13 @@ import { calculateCCI } from './cci';
 import { calculateWR } from './wr';
 import { calculateOBV } from './obv';
 import { calculateVolumeMA } from './volumeMa';
+import {
+  calculateBIAS,
+  calculateHold,
+  calculateReversal,
+  calculateVolCluster,
+  calculateVolatility,
+} from './phase2Quant';
 
 /**
  * Calculate all active indicators against the given candles.
@@ -104,6 +111,28 @@ function calculateOne(candles: Candle[], active: ActiveIndicator): IndicatorResu
     case 'volumeMa': {
       const values = calculateVolumeMA(candles, { period: paramValues.period });
       return { id, series: { volumeMa: values } };
+    }
+    case 'bias': {
+      const values = calculateBIAS(candles, { period: paramValues.period });
+      return { id, series: { bias: values } };
+    }
+    case 'volatility': {
+      const { volatility, annualVolatility } = calculateVolatility(candles, {
+        period: paramValues.period,
+      });
+      return { id, series: { volatility, annualVolatility } };
+    }
+    case 'volCluster': {
+      const values = calculateVolCluster(candles, { period: paramValues.period });
+      return { id, series: { volCluster: values } };
+    }
+    case 'hold': {
+      const { holdReturn, holdNav } = calculateHold(candles);
+      return { id, series: { holdReturn, holdNav } };
+    }
+    case 'reversal': {
+      const values = calculateReversal(candles, { period: paramValues.period });
+      return { id, series: { reversal: values } };
     }
     default:
       return { id, series: {} };

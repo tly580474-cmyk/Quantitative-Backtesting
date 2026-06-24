@@ -6,6 +6,7 @@ export interface BacktestConfig {
   initialCapital: number;
   /** Number of most-recent trading days to include. 0 means all available data. */
   tradingDays: number;
+  /** Percent of available cash/position to trade on each strategy signal. */
   positionSizing: { type: 'percent'; value: number };
   commissionRate: number;
   minimumCommission: number;
@@ -40,6 +41,8 @@ export interface BacktestMetrics {
   totalReturn: number;
   annualizedReturn: number;
   annualizedVolatility: number;
+  riskReturnRatio: number;
+  returnMddRatio: number;
   sharpeRatio: number;
   maxDrawdown: number;
   maxDrawdownStart: string;

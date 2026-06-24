@@ -8,7 +8,7 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   backtestMode: 'strategy',
   initialCapital: 100000,
   tradingDays: 0,
-  positionSizing: { type: 'percent', value: 1 },
+  positionSizing: { type: 'percent', value: 0.25 },
   commissionRate: 0.0003,
   minimumCommission: 5,
   sellTaxRate: 0.001,

@@ -107,6 +107,24 @@ function createBuyOrder(
   };
 }
 
+function createSellOrder(
+  signal: StrategySignal,
+  positionQuantity: number,
+  config: BacktestConfig,
+): Order | null {
+  const quantity = positionQuantity * config.positionSizing.value;
+  if (quantity <= 0) return null;
+  return {
+    id: crypto.randomUUID(),
+    signalTime: signal.time,
+    executeTime: '',
+    side: 'sell',
+    orderType: 'market',
+    quantity,
+    status: 'pending',
+  };
+}
+
 // DCA purchases execute at the same bar's close rather than T+1 open.
 // The contribution is predetermined (not signal-driven), so there is no
 // look-ahead concern. Strategy mode uses next-open to avoid peeking at the
@@ -246,21 +264,8 @@ function processBar(
     const nextCandle = candles[i + 1];
 
     if (signal.action === 'buy') {
-      if (state.portfolio.positionQuantity === 0) {
-        state.pendingOrder = createBuyOrder(signal, nextCandle, state.portfolio.cash, config);
-        if (!state.pendingOrder) {
-          state.orders.push({
-            id: crypto.randomUUID(),
-            signalTime: signal.time,
-            executeTime: nextCandle.time,
-            side: 'buy',
-            orderType: 'market',
-            quantity: 0,
-            status: 'rejected',
-            rejectReason: '现金不足',
-          });
-        }
-      } else {
+      state.pendingOrder = createBuyOrder(signal, nextCandle, state.portfolio.cash, config);
+      if (!state.pendingOrder) {
         state.orders.push({
           id: crypto.randomUUID(),
           signalTime: signal.time,
@@ -268,21 +273,13 @@ function processBar(
           side: 'buy',
           orderType: 'market',
           quantity: 0,
-          status: 'cancelled',
-          rejectReason: '已有持仓',
+          status: 'rejected',
+          rejectReason: '现金不足',
         });
       }
     } else if (signal.action === 'sell') {
       if (state.portfolio.positionQuantity > 0) {
-        state.pendingOrder = {
-          id: crypto.randomUUID(),
-          signalTime: signal.time,
-          executeTime: '',
-          side: 'sell',
-          orderType: 'market',
-          quantity: state.portfolio.positionQuantity,
-          status: 'pending',
-        };
+        state.pendingOrder = createSellOrder(signal, state.portfolio.positionQuantity, config);
       } else {
         state.orders.push({
           id: crypto.randomUUID(),
@@ -533,6 +530,8 @@ function createZeroMetrics(initialCapital: number): BacktestMetrics {
     totalReturn: 0,
     annualizedReturn: 0,
     annualizedVolatility: 0,
+    riskReturnRatio: 0,
+    returnMddRatio: 0,
     sharpeRatio: 0,
     maxDrawdown: 0,
     maxDrawdownStart: '',

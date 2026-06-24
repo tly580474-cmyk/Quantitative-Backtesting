@@ -44,6 +44,12 @@ export default function ResultsOverview({ metrics, name, color }: Props) {
           <Statistic title="夏普比率" value={num(metrics.sharpeRatio)} />
         </Col>
         <Col span={8}>
+          <Statistic title="风险收益比" value={num(metrics.riskReturnRatio ?? 0)} />
+        </Col>
+        <Col span={8}>
+          <Statistic title="回撤收益比" value={num(metrics.returnMddRatio ?? 0)} />
+        </Col>
+        <Col span={8}>
           <Tooltip title="基于单位净值计算，剔除新增资金影响">
             <Statistic
               title="最大回撤"

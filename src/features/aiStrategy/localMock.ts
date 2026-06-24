@@ -17,6 +17,11 @@ export async function localGenerate(prompt: string): Promise<GenerateStrategyRes
   const hasRsi = lower.includes('rsi');
   const hasMacd = lower.includes('macd');
   const hasBoll = lower.includes('布林') || lower.includes('boll');
+  const hasBias = lower.includes('bias') || lower.includes('乖离');
+  const hasVolatility = lower.includes('波动率') || lower.includes('volatility');
+  const hasVolCluster = lower.includes('波动聚集') || lower.includes('volcluster');
+  const hasHold = lower.includes('hold') || lower.includes('买入持有') || lower.includes('持有收益');
+  const hasReversal = lower.includes('反转') || lower.includes('reversal');
   const hasStopLoss = lower.includes('止损');
   const hasTakeProfit = lower.includes('止盈');
 
@@ -104,6 +109,82 @@ export async function localGenerate(prompt: string): Promise<GenerateStrategyRes
     });
   }
 
+  if (hasBias) {
+    indicators.push({
+      id: 'bias1', indicatorId: 'bias', params: { period: 20 },
+      outputs: [{ key: 'bias', label: 'BIAS20', type: 'number' }],
+    });
+    entryChildren.push({
+      type: 'condition', id: 'bias_rebound',
+      left: { type: 'indicator', nodeId: 'bias1', output: 'bias', offset: 0 },
+      operator: 'lt', right: { type: 'literal', value: -0.08 },
+    });
+    exitChildren.push({
+      type: 'condition', id: 'bias_overheat',
+      left: { type: 'indicator', nodeId: 'bias1', output: 'bias', offset: 0 },
+      operator: 'gt', right: { type: 'literal', value: 0.08 },
+    });
+  }
+
+  if (hasVolatility) {
+    indicators.push({
+      id: 'volatility1', indicatorId: 'volatility', params: { period: 20 },
+      outputs: [
+        { key: 'volatility', label: '波动率20', type: 'number' },
+        { key: 'annualVolatility', label: '年化波动率20', type: 'number' },
+      ],
+    });
+    entryChildren.push({
+      type: 'condition', id: 'volatility_filter',
+      left: { type: 'indicator', nodeId: 'volatility1', output: 'annualVolatility', offset: 0 },
+      operator: 'lt', right: { type: 'literal', value: 0.35 },
+    });
+  }
+
+  if (hasVolCluster) {
+    indicators.push({
+      id: 'vol_cluster1', indicatorId: 'volCluster', params: { period: 20 },
+      outputs: [{ key: 'volCluster', label: '波动聚集20', type: 'number' }],
+    });
+    entryChildren.push({
+      type: 'condition', id: 'vol_cluster_filter',
+      left: { type: 'indicator', nodeId: 'vol_cluster1', output: 'volCluster', offset: 0 },
+      operator: 'lt', right: { type: 'literal', value: 0.6 },
+    });
+  }
+
+  if (hasHold) {
+    indicators.push({
+      id: 'hold1', indicatorId: 'hold', params: {},
+      outputs: [
+        { key: 'holdReturn', label: 'HOLD收益', type: 'number' },
+        { key: 'holdNav', label: 'HOLD净值', type: 'number' },
+      ],
+    });
+    entryChildren.push({
+      type: 'condition', id: 'hold_positive',
+      left: { type: 'indicator', nodeId: 'hold1', output: 'holdReturn', offset: 0 },
+      operator: 'gt', right: { type: 'literal', value: 0 },
+    });
+  }
+
+  if (hasReversal) {
+    indicators.push({
+      id: 'reversal1', indicatorId: 'reversal', params: { period: 20 },
+      outputs: [{ key: 'reversal', label: '反转20', type: 'number' }],
+    });
+    entryChildren.push({
+      type: 'condition', id: 'reversal_entry',
+      left: { type: 'indicator', nodeId: 'reversal1', output: 'reversal', offset: 0 },
+      operator: 'gt', right: { type: 'literal', value: 0.08 },
+    });
+    exitChildren.push({
+      type: 'condition', id: 'reversal_exit',
+      left: { type: 'indicator', nodeId: 'reversal1', output: 'reversal', offset: 0 },
+      operator: 'lt', right: { type: 'literal', value: -0.08 },
+    });
+  }
+
   if (hasStopLoss) risk.push({ type: 'stopLoss', value: 8 });
   if (hasTakeProfit) risk.push({ type: 'takeProfit', value: 20 });
 
@@ -159,5 +240,10 @@ function generateName(prompt: string): string {
   if (prompt.includes('rsi')) return 'RSI 策略';
   if (prompt.includes('macd')) return 'MACD 策略';
   if (prompt.includes('布林')) return '布林带策略';
+  if (prompt.includes('bias') || prompt.includes('乖离')) return '乖离率反转策略';
+  if (prompt.includes('波动率') || prompt.includes('volatility')) return '波动率过滤策略';
+  if (prompt.includes('波动聚集') || prompt.includes('volcluster')) return '波动聚集过滤策略';
+  if (prompt.includes('hold') || prompt.includes('买入持有') || prompt.includes('持有收益')) return 'HOLD 对比策略';
+  if (prompt.includes('反转') || prompt.includes('reversal')) return '反转因子策略';
   return 'AI 生成策略';
 }

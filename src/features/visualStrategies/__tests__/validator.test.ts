@@ -237,6 +237,19 @@ describe('validateDocument', () => {
     expect(result.valid).toBe(true);
   });
 
+  it('warns when a declared parameter is not referenced by rules', () => {
+    const doc = makeBaseDoc();
+    doc.parameters = [{
+      name: 'threshold',
+      label: '阈值',
+      type: 'number',
+      defaultValue: 10,
+    }];
+    const result = validateDocument(doc);
+    expect(result.valid).toBe(true);
+    expect(result.warnings.some((w) => w.message.includes('不会影响交易'))).toBe(true);
+  });
+
   // ---- Nested logic ----
 
   it('accepts nested AND/OR groups', () => {

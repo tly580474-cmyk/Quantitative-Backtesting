@@ -34,18 +34,31 @@ export async function getDataset(id: string) {
 
 export async function createDataset(
   dataset: typeof marketDatasets.$inferInsert,
-  candleRows: (typeof candles.$inferInsert)[],
+  candleRows: Omit<typeof candles.$inferInsert, 'datasetId'>[],
 ) {
+  const linkedCandleRows = candleRows.map((row) => ({
+    ...row,
+    datasetId: dataset.id,
+  }));
+
   await getDb().transaction(async (tx) => {
-    await tx.insert(marketDatasets).values(dataset);
-    for (let i = 0; i < candleRows.length; i += CHUNK_SIZE) {
-      await tx.insert(candles).values(candleRows.slice(i, i + CHUNK_SIZE));
+    await tx
+      .insert(marketDatasets)
+      .values(dataset)
+      .onDuplicateKeyUpdate({ set: dataset });
+
+    await tx.delete(candles).where(eq(candles.datasetId, dataset.id));
+    for (let i = 0; i < linkedCandleRows.length; i += CHUNK_SIZE) {
+      await tx.insert(candles).values(linkedCandleRows.slice(i, i + CHUNK_SIZE));
     }
   });
 }
 
 export async function deleteDataset(id: string) {
-  await getDb().delete(marketDatasets).where(eq(marketDatasets.id, id));
+  await getDb().transaction(async (tx) => {
+    await tx.delete(candles).where(eq(candles.datasetId, id));
+    await tx.delete(marketDatasets).where(eq(marketDatasets.id, id));
+  });
 }
 
 export async function getCandles(

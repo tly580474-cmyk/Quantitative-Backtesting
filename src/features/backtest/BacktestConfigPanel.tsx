@@ -70,7 +70,7 @@ export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
         </Form.Item>
 
         {config.backtestMode === 'strategy' && (
-          <Form.Item label="仓位比例">
+          <Form.Item label="单次调仓比例" extra="买入信号按可用现金加仓，卖出信号按当前持仓减仓">
             <InputNumber
               value={config.positionSizing.value}
               onChange={(v) =>

@@ -124,7 +124,7 @@ export default function BacktestRunner() {
       message.error(
         `当前资金最多可用 ¥${availableCapital.toLocaleString()}，` +
         `但最小订单至少需要 ¥${minimumOrderCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}。` +
-        `请提高${config.backtestMode === 'dca' ? '首日买入金额' : '初始资金或仓位比例'}。`,
+        `请提高${config.backtestMode === 'dca' ? '首日买入金额' : '初始资金或单次调仓比例'}。`,
         6,
       );
       return;

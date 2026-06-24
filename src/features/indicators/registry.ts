@@ -198,6 +198,71 @@ export const INDICATOR_REGISTRY: IndicatorDefinition[] = [
       ],
     },
   },
+  {
+    id: 'bias',
+    name: 'BIAS 均线乖离率',
+    params: [
+      { name: 'period', label: '周期', defaultValue: 20, min: 2, max: 500, step: 1 },
+    ],
+    display: {
+      pane: 'separate',
+      series: [
+        { type: 'line', color: '#F97316', key: 'bias', label: 'BIAS' },
+      ],
+    },
+  },
+  {
+    id: 'volatility',
+    name: '波动率',
+    params: [
+      { name: 'period', label: '周期', defaultValue: 20, min: 2, max: 500, step: 1 },
+    ],
+    display: {
+      pane: 'separate',
+      series: [
+        { type: 'line', color: '#2563EB', key: 'volatility', label: '波动率' },
+        { type: 'line', color: '#DC2626', key: 'annualVolatility', label: '年化波动率' },
+      ],
+    },
+  },
+  {
+    id: 'volCluster',
+    name: '波动聚集',
+    params: [
+      { name: 'period', label: '周期', defaultValue: 20, min: 2, max: 500, step: 1 },
+    ],
+    display: {
+      pane: 'separate',
+      series: [
+        { type: 'line', color: '#7C3AED', key: 'volCluster', label: '波动聚集' },
+      ],
+    },
+  },
+  {
+    id: 'hold',
+    name: 'HOLD 买入持有收益',
+    params: [],
+    display: {
+      pane: 'separate',
+      series: [
+        { type: 'line', color: '#059669', key: 'holdReturn', label: 'HOLD收益' },
+        { type: 'line', color: '#0F766E', key: 'holdNav', label: 'HOLD净值' },
+      ],
+    },
+  },
+  {
+    id: 'reversal',
+    name: '反转因子',
+    params: [
+      { name: 'period', label: '周期', defaultValue: 20, min: 1, max: 500, step: 1 },
+    ],
+    display: {
+      pane: 'separate',
+      series: [
+        { type: 'line', color: '#DB2777', key: 'reversal', label: '反转' },
+      ],
+    },
+  },
 ];
 
 export function getIndicatorById(id: string): IndicatorDefinition | undefined {

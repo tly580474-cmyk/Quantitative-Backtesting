@@ -58,6 +58,7 @@ describe('Metrics', () => {
     const metrics = calculateMetrics(equity, [], 100000);
     expect(metrics.sharpeRatio).toBeGreaterThan(0);
     expect(metrics.annualizedVolatility).toBeGreaterThan(0);
+    expect(metrics.riskReturnRatio).toBeGreaterThan(0);
   });
 
   it('returns zero sharpe for flat equity', () => {
@@ -72,6 +73,8 @@ describe('Metrics', () => {
     expect(Number.isNaN(metrics.annualizedReturn)).toBe(false);
     expect(Number.isNaN(metrics.sharpeRatio)).toBe(false);
     expect(Number.isNaN(metrics.maxDrawdown)).toBe(false);
+    expect(Number.isNaN(metrics.riskReturnRatio)).toBe(false);
+    expect(Number.isNaN(metrics.returnMddRatio)).toBe(false);
   });
 
   it('calculates win rate for trades', () => {

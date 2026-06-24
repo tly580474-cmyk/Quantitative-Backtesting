@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { runBacktest } from '../engine';
 import { dualMaStrategy } from '@/features/strategies/builtins/dualMa';
-import type { Candle, BacktestConfig } from '@/models';
+import type { Candle, BacktestConfig, StrategyDefinition } from '@/models';
 
 function makeCandles(closes: number[]): Candle[] {
   return closes.map((close, i) => ({
@@ -30,6 +30,23 @@ const baseConfig: BacktestConfig = {
   execution: 'next_open',
   forceCloseAtEnd: true,
 };
+
+function scriptedStrategy(actions: Array<'buy' | 'sell' | 'hold'>): StrategyDefinition<Record<string, never>> {
+  return {
+    id: 'scripted',
+    name: 'Scripted',
+    version: '1.0.0',
+    description: 'Test-only scripted signals',
+    paramsSchema: [],
+    defaultParams: {},
+    warmupBars: () => 0,
+    evaluate: ({ index, candles }) => ({
+      time: candles[candles.length - 1].time,
+      action: actions[index] ?? 'hold',
+      reason: `scripted ${actions[index] ?? 'hold'}`,
+    }),
+  };
+}
 
 describe('Backtest Engine', () => {
   it('buys unconditionally at each scheduled close without a strategy or sell', () => {
@@ -84,6 +101,66 @@ describe('Backtest Engine', () => {
     expect(result.trades.filter((trade) => trade.quantity > 0)).toHaveLength(20);
     expect(result.metrics.netContributions).toBe(2000);
     expect(result.metrics.totalReturn).toBe(0);
+  });
+
+  it('adds to an existing strategy position on repeated buy signals', () => {
+    const candles = makeCandles([10, 10, 10, 10, 10]);
+
+    const result = runBacktest({
+      candles,
+      strategy: scriptedStrategy(['buy', 'buy', 'buy', 'hold', 'hold']),
+      strategyParams: {},
+      config: {
+        ...baseConfig,
+        initialCapital: 1000,
+        positionSizing: { type: 'percent', value: 0.5 },
+        commissionRate: 0,
+        minimumCommission: 0,
+        forceCloseAtEnd: false,
+      },
+      datasetId: 'ds-add',
+      datasetChecksum: 'add',
+      resultName: 'add-test',
+    });
+
+    const buys = result.trades.filter((trade) => trade.side === 'buy' && trade.quantity > 0);
+    expect(buys).toHaveLength(3);
+    expect(buys[1].quantity).toBeGreaterThan(0);
+    expect(result.equityCurve[result.equityCurve.length - 1].positionQuantity).toBeCloseTo(
+      buys.reduce((sum, trade) => sum + trade.quantity, 0),
+      6,
+    );
+  });
+
+  it('reduces a strategy position on repeated sell signals', () => {
+    const candles = makeCandles([10, 10, 10, 10, 10]);
+
+    const result = runBacktest({
+      candles,
+      strategy: scriptedStrategy(['buy', 'sell', 'sell', 'hold', 'hold']),
+      strategyParams: {},
+      config: {
+        ...baseConfig,
+        initialCapital: 1000,
+        positionSizing: { type: 'percent', value: 0.5 },
+        commissionRate: 0,
+        minimumCommission: 0,
+        sellTaxRate: 0,
+        forceCloseAtEnd: false,
+      },
+      datasetId: 'ds-reduce',
+      datasetChecksum: 'reduce',
+      resultName: 'reduce-test',
+    });
+
+    const buy = result.trades.find((trade) => trade.side === 'buy' && trade.quantity > 0);
+    const sells = result.trades.filter((trade) => trade.side === 'sell' && trade.quantity > 0);
+    expect(buy).toBeTruthy();
+    expect(sells).toHaveLength(2);
+    expect(sells[0].quantity).toBeCloseTo(buy!.quantity * 0.5, 6);
+    expect(sells[1].quantity).toBeCloseTo((buy!.quantity - sells[0].quantity) * 0.5, 6);
+    expect(result.equityCurve[result.equityCurve.length - 1].positionQuantity).toBeGreaterThan(0);
+    expect(result.equityCurve[result.equityCurve.length - 1].positionQuantity).toBeLessThan(buy!.quantity);
   });
 
   it('completes with no trades on flat prices', () => {

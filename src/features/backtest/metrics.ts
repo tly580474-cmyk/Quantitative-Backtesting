@@ -43,6 +43,9 @@ export function calculateMetrics(
     ? dailyReturns.reduce((sum, r) => sum + (r - avgDailyReturn) ** 2, 0) / (dailyReturns.length - 1)
     : 0;
   const annualizedVolatility = Math.sqrt(variance * TRADING_DAYS_PER_YEAR);
+  const riskReturnRatio = annualizedVolatility > 0
+    ? annualizedReturn / annualizedVolatility
+    : 0;
 
   // Sharpe ratio (assuming risk-free rate of 0.02)
   const riskFreeRate = 0.02;
@@ -73,6 +76,7 @@ export function calculateMetrics(
       }
     }
   }
+  const returnMddRatio = maxDrawdown > 0 ? annualizedReturn / maxDrawdown : 0;
 
   // Trade statistics
   const filledTrades = trades.filter((t) => t.quantity > 0);
@@ -149,6 +153,8 @@ export function calculateMetrics(
     totalReturn: roundTo(totalReturn, 6),
     annualizedReturn: roundTo(annualizedReturn, 6),
     annualizedVolatility: roundTo(annualizedVolatility, 6),
+    riskReturnRatio: roundTo(riskReturnRatio, 4),
+    returnMddRatio: roundTo(returnMddRatio, 4),
     sharpeRatio: roundTo(sharpeRatio, 4),
     maxDrawdown: roundTo(maxDrawdown, 6),
     maxDrawdownStart: maxDdStart,

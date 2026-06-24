@@ -4,6 +4,8 @@ import { listStrategyConfigs } from '../services/dataService.js';
 import { listVisualStrategies, getVersions, getDraft } from '../services/dataService.js';
 import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
 
+const EXPORT_PAGE_SIZE = 10000;
+
 export function registerExportRoutes(app: FastifyInstance, dbOnline: boolean): void {
   if (!dbOnline) {
     app.get('/api/export/excel', async () => {
@@ -19,15 +21,33 @@ export function registerExportRoutes(app: FastifyInstance, dbOnline: boolean): v
     // Gather candles per dataset
     const candlesByDataset: Record<string, unknown[]> = {};
     for (const ds of datasets) {
-      const { data } = await getCandles(ds.id, 0, 100000);
-      candlesByDataset[ds.id] = data;
+      const rows: unknown[] = [];
+      let offset = 0;
+      let total = 0;
+      do {
+        const result = await getCandles(ds.id, offset, EXPORT_PAGE_SIZE);
+        rows.push(...result.data);
+        total = result.total;
+        if (result.data.length === 0) break;
+        offset += result.data.length;
+      } while (offset < total);
+      candlesByDataset[ds.id] = rows;
     }
 
     const results = await listResults();
     const equityByResult: Record<string, unknown[]> = {};
     for (const r of results) {
-      const { data } = await getEquityPoints(r.id, 0, 100000);
-      equityByResult[r.id] = data;
+      const rows: unknown[] = [];
+      let offset = 0;
+      let total = 0;
+      do {
+        const result = await getEquityPoints(r.id, offset, EXPORT_PAGE_SIZE);
+        rows.push(...result.data);
+        total = result.total;
+        if (result.data.length === 0) break;
+        offset += result.data.length;
+      } while (offset < total);
+      equityByResult[r.id] = rows;
     }
 
     const configs = await listStrategyConfigs();

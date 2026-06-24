@@ -11,6 +11,13 @@ import { calculateCCI } from '../cci';
 import { calculateWR } from '../wr';
 import { calculateOBV } from '../obv';
 import { calculateVolumeMA } from '../volumeMa';
+import {
+  calculateBIAS,
+  calculateHold,
+  calculateReversal,
+  calculateVolCluster,
+  calculateVolatility,
+} from '../phase2Quant';
 import { calculateAllIndicators } from '../calculator';
 import { getIndicatorById } from '../registry';
 
@@ -283,5 +290,64 @@ describe('Volume MA', () => {
     const result = calculateVolumeMA(c, { period: 20 });
     expect(result[19]).not.toBeNull();
     expect(result).toHaveLength(50);
+  });
+});
+
+describe('Phase 2 quant indicators', () => {
+  it('calculates BIAS against a rolling moving average', () => {
+    const result = calculateBIAS(candlesFromCloses([100, 100, 100, 110]), { period: 3 });
+    expect(result[2]).toBeCloseTo(0, 9);
+    expect(result[3]).toBeCloseTo((110 - 103.3333333333) / 103.3333333333, 9);
+  });
+
+  it('calculates rolling and annualized volatility', () => {
+    const { volatility, annualVolatility } = calculateVolatility(
+      candlesFromCloses([100, 101, 100, 102, 101]),
+      { period: 3 },
+    );
+    expect(volatility).toHaveLength(5);
+    expect(volatility[2]).toBeNull();
+    expect(volatility[3]).not.toBeNull();
+    expect(annualVolatility[3]).toBeCloseTo(volatility[3]! * Math.sqrt(252), 9);
+  });
+
+  it('calculates volatility clustering from absolute return autocorrelation', () => {
+    const result = calculateVolCluster(candlesFromCloses([100, 102, 101, 103, 102, 104]), { period: 3 });
+    expect(result).toHaveLength(6);
+    expect(result[4]).not.toBeNull();
+  });
+
+  it('calculates HOLD return and NAV', () => {
+    const { holdReturn, holdNav } = calculateHold(candlesFromCloses([100, 110, 90]));
+    expect(holdReturn[0]).toBeCloseTo(0, 9);
+    expect(holdReturn[1]).toBeCloseTo(0.1, 9);
+    expect(holdReturn[2]).toBeCloseTo(-0.1, 9);
+    expect(holdNav[0]).toBeCloseTo(1, 9);
+    expect(holdNav[1]).toBeCloseTo(1.1, 9);
+    expect(holdNav[2]).toBeCloseTo(0.9, 9);
+  });
+
+  it('calculates reversal as negative past return', () => {
+    const result = calculateReversal(candlesFromCloses([100, 110, 121]), { period: 2 });
+    expect(result[0]).toBeNull();
+    expect(result[2]).toBeCloseTo(-0.21, 9);
+  });
+
+  it('exposes new indicators through the shared calculator', () => {
+    const ids = ['bias', 'volatility', 'volCluster', 'hold', 'reversal'];
+    const results = calculateAllIndicators(
+      candles(40),
+      ids.map((id) => {
+        const definition = getIndicatorById(id)!;
+        return {
+          id,
+          definition,
+          visible: true,
+          paramValues: Object.fromEntries(definition.params.map((p) => [p.name, p.defaultValue])),
+        };
+      }),
+    );
+    expect(results.map((result) => result.id)).toEqual(ids);
+    expect(results.every((result) => Object.keys(result.series).length > 0)).toBe(true);
   });
 });
