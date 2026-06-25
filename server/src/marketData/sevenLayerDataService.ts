@@ -7,11 +7,13 @@ const EASTMONEY_DATACENTER_URL = 'https://datacenter-web.eastmoney.com/api/data/
 const EASTMONEY_SECURITIES_URL = 'https://datacenter.eastmoney.com/securities/api/data/v1/get';
 const EASTMONEY_PUSH2_URL = 'https://push2.eastmoney.com/api/qt';
 const EASTMONEY_PUSH2HIS_URL = 'https://push2his.eastmoney.com/api/qt';
+const CNINFO_SEARCH_URL = 'https://www.cninfo.com.cn/new/information/topSearch/query';
 const CNINFO_ANN_URL = 'https://www.cninfo.com.cn/new/hisAnnouncement/query';
 
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
   Accept: 'application/json,text/plain,*/*',
+  'X-Requested-With': 'XMLHttpRequest',
 };
 
 const INDUSTRY_ALIASES: Record<string, string[]> = {
@@ -204,13 +206,14 @@ async function loadFundamentalLayer(security: SecurityRef): Promise<SourceResult
 async function loadAnnouncementLayer(security: SecurityRef): Promise<SourceResult[]> {
   return Promise.all([
     source('巨潮公告', async () => {
+      const cninfoStock = await resolveCninfoStock(security);
       const params = new URLSearchParams({
-        stock: security.code,
+        stock: cninfoStock.stock,
         searchkey: '',
         category: '',
         pageNum: '1',
         pageSize: '10',
-        column: security.market === 'BJ' ? 'bj' : 'szse',
+        column: cninfoColumn(security.market),
         tabName: 'fulltext',
         seDate: '',
         sortName: '',
@@ -221,7 +224,9 @@ async function loadAnnouncementLayer(security: SecurityRef): Promise<SourceResul
         method: 'POST',
         headers: {
           ...BROWSER_HEADERS,
-          Referer: 'https://www.cninfo.com.cn/new/disclosure/stock',
+          Referer: cninfoStock.orgId
+            ? `https://www.cninfo.com.cn/new/disclosure/stock?stockCode=${security.code}&orgId=${cninfoStock.orgId}`
+            : 'https://www.cninfo.com.cn/new/disclosure/stock',
           'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         },
         body: params,
@@ -231,14 +236,40 @@ async function loadAnnouncementLayer(security: SecurityRef): Promise<SourceResul
       const data = await response.json() as { announcements?: Array<Record<string, unknown>> };
       return (data.announcements ?? []).slice(0, 10).map((row) => ({
         source: '巨潮公告',
-        title: String(row.announcementTitle ?? row.title ?? '公告'),
+        title: stripMarkup(String(row.shortTitle ?? row.announcementTitle ?? row.title ?? '公告')),
         date: formatCninfoDate(row.announcementTime),
         url: row.adjunctUrl ? `https://static.cninfo.com.cn/${row.adjunctUrl}` : undefined,
-        metrics: pick(row, ['secCode', 'secName', 'announcementTypeName']),
+        metrics: pick(row, ['secCode', 'secName', 'announcementTypeName', 'adjunctType', 'announcementId']),
         raw: row,
       }));
     }),
   ]);
+}
+
+async function resolveCninfoStock(security: SecurityRef): Promise<{ stock: string; orgId?: string }> {
+  const params = new URLSearchParams({
+    keyWord: security.code,
+    maxNum: '10',
+  });
+  const response = await fetch(`${CNINFO_SEARCH_URL}?${params.toString()}`, {
+    method: 'POST',
+    headers: {
+      ...BROWSER_HEADERS,
+      Referer: 'https://www.cninfo.com.cn/new/disclosure/stock',
+    },
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!response.ok) throw new Error(`巨潮证券检索 HTTP ${response.status}`);
+  const rows = await response.json() as Array<Record<string, unknown>>;
+  const matched = rows.find((row) => String(row.code ?? row.secCode ?? row.stockCode ?? '') === security.code);
+  const orgId = String(matched?.orgId ?? '');
+  return orgId ? { stock: `${security.code},${orgId}`, orgId } : { stock: security.code };
+}
+
+function cninfoColumn(market: SecurityRef['market']): string {
+  if (market === 'SH') return 'sse';
+  if (market === 'BJ') return 'bj';
+  return 'szse';
 }
 
 async function source(name: string, run: () => Promise<SevenLayerRecord[]>, limit = 12): Promise<SourceResult> {
@@ -478,6 +509,10 @@ function dataToRows(data: any): Record<string, unknown>[] {
 
 function pick(row: Record<string, unknown>, keys: string[]): Record<string, unknown> {
   return Object.fromEntries(keys.filter((key) => row[key] != null).map((key) => [key, row[key]]));
+}
+
+function stripMarkup(value: string): string {
+  return value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
 
 function formatCninfoDate(value: unknown): string | undefined {

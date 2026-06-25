@@ -78,6 +78,11 @@ const METRIC_LABELS: Record<string, { label: string; unit?: 'percent' | 'yuan' |
   eps: { label: '每股收益', unit: 'number' },
   bps: { label: '每股净资产', unit: 'number' },
   operatingCashPerShare: { label: '每股经营现金流', unit: 'number' },
+  secCode: { label: '证券代码', unit: 'text' },
+  secName: { label: '证券简称', unit: 'text' },
+  announcementTypeName: { label: '公告类型', unit: 'text' },
+  adjunctType: { label: '附件类型', unit: 'text' },
+  announcementId: { label: '公告编号', unit: 'text' },
 };
 const TREND_CHART_DEFS: Record<string, Array<{ key: string; label: string; color: string }>> = {
   东财120日资金流: [
