@@ -8,6 +8,7 @@ import { listProviders } from '../marketData/providers/providerRegistry.js';
 import { getInstrument } from '../marketData/repositories/instrumentRepository.js';
 import {
   fetchResearchReports,
+  fetchMarketIndexQuotes,
   fetchStockIntraday,
   fetchStockKline,
   fetchStockQuote,
@@ -16,6 +17,7 @@ import {
 import { tencentProvider } from '../marketData/providers/tencentProvider.js';
 import { updateIndexDatasets } from '../marketData/jobs/indexDatasetUpdater.js';
 import { StockResearchAgent } from '../services/stockResearchAgent.js';
+import { fetchSevenLayerSection, fetchSevenLayerSnapshot } from '../marketData/sevenLayerDataService.js';
 
 const candlesQuerySchema = z.object({
   startDate: z.string().optional(),
@@ -64,6 +66,14 @@ export function registerMarketDataRoutes(
     }
   });
 
+  app.get('/api/market-data/indices/quotes', async (_req, reply) => {
+    try {
+      return reply.send({ items: await fetchMarketIndexQuotes() });
+    } catch (error) {
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '大盘行情获取失败' });
+    }
+  });
+
   app.get<{ Params: { code: string } }>('/api/market-data/stocks/:code/kline', async (req, reply) => {
     const query = z.object({ period: z.enum(['intraday', 'day', 'week', 'year']).default('day') }).safeParse(req.query);
     if (!query.success) return reply.status(400).send({ message: '不支持的 K 线周期' });
@@ -82,6 +92,26 @@ export function registerMarketDataRoutes(
       return reply.send({ items: await fetchResearchReports(req.params.code) });
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : '研报获取失败' });
+    }
+  });
+
+  app.get<{ Params: { code: string } }>('/api/market-data/stocks/:code/seven-layer', async (req, reply) => {
+    try {
+      return reply.send(await fetchSevenLayerSnapshot(req.params.code));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '七层数据源获取失败' });
+    }
+  });
+
+  app.get<{ Params: { code: string; section: string } }>('/api/market-data/stocks/:code/seven-layer/:section', async (req, reply) => {
+    const section = z.enum(['signal', 'capital', 'fundamental', 'announcement']).safeParse(req.params.section);
+    if (!section.success) return reply.status(400).send({ message: '不支持的数据源模块' });
+    try {
+      return reply.send(await fetchSevenLayerSection(req.params.code, section.data));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '数据源模块获取失败' });
     }
   });
 

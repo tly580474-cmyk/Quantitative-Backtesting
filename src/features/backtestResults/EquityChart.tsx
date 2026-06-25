@@ -41,6 +41,15 @@ interface Props {
   height?: number;
 }
 
+interface TooltipRow {
+  label: string;
+  color: string;
+  value: number;
+  valueFormat: 'currency' | 'normalized';
+  change: number | null;
+  order: number;
+}
+
 export default function EquityChart({ series, height = 300 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -93,7 +102,8 @@ export default function EquityChart({ series, height = 300 }: Props) {
         return;
       }
 
-      const rows: string[] = [];
+      const rows: TooltipRow[] = [];
+      let order = 0;
       for (const [lineSeries, meta] of seriesMetaRef.current) {
         const point = param.seriesData.get(lineSeries) as LineData<Time> | undefined;
         if (!point || typeof point.value !== 'number' || meta.initialEquity <= 0) continue;
@@ -101,19 +111,37 @@ export default function EquityChart({ series, height = 300 }: Props) {
         const costBasis = costBasisMap?.get(String(param.time));
         const baseline = costBasis ?? meta.initialEquity;
         const change = meta.showChange ? (point.value / baseline - 1) * 100 : null;
-        const changeClass = change !== null
-          ? (change > 0 ? 'is-positive' : change < 0 ? 'is-negative' : '')
-          : '';
-        rows.push(`
+        rows.push({
+          label: meta.label,
+          color: meta.color,
+          value: point.value,
+          valueFormat: meta.valueFormat,
+          change,
+          order: order++,
+        });
+      }
+
+      const sortedRows = rows
+        .sort((a, b) => {
+          if (a.change === null && b.change === null) return a.order - b.order;
+          if (a.change === null) return 1;
+          if (b.change === null) return -1;
+          return b.change - a.change || a.order - b.order;
+        })
+        .map((row) => {
+          const changeClass = row.change !== null
+            ? (row.change > 0 ? 'is-positive' : row.change < 0 ? 'is-negative' : '')
+            : '';
+          return `
           <div class="equity-tooltip-row">
             <span class="equity-tooltip-label">
-              <i style="background:${meta.color}"></i>${escapeHtml(meta.label)}
+              <i style="background:${row.color}"></i>${escapeHtml(row.label)}
             </span>
-            <span class="equity-tooltip-equity">${meta.valueFormat === 'currency' ? `¥${formatMoney(point.value)}` : point.value.toFixed(2)}</span>
-            <span class="equity-tooltip-change ${changeClass}">${change !== null ? formatPercent(change) : ''}</span>
+            <span class="equity-tooltip-equity">${row.valueFormat === 'currency' ? `¥${formatMoney(row.value)}` : row.value.toFixed(2)}</span>
+            <span class="equity-tooltip-change ${changeClass}">${row.change !== null ? formatPercent(row.change) : ''}</span>
           </div>
-        `);
-      }
+        `;
+        });
 
       if (rows.length === 0) {
         tooltip.style.display = 'none';
@@ -122,7 +150,7 @@ export default function EquityChart({ series, height = 300 }: Props) {
 
       tooltip.innerHTML = `
         <div class="equity-tooltip-time">${formatChartTime(param.time)}</div>
-        ${rows.join('')}
+        ${sortedRows.join('')}
       `;
       tooltip.style.display = 'block';
 

@@ -41,6 +41,13 @@ export interface StockQuote extends StockSearchItem {
   source: string[];
 }
 
+interface IndexDefinition {
+  code: string;
+  prefixed: string;
+  name: string;
+  market: 'SH' | 'SZ';
+}
+
 export interface KlinePoint {
   date: string;
   open: number;
@@ -62,6 +69,16 @@ export interface ResearchReport {
   infoCode: string;
 }
 
+const MARKET_INDEXES: IndexDefinition[] = [
+  { code: '000001', prefixed: 'sh000001', name: '上证指数', market: 'SH' },
+  { code: '399001', prefixed: 'sz399001', name: '深证成指', market: 'SZ' },
+  { code: '399006', prefixed: 'sz399006', name: '创业板指', market: 'SZ' },
+  { code: '000688', prefixed: 'sh000688', name: '科创50', market: 'SH' },
+  { code: '000300', prefixed: 'sh000300', name: '沪深300', market: 'SH' },
+  { code: '000905', prefixed: 'sh000905', name: '中证500', market: 'SH' },
+  { code: '000852', prefixed: 'sh000852', name: '中证1000', market: 'SH' },
+];
+
 let eastmoneyQueue: Promise<void> = Promise.resolve();
 let eastmoneyLastCall = 0;
 
@@ -80,6 +97,23 @@ function normalizeCode(input: string): string {
   const match = input.trim().toLowerCase().match(/(?:sh|sz|bj)?(\d{6})(?:\.(?:sh|sz|bj))?/);
   if (!match) throw new Error('请输入有效的 6 位 A 股代码');
   return match[1];
+}
+
+function resolveSecurity(input: string): { code: string; market: 'SH' | 'SZ' | 'BJ'; prefixed: string } {
+  const value = input.trim().toLowerCase();
+  const prefixMatch = value.match(/^(sh|sz|bj)(\d{6})$/);
+  const suffixMatch = value.match(/^(\d{6})\.(sh|sz|bj)$/);
+  if (prefixMatch) {
+    const market = prefixMatch[1].toUpperCase() as 'SH' | 'SZ' | 'BJ';
+    return { code: prefixMatch[2], market, prefixed: `${prefixMatch[1]}${prefixMatch[2]}` };
+  }
+  if (suffixMatch) {
+    const market = suffixMatch[2].toUpperCase() as 'SH' | 'SZ' | 'BJ';
+    return { code: suffixMatch[1], market, prefixed: `${suffixMatch[2]}${suffixMatch[1]}` };
+  }
+  const code = normalizeCode(input);
+  const market = marketOf(code);
+  return { code, market, prefixed: prefixOf(code) };
 }
 
 function marketOf(code: string): 'SH' | 'SZ' | 'BJ' {
@@ -178,16 +212,15 @@ export async function searchStocks(keyword: string, limit = 12): Promise<StockSe
 }
 
 export async function fetchStockQuote(input: string, withProfile = true): Promise<StockQuote> {
-  const code = normalizeCode(input);
-  const prefixed = prefixOf(code);
+  const { code, market, prefixed } = resolveSecurity(input);
   const text = await fetchText(`${TENCENT_QUOTE_URL}${prefixed}`, 'gbk');
   const values = text.match(/"([\s\S]*?)"/)?.[1]?.split('~') ?? [];
   if (values.length < 53 || !values[1]) throw new Error(`未找到证券 ${code}`);
 
   let profile: { industry: string | null; listDate: string | null } = { industry: null, listDate: null };
-  if (withProfile && inferType(code) === 'stock') {
+  if (withProfile && inferType(code, market) === 'stock') {
     try {
-      const marketCode = marketOf(code) === 'SH' ? '1' : '0';
+      const marketCode = market === 'SH' ? '1' : '0';
       const params = new URLSearchParams({ fltt: '2', invt: '2', fields: 'f127,f189', secid: `${marketCode}.${code}` });
       const response = await eastmoneyGet(EASTMONEY_INFO_URL, params, 'https://quote.eastmoney.com/');
       const data = (await response.json() as { data?: Record<string, unknown> }).data ?? {};
@@ -201,11 +234,42 @@ export async function fetchStockQuote(input: string, withProfile = true): Promis
     }
   }
 
-  return {
+  return parseTencentQuote(values, {
     code,
-    name: values[1],
-    market: marketOf(code),
-    type: inferType(code),
+    market,
+    type: inferType(code, market),
+    ...profile,
+    source: profile.industry || profile.listDate ? ['腾讯财经', '东方财富'] : ['腾讯财经'],
+  });
+}
+
+export async function fetchMarketIndexQuotes(): Promise<StockQuote[]> {
+  const text = await fetchText(`${TENCENT_QUOTE_URL}${MARKET_INDEXES.map((item) => item.prefixed).join(',')}`, 'gbk');
+  return MARKET_INDEXES.flatMap((item) => {
+    const pattern = new RegExp(`v_${item.prefixed}="([\\s\\S]*?)";`);
+    const values = text.match(pattern)?.[1]?.split('~') ?? [];
+    if (values.length < 53 || !values[1]) return [];
+    return [parseTencentQuote(values, {
+      code: item.code,
+      name: item.name,
+      market: item.market,
+      type: 'index',
+      industry: '大盘指数',
+      listDate: null,
+      source: ['腾讯财经'],
+    })];
+  });
+}
+
+function parseTencentQuote(
+  values: string[],
+  base: Pick<StockQuote, 'code' | 'market' | 'type' | 'industry' | 'listDate' | 'source'> & { name?: string },
+): StockQuote {
+  return {
+    code: base.code,
+    name: base.name ?? values[1],
+    market: base.market,
+    type: base.type,
     price: numberOrNull(values[3]),
     previousClose: numberOrNull(values[4]),
     open: numberOrNull(values[5]),
@@ -217,22 +281,22 @@ export async function fetchStockQuote(input: string, withProfile = true): Promis
     turnoverPct: numberOrNull(values[38]),
     peTtm: numberOrNull(values[39]),
     amplitudePct: numberOrNull(values[43]),
-    marketCapYi: numberOrNull(values[44]),
-    floatMarketCapYi: numberOrNull(values[45]),
+    floatMarketCapYi: numberOrNull(values[44]),
+    marketCapYi: numberOrNull(values[45]),
     pb: numberOrNull(values[46]),
     limitUp: numberOrNull(values[47]),
     limitDown: numberOrNull(values[48]),
     volumeRatio: numberOrNull(values[49]),
     peStatic: numberOrNull(values[52]),
-    ...profile,
+    industry: base.industry,
+    listDate: base.listDate,
     updatedAt: new Date().toISOString(),
-    source: profile.industry || profile.listDate ? ['腾讯财经', '东方财富'] : ['腾讯财经'],
+    source: base.source,
   };
 }
 
 export async function fetchStockKline(input: string, period: 'day' | 'week' | 'year', count = 320): Promise<KlinePoint[]> {
-  const code = normalizeCode(input);
-  const prefixed = prefixOf(code);
+  const { prefixed } = resolveSecurity(input);
   // Tencent's direct `year` interval only returns the current partial year. Pull
   // monthly bars instead, then aggregate them so long-lived stocks retain history.
   const upstreamPeriod = period === 'year' ? 'month' : period;
@@ -275,8 +339,7 @@ export async function fetchStockKline(input: string, period: 'day' | 'week' | 'y
 }
 
 export async function fetchStockIntraday(input: string): Promise<KlinePoint[]> {
-  const code = normalizeCode(input);
-  const prefixed = prefixOf(code);
+  const { prefixed } = resolveSecurity(input);
   const params = new URLSearchParams({
     code: prefixed,
     r: Math.random().toString(),

@@ -24,9 +24,9 @@ const StrategyStudioPage = lazy(() => import('./features/strategyStudio/Strategy
 const MarketDataPage = lazy(() => import('./features/marketData/MarketDataPage'));
 
 const TAB_ITEMS = [
-  { key: '/', label: '行情分析' },
-  { key: '/data', label: '数据管理' },
   { key: '/market-data', label: '市场数据' },
+  { key: '/analysis', label: '行情分析' },
+  { key: '/data', label: '数据管理' },
   { key: '/backtest', label: '策略回测' },
   { key: '/results', label: '回测结果' },
   { key: '/studio', label: '策略工作室' },
@@ -34,7 +34,7 @@ const TAB_ITEMS = [
 
 function DataLibraryRoute() {
   const navigate = useNavigate();
-  return <DataLibrary onOpen={() => navigate('/')} />;
+  return <DataLibrary onOpen={() => navigate('/analysis')} />;
 }
 
 function MarketAnalysisRoute() {
@@ -52,6 +52,17 @@ function MarketAnalysisRoute() {
       />
     </>
   );
+}
+
+function MarketDataRoute() {
+  const navigate = useNavigate();
+  const handleOpenInAnalysis = useCallback((result: ImportResult) => {
+    useCandleStore.getState().setCandles(result.candles);
+    useCandleStore.getState().setImportResult(result);
+    navigate('/analysis');
+  }, [navigate]);
+
+  return <MarketDataPage onOpenInAnalysis={handleOpenInAnalysis} />;
 }
 
 function AppContent() {
@@ -72,7 +83,7 @@ function AppContent() {
     if (result) {
       useCandleStore.getState().setCandles(result.candles);
       useCandleStore.getState().setImportResult(result);
-      navigate('/');
+      navigate('/analysis');
       if (result.errors.length > 0 || result.warnings.length > 0) {
         setAlertResult(result);
       }
@@ -133,7 +144,7 @@ function AppContent() {
     </>
   );
 
-  const activeKey = location.pathname === '/' ? '/' : location.pathname.startsWith('/') ? location.pathname : '/';
+  const activeKey = location.pathname === '/' ? '/market-data' : location.pathname.startsWith('/') ? location.pathname : '/market-data';
 
   const tabBar = (
     <Tabs
@@ -143,7 +154,7 @@ function AppContent() {
     />
   );
 
-  const leftPanel = activeKey === '/' ? <IndicatorPanel /> : undefined;
+  const leftPanel = activeKey === '/analysis' ? <IndicatorPanel /> : undefined;
 
   return (
     <ConfigProvider
@@ -163,9 +174,10 @@ function AppContent() {
           center={
             <Suspense fallback={<PageSkeleton />}>
               <Routes>
-                <Route path="/" element={<MarketAnalysisRoute />} />
+                <Route path="/" element={<MarketDataRoute />} />
+                <Route path="/analysis" element={<MarketAnalysisRoute />} />
                 <Route path="/data" element={<DataLibraryRoute />} />
-                <Route path="/market-data" element={<MarketDataPage />} />
+                <Route path="/market-data" element={<MarketDataRoute />} />
                 <Route path="/backtest" element={<BacktestRunner />} />
                 <Route path="/results" element={<BacktestResultsPage />} />
                 <Route path="/studio" element={<StrategyStudioPage />} />

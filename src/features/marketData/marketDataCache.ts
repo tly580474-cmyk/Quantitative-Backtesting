@@ -1,4 +1,4 @@
-import type { AgentStatus, KlinePoint, MarketKlinePeriod, ResearchReport, StockQuote, StockSearchItem } from './types';
+import type { AgentStatus, KlinePoint, MarketKlinePeriod, ResearchReport, SevenLayerSection, StockQuote, StockSearchItem } from './types';
 
 interface AgentResultCache {
   content: string;
@@ -12,6 +12,8 @@ interface MarketDataPageCache {
   quotes: Record<string, StockQuote>;
   klines: Record<string, KlinePoint[]>;
   reports: Record<string, ResearchReport[]>;
+  sevenLayer: Record<string, Partial<Record<SevenLayerSection['key'], SevenLayerSection>>>;
+  indexQuotes?: StockQuote[];
   agentStatus?: AgentStatus;
   agentQuestion: string;
   agentModel?: string;
@@ -23,6 +25,8 @@ export const marketDataCache: MarketDataPageCache = {
   quotes: {},
   klines: {},
   reports: {},
+  sevenLayer: {},
+  indexQuotes: undefined,
   agentQuestion: '请综合评估当前估值、趋势、机构观点和主要风险。',
   agentResults: {},
 };

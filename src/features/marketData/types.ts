@@ -119,3 +119,34 @@ export interface AgentStatus {
   availableModels: string[];
   workflow: string[];
 }
+
+export type SevenLayerStatus = 'ok' | 'partial' | 'degraded';
+
+export interface SevenLayerRecord {
+  source: string;
+  title: string;
+  date?: string;
+  url?: string;
+  summary?: string;
+  metrics?: Record<string, unknown>;
+  raw?: unknown;
+}
+
+export interface SevenLayerSection {
+  key: 'signal' | 'capital' | 'fundamental' | 'announcement';
+  title: string;
+  status: SevenLayerStatus;
+  summary: string;
+  sources: string[];
+  records: SevenLayerRecord[];
+  errors: string[];
+}
+
+export interface SevenLayerSnapshot {
+  code: string;
+  market: 'SH' | 'SZ' | 'BJ';
+  secid: string;
+  name: string;
+  updatedAt: string;
+  sections: SevenLayerSection[];
+}
