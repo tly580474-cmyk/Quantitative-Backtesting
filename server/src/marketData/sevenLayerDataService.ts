@@ -4,10 +4,10 @@ import {
 } from './aStockDataService.js';
 
 const EASTMONEY_DATACENTER_URL = 'https://datacenter-web.eastmoney.com/api/data/v1/get';
+const EASTMONEY_SECURITIES_URL = 'https://datacenter.eastmoney.com/securities/api/data/v1/get';
 const EASTMONEY_PUSH2_URL = 'https://push2.eastmoney.com/api/qt';
 const EASTMONEY_PUSH2HIS_URL = 'https://push2his.eastmoney.com/api/qt';
 const CNINFO_ANN_URL = 'https://www.cninfo.com.cn/new/hisAnnouncement/query';
-const SINA_FINANCE_URL = 'https://vip.stock.finance.sina.com.cn/corp/go.php/vFD_FinanceSummary/stockid';
 
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
@@ -95,7 +95,7 @@ export async function fetchSevenLayerSnapshot(input: string): Promise<SevenLayer
     sections: [
       buildSection('signal', '信号', signals, '同花顺热点/北向/龙虎榜/解禁/行业线索'),
       buildSection('capital', '资金面', capital, '融资融券/大宗交易/股东户数/分钟资金流/120日资金流'),
-      buildSection('fundamental', '基础数据', fundamentals, '通达信兼容位/东财F10/新浪财务摘要'),
+      buildSection('fundamental', '基础数据', fundamentals, '公司画像/估值股本/核心财务/财报摘要'),
       buildSection('announcement', '公告', announcements, '巨潮公告检索'),
     ],
   };
@@ -113,7 +113,7 @@ export async function fetchSevenLayerSection(input: string, section: SevenLayerS
     case 'capital':
       return buildSection('capital', '资金面', await loadCapitalLayer(security), '融资融券/大宗交易/股东户数/分钟资金流/120日资金流');
     case 'fundamental':
-      return buildSection('fundamental', '基础数据', await loadFundamentalLayer(security), '通达信兼容位/东财F10/新浪财务摘要');
+      return buildSection('fundamental', '基础数据', await loadFundamentalLayer(security), '公司画像/估值股本/核心财务/财报摘要');
     case 'announcement':
       return buildSection('announcement', '公告', await loadAnnouncementLayer(security), '巨潮公告检索');
   }
@@ -188,30 +188,16 @@ async function loadCapitalLayer(security: SecurityRef): Promise<SourceResult[]> 
 
 async function loadFundamentalLayer(security: SecurityRef): Promise<SourceResult[]> {
   return Promise.all([
-    source('通达信兼容财务/F10', async () => [{
-      source: '通达信兼容财务/F10',
-      title: '已预留 mootdx/通达信财务与F10适配层',
-      summary: '当前运行时不引入 Python mootdx 包；后端以自包含 TypeScript 聚合器承接同类字段。',
-      metrics: { dependency: 'none', mode: 'embedded-adapter' },
-    }]),
-    source('东财F10概览', () => eastmoneyJson(`${EASTMONEY_PUSH2_URL}/stock/get`, {
+    source('公司画像与估值', () => eastmoneyJson(`${EASTMONEY_PUSH2_URL}/stock/get`, {
       secid: security.secid,
       fltt: '2',
       invt: '2',
-      fields: 'f57,f58,f84,f85,f116,f117,f127,f128,f129,f130,f131,f132,f133,f134,f135,f136,f137,f138,f139,f140,f141,f142,f143,f144,f145',
-    }).then((data) => [{
-      source: '东财F10概览',
-      title: String(data?.data?.f58 ?? security.code),
-      metrics: data?.data ?? {},
-      raw: data?.data,
-    }])),
-    source('新浪三表摘要', () => fetchText(`${SINA_FINANCE_URL}/${security.code}.phtml`, 'gbk')
-      .then((html) => [{
-        source: '新浪三表摘要',
-        title: '新浪财务摘要页面',
-        url: `${SINA_FINANCE_URL}/${security.code}.phtml`,
-        summary: stripHtml(html).slice(0, 360),
-      }])),
+      fields: 'f57,f58,f84,f85,f116,f117,f127,f128,f129,f162,f167,f168,f169,f170,f189',
+    }).then((data) => [companyProfileRecord(security, data?.data ?? {})])),
+    source('东财核心财务', () => eastmoneySecurityDataCenter('RPT_F10_FINANCE_MAINFINADATA', `(SECUCODE="${security.code}.${security.market}")`, 'REPORT_DATE', 4)
+      .then(financialMainRecords), 4),
+    source('东财财报摘要', () => eastmoneySecurityDataCenter('RPT_LICO_FN_CPD', `(SECURITY_CODE="${security.code}")`, 'REPORTDATE', 4)
+      .then(financialSummaryRecords), 4),
   ]);
 }
 
@@ -290,34 +276,51 @@ async function eastmoneyDataCenter(
   return Array.isArray(data?.result?.data) ? data.result.data : Array.isArray(data?.data) ? data.data : [];
 }
 
+async function eastmoneySecurityDataCenter(
+  reportName: string,
+  filter: string,
+  sortColumn: string,
+  pageSize: number,
+): Promise<Record<string, unknown>[]> {
+  const data = await limitedFetchJson(EASTMONEY_SECURITIES_URL, {
+    reportName,
+    columns: 'ALL',
+    filter,
+    pageNumber: '1',
+    pageSize: String(pageSize),
+    sortColumns: sortColumn,
+    sortTypes: '-1',
+    source: 'HSF10',
+    client: 'PC',
+  }, 'https://emweb.securities.eastmoney.com/');
+  return Array.isArray(data?.result?.data) ? data.result.data : Array.isArray(data?.data) ? data.data : [];
+}
+
 async function limitedFetchJson(url: string, params: Record<string, string>, referer: string): Promise<any> {
   const run = limitedQueue.then(async () => {
     const wait = Math.max(0, 900 - (Date.now() - limitedLastCall));
     if (wait > 0) await sleep(wait + Math.floor(Math.random() * 180));
-    try {
-      const response = await fetch(`${url}?${new URLSearchParams(params).toString()}`, {
-        headers: { ...BROWSER_HEADERS, Referer: referer },
-        signal: AbortSignal.timeout(18000),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const text = await response.text();
-      return parseLooseJson(text);
-    } finally {
-      limitedLastCall = Date.now();
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const response = await fetch(`${url}?${new URLSearchParams(params).toString()}`, {
+          headers: { ...BROWSER_HEADERS, Referer: referer },
+          signal: AbortSignal.timeout(18000),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const text = await response.text();
+        return parseLooseJson(text);
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await sleep(450 * attempt + Math.floor(Math.random() * 180));
+      } finally {
+        limitedLastCall = Date.now();
+      }
     }
+    throw lastError instanceof Error ? lastError : new Error('Eastmoney request failed');
   });
   limitedQueue = run.then(() => undefined, () => undefined);
   return run;
-}
-
-async function fetchText(url: string, encoding = 'utf-8'): Promise<string> {
-  const response = await fetch(url, {
-    headers: { ...BROWSER_HEADERS, Referer: 'https://finance.sina.com.cn/' },
-    signal: AbortSignal.timeout(18000),
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const bytes = await response.arrayBuffer();
-  return new TextDecoder(encoding).decode(bytes);
 }
 
 function parseLooseJson(text: string): any {
@@ -352,6 +355,80 @@ function klineTextRecords(sourceName: string, klines: unknown, fields: string[])
       metrics,
     };
   });
+}
+
+function companyProfileRecord(security: SecurityRef, row: Record<string, unknown>): SevenLayerRecord {
+  const name = String(row.f58 ?? security.code);
+  return {
+    source: '公司画像与估值',
+    title: `${name} 公司画像`,
+    date: formatEightDigitDate(row.f189),
+    metrics: {
+      stockCode: row.f57 ?? security.code,
+      stockName: name,
+      industry: row.f127,
+      region: row.f128,
+      concepts: row.f129,
+      listDate: formatEightDigitDate(row.f189),
+      totalShares: row.f84,
+      floatShares: row.f85,
+      totalMarketCap: row.f116,
+      floatMarketCap: row.f117,
+      peTtm: row.f162,
+      pb: row.f167,
+      ps: row.f168,
+      peg: row.f169,
+      dividendYield: row.f170,
+    },
+    raw: row,
+  };
+}
+
+function financialMainRecords(rows: Record<string, unknown>[]): SevenLayerRecord[] {
+  return rows.map((row) => ({
+    source: '东财核心财务',
+    title: String(row.REPORT_DATE_NAME ?? row.REPORT_TYPE ?? '核心财务指标'),
+    date: String(row.REPORT_DATE ?? '').slice(0, 10) || undefined,
+    metrics: {
+      reportPeriod: row.REPORT_DATE_NAME ?? row.REPORT_TYPE,
+      revenue: row.TOTALOPERATEREVE,
+      grossProfit: row.MLR,
+      netProfit: row.PARENTNETPROFIT,
+      deductNetProfit: row.KCFJCXSYJLR,
+      revenueGrowth: row.TOTALOPERATEREVETZ,
+      netProfitGrowth: row.PARENTNETPROFITTZ,
+      roe: row.ROEJQ,
+      grossMargin: row.XSMLL,
+      netMargin: row.XSJLL,
+      debtRatio: row.ZCFZL,
+      eps: row.EPSJB,
+      bps: row.BPS,
+      operatingCashPerShare: row.MGJYXJJE,
+    },
+    raw: row,
+  }));
+}
+
+function financialSummaryRecords(rows: Record<string, unknown>[]): SevenLayerRecord[] {
+  return rows.map((row) => ({
+    source: '东财财报摘要',
+    title: String(row.DATATYPE ?? row.REPORTDATE ?? '财报摘要'),
+    date: String(row.REPORTDATE ?? row.NOTICE_DATE ?? '').slice(0, 10) || undefined,
+    metrics: {
+      reportPeriod: row.DATATYPE ?? row.QDATE,
+      revenue: row.TOTAL_OPERATE_INCOME,
+      netProfit: row.PARENT_NETPROFIT,
+      eps: row.BASIC_EPS,
+      roe: row.WEIGHTAVG_ROE,
+      grossMargin: row.XSMLL,
+      revenueGrowth: row.YSTZ,
+      netProfitGrowth: row.SJLTZ,
+      bps: row.BPS,
+      operatingCashPerShare: row.MGJYXJJE,
+      industry: row.PUBLISHNAME ?? row.BOARD_NAME,
+    },
+    raw: row,
+  }));
 }
 
 function sectorFundRecords(rows: Record<string, unknown>[], quote: StockQuote | null): SevenLayerRecord[] {
@@ -403,20 +480,16 @@ function pick(row: Record<string, unknown>, keys: string[]): Record<string, unkn
   return Object.fromEntries(keys.filter((key) => row[key] != null).map((key) => [key, row[key]]));
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function formatCninfoDate(value: unknown): string | undefined {
   const num = Number(value);
   if (Number.isFinite(num) && num > 0) return new Date(num).toISOString().slice(0, 10);
   const text = String(value ?? '');
   return text ? text.slice(0, 10) : undefined;
+}
+
+function formatEightDigitDate(value: unknown): string | undefined {
+  const text = String(value ?? '');
+  return /^\d{8}$/.test(text) ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6)}` : undefined;
 }
 
 function resolveSecurity(input: string): SecurityRef {

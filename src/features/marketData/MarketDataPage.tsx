@@ -21,10 +21,10 @@ const DEFAULT_WATCHLIST: StockSearchItem[] = [
 const SEVEN_LAYER_DEFS: Array<{ key: SevenLayerSection['key']; title: string; summary: string }> = [
   { key: 'signal', title: '信号', summary: '同花顺热点/北向/龙虎榜/解禁/行业线索' },
   { key: 'capital', title: '资金面', summary: '融资融券/大宗交易/股东户数/分钟资金流/120日资金流' },
-  { key: 'fundamental', title: '基础数据', summary: '通达信兼容位/东财F10/新浪财务摘要' },
+  { key: 'fundamental', title: '基础数据', summary: '公司画像/估值股本/核心财务/财报摘要' },
   { key: 'announcement', title: '公告', summary: '巨潮公告检索' },
 ];
-const METRIC_LABELS: Record<string, { label: string; unit?: 'percent' | 'yuan' }> = {
+const METRIC_LABELS: Record<string, { label: string; unit?: 'percent' | 'yuan' | 'shares' | 'text' | 'date' | 'number' }> = {
   f3: { label: '板块涨跌幅', unit: 'percent' },
   f62: { label: '主力净流入', unit: 'yuan' },
   f184: { label: '主力净占比', unit: 'percent' },
@@ -49,6 +49,35 @@ const METRIC_LABELS: Record<string, { label: string; unit?: 'percent' | 'yuan' }
   midNetIn: { label: '中单净流入', unit: 'yuan' },
   largeNetIn: { label: '大单净流入', unit: 'yuan' },
   superNetIn: { label: '超大单净流入', unit: 'yuan' },
+  stockCode: { label: '证券代码', unit: 'text' },
+  stockName: { label: '证券简称', unit: 'text' },
+  industry: { label: '所属行业', unit: 'text' },
+  region: { label: '所属地区', unit: 'text' },
+  concepts: { label: '题材概念', unit: 'text' },
+  listDate: { label: '上市日期', unit: 'date' },
+  totalShares: { label: '总股本', unit: 'shares' },
+  floatShares: { label: '流通股本', unit: 'shares' },
+  totalMarketCap: { label: '总市值', unit: 'yuan' },
+  floatMarketCap: { label: '流通市值', unit: 'yuan' },
+  peTtm: { label: 'PE(TTM)', unit: 'number' },
+  pb: { label: 'PB', unit: 'number' },
+  ps: { label: 'PS', unit: 'number' },
+  peg: { label: 'PEG', unit: 'number' },
+  dividendYield: { label: '股息率', unit: 'percent' },
+  reportPeriod: { label: '报告期', unit: 'text' },
+  revenue: { label: '营业收入', unit: 'yuan' },
+  grossProfit: { label: '毛利', unit: 'yuan' },
+  netProfit: { label: '归母净利润', unit: 'yuan' },
+  deductNetProfit: { label: '扣非净利润', unit: 'yuan' },
+  revenueGrowth: { label: '营收同比', unit: 'percent' },
+  netProfitGrowth: { label: '净利同比', unit: 'percent' },
+  roe: { label: 'ROE', unit: 'percent' },
+  grossMargin: { label: '毛利率', unit: 'percent' },
+  netMargin: { label: '净利率', unit: 'percent' },
+  debtRatio: { label: '资产负债率', unit: 'percent' },
+  eps: { label: '每股收益', unit: 'number' },
+  bps: { label: '每股净资产', unit: 'number' },
+  operatingCashPerShare: { label: '每股经营现金流', unit: 'number' },
 };
 const TREND_CHART_DEFS: Record<string, Array<{ key: string; label: string; color: string }>> = {
   东财120日资金流: [
@@ -82,10 +111,14 @@ function amount(value: number | null) {
 }
 function formatMetricValue(key: string, value: unknown) {
   const meta = METRIC_LABELS[key];
+  if (meta?.unit === 'text') return String(value ?? '—').slice(0, 80);
+  if (meta?.unit === 'date') return String(value ?? '—').slice(0, 10);
   const num = typeof value === 'number' ? value : Number(value);
   if (!meta || !Number.isFinite(num)) return String(value).slice(0, 36);
   if (meta.unit === 'percent') return `${fmt(num)}%`;
   if (meta.unit === 'yuan') return `${(num / 100000000).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 亿`;
+  if (meta.unit === 'shares') return `${(num / 100000000).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 亿股`;
+  if (meta.unit === 'number') return fmt(num, 4);
   return fmt(num);
 }
 function Metric({ label, value }: { label: string; value: string }) {
@@ -312,7 +345,7 @@ function SevenLayerSectionContent({ section }: { section: SevenLayerSection }) {
     };
   });
 
-  if (section.key === 'signal' || section.key === 'capital') {
+  if (section.key === 'signal' || section.key === 'capital' || section.key === 'fundamental') {
     return <div className="market-seven-section">
       <Collapse className="market-seven-subcollapse" items={sourcePanels} />
     </div>;
