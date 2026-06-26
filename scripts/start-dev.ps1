@@ -40,6 +40,25 @@ function Install-Dependencies([string]$workingDirectory, [string]$label) {
     }
 }
 
+function Test-AkshareDependency {
+    if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+        Write-Step 'WARN' 'Python was not found in PATH. Market sentiment AKShare source will be unavailable.'
+        return
+    }
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & python -W ignore -c "import warnings; warnings.filterwarnings('ignore'); import akshare" >$null 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Step 'WARN' 'Python package akshare is missing. Run: python -m pip install akshare'
+            return
+        }
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    Write-Step 'OK' 'AKShare dependency found'
+}
+
 function Stop-ProjectListener([int]$port, [string]$marker) {
     $connections = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
         Sort-Object OwningProcess -Unique)
@@ -72,13 +91,9 @@ function Wait-Http([string]$url, [int]$timeoutSeconds, [string]$label) {
 }
 
 function Warm-MarketSentiment {
-    Write-Step 'INFO' 'Warming market sentiment overview...'
-    try {
-        Invoke-WebRequest -UseBasicParsing "$backendUrl/api/market-data/market-sentiment" -TimeoutSec 90 | Out-Null
-        Write-Step 'OK' 'Market sentiment overview is warmed'
-    } catch {
-        Write-Step 'WARN' "Market sentiment warm-up failed: $($_.Exception.Message)"
-    }
+    Write-Step 'INFO' 'Warming market sentiment overview in background...'
+    $warmCommand = "`$ErrorActionPreference = 'SilentlyContinue'; Invoke-WebRequest -UseBasicParsing '$backendUrl/api/market-data/market-sentiment' -TimeoutSec 180 | Out-Null"
+    Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-WindowStyle', 'Hidden', '-Command', $warmCommand -WindowStyle Hidden | Out-Null
 }
 
 try {
@@ -93,6 +108,7 @@ try {
         throw 'npm was not found in PATH.'
     }
     Test-NodeVersion
+    Test-AkshareDependency
 
     Install-Dependencies $root 'FE'
     Install-Dependencies $serverRoot 'BE'

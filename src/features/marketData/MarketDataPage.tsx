@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { App, AutoComplete, Button, Card, Collapse, Empty, Input, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
-import { ApiOutlined, BarChartOutlined, CheckCircleOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FundOutlined, LineChartOutlined, PieChartOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, StarFilled } from '@ant-design/icons';
+import { ApiOutlined, ArrowDownOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, LineChartOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, StarFilled, ThunderboltOutlined } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -151,11 +151,11 @@ function signed(value: number | null | undefined, digits = 2) {
 
 function SentimentMetricStrip({ overview }: { overview: MarketSentimentOverview }) {
   const metrics = [
-    { key: 'main', label: '主力净流入', value: `${fmt(overview.mainNetInYi)} 亿`, icon: <DownloadOutlined />, tone: overview.mainNetInYi >= 0 ? 'up' : 'down' },
     { key: 'msi', label: 'MSI', value: signed(overview.msi), icon: <LineChartOutlined />, tone: overview.msi >= 0 ? 'up' : 'down' },
-    { key: 'amount', label: '三市成交总额', value: `${fmt(overview.totalAmountYi)} 亿`, icon: <FundOutlined />, tone: 'neutral' },
-    { key: 'vix', label: '沪深300振幅 / 20日均值', value: `${fmt(overview.hs300AmplitudePct)}% / ${fmt(overview.hs300Amplitude20dPct)}%`, icon: <LineChartOutlined />, tone: 'neutral' },
-    { key: 'sample', label: '样本数量', value: `${fmt(overview.total, 0)} 只`, icon: <PieChartOutlined />, tone: 'neutral' },
+    { key: 'advancers', label: '上涨家数', value: `${fmt(overview.advancers, 0)} 家`, icon: <ArrowUpOutlined />, tone: 'up' },
+    { key: 'decliners', label: '下跌家数', value: `${fmt(overview.decliners, 0)} 家`, icon: <ArrowDownOutlined />, tone: 'down' },
+    { key: 'upLimit', label: '涨停家数', value: `${fmt(overview.upLimit, 0)} 家`, icon: <FireOutlined />, tone: 'up' },
+    { key: 'downLimit', label: '跌停家数', value: `${fmt(overview.downLimit, 0)} 家`, icon: <ThunderboltOutlined />, tone: 'down' },
   ];
   return <div className="market-sentiment-metric-strip">
     {metrics.map((item) => <div key={item.key} className={`market-sentiment-kpi is-${item.tone}`}>
@@ -568,7 +568,7 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
   const loadMarketSentiment = useCallback(async (silent = false) => {
     if (!silent) setMarketSentimentLoading(true);
     try {
-      const next = await apiFetch<MarketSentimentOverview>('/api/market-data/market-sentiment', { timeoutMs: 60000 });
+      const next = await apiFetch<MarketSentimentOverview>('/api/market-data/market-sentiment', { timeoutMs: 150000 });
       marketDataCache.marketSentiment = next;
       setMarketSentiment(next);
     } catch (e) {
@@ -629,9 +629,14 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
   }, [loadIndexQuotes]);
   useEffect(() => {
     if (!marketSentimentOpen) return undefined;
-    const timer = window.setInterval(() => void loadMarketSentiment(true), 60000);
+    const timer = window.setInterval(() => void loadMarketSentiment(true), 5 * 60_000);
     return () => window.clearInterval(timer);
   }, [loadMarketSentiment, marketSentimentOpen]);
+  useEffect(() => {
+    if (!marketSentimentOpen || marketSentimentLoading || (marketSentiment?.total ?? 0) > 0) return undefined;
+    const timer = window.setInterval(() => void loadMarketSentiment(true), 5000);
+    return () => window.clearInterval(timer);
+  }, [loadMarketSentiment, marketSentiment?.total, marketSentimentLoading, marketSentimentOpen]);
   useEffect(() => {
     if (period !== 'intraday') return undefined;
     const timer = window.setInterval(() => {

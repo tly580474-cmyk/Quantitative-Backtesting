@@ -1,10 +1,13 @@
+import { spawn } from 'node:child_process';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+
 const TENCENT_QUOTE_URL = 'https://qt.gtimg.cn/q=';
 const TENCENT_KLINE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';
 const TENCENT_MINUTE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/minute/query';
 const TENCENT_SEARCH_URL = 'https://smartbox.gtimg.cn/s3/';
 const EASTMONEY_REPORT_URL = 'https://reportapi.eastmoney.com/report/list';
 const EASTMONEY_INFO_URL = 'https://push2.eastmoney.com/api/qt/stock/get';
-const EASTMONEY_STOCK_LIST_URL = 'https://push2.eastmoney.com/api/qt/clist/get';
 
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
@@ -107,7 +110,10 @@ export interface MarketSentimentOverview {
 
 let marketSentimentCache: { data: MarketSentimentOverview; cachedAt: number } | null = null;
 let marketSentimentInFlight: Promise<MarketSentimentOverview> | null = null;
-const MARKET_SENTIMENT_CACHE_MS = 90_000;
+let marketSentimentRefreshTimer: NodeJS.Timeout | null = null;
+const MARKET_SENTIMENT_CACHE_MS = 10 * 60_000;
+const AKSHARE_MARKET_SNAPSHOT_SCRIPT = fileURLToPath(new URL('./akshareMarketSnapshot.py', import.meta.url));
+const MARKET_SENTIMENT_CACHE_FILE = fileURLToPath(new URL('../../.cache/market-sentiment.json', import.meta.url));
 
 const MARKET_INDEXES: IndexDefinition[] = [
   { code: '000001', prefixed: 'sh000001', name: '上证指数', market: 'SH' },
@@ -329,42 +335,45 @@ function buildFactor(
   return { key, label, value: round(clamp(value)), weight, source, formula, description };
 }
 
-async function fetchAllAStockRows(): Promise<Array<Record<string, unknown>>> {
-  const pageSize = 100;
-  const fs = 'm:0 t:6,m:0 t:80,m:0 t:81 s:2048,m:1 t:2,m:1 t:23';
-  const fetchPage = async (page: number) => {
-    const params = new URLSearchParams({
-      pn: String(page),
-      pz: String(pageSize),
-      po: '1',
-      np: '1',
-      fltt: '2',
-      invt: '2',
-      fid: 'f12',
-      fs,
-      fields: 'f2,f3,f6,f12,f14,f62',
+async function fetchAkshareAStockRows(): Promise<Array<Record<string, unknown>>> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('python', [AKSHARE_MARKET_SNAPSHOT_SCRIPT], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     });
-    const response = await fetchWithRetry(`${EASTMONEY_STOCK_LIST_URL}?${params.toString()}`, {
-      headers: { ...BROWSER_HEADERS, Referer: 'https://quote.eastmoney.com/center/gridlist.html' },
-      signal: AbortSignal.timeout(20000),
+    let stdout = '';
+    let stderr = '';
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error('AKShare 数据源超时'));
+    }, 150000);
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+    child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+    child.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
     });
-    const payload = await response.json() as { data?: { diff?: Array<Record<string, unknown>>; total?: number } };
-    return {
-      rows: payload.data?.diff ?? [],
-      total: numberOrNull(payload.data?.total) ?? 0,
-    };
-  };
-
-  const firstPage = await fetchPage(1);
-  const totalPages = Math.min(80, Math.ceil(firstPage.total / pageSize));
-  const rows = [...firstPage.rows];
-  const remaining = Array.from({ length: Math.max(0, totalPages - 1) }, (_item, index) => index + 2);
-  for (let index = 0; index < remaining.length; index += 3) {
-    const batch = remaining.slice(index, index + 3);
-    const pages = await Promise.allSettled(batch.map((page) => fetchPage(page)));
-    rows.push(...pages.flatMap((page) => page.status === 'fulfilled' ? page.value.rows : []));
-  }
-  return rows;
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) {
+        try {
+          const payload = JSON.parse(stderr.trim()) as { error?: string };
+          reject(new Error(payload.error || `AKShare 进程退出：${code}`));
+        } catch {
+          reject(new Error(`AKShare 进程退出：${code}`));
+        }
+        return;
+      }
+      try {
+        const payload = JSON.parse(stdout) as { items?: Array<Record<string, unknown>> };
+        resolve(payload.items ?? []);
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error('AKShare 输出解析失败'));
+      }
+    });
+  });
 }
 
 function buildMainNetInTrend(mainNetInYi: number): MarketSentimentOverview['mainNetInTrend'] {
@@ -382,7 +391,7 @@ function buildMainNetInTrend(mainNetInYi: number): MarketSentimentOverview['main
 
 export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOverview> {
   const [rowsResult, hs300KlineResult] = await Promise.allSettled([
-    fetchAllAStockRows(),
+    fetchAkshareAStockRows(),
     fetchStockKline('sh000300', 'day', 28).catch(() => []),
   ]);
   const rows = rowsResult.status === 'fulfilled' ? rowsResult.value : [];
@@ -390,7 +399,7 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
   const dataNotes: string[] = [];
   if (rowsResult.status === 'rejected') {
     const reason = rowsResult.reason instanceof Error ? rowsResult.reason.message : '未知错误';
-    dataNotes.push(`全市场涨跌分布上游暂不可用：${reason}`);
+    dataNotes.push(`AKShare 全市场涨跌分布暂不可用：${reason}`);
   }
   if (hs300KlineResult.status === 'rejected') {
     dataNotes.push('沪深300波动数据暂不可用。');
@@ -462,13 +471,8 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
     : 0;
 
   const factors: MarketSentimentFactor[] = [
-    buildFactor('A', '赚钱效应', a, 0.25, 'live', '(上涨家数-下跌家数)/(上涨家数+下跌家数)*100', '全市场个股多空力量基础'),
-    buildFactor('B', '涨跌停情绪', b, 0.20, 'estimated', '(涨停家数-跌停家数)/(涨停家数+跌停家数+1)*100', '以涨跌幅阈值近似识别极端情绪'),
-    buildFactor('C', '量能活跃度', 0, 0.15, 'neutral', '(当日成交额/20日成交额均值-1)*100', '需接入全市场20日成交额均值'),
-    buildFactor('D', '波动恐慌', d, 0.10, hs300AmplitudePct == null ? 'neutral' : 'live', '(1-沪深300当日振幅/20日平均振幅)*100', '沪深300振幅偏离度'),
-    buildFactor('E', '北向资金', 0, 0.10, 'neutral', '北向净流入/(abs(20日均净流入)+1)*100', '需接入陆股通净流入'),
-    buildFactor('F', '均线趋势', 0, 0.10, 'neutral', '(站上MA5占比-50)*2', '需接入全市场个股MA5站上比例'),
-    buildFactor('G', '炸板分歧', 0, 0.10, 'neutral', '(50-炸板率*100)*2', '需接入炸板个股数与涨停个股数'),
+    buildFactor('A', '涨跌家数', a, 0.60, 'live', '(上涨家数-下跌家数)/(上涨家数+下跌家数)*100', '全市场个股多空力量基础'),
+    buildFactor('B', '涨跌停情绪', b, 0.40, 'estimated', '(涨停家数-跌停家数)/(涨停家数+跌停家数+1)*100', '以涨跌幅阈值近似识别极端情绪'),
   ];
   const msi = round(factors.reduce((sum, factor) => sum + factor.value * factor.weight, 0));
   const status = sentimentStatus(msi);
@@ -506,27 +510,126 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
     ...status,
     notes: [
       ...dataNotes,
+      '全市场涨跌分布数据源：AKShare stock_zh_a_spot。',
       '涨停/跌停家数使用涨跌幅阈值近似，待接入交易所涨跌停状态后可替换为精确口径。',
-      '主力资金曲线由当日主力净流入快照生成走势骨架，待接入逐分钟资金流后可替换为真实日内曲线。',
-      'C/E/F/G 当前按中性值纳入公式，避免在缺少20日量能、北向、MA5、炸板数据时制造假精确。',
+      'MSI = 0.6 × 涨跌家数因子 A + 0.4 × 涨跌停情绪因子 B。',
     ],
   };
 }
 
-export async function fetchCachedMarketSentimentOverview(force = false): Promise<MarketSentimentOverview> {
-  if (!force && marketSentimentCache && Date.now() - marketSentimentCache.cachedAt < MARKET_SENTIMENT_CACHE_MS) {
-    return marketSentimentCache.data;
+function buildPendingMarketSentimentOverview(): MarketSentimentOverview {
+  const factors: MarketSentimentFactor[] = [
+    buildFactor('A', '涨跌家数', 0, 0.60, 'neutral', '(上涨家数-下跌家数)/(上涨家数+下跌家数)*100', '等待全市场快照刷新'),
+    buildFactor('B', '涨跌停情绪', 0, 0.40, 'neutral', '(涨停家数-跌停家数)/(涨停家数+跌停家数+1)*100', '等待全市场快照刷新'),
+  ];
+  return {
+    updatedAt: new Date().toISOString(),
+    total: 0,
+    advancers: 0,
+    decliners: 0,
+    flat: 0,
+    upLimit: 0,
+    downLimit: 0,
+    mainNetInYi: 0,
+    totalAmountYi: 0,
+    volumeBaselineYi: null,
+    northboundNetYi: null,
+    hs300AmplitudePct: null,
+    hs300Amplitude20dPct: null,
+    breakRate: null,
+    ma5AbovePct: null,
+    distribution: [
+      { key: 'upLimit', label: '涨停', count: 0, tone: 'up' },
+      { key: 'up5', label: '涨幅>5%', count: 0, tone: 'up' },
+      { key: 'up1', label: '5-1%', count: 0, tone: 'up' },
+      { key: 'up0', label: '1-0%', count: 0, tone: 'up' },
+      { key: 'flat', label: '平盘', count: 0, tone: 'flat' },
+      { key: 'down0', label: '0--1%', count: 0, tone: 'down' },
+      { key: 'down1', label: '1--5%', count: 0, tone: 'down' },
+      { key: 'down5', label: '5%--跌停', count: 0, tone: 'down' },
+      { key: 'downLimit', label: '跌停', count: 0, tone: 'down' },
+    ],
+    mainNetInTrend: buildMainNetInTrend(0),
+    factors,
+    msi: 0,
+    status: 'neutral',
+    statusLabel: '后台更新中',
+    notes: [
+      '市场概况正在后台刷新；首次生成全市场快照可能需要 1-3 分钟。',
+      '之后会优先返回本地缓存，不再阻塞页面加载。',
+    ],
+  };
+}
+
+async function readMarketSentimentDiskCache(): Promise<{ data: MarketSentimentOverview; cachedAt: number } | null> {
+  try {
+    const text = await readFile(MARKET_SENTIMENT_CACHE_FILE, 'utf8');
+    const parsed = JSON.parse(text) as { data?: MarketSentimentOverview; cachedAt?: number };
+    if (!parsed.data || typeof parsed.cachedAt !== 'number') return null;
+    return { data: parsed.data, cachedAt: parsed.cachedAt };
+  } catch {
+    return null;
   }
-  if (!force && marketSentimentInFlight) return marketSentimentInFlight;
+}
+
+async function writeMarketSentimentDiskCache(data: MarketSentimentOverview, cachedAt: number): Promise<void> {
+  await mkdir(fileURLToPath(new URL('../../.cache/', import.meta.url)), { recursive: true });
+  await writeFile(MARKET_SENTIMENT_CACHE_FILE, JSON.stringify({ data, cachedAt }), 'utf8');
+}
+
+function refreshMarketSentimentInBackground(): void {
+  if (marketSentimentInFlight) return;
   marketSentimentInFlight = fetchMarketSentimentOverview()
-    .then((data) => {
-      marketSentimentCache = { data, cachedAt: Date.now() };
+    .then(async (data) => {
+      const cachedAt = Date.now();
+      marketSentimentCache = { data, cachedAt };
+      await writeMarketSentimentDiskCache(data, cachedAt).catch(() => undefined);
+      ensureMarketSentimentRefreshLoop();
       return data;
     })
     .finally(() => {
       marketSentimentInFlight = null;
     });
-  return marketSentimentInFlight;
+  marketSentimentInFlight.catch(() => undefined);
+}
+
+function ensureMarketSentimentRefreshLoop(): void {
+  if (marketSentimentRefreshTimer) return;
+  marketSentimentRefreshTimer = setInterval(() => {
+    refreshMarketSentimentInBackground();
+  }, MARKET_SENTIMENT_CACHE_MS);
+  marketSentimentRefreshTimer.unref?.();
+}
+
+export async function fetchCachedMarketSentimentOverview(force = false): Promise<MarketSentimentOverview> {
+  if (!force && marketSentimentCache && Date.now() - marketSentimentCache.cachedAt < MARKET_SENTIMENT_CACHE_MS) {
+    ensureMarketSentimentRefreshLoop();
+    return marketSentimentCache.data;
+  }
+  if (force) {
+    const data = await fetchMarketSentimentOverview();
+    const cachedAt = Date.now();
+    marketSentimentCache = { data, cachedAt };
+    await writeMarketSentimentDiskCache(data, cachedAt).catch(() => undefined);
+    ensureMarketSentimentRefreshLoop();
+    return data;
+  }
+  if (!marketSentimentCache) {
+    const diskCache = await readMarketSentimentDiskCache();
+    if (diskCache) {
+      marketSentimentCache = diskCache;
+      ensureMarketSentimentRefreshLoop();
+    }
+  }
+  if (marketSentimentCache) {
+    ensureMarketSentimentRefreshLoop();
+    if (Date.now() - marketSentimentCache.cachedAt >= MARKET_SENTIMENT_CACHE_MS) {
+      refreshMarketSentimentInBackground();
+    }
+    return marketSentimentCache.data;
+  }
+  refreshMarketSentimentInBackground();
+  return buildPendingMarketSentimentOverview();
 }
 
 function parseTencentQuote(
