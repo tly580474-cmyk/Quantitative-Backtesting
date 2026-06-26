@@ -8,7 +8,7 @@ import { listProviders } from '../marketData/providers/providerRegistry.js';
 import { getInstrument } from '../marketData/repositories/instrumentRepository.js';
 import {
   fetchResearchReports,
-  fetchMarketSentimentOverview,
+  fetchCachedMarketSentimentOverview,
   fetchMarketIndexQuotes,
   fetchStockIntraday,
   fetchStockKline,
@@ -77,7 +77,7 @@ export function registerMarketDataRoutes(
 
   app.get('/api/market-data/market-sentiment', async (_req, reply) => {
     try {
-      return reply.send(await fetchMarketSentimentOverview());
+      return reply.send(await fetchCachedMarketSentimentOverview());
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : '市场情绪获取失败' });
     }

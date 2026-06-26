@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { App, AutoComplete, Button, Card, Collapse, Empty, Input, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
-import { ApiOutlined, CheckCircleOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, StarFilled } from '@ant-design/icons';
+import { ApiOutlined, BarChartOutlined, CheckCircleOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FundOutlined, LineChartOutlined, PieChartOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, StarFilled } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -144,62 +144,56 @@ function sentimentRangeLabel(msi: number) {
   return '极致恐慌，关注超跌修复';
 }
 
-function MarketBreadthChart({ overview }: { overview: MarketSentimentOverview }) {
-  const maxCount = Math.max(1, ...overview.distribution.map((item) => item.count));
-  return <div className="market-breadth-chart" aria-label="涨跌分布图">
-    <div className="market-sentiment-tabs" aria-hidden="true">
-      <span className="is-active">涨跌分布 <b className="market-up">{overview.advancers}</b>:<b>{overview.flat}</b>:<b className="market-down">{overview.decliners}</b></span>
-      <span>主力净流入 <b className={overview.mainNetInYi >= 0 ? 'market-up' : 'market-down'}>{fmt(overview.mainNetInYi)} 亿</b></span>
-      <span>MSI <b>{fmt(overview.msi)}</b></span>
-    </div>
-    <div className="market-breadth-bars">
-      {overview.distribution.map((item) => {
-        const height = 18 + (item.count / maxCount) * 118;
-        return <div key={item.key} className={`market-breadth-bar is-${item.tone}`}>
-          <b>{item.count}</b>
-          <i style={{ height }} />
-          <span>{item.label}</span>
-        </div>;
-      })}
-    </div>
-    <div className="market-breadth-scale">
-      <span><i />涨 {overview.advancers} 家</span>
-      <em style={{ width: `${Math.max(6, (overview.advancers / Math.max(1, overview.advancers + overview.decliners)) * 100)}%` }} />
-      <strong>跌 {overview.decliners} 家</strong>
-    </div>
+function signed(value: number | null | undefined, digits = 2) {
+  if (value == null) return '—';
+  return value > 0 ? `+${fmt(value, digits)}` : fmt(value, digits);
+}
+
+function SentimentMetricStrip({ overview }: { overview: MarketSentimentOverview }) {
+  const metrics = [
+    { key: 'main', label: '主力净流入', value: `${fmt(overview.mainNetInYi)} 亿`, icon: <DownloadOutlined />, tone: overview.mainNetInYi >= 0 ? 'up' : 'down' },
+    { key: 'msi', label: 'MSI', value: signed(overview.msi), icon: <LineChartOutlined />, tone: overview.msi >= 0 ? 'up' : 'down' },
+    { key: 'amount', label: '三市成交总额', value: `${fmt(overview.totalAmountYi)} 亿`, icon: <FundOutlined />, tone: 'neutral' },
+    { key: 'vix', label: '沪深300振幅 / 20日均值', value: `${fmt(overview.hs300AmplitudePct)}% / ${fmt(overview.hs300Amplitude20dPct)}%`, icon: <LineChartOutlined />, tone: 'neutral' },
+    { key: 'sample', label: '样本数量', value: `${fmt(overview.total, 0)} 只`, icon: <PieChartOutlined />, tone: 'neutral' },
+  ];
+  return <div className="market-sentiment-metric-strip">
+    {metrics.map((item) => <div key={item.key} className={`market-sentiment-kpi is-${item.tone}`}>
+      <i>{item.icon}</i>
+      <span>{item.label}</span>
+      <strong>{item.value}</strong>
+    </div>)}
   </div>;
 }
 
-function MainFundFlowChart({ overview }: { overview: MarketSentimentOverview }) {
-  const points = overview.mainNetInTrend;
-  const values = points.map((point) => point.value);
-  const min = Math.min(0, ...values);
-  const max = Math.max(0, ...values);
-  const range = Math.max(1, max - min);
-  const width = 640;
-  const height = 220;
-  const padX = 34;
-  const padY = 20;
-  const path = points.map((point, index) => {
-    const x = padX + (index / Math.max(1, points.length - 1)) * (width - padX * 2);
-    const y = padY + (1 - (point.value - min) / range) * (height - padY * 2);
-    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
-  }).join(' ');
-  const zeroY = padY + (1 - (0 - min) / range) * (height - padY * 2);
-  return <div className="market-flow-chart" aria-label="主力资金流向图">
-    <svg viewBox={`0 0 ${width} ${height}`} role="img">
-      {[0.25, 0.5, 0.75].map((ratio) => <line key={ratio} x1={padX} x2={width - padX} y1={padY + ratio * (height - padY * 2)} y2={padY + ratio * (height - padY * 2)} className="market-flow-grid" />)}
-      <line x1={padX} x2={width - padX} y1={zeroY} y2={zeroY} className="market-flow-zero" />
-      <path d={path} className={overview.mainNetInYi >= 0 ? 'market-flow-line is-up' : 'market-flow-line is-down'} />
-      {points.map((point, index) => {
-        const x = padX + (index / Math.max(1, points.length - 1)) * (width - padX * 2);
-        const y = padY + (1 - (point.value - min) / range) * (height - padY * 2);
-        return <g key={point.time}>
-          <circle cx={x} cy={y} r="3.5" className={overview.mainNetInYi >= 0 ? 'market-flow-dot is-up' : 'market-flow-dot is-down'} />
-          {(index === 0 || index === points.length - 1) && <text x={x} y={height - 4} textAnchor={index === 0 ? 'start' : 'end'}>{point.time}</text>}
-        </g>;
-      })}
-    </svg>
+function MarketBreadthChart({ overview }: { overview: MarketSentimentOverview }) {
+  const maxCount = Math.max(1, ...overview.distribution.map((item) => item.count));
+  const advanceRatio = (overview.advancers / Math.max(1, overview.advancers + overview.decliners)) * 100;
+  return <div className="market-breadth-chart" aria-label="涨跌分布图">
+    <div className="market-panel-title"><span><BarChartOutlined />涨跌分布</span><Tooltip title="A股全市场非 ST/退市样本，涨跌停为涨跌幅阈值估算"><Text type="secondary">?</Text></Tooltip></div>
+    <div className="market-breadth-body">
+      <div className="market-breadth-summary">
+        <div className="is-up"><strong>{overview.advancers}</strong><span>上涨家数</span><b>↑</b></div>
+        <div className="is-down"><strong>{overview.decliners}</strong><span>下跌家数</span><b>↓</b></div>
+      </div>
+      <div className="market-breadth-bars">
+        {overview.distribution.map((item) => {
+          const height = 18 + (item.count / maxCount) * 138;
+          return <div key={item.key} className={`market-breadth-bar is-${item.tone}`}>
+            <b>{item.count}</b>
+            <i style={{ height }} />
+            <span>{item.label}</span>
+          </div>;
+        })}
+      </div>
+    </div>
+    <div className="market-breadth-scale">
+      <div>
+        <span><i />涨 {overview.advancers} 家</span>
+        <em style={{ background: `linear-gradient(90deg, #ef4444 0%, #ef4444 ${advanceRatio}%, #16a34a ${advanceRatio}%, #16a34a 100%)` }} />
+        <strong>跌 {overview.decliners} 家</strong>
+      </div>
+    </div>
   </div>;
 }
 
@@ -208,10 +202,10 @@ function MarketThermometer({ overview }: { overview: MarketSentimentOverview }) 
   return <div className={`market-thermometer is-${overview.status}`}>
     <div className="market-thermometer-head">
       <div>
-        <Text type="secondary">大盘情绪温度计</Text>
+        <Text type="secondary"><DashboardOutlined /> 大盘情绪温度计</Text>
         <strong>{overview.statusLabel}</strong>
       </div>
-      <b>{fmt(overview.msi)}</b>
+      <b>{signed(overview.msi)}</b>
     </div>
     <div className="market-thermometer-track">
       <span style={{ left: `${position}%` }} />
@@ -235,14 +229,8 @@ function MarketSentimentPanel({ overview, loading }: { overview: MarketSentiment
     <Skeleton loading={loading && !overview} active paragraph={{ rows: 6 }}>
       {overview ? <div className="market-sentiment-layout">
         <div className="market-sentiment-main">
+          <SentimentMetricStrip overview={overview} />
           <MarketBreadthChart overview={overview} />
-          <div className="market-sentiment-stats">
-            <Metric label="三市成交总额" value={`${fmt(overview.totalAmountYi)} 亿`} />
-            <Metric label="主力净流入" value={`${fmt(overview.mainNetInYi)} 亿`} />
-            <Metric label="沪深300振幅 / 20日均值" value={`${fmt(overview.hs300AmplitudePct)}% / ${fmt(overview.hs300Amplitude20dPct)}%`} />
-            <Metric label="样本数量" value={`${fmt(overview.total, 0)} 只`} />
-          </div>
-          <MainFundFlowChart overview={overview} />
         </div>
         <MarketThermometer overview={overview} />
         <div className="market-sentiment-notes">

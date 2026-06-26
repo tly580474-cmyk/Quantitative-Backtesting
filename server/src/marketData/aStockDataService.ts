@@ -105,6 +105,10 @@ export interface MarketSentimentOverview {
   notes: string[];
 }
 
+let marketSentimentCache: { data: MarketSentimentOverview; cachedAt: number } | null = null;
+let marketSentimentInFlight: Promise<MarketSentimentOverview> | null = null;
+const MARKET_SENTIMENT_CACHE_MS = 90_000;
+
 const MARKET_INDEXES: IndexDefinition[] = [
   { code: '000001', prefixed: 'sh000001', name: '上证指数', market: 'SH' },
   { code: '399001', prefixed: 'sz399001', name: '深证成指', market: 'SZ' },
@@ -327,7 +331,7 @@ function buildFactor(
 
 async function fetchAllAStockRows(): Promise<Array<Record<string, unknown>>> {
   const pageSize = 100;
-  const fs = 'm:0+t:6,m:0+t:80,m:0+t:81+s:2048,m:1+t:2,m:1+t:23';
+  const fs = 'm:0 t:6,m:0 t:80,m:0 t:81 s:2048,m:1 t:2,m:1 t:23';
   const fetchPage = async (page: number) => {
     const params = new URLSearchParams({
       pn: String(page),
@@ -355,10 +359,10 @@ async function fetchAllAStockRows(): Promise<Array<Record<string, unknown>>> {
   const totalPages = Math.min(80, Math.ceil(firstPage.total / pageSize));
   const rows = [...firstPage.rows];
   const remaining = Array.from({ length: Math.max(0, totalPages - 1) }, (_item, index) => index + 2);
-  for (let index = 0; index < remaining.length; index += 8) {
-    const batch = remaining.slice(index, index + 8);
-    const pages = await Promise.all(batch.map((page) => fetchPage(page)));
-    rows.push(...pages.flatMap((page) => page.rows));
+  for (let index = 0; index < remaining.length; index += 3) {
+    const batch = remaining.slice(index, index + 3);
+    const pages = await Promise.allSettled(batch.map((page) => fetchPage(page)));
+    rows.push(...pages.flatMap((page) => page.status === 'fulfilled' ? page.value.rows : []));
   }
   return rows;
 }
@@ -377,10 +381,20 @@ function buildMainNetInTrend(mainNetInYi: number): MarketSentimentOverview['main
 }
 
 export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOverview> {
-  const [rows, hs300Kline] = await Promise.all([
+  const [rowsResult, hs300KlineResult] = await Promise.allSettled([
     fetchAllAStockRows(),
     fetchStockKline('sh000300', 'day', 28).catch(() => []),
   ]);
+  const rows = rowsResult.status === 'fulfilled' ? rowsResult.value : [];
+  const hs300Kline = hs300KlineResult.status === 'fulfilled' ? hs300KlineResult.value : [];
+  const dataNotes: string[] = [];
+  if (rowsResult.status === 'rejected') {
+    const reason = rowsResult.reason instanceof Error ? rowsResult.reason.message : '未知错误';
+    dataNotes.push(`全市场涨跌分布上游暂不可用：${reason}`);
+  }
+  if (hs300KlineResult.status === 'rejected') {
+    dataNotes.push('沪深300波动数据暂不可用。');
+  }
   const stocks = rows.filter((row) => {
     const name = String(row.f14 ?? '');
     return name && !/ST|退/.test(name);
@@ -491,11 +505,28 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
     msi,
     ...status,
     notes: [
+      ...dataNotes,
       '涨停/跌停家数使用涨跌幅阈值近似，待接入交易所涨跌停状态后可替换为精确口径。',
       '主力资金曲线由当日主力净流入快照生成走势骨架，待接入逐分钟资金流后可替换为真实日内曲线。',
       'C/E/F/G 当前按中性值纳入公式，避免在缺少20日量能、北向、MA5、炸板数据时制造假精确。',
     ],
   };
+}
+
+export async function fetchCachedMarketSentimentOverview(force = false): Promise<MarketSentimentOverview> {
+  if (!force && marketSentimentCache && Date.now() - marketSentimentCache.cachedAt < MARKET_SENTIMENT_CACHE_MS) {
+    return marketSentimentCache.data;
+  }
+  if (!force && marketSentimentInFlight) return marketSentimentInFlight;
+  marketSentimentInFlight = fetchMarketSentimentOverview()
+    .then((data) => {
+      marketSentimentCache = { data, cachedAt: Date.now() };
+      return data;
+    })
+    .finally(() => {
+      marketSentimentInFlight = null;
+    });
+  return marketSentimentInFlight;
 }
 
 function parseTencentQuote(

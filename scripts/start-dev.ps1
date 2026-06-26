@@ -71,6 +71,16 @@ function Wait-Http([string]$url, [int]$timeoutSeconds, [string]$label) {
     throw "$label did not become ready within $timeoutSeconds seconds."
 }
 
+function Warm-MarketSentiment {
+    Write-Step 'INFO' 'Warming market sentiment overview...'
+    try {
+        Invoke-WebRequest -UseBasicParsing "$backendUrl/api/market-data/market-sentiment" -TimeoutSec 90 | Out-Null
+        Write-Step 'OK' 'Market sentiment overview is warmed'
+    } catch {
+        Write-Step 'WARN' "Market sentiment warm-up failed: $($_.Exception.Message)"
+    }
+}
+
 try {
     Write-Host '============================================================'
     Write-Host '  Quant Backtest - Development Launcher'
@@ -100,6 +110,7 @@ try {
     $backendCommand = "title Quant-Backend && cd /d `"$serverRoot`" && npm run dev"
     Start-Process -FilePath 'cmd.exe' -ArgumentList '/k', $backendCommand -WorkingDirectory $serverRoot
     Wait-Http "$backendUrl/api/market-data/research-agent/status" 35 'Backend'
+    Warm-MarketSentiment
 
     Write-Step 'FE' "Starting Vite at $frontendUrl"
     $frontendCommand = "title Quant-Frontend && cd /d `"$root`" && npm run dev -- --host 127.0.0.1 --port 5173 --strictPort"
