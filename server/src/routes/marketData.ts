@@ -8,6 +8,7 @@ import { listProviders } from '../marketData/providers/providerRegistry.js';
 import { getInstrument } from '../marketData/repositories/instrumentRepository.js';
 import {
   fetchResearchReports,
+  fetchMarketSentimentOverview,
   fetchMarketIndexQuotes,
   fetchStockIntraday,
   fetchStockKline,
@@ -71,6 +72,14 @@ export function registerMarketDataRoutes(
       return reply.send({ items: await fetchMarketIndexQuotes() });
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : '大盘行情获取失败' });
+    }
+  });
+
+  app.get('/api/market-data/market-sentiment', async (_req, reply) => {
+    try {
+      return reply.send(await fetchMarketSentimentOverview());
+    } catch (error) {
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '市场情绪获取失败' });
     }
   });
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { App, AutoComplete, Button, Card, Collapse, Empty, Input, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
-import { ApiOutlined, CheckCircleOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, StarFilled } from '@ant-design/icons';
+import { ApiOutlined, CheckCircleOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, StarFilled } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -9,7 +9,7 @@ import { apiFetch } from '../../api/client';
 import MarketKlineChart from './MarketKlineChart';
 import { klineCacheKey, marketDataCache } from './marketDataCache';
 import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
-import type { AgentStatus, KlinePoint, MarketKlinePeriod, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem } from './types';
+import type { AgentStatus, KlinePoint, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem } from './types';
 import type { ImportResult } from '@/models';
 
 const { Text, Title, Paragraph } = Typography;
@@ -128,6 +128,129 @@ function formatMetricValue(key: string, value: unknown) {
 }
 function Metric({ label, value }: { label: string; value: string }) {
   return <div className="market-metric"><Text type="secondary">{label}</Text><Text strong>{value}</Text></div>;
+}
+
+function sourceTag(source: MarketSentimentOverview['factors'][number]['source']) {
+  if (source === 'live') return <Tag color="green">实时</Tag>;
+  if (source === 'estimated') return <Tag color="gold">估算</Tag>;
+  return <Tag>待接入</Tag>;
+}
+
+function sentimentRangeLabel(msi: number) {
+  if (msi > 60) return '情绪过热，见顶风险高';
+  if (msi > 30) return '赚钱效应强，多头占优';
+  if (msi >= -30) return '情绪平稳，震荡观察';
+  if (msi >= -60) return '普跌亏钱，空头占优';
+  return '极致恐慌，关注超跌修复';
+}
+
+function MarketBreadthChart({ overview }: { overview: MarketSentimentOverview }) {
+  const maxCount = Math.max(1, ...overview.distribution.map((item) => item.count));
+  return <div className="market-breadth-chart" aria-label="涨跌分布图">
+    <div className="market-sentiment-tabs" aria-hidden="true">
+      <span className="is-active">涨跌分布 <b className="market-up">{overview.advancers}</b>:<b>{overview.flat}</b>:<b className="market-down">{overview.decliners}</b></span>
+      <span>主力净流入 <b className={overview.mainNetInYi >= 0 ? 'market-up' : 'market-down'}>{fmt(overview.mainNetInYi)} 亿</b></span>
+      <span>MSI <b>{fmt(overview.msi)}</b></span>
+    </div>
+    <div className="market-breadth-bars">
+      {overview.distribution.map((item) => {
+        const height = 18 + (item.count / maxCount) * 118;
+        return <div key={item.key} className={`market-breadth-bar is-${item.tone}`}>
+          <b>{item.count}</b>
+          <i style={{ height }} />
+          <span>{item.label}</span>
+        </div>;
+      })}
+    </div>
+    <div className="market-breadth-scale">
+      <span><i />涨 {overview.advancers} 家</span>
+      <em style={{ width: `${Math.max(6, (overview.advancers / Math.max(1, overview.advancers + overview.decliners)) * 100)}%` }} />
+      <strong>跌 {overview.decliners} 家</strong>
+    </div>
+  </div>;
+}
+
+function MainFundFlowChart({ overview }: { overview: MarketSentimentOverview }) {
+  const points = overview.mainNetInTrend;
+  const values = points.map((point) => point.value);
+  const min = Math.min(0, ...values);
+  const max = Math.max(0, ...values);
+  const range = Math.max(1, max - min);
+  const width = 640;
+  const height = 220;
+  const padX = 34;
+  const padY = 20;
+  const path = points.map((point, index) => {
+    const x = padX + (index / Math.max(1, points.length - 1)) * (width - padX * 2);
+    const y = padY + (1 - (point.value - min) / range) * (height - padY * 2);
+    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+  const zeroY = padY + (1 - (0 - min) / range) * (height - padY * 2);
+  return <div className="market-flow-chart" aria-label="主力资金流向图">
+    <svg viewBox={`0 0 ${width} ${height}`} role="img">
+      {[0.25, 0.5, 0.75].map((ratio) => <line key={ratio} x1={padX} x2={width - padX} y1={padY + ratio * (height - padY * 2)} y2={padY + ratio * (height - padY * 2)} className="market-flow-grid" />)}
+      <line x1={padX} x2={width - padX} y1={zeroY} y2={zeroY} className="market-flow-zero" />
+      <path d={path} className={overview.mainNetInYi >= 0 ? 'market-flow-line is-up' : 'market-flow-line is-down'} />
+      {points.map((point, index) => {
+        const x = padX + (index / Math.max(1, points.length - 1)) * (width - padX * 2);
+        const y = padY + (1 - (point.value - min) / range) * (height - padY * 2);
+        return <g key={point.time}>
+          <circle cx={x} cy={y} r="3.5" className={overview.mainNetInYi >= 0 ? 'market-flow-dot is-up' : 'market-flow-dot is-down'} />
+          {(index === 0 || index === points.length - 1) && <text x={x} y={height - 4} textAnchor={index === 0 ? 'start' : 'end'}>{point.time}</text>}
+        </g>;
+      })}
+    </svg>
+  </div>;
+}
+
+function MarketThermometer({ overview }: { overview: MarketSentimentOverview }) {
+  const position = ((overview.msi + 100) / 200) * 100;
+  return <div className={`market-thermometer is-${overview.status}`}>
+    <div className="market-thermometer-head">
+      <div>
+        <Text type="secondary">大盘情绪温度计</Text>
+        <strong>{overview.statusLabel}</strong>
+      </div>
+      <b>{fmt(overview.msi)}</b>
+    </div>
+    <div className="market-thermometer-track">
+      <span style={{ left: `${position}%` }} />
+    </div>
+    <div className="market-thermometer-axis"><span>-100</span><span>-60</span><span>-30</span><span>30</span><span>60</span><span>100</span></div>
+    <Text type="secondary">{sentimentRangeLabel(overview.msi)}</Text>
+    <div className="market-factor-list">
+      {overview.factors.map((factor) => <Tooltip key={factor.key} title={`${factor.formula}。${factor.description}`}>
+        <div className="market-factor-row">
+          <span><b>{factor.key}</b>{factor.label}</span>
+          {sourceTag(factor.source)}
+          <strong className={factor.value > 0 ? 'market-up' : factor.value < 0 ? 'market-down' : ''}>{fmt(factor.value)}</strong>
+        </div>
+      </Tooltip>)}
+    </div>
+  </div>;
+}
+
+function MarketSentimentPanel({ overview, loading }: { overview: MarketSentimentOverview | null; loading: boolean }) {
+  return <div className="market-sentiment-panel">
+    <Skeleton loading={loading && !overview} active paragraph={{ rows: 6 }}>
+      {overview ? <div className="market-sentiment-layout">
+        <div className="market-sentiment-main">
+          <MarketBreadthChart overview={overview} />
+          <div className="market-sentiment-stats">
+            <Metric label="三市成交总额" value={`${fmt(overview.totalAmountYi)} 亿`} />
+            <Metric label="主力净流入" value={`${fmt(overview.mainNetInYi)} 亿`} />
+            <Metric label="沪深300振幅 / 20日均值" value={`${fmt(overview.hs300AmplitudePct)}% / ${fmt(overview.hs300Amplitude20dPct)}%`} />
+            <Metric label="样本数量" value={`${fmt(overview.total, 0)} 只`} />
+          </div>
+          <MainFundFlowChart overview={overview} />
+        </div>
+        <MarketThermometer overview={overview} />
+        <div className="market-sentiment-notes">
+          {overview.notes.map((note) => <Text key={note} type="secondary">{note}</Text>)}
+        </div>
+      </div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无市场情绪数据" />}
+    </Skeleton>
+  </div>;
 }
 
 function statusColor(status: SevenLayerSection['status']) {
@@ -400,6 +523,9 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
   const [klineLoading, setKlineLoading] = useState(false);
   const [indexQuotes, setIndexQuotes] = useState<StockQuote[]>(() => marketDataCache.indexQuotes ?? []);
   const [indexLoading, setIndexLoading] = useState(false);
+  const [marketSentiment, setMarketSentiment] = useState<MarketSentimentOverview | null>(() => marketDataCache.marketSentiment ?? null);
+  const [marketSentimentLoading, setMarketSentimentLoading] = useState(false);
+  const [marketSentimentOpen, setMarketSentimentOpen] = useState(false);
   const [exporting, setExporting] = useState<'analysis' | 'excel' | null>(null);
   const [reports, setReports] = useState<ResearchReport[]>(() => marketDataCache.reports[marketDataCache.selectedCode ?? initial[0]?.code ?? '600519'] ?? []);
   const [reportsLoading, setReportsLoading] = useState(false);
@@ -449,6 +575,18 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
       if (!silent) message.warning(e instanceof Error ? e.message : '大盘行情获取失败');
     } finally {
       if (!silent) setIndexLoading(false);
+    }
+  }, [message]);
+  const loadMarketSentiment = useCallback(async (silent = false) => {
+    if (!silent) setMarketSentimentLoading(true);
+    try {
+      const next = await apiFetch<MarketSentimentOverview>('/api/market-data/market-sentiment', { timeoutMs: 60000 });
+      marketDataCache.marketSentiment = next;
+      setMarketSentiment(next);
+    } catch (e) {
+      if (!silent) message.warning(e instanceof Error ? e.message : '市场情绪获取失败');
+    } finally {
+      if (!silent) setMarketSentimentLoading(false);
     }
   }, [message]);
   const loadReports = useCallback(async (code: string) => {
@@ -501,6 +639,11 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
     const timer = window.setInterval(() => void loadIndexQuotes(true), 15000);
     return () => window.clearInterval(timer);
   }, [loadIndexQuotes]);
+  useEffect(() => {
+    if (!marketSentimentOpen) return undefined;
+    const timer = window.setInterval(() => void loadMarketSentiment(true), 60000);
+    return () => window.clearInterval(timer);
+  }, [loadMarketSentiment, marketSentimentOpen]);
   useEffect(() => {
     if (period !== 'intraday') return undefined;
     const timer = window.setInterval(() => {
@@ -626,6 +769,12 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
       }
     }
   };
+  const handleMarketSentimentChange = (keys: string | string[]) => {
+    const activeKeys = Array.isArray(keys) ? keys : [keys];
+    const isOpen = activeKeys.includes('market-sentiment');
+    setMarketSentimentOpen(isOpen);
+    if (isOpen && !marketDataCache.marketSentiment && !marketSentimentLoading) void loadMarketSentiment();
+  };
 
   return <main className="market-page" tabIndex={0} aria-label="市场数据内容，可上下滚动" onKeyDown={handleScrollKeys}>
     <section className="market-index-ticker" aria-label="当前交易日大盘实时数据">
@@ -648,6 +797,21 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
       <AutoComplete className="market-search" value={searchText} options={options} onSearch={search} onSelect={(code) => { const item = searchItems.find((x) => x.code === code); if (item) addStock(item); }} notFoundContent={searching ? <Spin size="small" /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入代码、简称或拼音" />}>
         <Input size="large" prefix={<SearchOutlined />} suffix={<PlusOutlined />} placeholder="搜索 5000+ A 股，如 600519、茅台、mt" aria-label="搜索股票" />
       </AutoComplete>
+    </section>
+    <section className="market-sentiment-section" aria-label="市场情绪与涨跌分布">
+      <Collapse
+        className="market-sentiment-collapse"
+        activeKey={marketSentimentOpen ? ['market-sentiment'] : []}
+        onChange={handleMarketSentimentChange}
+        items={[{
+          key: 'market-sentiment',
+          label: <Space><DashboardOutlined />市场概况</Space>,
+          extra: marketSentimentOpen
+            ? <Tooltip title="刷新市场情绪"><Button size="small" icon={<ReloadOutlined />} loading={marketSentimentLoading} onClick={(event) => { event.stopPropagation(); void loadMarketSentiment(); }}>刷新</Button></Tooltip>
+            : <Tag>展开后加载</Tag>,
+          children: <MarketSentimentPanel overview={marketSentiment} loading={marketSentimentLoading} />,
+        }]}
+      />
     </section>
     <div className="market-workspace">
       <aside className="market-watchlist"><div className="market-section-title"><span><StarFilled /> 我的自选</span><Tag>{watchlist.length}</Tag></div>

@@ -4,6 +4,7 @@ const TENCENT_MINUTE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/minute/query'
 const TENCENT_SEARCH_URL = 'https://smartbox.gtimg.cn/s3/';
 const EASTMONEY_REPORT_URL = 'https://reportapi.eastmoney.com/report/list';
 const EASTMONEY_INFO_URL = 'https://push2.eastmoney.com/api/qt/stock/get';
+const EASTMONEY_STOCK_LIST_URL = 'https://push2.eastmoney.com/api/qt/clist/get';
 
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
@@ -69,6 +70,41 @@ export interface ResearchReport {
   infoCode: string;
 }
 
+export interface MarketSentimentFactor {
+  key: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
+  label: string;
+  value: number;
+  weight: number;
+  source: 'live' | 'estimated' | 'neutral';
+  formula: string;
+  description: string;
+}
+
+export interface MarketSentimentOverview {
+  updatedAt: string;
+  total: number;
+  advancers: number;
+  decliners: number;
+  flat: number;
+  upLimit: number;
+  downLimit: number;
+  mainNetInYi: number;
+  totalAmountYi: number;
+  volumeBaselineYi: number | null;
+  northboundNetYi: number | null;
+  hs300AmplitudePct: number | null;
+  hs300Amplitude20dPct: number | null;
+  breakRate: number | null;
+  ma5AbovePct: number | null;
+  distribution: Array<{ key: string; label: string; count: number; tone: 'up' | 'flat' | 'down' }>;
+  mainNetInTrend: Array<{ time: string; value: number }>;
+  factors: MarketSentimentFactor[];
+  msi: number;
+  status: 'euphoria' | 'bullish' | 'neutral' | 'bearish' | 'panic';
+  statusLabel: string;
+  notes: string[];
+}
+
 const MARKET_INDEXES: IndexDefinition[] = [
   { code: '000001', prefixed: 'sh000001', name: '上证指数', market: 'SH' },
   { code: '399001', prefixed: 'sz399001', name: '深证成指', market: 'SZ' },
@@ -86,6 +122,14 @@ function numberOrNull(value: unknown): number | null {
   if (value === '' || value === '-' || value == null) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function clamp(value: number, min = -100, max = 100): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function round(value: number, digits = 2): number {
+  return Number(value.toFixed(digits));
 }
 
 function decodeEscapedUnicode(value: string): string {
@@ -259,6 +303,199 @@ export async function fetchMarketIndexQuotes(): Promise<StockQuote[]> {
       source: ['腾讯财经'],
     })];
   });
+}
+
+function sentimentStatus(msi: number): Pick<MarketSentimentOverview, 'status' | 'statusLabel'> {
+  if (msi > 60) return { status: 'euphoria', statusLabel: '极致狂热' };
+  if (msi > 30) return { status: 'bullish', statusLabel: '乐观多头' };
+  if (msi >= -30) return { status: 'neutral', statusLabel: '中性震荡' };
+  if (msi >= -60) return { status: 'bearish', statusLabel: '悲观空头' };
+  return { status: 'panic', statusLabel: '极致恐慌' };
+}
+
+function buildFactor(
+  key: MarketSentimentFactor['key'],
+  label: string,
+  value: number,
+  weight: number,
+  source: MarketSentimentFactor['source'],
+  formula: string,
+  description: string,
+): MarketSentimentFactor {
+  return { key, label, value: round(clamp(value)), weight, source, formula, description };
+}
+
+async function fetchAllAStockRows(): Promise<Array<Record<string, unknown>>> {
+  const pageSize = 100;
+  const fs = 'm:0+t:6,m:0+t:80,m:0+t:81+s:2048,m:1+t:2,m:1+t:23';
+  const fetchPage = async (page: number) => {
+    const params = new URLSearchParams({
+      pn: String(page),
+      pz: String(pageSize),
+      po: '1',
+      np: '1',
+      fltt: '2',
+      invt: '2',
+      fid: 'f12',
+      fs,
+      fields: 'f2,f3,f6,f12,f14,f62',
+    });
+    const response = await fetchWithRetry(`${EASTMONEY_STOCK_LIST_URL}?${params.toString()}`, {
+      headers: { ...BROWSER_HEADERS, Referer: 'https://quote.eastmoney.com/center/gridlist.html' },
+      signal: AbortSignal.timeout(20000),
+    });
+    const payload = await response.json() as { data?: { diff?: Array<Record<string, unknown>>; total?: number } };
+    return {
+      rows: payload.data?.diff ?? [],
+      total: numberOrNull(payload.data?.total) ?? 0,
+    };
+  };
+
+  const firstPage = await fetchPage(1);
+  const totalPages = Math.min(80, Math.ceil(firstPage.total / pageSize));
+  const rows = [...firstPage.rows];
+  const remaining = Array.from({ length: Math.max(0, totalPages - 1) }, (_item, index) => index + 2);
+  for (let index = 0; index < remaining.length; index += 8) {
+    const batch = remaining.slice(index, index + 8);
+    const pages = await Promise.all(batch.map((page) => fetchPage(page)));
+    rows.push(...pages.flatMap((page) => page.rows));
+  }
+  return rows;
+}
+
+function buildMainNetInTrend(mainNetInYi: number): MarketSentimentOverview['mainNetInTrend'] {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const labels = currentMinutes < 13 * 60
+    ? ['09:30', '10:00', '10:30', '11:00', '11:30']
+    : ['09:30', '10:30', '11:30', '13:30', '14:30', '15:00'];
+  return labels.map((time, index) => {
+    const progress = labels.length <= 1 ? 1 : index / (labels.length - 1);
+    const curve = 0.18 + progress * 0.82;
+    return { time, value: round(mainNetInYi * curve) };
+  });
+}
+
+export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOverview> {
+  const [rows, hs300Kline] = await Promise.all([
+    fetchAllAStockRows(),
+    fetchStockKline('sh000300', 'day', 28).catch(() => []),
+  ]);
+  const stocks = rows.filter((row) => {
+    const name = String(row.f14 ?? '');
+    return name && !/ST|退/.test(name);
+  });
+
+  let advancers = 0;
+  let decliners = 0;
+  let flat = 0;
+  let upLimit = 0;
+  let downLimit = 0;
+  let mainNetInYuan = 0;
+  let totalAmountYuan = 0;
+  const buckets = {
+    upLimit: 0,
+    up5: 0,
+    up1: 0,
+    up0: 0,
+    flat: 0,
+    down0: 0,
+    down1: 0,
+    down5: 0,
+    downLimit: 0,
+  };
+
+  for (const row of stocks) {
+    const changePct = numberOrNull(row.f3);
+    const amountYuan = numberOrNull(row.f6) ?? 0;
+    const mainYuan = numberOrNull(row.f62) ?? 0;
+    totalAmountYuan += amountYuan;
+    mainNetInYuan += mainYuan;
+    if (changePct == null) continue;
+    if (changePct > 0) advancers += 1;
+    else if (changePct < 0) decliners += 1;
+    else flat += 1;
+
+    if (changePct >= 9.8) { upLimit += 1; buckets.upLimit += 1; }
+    else if (changePct >= 5) buckets.up5 += 1;
+    else if (changePct >= 1) buckets.up1 += 1;
+    else if (changePct > 0) buckets.up0 += 1;
+    else if (changePct === 0) buckets.flat += 1;
+    else if (changePct > -1) buckets.down0 += 1;
+    else if (changePct > -5) buckets.down1 += 1;
+    else if (changePct > -9.8) buckets.down5 += 1;
+    else { downLimit += 1; buckets.downLimit += 1; }
+  }
+
+  const latestHs300 = hs300Kline.at(-1);
+  const previousHs300 = hs300Kline.at(-2);
+  const amplitudeSeries = hs300Kline.slice(-21).map((point, index, all) => {
+    const previous = index === 0 ? null : all[index - 1];
+    const base = previous?.close || point.open;
+    return base ? ((point.high - point.low) / base) * 100 : 0;
+  }).filter(Number.isFinite);
+  const hs300AmplitudePct = latestHs300 && previousHs300?.close
+    ? ((latestHs300.high - latestHs300.low) / previousHs300.close) * 100
+    : null;
+  const hs300Amplitude20dPct = amplitudeSeries.length > 1
+    ? amplitudeSeries.slice(0, -1).reduce((sum, value) => sum + value, 0) / (amplitudeSeries.length - 1)
+    : null;
+
+  const a = (advancers + decliners) > 0 ? ((advancers - decliners) / (advancers + decliners)) * 100 : 0;
+  const b = ((upLimit - downLimit) / (upLimit + downLimit + 1)) * 100;
+  const d = hs300AmplitudePct != null && hs300Amplitude20dPct
+    ? (1 - hs300AmplitudePct / hs300Amplitude20dPct) * 100
+    : 0;
+
+  const factors: MarketSentimentFactor[] = [
+    buildFactor('A', '赚钱效应', a, 0.25, 'live', '(上涨家数-下跌家数)/(上涨家数+下跌家数)*100', '全市场个股多空力量基础'),
+    buildFactor('B', '涨跌停情绪', b, 0.20, 'estimated', '(涨停家数-跌停家数)/(涨停家数+跌停家数+1)*100', '以涨跌幅阈值近似识别极端情绪'),
+    buildFactor('C', '量能活跃度', 0, 0.15, 'neutral', '(当日成交额/20日成交额均值-1)*100', '需接入全市场20日成交额均值'),
+    buildFactor('D', '波动恐慌', d, 0.10, hs300AmplitudePct == null ? 'neutral' : 'live', '(1-沪深300当日振幅/20日平均振幅)*100', '沪深300振幅偏离度'),
+    buildFactor('E', '北向资金', 0, 0.10, 'neutral', '北向净流入/(abs(20日均净流入)+1)*100', '需接入陆股通净流入'),
+    buildFactor('F', '均线趋势', 0, 0.10, 'neutral', '(站上MA5占比-50)*2', '需接入全市场个股MA5站上比例'),
+    buildFactor('G', '炸板分歧', 0, 0.10, 'neutral', '(50-炸板率*100)*2', '需接入炸板个股数与涨停个股数'),
+  ];
+  const msi = round(factors.reduce((sum, factor) => sum + factor.value * factor.weight, 0));
+  const status = sentimentStatus(msi);
+
+  return {
+    updatedAt: new Date().toISOString(),
+    total: stocks.length,
+    advancers,
+    decliners,
+    flat,
+    upLimit,
+    downLimit,
+    mainNetInYi: round(mainNetInYuan / 100000000),
+    totalAmountYi: round(totalAmountYuan / 100000000),
+    volumeBaselineYi: null,
+    northboundNetYi: null,
+    hs300AmplitudePct: hs300AmplitudePct == null ? null : round(hs300AmplitudePct),
+    hs300Amplitude20dPct: hs300Amplitude20dPct == null ? null : round(hs300Amplitude20dPct),
+    breakRate: null,
+    ma5AbovePct: null,
+    distribution: [
+      { key: 'upLimit', label: '涨停', count: buckets.upLimit, tone: 'up' },
+      { key: 'up5', label: '涨幅>5%', count: buckets.up5, tone: 'up' },
+      { key: 'up1', label: '5-1%', count: buckets.up1, tone: 'up' },
+      { key: 'up0', label: '1-0%', count: buckets.up0, tone: 'up' },
+      { key: 'flat', label: '平盘', count: buckets.flat, tone: 'flat' },
+      { key: 'down0', label: '0--1%', count: buckets.down0, tone: 'down' },
+      { key: 'down1', label: '1--5%', count: buckets.down1, tone: 'down' },
+      { key: 'down5', label: '5%--跌停', count: buckets.down5, tone: 'down' },
+      { key: 'downLimit', label: '跌停', count: buckets.downLimit, tone: 'down' },
+    ],
+    mainNetInTrend: buildMainNetInTrend(round(mainNetInYuan / 100000000)),
+    factors,
+    msi,
+    ...status,
+    notes: [
+      '涨停/跌停家数使用涨跌幅阈值近似，待接入交易所涨跌停状态后可替换为精确口径。',
+      '主力资金曲线由当日主力净流入快照生成走势骨架，待接入逐分钟资金流后可替换为真实日内曲线。',
+      'C/E/F/G 当前按中性值纳入公式，避免在缺少20日量能、北向、MA5、炸板数据时制造假精确。',
+    ],
+  };
 }
 
 function parseTencentQuote(

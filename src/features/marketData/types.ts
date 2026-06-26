@@ -113,6 +113,41 @@ export interface ResearchReport {
   infoCode: string;
 }
 
+export interface MarketSentimentFactor {
+  key: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
+  label: string;
+  value: number;
+  weight: number;
+  source: 'live' | 'estimated' | 'neutral';
+  formula: string;
+  description: string;
+}
+
+export interface MarketSentimentOverview {
+  updatedAt: string;
+  total: number;
+  advancers: number;
+  decliners: number;
+  flat: number;
+  upLimit: number;
+  downLimit: number;
+  mainNetInYi: number;
+  totalAmountYi: number;
+  volumeBaselineYi: number | null;
+  northboundNetYi: number | null;
+  hs300AmplitudePct: number | null;
+  hs300Amplitude20dPct: number | null;
+  breakRate: number | null;
+  ma5AbovePct: number | null;
+  distribution: Array<{ key: string; label: string; count: number; tone: 'up' | 'flat' | 'down' }>;
+  mainNetInTrend: Array<{ time: string; value: number }>;
+  factors: MarketSentimentFactor[];
+  msi: number;
+  status: 'euphoria' | 'bullish' | 'neutral' | 'bearish' | 'panic';
+  statusLabel: string;
+  notes: string[];
+}
+
 export interface AgentStatus {
   configured: boolean;
   currentModel: string;
