@@ -190,6 +190,7 @@
 .agent-workflow span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid #bfdbfe; border-radius: 999px; color: #1e40af; background: #eff6ff; font-size: 12px; }
 .agent-workflow b { display: grid; width: 18px; height: 18px; place-items: center; border-radius: 50%; color: white; background: #2563eb; }
 .agent-actions { display: flex; justify-content: flex-end; gap: 10px; margin: 12px 0; }
+.agent-output-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 12px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
 .agent-result { max-height: 520px; overflow: auto; margin: 14px 0 0; padding: 16px; border: 1px solid #dbeafe; border-radius: 10px; background: #f8fafc; color: #1e293b; font: inherit; line-height: 1.7; white-space: pre-wrap; }
 .agent-reasoning { margin-top: 12px; background: #f8fafc; }
 .agent-reasoning ol { margin: 0; padding-left: 22px; color: #475569; line-height: 1.8; }
@@ -303,6 +304,8 @@
   .market-reports-card .ant-card-body { padding-inline: 8px; }
   .agent-actions { align-items: stretch; flex-direction: column; }
   .agent-actions .ant-select, .agent-actions .ant-btn { width: 100% !important; min-height: 44px; }
+  .agent-output-actions { align-items: stretch; flex-direction: column; }
+  .agent-output-actions .ant-space, .agent-output-actions .ant-btn { width: 100%; }
   .agent-workflow { gap: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {

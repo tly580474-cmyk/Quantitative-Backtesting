@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { App, AutoComplete, Button, Card, Collapse, Empty, Input, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
-import { ApiOutlined, ArrowDownOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, LineChartOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, StarFilled, ThunderboltOutlined } from '@ant-design/icons';
+import { ApiOutlined, ArrowDownOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, LineChartOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, StarFilled, ThunderboltOutlined } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -677,6 +677,33 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
     finally { setAgentRunning(false); }
   };
 
+  const copyAgentResult = async () => {
+    if (!agentResult) return;
+    try {
+      await navigator.clipboard.writeText(agentResult);
+      message.success('调研报告已复制');
+    } catch {
+      message.error('复制失败，请检查浏览器剪贴板权限');
+    }
+  };
+
+  const exportAgentResult = () => {
+    if (!agentResult) return;
+    const stockName = quote?.name || selectedCode;
+    const date = new Date().toISOString().slice(0, 10);
+    const safeName = `${stockName}-${selectedCode}-调研报告-${date}`.replace(/[\\/:*?"<>|]/g, '-');
+    const blob = new Blob([`\uFEFF${agentResult}`], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${safeName}.md`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    message.success(`已导出 ${safeName}.md`);
+  };
+
   const changePeriod = (nextPeriod: MarketKlinePeriod) => {
     setPeriod(nextPeriod);
     const cached = marketDataCache.klines[klineCacheKey(selectedCode, nextPeriod)];
@@ -822,6 +849,13 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
             <div className="agent-workflow">{(agentStatus?.workflow ?? ['实时行情', 'K线趋势', '机构研报', '证据整理']).map((step, i) => <span key={step}><b>{i + 1}</b>{step}</span>)}</div>
             <Input.TextArea rows={3} value={agentQuestion} onChange={(e) => setAgentQuestion(e.target.value)} maxLength={1000} aria-label="调研问题" />
             <div className="agent-actions"><Select value={agentModel} onChange={setAgentModel} options={(agentStatus?.availableModels ?? []).map((m) => ({ label: m, value: m }))} style={{ minWidth: 180 }} /><Button type="primary" icon={<RobotOutlined />} loading={agentRunning} disabled={!agentStatus?.configured} onClick={runAgent}>运行调研</Button></div>
+            <div className="agent-output-actions">
+              <Text type="secondary">输出内容</Text>
+              <Space wrap>
+                <Button size="small" icon={<CopyOutlined />} disabled={!agentResult || agentRunning} onClick={copyAgentResult}>复制报告</Button>
+                <Button size="small" icon={<DownloadOutlined />} disabled={!agentResult || agentRunning} onClick={exportAgentResult}>导出 Markdown</Button>
+              </Space>
+            </div>
             {(agentRunning || reasoningSummary.length > 0) && <Collapse className="agent-reasoning" activeKey={thinkingOpen ? ['reasoning'] : []} onChange={(keys) => setThinkingOpen((Array.isArray(keys) ? keys : [keys]).includes('reasoning'))} items={[{ key: 'reasoning', label: <Space>{agentRunning ? <Spin size="small" /> : <CheckCircleOutlined className="agent-process-done" />}调研过程摘要{!agentRunning && <Text type="secondary">（已完成，自动折叠）</Text>}</Space>, children: <ol>{(reasoningSummary.length ? reasoningSummary : ['读取实时行情与估值字段', '加载日K、周K与技术趋势', '整理机构研报与评级', '区分事实、推断和数据缺口', '生成结构化 Markdown 报告']).map((step) => <li key={step}>{step}</li>)}</ol> }]} />}
             {agentResult ? <article className="agent-result markdown-preview"><ReactMarkdown remarkPlugins={[remarkGfm]}>{agentResult}</ReactMarkdown></article> : !agentRunning && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={agentStatus?.configured ? 'Agent 将调用行情、K线和研报数据生成调研报告' : '复用策略工作室的模型配置后即可运行'} />}
           </Card>
