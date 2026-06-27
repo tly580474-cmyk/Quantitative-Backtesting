@@ -118,8 +118,17 @@ const riskRuleSchema = z.discriminatedUnion('type', [
     value: z.number().positive(),
   }),
   z.object({
+    type: z.literal('trailingStop'),
+    value: z.number().positive(),
+  }),
+  z.object({
     type: z.literal('maxHoldingDays'),
     value: z.number().int().positive(),
+  }),
+  z.object({
+    type: z.literal('lossStreakCooldown'),
+    losses: z.number().int().positive(),
+    months: z.number().int().positive(),
   }),
 ]);
 

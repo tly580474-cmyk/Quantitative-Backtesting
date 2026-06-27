@@ -27,6 +27,8 @@ import type { Candle } from '@/models';
 import { getRepository } from '@/api/useRepository';
 import { normalizeBenchmark, normalizeDcaEquity, toEquitySeries } from './comparison';
 import { createTradeMarkers } from './tradeMarkers';
+import { getAllStrategies } from '@/features/strategies/registry';
+import { getResultStrategyName } from './resultLabel';
 import type { SeriesMarker, Time } from 'lightweight-charts';
 
 const { Text } = Typography;
@@ -64,9 +66,21 @@ export default function BacktestResultsPage() {
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [showBuyMarkers, setShowBuyMarkers] = useState(true);
   const [showCostCurve, setShowCostCurve] = useState(false);
+  const [strategyNames, setStrategyNames] = useState<Record<string, string>>(() => ({
+    dca: '定投策略',
+    ...Object.fromEntries(getAllStrategies().map((strategy) => [strategy.id, strategy.name])),
+  }));
 
   useEffect(() => {
     loadResults();
+    getRepository().getAllVisualStrategies()
+      .then((strategies) => {
+        setStrategyNames((current) => ({
+          ...current,
+          ...Object.fromEntries(strategies.map((strategy) => [strategy.id, strategy.name])),
+        }));
+      })
+      .catch(() => undefined);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedResults = results.filter((r) => selectedIds.includes(r.id) && r.status === 'completed');
@@ -106,6 +120,9 @@ export default function BacktestResultsPage() {
       setCompareMode(true);
     }
   };
+
+  const strategyNameFor = (result: BacktestResult) =>
+    getResultStrategyName(result, strategyNames);
 
   return (
     <div className="results-page">
@@ -162,7 +179,7 @@ export default function BacktestResultsPage() {
                       <ResultsOverview
                         key={r.id}
                         metrics={r.metrics}
-                        name={r.name}
+                        name={strategyNameFor(r)}
                         color={comparisonColor(i)}
                       />
                     ))}
@@ -177,7 +194,7 @@ export default function BacktestResultsPage() {
                     height={400}
                     series={selectedResults.map((r, i) => ({
                       id: r.id,
-                      label: r.datasetSnapshot.name || r.datasetSnapshot.symbol,
+                      label: `${strategyNameFor(r)} · ${r.datasetSnapshot.symbol}`,
                       color: comparisonColor(i),
                       data: toEquitySeries(r.equityCurve),
                     }))}
@@ -191,7 +208,7 @@ export default function BacktestResultsPage() {
 
       {/* Detail modal */}
       <Modal
-        title={detailResult?.name ?? '回测结果'}
+        title={detailResult ? `${strategyNameFor(detailResult)} · ${detailResult.datasetSnapshot.symbol}` : '回测结果'}
         open={detailResult !== null}
         onCancel={() => setDetailResult(null)}
         footer={null}
@@ -391,8 +408,9 @@ export default function BacktestResultsPage() {
               >
                 <List.Item.Meta
                   title={
-                    <Space>
-                      <Text>{r.name}</Text>
+                    <Space wrap>
+                      <Text strong>{strategyNameFor(r)}</Text>
+                      <Text type="secondary">{new Date(r.startedAt).toLocaleString('zh-CN')}</Text>
                       <Tag color={isCompleted ? 'success' : 'error'}>
                         {isCompleted ? '完成' : r.status === 'failed' ? '失败' : '取消'}
                       </Tag>

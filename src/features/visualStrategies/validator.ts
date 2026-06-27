@@ -342,14 +342,22 @@ function validateRiskRules(doc: VisualStrategyDocument, errors: ValidationError[
     addError('risk', '风控规则中存在重复类型', errors);
   }
   for (const rule of doc.risk) {
-    if (rule.type === 'stopLoss' || rule.type === 'takeProfit') {
+    if (rule.type === 'stopLoss' || rule.type === 'takeProfit' || rule.type === 'trailingStop') {
       if (rule.value <= 0 || rule.value > 100) {
-        addError(`risk.${rule.type}`, '止盈止损百分比应在 0-100 之间', errors);
+        addError(`risk.${rule.type}`, '价格风控百分比应在 0-100 之间', errors);
       }
     }
     if (rule.type === 'maxHoldingDays') {
       if (rule.value < 1 || rule.value > 365 * 10) {
         addError(`risk.${rule.type}`, '最大持仓天数应在 1-3650 之间', errors);
+      }
+    }
+    if (rule.type === 'lossStreakCooldown') {
+      if (rule.losses < 1 || rule.losses > 100) {
+        addError(`risk.${rule.type}.losses`, '连续亏损笔数应在 1-100 之间', errors);
+      }
+      if (rule.months < 1 || rule.months > 120) {
+        addError(`risk.${rule.type}.months`, '暂停月份应在 1-120 之间', errors);
       }
     }
   }

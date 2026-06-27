@@ -398,4 +398,68 @@ describe('Backtest Engine', () => {
 
     expect(result.metrics.benchmarkReturn).toBeCloseTo(0.8, 2); // (18 - 10) / 10
   });
+
+  it('exposes consecutive losing completed trades to strategies', () => {
+    const snapshots: Array<{ losses?: number; completedAt?: string }> = [];
+    const strategy: StrategyDefinition<Record<string, never>> = {
+      ...scriptedStrategy([]),
+      evaluate: ({ index, candles, position }) => {
+        snapshots.push({
+          losses: position.consecutiveLosingTrades,
+          completedAt: position.lastCompletedTradeTime,
+        });
+        const actions: Array<'buy' | 'sell' | 'hold'> = ['buy', 'sell', 'buy', 'sell', 'hold', 'hold'];
+        return {
+          time: candles[index].time,
+          action: actions[index],
+          reason: 'loss-streak test',
+        };
+      },
+    };
+    const candles = makeCandles([10, 10, 8, 10, 8, 8]);
+
+    runBacktest({
+      candles,
+      strategy,
+      strategyParams: {},
+      config: { ...baseConfig, forceCloseAtEnd: false },
+      datasetId: 'loss-streak',
+      datasetChecksum: 'loss-streak',
+      resultName: 'loss-streak',
+    });
+
+    expect(snapshots[2]).toMatchObject({ losses: 1, completedAt: '2021-01-03' });
+    expect(snapshots[4]).toMatchObject({ losses: 2, completedAt: '2021-01-05' });
+  });
+
+  it('executes an explicit target allocation independently of global step sizing', () => {
+    const strategy: StrategyDefinition<Record<string, never>> = {
+      ...scriptedStrategy([]),
+      evaluate: ({ index, candles }) => ({
+        time: candles[index].time,
+        action: index === 0 ? 'buy' : 'hold',
+        reason: 'target allocation test',
+        ...(index === 0 ? { targetPosition: 0.5 } : {}),
+      }),
+    };
+
+    const result = runBacktest({
+      candles: makeCandles([100, 100, 100]),
+      strategy,
+      strategyParams: {},
+      config: {
+        ...baseConfig,
+        positionSizing: { type: 'percent', value: 0.25 },
+        forceCloseAtEnd: false,
+      },
+      datasetId: 'target-allocation',
+      datasetChecksum: 'target-allocation',
+      resultName: 'target-allocation',
+    });
+    const point = result.equityCurve[1];
+    const actualRatio = point.marketValue / point.equity;
+
+    expect(actualRatio).toBeCloseTo(0.5, 2);
+    expect(result.trades.filter((trade) => trade.side === 'buy')).toHaveLength(1);
+  });
 });

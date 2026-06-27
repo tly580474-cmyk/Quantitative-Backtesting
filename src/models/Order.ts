@@ -7,4 +7,6 @@ export interface Order {
   quantity: number;
   status: 'pending' | 'filled' | 'rejected' | 'cancelled';
   rejectReason?: string;
+  /** Marks an order sized from an explicit strategy target rather than global step sizing. */
+  targetPosition?: number;
 }

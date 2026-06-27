@@ -5,10 +5,30 @@ interface Props {
   maximumTradingDays?: number;
 }
 
+const FIVE_YEARS_TRADING_DAYS = 5 * 252;
+const TEN_YEARS_TRADING_DAYS = 10 * 252;
+
 export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
   const config = useBacktestStore((s) => s.config);
   const setConfig = useBacktestStore((s) => s.setConfig);
   const tradingDays = config.tradingDays === 0 ? maximumTradingDays : Math.min(config.tradingDays, maximumTradingDays);
+  const quickRange = config.tradingDays === 0 || tradingDays === maximumTradingDays
+    ? 'all'
+    : tradingDays === FIVE_YEARS_TRADING_DAYS
+      ? '5y'
+      : tradingDays === TEN_YEARS_TRADING_DAYS
+        ? '10y'
+        : undefined;
+
+  const setTradingDayRange = (value: string | number) => {
+    if (value === 'all') {
+      setConfig({ tradingDays: 0 });
+    } else if (value === '5y') {
+      setConfig({ tradingDays: FIVE_YEARS_TRADING_DAYS });
+    } else if (value === '10y') {
+      setConfig({ tradingDays: TEN_YEARS_TRADING_DAYS });
+    }
+  };
 
   return (
     <Card size="small" title="回测参数">
@@ -52,6 +72,27 @@ export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
             disabled={maximumTradingDays < 2}
             onChange={(value) => setConfig({ tradingDays: value === maximumTradingDays ? 0 : value })}
             tooltip={{ formatter: (value) => `${value} 天` }}
+          />
+          <Segmented
+            aria-label="交易天数快捷选择"
+            block
+            size="small"
+            style={{ marginTop: 8 }}
+            value={quickRange}
+            options={[
+              {
+                label: '5年',
+                value: '5y',
+                disabled: maximumTradingDays < FIVE_YEARS_TRADING_DAYS,
+              },
+              {
+                label: '10年',
+                value: '10y',
+                disabled: maximumTradingDays < TEN_YEARS_TRADING_DAYS,
+              },
+              { label: '全部数据', value: 'all', disabled: maximumTradingDays < 2 },
+            ]}
+            onChange={setTradingDayRange}
           />
         </Form.Item>
         <Form.Item

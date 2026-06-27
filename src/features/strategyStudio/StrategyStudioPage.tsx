@@ -729,20 +729,34 @@ function RiskManager({
       const defaults: Record<string, number> = {
         stopLoss: 8,
         takeProfit: 20,
+        trailingStop: 10,
         maxHoldingDays: 30,
       };
-      onChange([...risk, { type, value: defaults[type] }]);
+      onChange([
+        ...risk,
+        type === 'lossStreakCooldown'
+          ? { type, losses: 2, months: 12 }
+          : { type, value: defaults[type] },
+      ]);
     }
   };
 
   const updateValue = (type: RiskRule['type'], value: number) => {
-    onChange(risk.map((r) => (r.type === type ? { ...r, value } : r)));
+    onChange(risk.map((r) => (
+      r.type === type && r.type !== 'lossStreakCooldown' ? { ...r, value } : r
+    )));
+  };
+
+  const updateCooldown = (field: 'losses' | 'months', value: number) => {
+    onChange(risk.map((rule) => (
+      rule.type === 'lossStreakCooldown' ? { ...rule, [field]: value } : rule
+    )));
   };
 
   return (
     <Card size="small" title={<Text strong>风控规则</Text>}>
       <Space direction="vertical" style={{ width: '100%' }} size="small">
-        <Space>
+        <Space wrap>
           <Button
             size="small"
             type={types.includes('stopLoss') ? 'primary' : 'default'}
@@ -757,6 +771,15 @@ function RiskManager({
           >
             止盈
           </Button>
+          <Tooltip title="当前价相对买入后持仓期最高价回撤达到阈值时卖出">
+            <Button
+              size="small"
+              type={types.includes('trailingStop') ? 'primary' : 'default'}
+              onClick={() => toggleRule('trailingStop')}
+            >
+              移动止盈
+            </Button>
+          </Tooltip>
           <Button
             size="small"
             type={types.includes('maxHoldingDays') ? 'primary' : 'default'}
@@ -764,12 +787,53 @@ function RiskManager({
           >
             最大持仓天数
           </Button>
+          <Tooltip title="连续若干笔完整交易亏损后，暂停新的买入一段时间">
+            <Button
+              size="small"
+              type={types.includes('lossStreakCooldown') ? 'primary' : 'default'}
+              onClick={() => toggleRule('lossStreakCooldown')}
+            >
+              连亏暂停
+            </Button>
+          </Tooltip>
         </Space>
 
-        {risk.map((rule) => (
+        {risk.map((rule) => rule.type === 'lossStreakCooldown' ? (
+          <Space key={rule.type} style={{ width: '100%' }} wrap>
+            <Text style={{ width: 100 }}>连续亏损暂停</Text>
+            <Text type="secondary">连续</Text>
+            <InputNumber
+              aria-label="连续亏损笔数"
+              size="small"
+              value={rule.losses}
+              min={1}
+              max={100}
+              step={1}
+              addonAfter="笔"
+              onChange={(v) => updateCooldown('losses', v ?? 1)}
+            />
+            <Text type="secondary">暂停</Text>
+            <InputNumber
+              aria-label="暂停交易月数"
+              size="small"
+              value={rule.months}
+              min={1}
+              max={120}
+              step={1}
+              addonAfter="个月"
+              onChange={(v) => updateCooldown('months', v ?? 1)}
+            />
+          </Space>
+        ) : (
           <Space key={rule.type} style={{ width: '100%' }}>
             <Text style={{ width: 100 }}>
-              {rule.type === 'stopLoss' ? '止损' : rule.type === 'takeProfit' ? '止盈' : '最大持仓'}
+              {rule.type === 'stopLoss'
+                ? '止损'
+                : rule.type === 'takeProfit'
+                  ? '止盈'
+                  : rule.type === 'trailingStop'
+                    ? '最高价回撤'
+                    : '最大持仓'}
             </Text>
             <InputNumber
               size="small"

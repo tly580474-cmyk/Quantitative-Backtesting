@@ -51,6 +51,31 @@ interface BacktestState {
   equityCurve: EquityPoint[];
   peakEquity: number;
   pendingOrder: Order | null;
+  currentPositionPnl: number;
+  consecutiveLosingTrades: number;
+  lastCompletedTradeTime: string | null;
+}
+
+function applyStrategyTrade(state: BacktestState, trade: Trade): void {
+  const positionBefore = state.portfolio.positionQuantity;
+  const avgCostBefore = state.portfolio.avgCost;
+
+  if (trade.side === 'buy') {
+    state.currentPositionPnl -= trade.commission;
+  } else {
+    state.currentPositionPnl +=
+      (trade.fillPrice - avgCostBefore) * trade.quantity - trade.commission - trade.tax;
+  }
+
+  Object.assign(state.portfolio, applyTrade(state.portfolio, trade));
+
+  if (trade.side === 'sell' && positionBefore > 0 && state.portfolio.positionQuantity === 0) {
+    state.consecutiveLosingTrades = state.currentPositionPnl < 0
+      ? state.consecutiveLosingTrades + 1
+      : 0;
+    state.lastCompletedTradeTime = trade.time;
+    state.currentPositionPnl = 0;
+  }
 }
 
 // ─── DCA helpers ───────────────────────────────────────────────────
@@ -130,6 +155,53 @@ function createSellOrder(
     orderType: 'market',
     quantity,
     status: 'pending',
+  };
+}
+
+function createTargetPositionOrder(
+  signal: StrategySignal,
+  nextCandle: Candle,
+  portfolio: PortfolioState,
+  config: BacktestConfig,
+): Order | null {
+  const target = Math.max(0, Math.min(1, signal.targetPosition ?? 0));
+  const equity = portfolio.cash + portfolio.positionQuantity * nextCandle.open;
+  const currentValue = portfolio.positionQuantity * nextCandle.open;
+  const desiredValue = equity * target;
+  const valueDelta = desiredValue - currentValue;
+  const minimumValue = config.tradingUnitMode === 'stock'
+    ? nextCandle.open * 100
+    : (config.minimumTradeAmount ?? 1);
+
+  if (Math.abs(valueDelta) < minimumValue) return null;
+
+  const side = valueDelta > 0 ? 'buy' : 'sell';
+  const slippageFactor = config.slippageBps / 10000;
+  const estimatedFillPrice = nextCandle.open * (
+    side === 'buy' ? 1 + slippageFactor : 1 - slippageFactor
+  );
+  let quantity = Math.abs(valueDelta) / estimatedFillPrice;
+  if (config.tradingUnitMode === 'stock') {
+    quantity = Math.floor(quantity / 100) * 100;
+  } else {
+    const minimumTradeAmount = config.minimumTradeAmount ?? 1;
+    const amount = Math.floor(
+      quantity * estimatedFillPrice / minimumTradeAmount,
+    ) * minimumTradeAmount;
+    quantity = amount / estimatedFillPrice;
+  }
+  if (side === 'sell') quantity = Math.min(quantity, portfolio.positionQuantity);
+  if (quantity <= 0) return null;
+
+  return {
+    id: crypto.randomUUID(),
+    signalTime: signal.time,
+    executeTime: '',
+    side,
+    orderType: 'market',
+    quantity,
+    status: 'pending',
+    targetPosition: target,
   };
 }
 
@@ -217,11 +289,13 @@ function processBar(
       candle.open,
       state.portfolio.cash,
       state.portfolio.positionQuantity,
-      config,
+      state.pendingOrder.targetPosition == null
+        ? config
+        : { ...config, positionSizing: { type: 'percent', value: 1 } },
     );
 
     if (result.trade.quantity > 0) {
-      Object.assign(state.portfolio, applyTrade(state.portfolio, result.trade));
+      applyStrategyTrade(state, result.trade);
       state.trades.push(result.trade);
       orderWithTime.status = 'filled';
       state.orders.push(orderWithTime);
@@ -240,6 +314,17 @@ function processBar(
     quantity: state.portfolio.positionQuantity,
     avgCost: state.portfolio.avgCost,
     entryTime: state.portfolio.entryTime ?? undefined,
+    consecutiveLosingTrades: state.consecutiveLosingTrades,
+    lastCompletedTradeTime: state.lastCompletedTradeTime ?? undefined,
+    positionRatio: (() => {
+      const equity = state.portfolio.cash + state.portfolio.positionQuantity * candle.close;
+      return equity > 0 ? state.portfolio.positionQuantity * candle.close / equity : 0;
+    })(),
+    strategyDrawdown: (() => {
+      const equity = state.portfolio.cash + state.portfolio.positionQuantity * candle.close;
+      const peak = Math.max(state.peakEquity, equity);
+      return peak > 0 ? Math.max(0, (peak - equity) / peak) : 0;
+    })(),
   };
 
   const slicedCandles = candles.slice(0, i + 1);
@@ -271,7 +356,14 @@ function processBar(
   } else if (signal.action !== 'hold' && i < totalBars - 1) {
     const nextCandle = candles[i + 1];
 
-    if (signal.action === 'buy') {
+    if (signal.targetPosition != null) {
+      state.pendingOrder = createTargetPositionOrder(
+        signal,
+        nextCandle,
+        state.portfolio,
+        config,
+      );
+    } else if (signal.action === 'buy') {
       state.pendingOrder = createBuyOrder(signal, nextCandle, state.portfolio.cash, config);
       if (!state.pendingOrder) {
         state.orders.push({
@@ -343,7 +435,7 @@ function processBar(
       forceClose: true,
     };
 
-    Object.assign(state.portfolio, applyTrade(state.portfolio, forceCloseTrade));
+    applyStrategyTrade(state, forceCloseTrade);
     state.trades.push(forceCloseTrade);
 
     const forceCloseOrder: Order = {
@@ -415,6 +507,9 @@ function createInitialState(input: BacktestInput): BacktestState {
     equityCurve: [],
     peakEquity: input.config.initialCapital,
     pendingOrder: null,
+    currentPositionPnl: 0,
+    consecutiveLosingTrades: 0,
+    lastCompletedTradeTime: null,
   };
 }
 

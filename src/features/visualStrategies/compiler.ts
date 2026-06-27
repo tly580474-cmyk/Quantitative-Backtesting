@@ -284,6 +284,9 @@ export function compileToStrategyDefinition(
     }
 
     // ---- Step 5: Evaluate entry conditions ----
+    const entryControlSignal = checkEntryControls(document.risk, context, position);
+    if (entryControlSignal) return entryControlSignal;
+
     const entryResult = evaluateGroup(document.entry, context, allIndicatorValues, resolvedParams, document);
     if (entryResult.match) {
       return {
@@ -554,6 +557,28 @@ function checkRiskRules(
         }
         break;
       }
+      case 'trailingStop': {
+        if (position.quantity > 0 && position.entryTime) {
+          const entryIndex = candles.findIndex((candle) => candle.time >= position.entryTime!);
+          if (entryIndex >= 0) {
+            let highestPrice = 0;
+            for (let i = entryIndex; i <= index; i++) {
+              highestPrice = Math.max(highestPrice, candles[i].high);
+            }
+            const drawdownPercent = highestPrice > 0
+              ? ((highestPrice - candles[index].close) / highestPrice) * 100
+              : 0;
+            if (drawdownPercent >= rule.value) {
+              return {
+                time: candles[index].time,
+                action: 'sell',
+                reason: `移动止盈 ${rule.value}%（持仓最高价 ${highestPrice.toFixed(2)}，当前回撤 ${drawdownPercent.toFixed(2)}%）`,
+              };
+            }
+          }
+        }
+        break;
+      }
       case 'maxHoldingDays': {
         const holdingDays = resolvedParams._holdingDays as number ?? 0;
         if (holdingDays >= rule.value) {
@@ -565,10 +590,51 @@ function checkRiskRules(
         }
         break;
       }
+      case 'lossStreakCooldown':
+        break;
     }
   }
 
   return null;
+}
+
+function addCalendarMonths(time: string, months: number): Date {
+  const source = new Date(time);
+  const result = new Date(source);
+  const day = source.getUTCDate();
+  result.setUTCDate(1);
+  result.setUTCMonth(result.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(
+    result.getUTCFullYear(),
+    result.getUTCMonth() + 1,
+    0,
+  )).getUTCDate();
+  result.setUTCDate(Math.min(day, lastDay));
+  return result;
+}
+
+function checkEntryControls(
+  rules: import('./types').RiskRule[],
+  context: StrategyContext,
+  position: import('@/models').PositionSnapshot,
+): StrategySignal | null {
+  if (position.quantity > 0) return null;
+
+  const rule = rules.find((item) => item.type === 'lossStreakCooldown');
+  if (!rule || rule.type !== 'lossStreakCooldown') return null;
+
+  const losses = position.consecutiveLosingTrades ?? 0;
+  if (losses < rule.losses || !position.lastCompletedTradeTime) return null;
+
+  const resumeAt = addCalendarMonths(position.lastCompletedTradeTime, rule.months);
+  const currentTime = new Date(context.candles[context.index].time);
+  if (currentTime.getTime() >= resumeAt.getTime()) return null;
+
+  return {
+    time: context.candles[context.index].time,
+    action: 'hold',
+    reason: `连续亏损 ${losses} 笔，暂停买入至 ${resumeAt.toISOString().slice(0, 10)}`,
+  };
 }
 
 // ---- Public API ----

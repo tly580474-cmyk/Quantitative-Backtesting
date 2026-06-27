@@ -120,7 +120,13 @@ export const strategyDocumentSchema = z.object({
   risk: z.array(z.discriminatedUnion('type', [
     z.object({ type: z.literal('stopLoss'), value: z.number().positive().max(100) }),
     z.object({ type: z.literal('takeProfit'), value: z.number().positive().max(100) }),
+    z.object({ type: z.literal('trailingStop'), value: z.number().positive().max(100) }),
     z.object({ type: z.literal('maxHoldingDays'), value: z.number().int().positive().max(3650) }),
+    z.object({
+      type: z.literal('lossStreakCooldown'),
+      losses: z.number().int().positive().max(100),
+      months: z.number().int().positive().max(120),
+    }),
   ])),
   metadata: z.object({
     source: z.enum(['visual', 'ai', 'imported']),
@@ -268,15 +274,30 @@ function normalizeRisk(value: unknown): unknown[] {
   if (Array.isArray(value)) {
     return value.map((item) => {
       const risk = record(item);
-      return risk ? { ...risk, value: numeric(risk.value) } : item;
+      if (!risk) return item;
+      if (risk.type === 'lossStreakCooldown') {
+        return {
+          ...risk,
+          losses: numeric(risk.losses),
+          months: numeric(risk.months),
+        };
+      }
+      return { ...risk, value: numeric(risk.value) };
     });
   }
   const input = record(value);
   if (!input) return [];
-  return ['stopLoss', 'takeProfit', 'maxHoldingDays']
+  return ['stopLoss', 'takeProfit', 'trailingStop', 'maxHoldingDays', 'lossStreakCooldown']
     .filter((type) => input[type] !== undefined)
     .map((type) => {
       const nested = record(input[type]);
+      if (type === 'lossStreakCooldown') {
+        return {
+          type,
+          losses: numeric(nested?.losses ?? 2),
+          months: numeric(nested?.months ?? 12),
+        };
+      }
       return { type, value: numeric(nested?.value ?? input[type]) };
     });
 }

@@ -164,7 +164,11 @@ function describeRisk(rule: import('./types').RiskRule): string {
       return `止损 ${rule.value}%`;
     case 'takeProfit':
       return `止盈 ${rule.value}%`;
+    case 'trailingStop':
+      return `移动止盈：买入后最高价回撤 ${rule.value}%`;
     case 'maxHoldingDays':
       return `最大持仓 ${rule.value} 天`;
+    case 'lossStreakCooldown':
+      return `连续亏损 ${rule.losses} 笔后暂停买入 ${rule.months} 个月`;
   }
 }

@@ -90,8 +90,16 @@ export function registerAiRoutes(
     }
 
     const body = req.body as Record<string, unknown>;
-    if (!body.currentStrategy || !body.modification) {
-      return reply.status(400).send({ error: 'INVALID_REQUEST', message: '缺少必要参数' });
+    if (
+      !body.currentStrategy
+      || typeof body.modification !== 'string'
+      || body.modification.trim().length === 0
+    ) {
+      return reply.status(400).send({ error: 'INVALID_REQUEST', message: '请提供当前策略和有效的修改要求' });
+    }
+
+    if (body.modification.length > 2000) {
+      return reply.status(400).send({ error: 'MODIFICATION_TOO_LONG', message: '修改要求不能超过 2000 个字符' });
     }
 
     if (body.model !== undefined && (

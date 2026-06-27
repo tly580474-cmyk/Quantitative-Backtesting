@@ -20,6 +20,7 @@ import { useStrategyStore } from '@/stores/useStrategyStore';
 import { useBacktestStore } from '@/stores/useBacktestStore';
 import { getRepository } from '@/api/useRepository';
 import { computeChecksum } from '@/db/marketDataRepository';
+import { getStrategyById } from '@/features/strategies/registry';
 import type { MarketDataset } from '@/models';
 
 const { Text } = Typography;
@@ -131,6 +132,11 @@ export default function BacktestRunner() {
     }
 
     const cs = computeChecksum(runCandles);
+    const strategyName = config.backtestMode === 'dca'
+      ? '定投策略'
+      : strategySource === 'visual'
+        ? visualStrategyDocument?.name || activeStrategyId
+        : getStrategyById(activeStrategyId)?.name || activeStrategyId;
     run(
       runCandles,
       activeStrategyId,
@@ -139,7 +145,7 @@ export default function BacktestRunner() {
       ds.id,
       ds.name,
       cs,
-      `${ds.symbol} - ${config.backtestMode === 'dca' ? '定投' : activeStrategyId} - ${new Date().toLocaleString()}`,
+      `${ds.symbol} - ${strategyName} - ${new Date().toLocaleString()}`,
       {
         strategySource,
         strategyDocument: visualStrategyDocument ?? undefined,

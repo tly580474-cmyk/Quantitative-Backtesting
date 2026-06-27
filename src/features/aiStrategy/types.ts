@@ -29,6 +29,7 @@ export interface GenerateStrategyResult {
 export interface RefineStrategyRequest {
   currentStrategy: VisualStrategyDocument;
   modification: string;
+  model?: string;
   dslVersion: string;
 }
 

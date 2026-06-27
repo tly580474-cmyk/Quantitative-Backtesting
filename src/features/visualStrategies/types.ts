@@ -125,11 +125,17 @@ export interface RuleGroup {
 
 // ---- Risk rules ----
 
-export interface RiskRule {
-  type: 'stopLoss' | 'takeProfit' | 'maxHoldingDays';
-  value: number;
-  /** For stopLoss/takeProfit: percentage (e.g. 8 means 8%). For maxHoldingDays: days. */
-}
+export type RiskRule =
+  | {
+    type: 'stopLoss' | 'takeProfit' | 'trailingStop' | 'maxHoldingDays';
+    value: number;
+    /** Percentage for price-based rules (e.g. 8 means 8%); days for maxHoldingDays. */
+  }
+  | {
+    type: 'lossStreakCooldown';
+    losses: number;
+    months: number;
+  };
 
 // ---- Validation ----
 

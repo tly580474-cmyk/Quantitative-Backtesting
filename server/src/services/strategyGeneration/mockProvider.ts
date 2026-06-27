@@ -31,7 +31,11 @@ export class MockStrategyGenerationProvider implements StrategyGenerationProvide
     const hasReversal = prompt.includes('反转') || prompt.includes('reversal');
     const hasVolume = prompt.includes('成交量') || prompt.includes('放量') || prompt.includes('缩量') || prompt.includes('volume');
     const hasBreakout = prompt.includes('突破') || prompt.includes('新高') || prompt.includes('新低') || prompt.includes('breakout');
-    const hasDrawdown = prompt.includes('回撤') || prompt.includes('drawdown');
+    const hasTrailingStop = prompt.includes('移动止盈')
+      || prompt.includes('跟踪止损')
+      || prompt.includes('买入后最高')
+      || prompt.includes('trailing');
+    const hasDrawdown = (prompt.includes('回撤') || prompt.includes('drawdown')) && !hasTrailingStop;
     const hasStopLoss = prompt.includes('止损');
     const hasTakeProfit = prompt.includes('止盈');
 
@@ -320,6 +324,10 @@ export class MockStrategyGenerationProvider implements StrategyGenerationProvide
 
     if (hasTakeProfit) {
       risk.push({ type: 'takeProfit', value: 20 });
+    }
+
+    if (hasTrailingStop) {
+      risk.push({ type: 'trailingStop', value: 10 });
     }
 
     // Fallback: simple price > threshold

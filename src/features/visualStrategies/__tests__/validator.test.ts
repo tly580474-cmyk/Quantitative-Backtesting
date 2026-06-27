@@ -295,6 +295,7 @@ describe('validateDocument', () => {
     doc.risk = [
       { type: 'stopLoss', value: 8 },
       { type: 'takeProfit', value: 20 },
+      { type: 'trailingStop', value: 10 },
       { type: 'maxHoldingDays', value: 30 },
     ];
     const result = validateDocument(doc);
@@ -304,6 +305,13 @@ describe('validateDocument', () => {
   it('rejects invalid stop loss value', () => {
     const doc = makeBaseDoc();
     doc.risk = [{ type: 'stopLoss', value: 150 }];
+    const result = validateDocument(doc);
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects invalid trailing stop value', () => {
+    const doc = makeBaseDoc();
+    doc.risk = [{ type: 'trailingStop', value: 101 }];
     const result = validateDocument(doc);
     expect(result.valid).toBe(false);
   });

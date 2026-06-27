@@ -66,7 +66,7 @@ function makeDoc(overrides: Partial<VisualStrategyDocument> = {}): VisualStrateg
 function runEvaluate(
   doc: VisualStrategyDocument,
   candles: Candle[],
-  position: { quantity: number; avgCost: number } = { quantity: 0, avgCost: 0 },
+  position: { quantity: number; avgCost: number; entryTime?: string } = { quantity: 0, avgCost: 0 },
 ) {
   const strategy = compileToStrategyDefinition(doc);
   const signals: { action: string; reason: string; index: number }[] = [];
@@ -76,7 +76,11 @@ function runEvaluate(
       index: i,
       candles: candles.slice(0, i + 1),
       indicators: {},
-      position: { quantity: position.quantity, avgCost: position.avgCost },
+      position: {
+        quantity: position.quantity,
+        avgCost: position.avgCost,
+        entryTime: position.entryTime,
+      },
     };
     const signal = strategy.evaluate(ctx, {});
     signals.push({ action: signal.action, reason: signal.reason, index: i });
@@ -430,6 +434,41 @@ describe('compileToStrategyDefinition', () => {
     expect(sellSignals).toHaveLength(0);
   });
 
+  it('triggers trailing stop when price retreats from the post-entry high', () => {
+    const doc = makeDoc({
+      entry: makeEntryGroup([]),
+      exit: makeEntryGroup([]),
+      risk: [{ type: 'trailingStop', value: 10 }],
+    });
+    const candles = candlesFromCloses([10, 12, 15, 14, 12]);
+    const { signals } = runEvaluate(doc, candles, {
+      quantity: 100,
+      avgCost: 10,
+      entryTime: candles[0].time,
+    });
+
+    expect(signals[2].action).toBe('hold');
+    expect(signals[3].action).toBe('sell');
+    expect(signals[3].reason).toContain('移动止盈');
+    expect(signals[3].reason).toContain('当前回撤 12.50%');
+  });
+
+  it('only measures the trailing high from the current entry onward', () => {
+    const doc = makeDoc({
+      entry: makeEntryGroup([]),
+      exit: makeEntryGroup([]),
+      risk: [{ type: 'trailingStop', value: 10 }],
+    });
+    const candles = candlesFromCloses([30, 20, 10, 12, 11.8]);
+    const { signals } = runEvaluate(doc, candles, {
+      quantity: 100,
+      avgCost: 10,
+      entryTime: candles[2].time,
+    });
+
+    expect(signals.slice(2).every((signal) => signal.action === 'hold')).toBe(true);
+  });
+
   // ---- Indicator operands ----
 
   it('evaluates SMA indicator condition', () => {
@@ -669,5 +708,44 @@ describe('compileToStrategyDefinition', () => {
 
     const buySignals = signals.filter((s) => s.action === 'buy');
     expect(buySignals.length).toBeGreaterThan(0);
+  });
+
+  it('blocks entries during a loss-streak cooldown and resumes afterward', () => {
+    const doc = makeDoc({
+      risk: [{ type: 'lossStreakCooldown', losses: 2, months: 12 }],
+    });
+    const strategy = compileToStrategyDefinition(doc);
+    const position = {
+      quantity: 0,
+      avgCost: 0,
+      consecutiveLosingTrades: 2,
+      lastCompletedTradeTime: '2021-01-15',
+    };
+    const pausedCandles: Candle[] = [{
+      time: '2021-06-15',
+      symbol: 'TEST',
+      open: 20,
+      high: 21,
+      low: 19,
+      close: 20,
+      volume: 1000,
+    }];
+    const resumedCandles: Candle[] = [{
+      ...pausedCandles[0],
+      time: '2022-01-15',
+    }];
+
+    const paused = strategy.evaluate(
+      { index: 0, candles: pausedCandles, indicators: {}, position },
+      {},
+    );
+    const resumed = strategy.evaluate(
+      { index: 0, candles: resumedCandles, indicators: {}, position },
+      {},
+    );
+
+    expect(paused.action).toBe('hold');
+    expect(paused.reason).toContain('暂停买入至 2022-01-15');
+    expect(resumed.action).toBe('buy');
   });
 });

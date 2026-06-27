@@ -8,6 +8,8 @@ export interface StrategySignal {
   action: SignalAction;
   reason: string;
   strength?: number;
+  /** Desired portfolio allocation after execution, from 0 (flat) to 1 (fully invested). */
+  targetPosition?: number;
 }
 
 export interface StrategyContext {

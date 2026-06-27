@@ -24,7 +24,11 @@ export async function localGenerate(prompt: string): Promise<GenerateStrategyRes
   const hasReversal = lower.includes('反转') || lower.includes('reversal');
   const hasVolume = lower.includes('成交量') || lower.includes('放量') || lower.includes('缩量') || lower.includes('volume');
   const hasBreakout = lower.includes('突破') || lower.includes('新高') || lower.includes('新低') || lower.includes('breakout');
-  const hasDrawdown = lower.includes('回撤') || lower.includes('drawdown');
+  const hasTrailingStop = lower.includes('移动止盈')
+    || lower.includes('跟踪止损')
+    || lower.includes('买入后最高')
+    || lower.includes('trailing');
+  const hasDrawdown = (lower.includes('回撤') || lower.includes('drawdown')) && !hasTrailingStop;
   const hasStopLoss = lower.includes('止损');
   const hasTakeProfit = lower.includes('止盈');
 
@@ -252,6 +256,7 @@ export async function localGenerate(prompt: string): Promise<GenerateStrategyRes
 
   if (hasStopLoss) risk.push({ type: 'stopLoss', value: 8 });
   if (hasTakeProfit) risk.push({ type: 'takeProfit', value: 20 });
+  if (hasTrailingStop) risk.push({ type: 'trailingStop', value: 10 });
 
   if (entryChildren.length === 0) {
     indicators.push({
@@ -286,6 +291,29 @@ export async function localGenerate(prompt: string): Promise<GenerateStrategyRes
     generationId: id, strategy,
     summary: `基于 "${prompt}" 生成的策略，含 ${indicators.length} 个指标和 ${risk.length} 个风控规则。`,
     warnings: ['AI 生成策略仅供参考，请在信号预览中验证。', '请确认技术指标参数是否符合预期。'],
+    requiresConfirmation: true,
+  };
+}
+
+export async function localRefine(
+  currentStrategy: VisualStrategyDocument,
+  modification: string,
+): Promise<GenerateStrategyResult> {
+  await delay(600);
+  const generationId = crypto.randomUUID();
+  const strategy = JSON.parse(JSON.stringify(currentStrategy)) as VisualStrategyDocument;
+  strategy.metadata = {
+    ...strategy.metadata,
+    source: 'ai',
+    updatedAt: new Date().toISOString(),
+    aiGenerationId: generationId,
+  };
+
+  return {
+    generationId,
+    strategy,
+    summary: `已根据“${modification}”生成修改草稿。Mock 模式会保留原策略结构。`,
+    warnings: ['当前为 Mock 演示模式，请配置 AI 服务以根据要求实际调整策略内容。'],
     requiresConfirmation: true,
   };
 }
