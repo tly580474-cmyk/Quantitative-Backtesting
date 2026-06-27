@@ -72,6 +72,9 @@ function validateIndicatorNodes(doc: VisualStrategyDocument, errors: ValidationE
 
     // Validate that outputs reference known series keys for this indicator
     const knownKeys = new Set(def.display.series.map((s) => s.key));
+    // RSI used a single `rsi` output before the three-period configuration.
+    // Accept that persisted output so existing drafts remain publishable.
+    if (node.indicatorId === 'rsi') knownKeys.add('rsi');
     for (const output of node.outputs) {
       if (!knownKeys.has(output.key)) {
         addError(

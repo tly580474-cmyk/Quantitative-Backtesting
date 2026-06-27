@@ -823,6 +823,11 @@ export default function StrategyStudioPage() {
     fileInputRef.current?.click();
   }, []);
 
+  const handleCreateNew = useCallback(() => {
+    createNew();
+    message.success('已新建空白策略');
+  }, [createNew]);
+
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -889,6 +894,22 @@ export default function StrategyStudioPage() {
           <Button icon={<SaveOutlined />} onClick={() => setListOpen(true)}>
             策略列表
           </Button>
+          <Popconfirm
+            title="新建策略？"
+            description="当前策略尚未保存，新建后未保存内容将丢失。"
+            okText="仍要新建"
+            cancelText="取消"
+            placement="bottomLeft"
+            disabled={!isDirty}
+            onConfirm={handleCreateNew}
+          >
+            <Button
+              icon={<PlusOutlined />}
+              onClick={isDirty ? undefined : handleCreateNew}
+            >
+              新建策略
+            </Button>
+          </Popconfirm>
           <Input
             style={{ width: 200 }}
             size="small"

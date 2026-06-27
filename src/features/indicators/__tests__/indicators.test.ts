@@ -20,6 +20,11 @@ import {
 } from '../phase2Quant';
 import { calculateAllIndicators } from '../calculator';
 import { getIndicatorById } from '../registry';
+import {
+  calculateDrawdown,
+  calculateHighLowBreakout,
+  calculateVolume,
+} from '../strategySignals';
 
 function candles(count: number, basePrice = 100): Candle[] {
   const result: Candle[] = [];
@@ -184,6 +189,37 @@ describe('MACD', () => {
 });
 
 describe('RSI', () => {
+  it('calculates the configurable 6/12/24 RSI series', () => {
+    const definition = getIndicatorById('rsi')!;
+    const active: ActiveIndicator = {
+      id: 'rsi',
+      definition,
+      visible: true,
+      paramValues: { period1: 6, period2: 12, period3: 24 },
+    };
+    const result = calculateAllIndicators(candles(50), [active])[0];
+
+    expect(Object.keys(result.series)).toEqual(['rsi1', 'rsi2', 'rsi3']);
+    expect(result.series.rsi1[6]).not.toBeNull();
+    expect(result.series.rsi2[12]).not.toBeNull();
+    expect(result.series.rsi3[23]).toBeNull();
+    expect(result.series.rsi3[24]).not.toBeNull();
+  });
+
+  it('keeps legacy single-period RSI configurations working', () => {
+    const definition = getIndicatorById('rsi')!;
+    const active: ActiveIndicator = {
+      id: 'rsi',
+      definition,
+      visible: true,
+      paramValues: { period: 14 },
+    };
+    const result = calculateAllIndicators(candles(30), [active])[0];
+
+    expect(Object.keys(result.series)).toEqual(['rsi']);
+    expect(result.series.rsi[14]).not.toBeNull();
+  });
+
   it('calculates RSI between 0 and 100', () => {
     const c = candles(50);
     const result = calculateRSI(c, { period: 14 });
@@ -290,6 +326,62 @@ describe('Volume MA', () => {
     const result = calculateVolumeMA(c, { period: 20 });
     expect(result[19]).not.toBeNull();
     expect(result).toHaveLength(50);
+  });
+});
+
+describe('Strategy studio signal indicators', () => {
+  it('calculates volume average and ratio', () => {
+    const c = candles(4);
+    c[0].volume = 100;
+    c[1].volume = 200;
+    c[2].volume = 300;
+    c[3].volume = 600;
+    const result = calculateVolume(c, { period: 3 });
+
+    expect(result.volumeAverage[1]).toBeNull();
+    expect(result.volumeAverage[2]).toBe(200);
+    expect(result.volumeRatio[3]).toBeCloseTo(600 / (200 + 300 + 600) * 3, 9);
+  });
+
+  it('uses only preceding bars for high/low breakout thresholds', () => {
+    const c = candles(4);
+    c[0].high = 10; c[0].low = 5;
+    c[1].high = 12; c[1].low = 7;
+    c[2].high = 99; c[2].low = 1;
+    const result = calculateHighLowBreakout(c, { period: 2 });
+
+    expect(result.previousHigh[2]).toBe(12);
+    expect(result.previousLow[2]).toBe(5);
+    expect(result.previousHigh[3]).toBe(99);
+    expect(result.previousLow[3]).toBe(1);
+  });
+
+  it('calculates rolling drawdown as a positive decimal', () => {
+    const c = candlesFromCloses([100, 120, 108, 90]);
+    const result = calculateDrawdown(c, { period: 3 });
+
+    expect(result.peak[2]).toBe(120);
+    expect(result.drawdown[2]).toBeCloseTo(0.1, 9);
+    expect(result.drawdown[3]).toBeCloseTo(0.25, 9);
+  });
+
+  it('exposes all three indicators through the shared calculator', () => {
+    const ids = ['volume', 'highLowBreakout', 'drawdown'];
+    const results = calculateAllIndicators(
+      candles(80),
+      ids.map((id) => {
+        const definition = getIndicatorById(id)!;
+        return {
+          id,
+          definition,
+          visible: true,
+          paramValues: Object.fromEntries(definition.params.map((p) => [p.name, p.defaultValue])),
+        };
+      }),
+    );
+
+    expect(results.map((result) => result.id)).toEqual(ids);
+    expect(results.every((result) => Object.keys(result.series).length > 0)).toBe(true);
   });
 });
 

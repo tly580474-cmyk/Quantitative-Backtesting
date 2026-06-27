@@ -163,6 +163,39 @@ describe('Backtest Engine', () => {
     expect(result.equityCurve[result.equityCurve.length - 1].positionQuantity).toBeLessThan(buy!.quantity);
   });
 
+  it('fully closes a percentage-sized dust position instead of selling forever', () => {
+    const candles = makeCandles(Array.from({ length: 60 }, () => 10));
+    const actions: Array<'buy' | 'sell' | 'hold'> = [
+      'buy',
+      ...Array.from({ length: 58 }, () => 'sell' as const),
+      'hold',
+    ];
+
+    const result = runBacktest({
+      candles,
+      strategy: scriptedStrategy(actions),
+      strategyParams: {},
+      config: {
+        ...baseConfig,
+        initialCapital: 1000,
+        positionSizing: { type: 'percent', value: 0.5 },
+        commissionRate: 0,
+        minimumCommission: 0,
+        sellTaxRate: 0,
+        minimumTradeAmount: 1,
+        forceCloseAtEnd: false,
+      },
+      datasetId: 'ds-dust-close',
+      datasetChecksum: 'dust-close',
+      resultName: 'dust-close-test',
+    });
+
+    const sells = result.trades.filter((trade) => trade.side === 'sell' && trade.quantity > 0);
+    expect(sells.length).toBeGreaterThan(1);
+    expect(sells.length).toBeLessThan(20);
+    expect(result.equityCurve[result.equityCurve.length - 1].positionQuantity).toBe(0);
+  });
+
   it('completes with no trades on flat prices', () => {
     const closes = Array.from({ length: 30 }, () => 10);
     const candles = makeCandles(closes);

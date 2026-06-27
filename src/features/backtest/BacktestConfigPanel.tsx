@@ -70,20 +70,45 @@ export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
         </Form.Item>
 
         {config.backtestMode === 'strategy' && (
-          <Form.Item label="单次调仓比例" extra="买入信号按可用现金加仓，卖出信号按当前持仓减仓">
-            <InputNumber
-              value={config.positionSizing.value}
-              onChange={(v) =>
-                v != null && setConfig({ positionSizing: { type: 'percent', value: v } })
-              }
-              min={0.01}
-              max={1}
-              step={0.1}
-              style={{ width: '100%' }}
-              formatter={(v) => `${(Number(v) * 100).toFixed(0)}%`}
-              parser={(v) => Number(v?.replace('%', '')) / 100}
-            />
-          </Form.Item>
+          <>
+            <Form.Item label="买卖方式">
+              <Segmented
+                block
+                value={config.positionSizing.value < 1 ? 'gradual' : 'all'}
+                options={[
+                  { label: '全仓买卖', value: 'all' },
+                  { label: '按资金比例逐步加减仓', value: 'gradual' },
+                ]}
+                onChange={(value) => setConfig({
+                  positionSizing: {
+                    type: 'percent',
+                    value: value === 'all'
+                      ? 1
+                      : config.positionSizing.value < 1 ? config.positionSizing.value : 0.25,
+                  },
+                })}
+              />
+            </Form.Item>
+            {config.positionSizing.value < 1 && (
+              <Form.Item
+                label="单次调仓比例"
+                extra="买入按剩余可用资金、卖出按当前持仓计算；尾仓不足最小交易单位时自动清仓"
+              >
+                <InputNumber
+                  value={config.positionSizing.value}
+                  onChange={(v) =>
+                    v != null && setConfig({ positionSizing: { type: 'percent', value: v } })
+                  }
+                  min={0.01}
+                  max={0.99}
+                  step={0.05}
+                  style={{ width: '100%' }}
+                  formatter={(v) => `${(Number(v) * 100).toFixed(0)}%`}
+                  parser={(v) => Number(v?.replace('%', '')) / 100}
+                />
+              </Form.Item>
+            )}
+          </>
         )}
 
         <Form.Item label="手续费率">

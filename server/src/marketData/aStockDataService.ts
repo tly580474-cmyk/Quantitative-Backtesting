@@ -114,6 +114,15 @@ let marketSentimentRefreshTimer: NodeJS.Timeout | null = null;
 const MARKET_SENTIMENT_CACHE_MS = 10 * 60_000;
 const AKSHARE_MARKET_SNAPSHOT_SCRIPT = fileURLToPath(new URL('./akshareMarketSnapshot.py', import.meta.url));
 const MARKET_SENTIMENT_CACHE_FILE = fileURLToPath(new URL('../../.cache/market-sentiment.json', import.meta.url));
+const MARKET_SENTIMENT_UNIVERSE_FILE = fileURLToPath(new URL('../../.cache/market-universe.json', import.meta.url));
+const UTC_MINUS_8_OFFSET_MS = 8 * 60 * 60 * 1000;
+const MARKET_SENTIMENT_REFRESH_START_MINUTE = 9 * 60 + 15;
+const MARKET_SENTIMENT_REFRESH_END_MINUTE = 15 * 60 + 30;
+
+interface MarketUniverseItem {
+  code: string;
+  name: string;
+}
 
 const MARKET_INDEXES: IndexDefinition[] = [
   { code: '000001', prefixed: 'sh000001', name: '上证指数', market: 'SH' },
@@ -376,6 +385,82 @@ async function fetchAkshareAStockRows(): Promise<Array<Record<string, unknown>>>
   });
 }
 
+function rowToUniverseItem(row: Record<string, unknown>): MarketUniverseItem | null {
+  const code = String(row.f12 ?? '').trim();
+  const name = String(row.f14 ?? '').trim();
+  return /^\d{6}$/.test(code) && name ? { code, name } : null;
+}
+
+async function readMarketUniverse(): Promise<MarketUniverseItem[]> {
+  try {
+    const text = await readFile(MARKET_SENTIMENT_UNIVERSE_FILE, 'utf8');
+    const parsed = JSON.parse(text) as { items?: MarketUniverseItem[] };
+    return (parsed.items ?? []).filter((item) => /^\d{6}$/.test(item.code) && item.name);
+  } catch {
+    return [];
+  }
+}
+
+async function writeMarketUniverse(items: MarketUniverseItem[]): Promise<void> {
+  await mkdir(fileURLToPath(new URL('../../.cache/', import.meta.url)), { recursive: true });
+  await writeFile(MARKET_SENTIMENT_UNIVERSE_FILE, JSON.stringify({ items, updatedAt: new Date().toISOString() }), 'utf8');
+}
+
+function tencentMarketPrefix(code: string): string {
+  if (/^[689]/.test(code)) return `sh${code}`;
+  if (/^[48]/.test(code)) return `bj${code}`;
+  return `sz${code}`;
+}
+
+function parseTencentSentimentRows(text: string, universeByCode: Map<string, MarketUniverseItem>): Array<Record<string, unknown>> {
+  const rows: Array<Record<string, unknown>> = [];
+  const matches = text.matchAll(/v_(?:sh|sz|bj)(\d{6})="([\s\S]*?)";/g);
+  for (const match of matches) {
+    const code = match[1];
+    const values = match[2].split('~');
+    const name = values[1] || universeByCode.get(code)?.name || '';
+    if (!name) continue;
+    rows.push({
+      f12: code,
+      f14: name,
+      f3: numberOrNull(values[32]),
+      f6: (numberOrNull(values[37]) ?? 0) * 10000,
+      f62: 0,
+    });
+  }
+  return rows;
+}
+
+async function fetchTencentAStockRows(universe: MarketUniverseItem[]): Promise<Array<Record<string, unknown>>> {
+  const rows: Array<Record<string, unknown>> = [];
+  const universeByCode = new Map(universe.map((item) => [item.code, item]));
+  const prefixed = universe.map((item) => tencentMarketPrefix(item.code));
+  const chunkSize = 70;
+  for (let index = 0; index < prefixed.length; index += chunkSize) {
+    const chunk = prefixed.slice(index, index + chunkSize);
+    const text = await fetchText(`${TENCENT_QUOTE_URL}${chunk.join(',')}`, 'gbk');
+    rows.push(...parseTencentSentimentRows(text, universeByCode));
+    if (index + chunkSize < prefixed.length) await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+  return rows;
+}
+
+async function fetchAStockSentimentRows(): Promise<Array<Record<string, unknown>>> {
+  const universe = await readMarketUniverse();
+  if (universe.length > 500) {
+    try {
+      const rows = await fetchTencentAStockRows(universe);
+      if (rows.length > 500) return rows;
+    } catch {
+      // Fall through to AKShare bootstrap when the cached universe cannot be quoted.
+    }
+  }
+  const rows = await fetchAkshareAStockRows();
+  const nextUniverse = rows.map(rowToUniverseItem).filter((item): item is MarketUniverseItem => item != null);
+  if (nextUniverse.length > 500) await writeMarketUniverse(nextUniverse).catch(() => undefined);
+  return rows;
+}
+
 function buildMainNetInTrend(mainNetInYi: number): MarketSentimentOverview['mainNetInTrend'] {
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
@@ -391,7 +476,7 @@ function buildMainNetInTrend(mainNetInYi: number): MarketSentimentOverview['main
 
 export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOverview> {
   const [rowsResult, hs300KlineResult] = await Promise.allSettled([
-    fetchAkshareAStockRows(),
+    fetchAStockSentimentRows(),
     fetchStockKline('sh000300', 'day', 28).catch(() => []),
   ]);
   const rows = rowsResult.status === 'fulfilled' ? rowsResult.value : [];
@@ -510,7 +595,7 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
     ...status,
     notes: [
       ...dataNotes,
-      '全市场涨跌分布数据源：AKShare stock_zh_a_spot。',
+      '全市场涨跌分布数据源：本地股票池 + 腾讯批量行情；股票池缺失时使用 AKShare/Sina 初始化。',
       '涨停/跌停家数使用涨跌幅阈值近似，待接入交易所涨跌停状态后可替换为精确口径。',
       'MSI = 0.6 × 涨跌家数因子 A + 0.4 × 涨跌停情绪因子 B。',
     ],
@@ -577,7 +662,15 @@ async function writeMarketSentimentDiskCache(data: MarketSentimentOverview, cach
   await writeFile(MARKET_SENTIMENT_CACHE_FILE, JSON.stringify({ data, cachedAt }), 'utf8');
 }
 
+function isMarketSentimentAutoRefreshWindow(now = new Date()): boolean {
+  const utcMinus8 = new Date(now.getTime() - UTC_MINUS_8_OFFSET_MS);
+  const minutes = utcMinus8.getUTCHours() * 60 + utcMinus8.getUTCMinutes();
+  return minutes >= MARKET_SENTIMENT_REFRESH_START_MINUTE
+    && minutes <= MARKET_SENTIMENT_REFRESH_END_MINUTE;
+}
+
 function refreshMarketSentimentInBackground(): void {
+  if (!isMarketSentimentAutoRefreshWindow()) return;
   if (marketSentimentInFlight) return;
   marketSentimentInFlight = fetchMarketSentimentOverview()
     .then(async (data) => {

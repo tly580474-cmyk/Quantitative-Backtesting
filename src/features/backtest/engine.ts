@@ -110,9 +110,17 @@ function createBuyOrder(
 function createSellOrder(
   signal: StrategySignal,
   positionQuantity: number,
+  estimatedFillPrice: number,
   config: BacktestConfig,
 ): Order | null {
-  const quantity = positionQuantity * config.positionSizing.value;
+  const partialQuantity = positionQuantity * config.positionSizing.value;
+  const remainingQuantity = positionQuantity - partialQuantity;
+  const remainingIsTradable = config.tradingUnitMode === 'stock'
+    ? remainingQuantity >= 100
+    : remainingQuantity * estimatedFillPrice >= (config.minimumTradeAmount ?? 1);
+  // Avoid an asymptotic dust position: when the tail can no longer form one
+  // effective trading unit, include it in the current sell order.
+  const quantity = remainingIsTradable ? partialQuantity : positionQuantity;
   if (quantity <= 0) return null;
   return {
     id: crypto.randomUUID(),
@@ -279,7 +287,12 @@ function processBar(
       }
     } else if (signal.action === 'sell') {
       if (state.portfolio.positionQuantity > 0) {
-        state.pendingOrder = createSellOrder(signal, state.portfolio.positionQuantity, config);
+        state.pendingOrder = createSellOrder(
+          signal,
+          state.portfolio.positionQuantity,
+          nextCandle.open * (1 - config.slippageBps / 10000),
+          config,
+        );
       } else {
         state.orders.push({
           id: crypto.randomUUID(),

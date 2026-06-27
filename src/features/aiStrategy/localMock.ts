@@ -22,6 +22,9 @@ export async function localGenerate(prompt: string): Promise<GenerateStrategyRes
   const hasVolCluster = lower.includes('波动聚集') || lower.includes('volcluster');
   const hasHold = lower.includes('hold') || lower.includes('买入持有') || lower.includes('持有收益');
   const hasReversal = lower.includes('反转') || lower.includes('reversal');
+  const hasVolume = lower.includes('成交量') || lower.includes('放量') || lower.includes('缩量') || lower.includes('volume');
+  const hasBreakout = lower.includes('突破') || lower.includes('新高') || lower.includes('新低') || lower.includes('breakout');
+  const hasDrawdown = lower.includes('回撤') || lower.includes('drawdown');
   const hasStopLoss = lower.includes('止损');
   const hasTakeProfit = lower.includes('止盈');
 
@@ -58,19 +61,23 @@ export async function localGenerate(prompt: string): Promise<GenerateStrategyRes
 
   if (hasRsi) {
     indicators.push({
-      id: 'rsi1', indicatorId: 'rsi', params: { period: 14 },
-      outputs: [{ key: 'rsi', label: 'RSI14', type: 'number' }],
+      id: 'rsi1', indicatorId: 'rsi', params: { period1: 6, period2: 12, period3: 24 },
+      outputs: [
+        { key: 'rsi1', label: 'RSI1', type: 'number' },
+        { key: 'rsi2', label: 'RSI2', type: 'number' },
+        { key: 'rsi3', label: 'RSI3', type: 'number' },
+      ],
     });
     if (entryChildren.length > 0) {
       entryChildren.unshift({
         type: 'condition', id: 'rsi_filter',
-        left: { type: 'indicator', nodeId: 'rsi1', output: 'rsi', offset: 0 },
+        left: { type: 'indicator', nodeId: 'rsi1', output: 'rsi1', offset: 0 },
         operator: 'lt', right: { type: 'literal', value: 70 },
       });
     } else {
       entryChildren.push({
         type: 'condition', id: 'rsi_oversold',
-        left: { type: 'indicator', nodeId: 'rsi1', output: 'rsi', offset: 0 },
+        left: { type: 'indicator', nodeId: 'rsi1', output: 'rsi1', offset: 0 },
         operator: 'lt', right: { type: 'literal', value: 30 },
       });
     }
@@ -185,6 +192,64 @@ export async function localGenerate(prompt: string): Promise<GenerateStrategyRes
     });
   }
 
+  if (hasVolume) {
+    indicators.push({
+      id: 'volume1', indicatorId: 'volume', params: { period: 20 },
+      outputs: [
+        { key: 'volume', label: '成交量', type: 'number' },
+        { key: 'volumeAverage', label: '20日均量', type: 'number' },
+        { key: 'volumeRatio', label: '量比', type: 'number' },
+      ],
+    });
+    entryChildren.push({
+      type: 'condition', id: 'volume_expansion',
+      left: { type: 'indicator', nodeId: 'volume1', output: 'volumeRatio', offset: 0 },
+      operator: 'gt', right: { type: 'literal', value: 1.5 },
+    });
+  }
+
+  if (hasBreakout) {
+    indicators.push({
+      id: 'breakout1', indicatorId: 'highLowBreakout', params: { period: 20 },
+      outputs: [
+        { key: 'previousHigh', label: '前20日高点', type: 'number' },
+        { key: 'previousLow', label: '前20日低点', type: 'number' },
+      ],
+    });
+    entryChildren.push({
+      type: 'condition', id: 'break_high',
+      left: { type: 'market', field: 'close', offset: 0 },
+      operator: 'gt',
+      right: { type: 'indicator', nodeId: 'breakout1', output: 'previousHigh', offset: 0 },
+    });
+    exitChildren.push({
+      type: 'condition', id: 'break_low',
+      left: { type: 'market', field: 'close', offset: 0 },
+      operator: 'lt',
+      right: { type: 'indicator', nodeId: 'breakout1', output: 'previousLow', offset: 0 },
+    });
+  }
+
+  if (hasDrawdown) {
+    indicators.push({
+      id: 'drawdown1', indicatorId: 'drawdown', params: { period: 60 },
+      outputs: [
+        { key: 'peak', label: '60日峰值', type: 'number' },
+        { key: 'drawdown', label: '60日回撤', type: 'number' },
+      ],
+    });
+    entryChildren.push({
+      type: 'condition', id: 'drawdown_entry',
+      left: { type: 'indicator', nodeId: 'drawdown1', output: 'drawdown', offset: 0 },
+      operator: 'gte', right: { type: 'literal', value: 0.08 },
+    });
+    exitChildren.push({
+      type: 'condition', id: 'drawdown_recovered',
+      left: { type: 'indicator', nodeId: 'drawdown1', output: 'drawdown', offset: 0 },
+      operator: 'lte', right: { type: 'literal', value: 0.02 },
+    });
+  }
+
   if (hasStopLoss) risk.push({ type: 'stopLoss', value: 8 });
   if (hasTakeProfit) risk.push({ type: 'takeProfit', value: 20 });
 
@@ -245,5 +310,8 @@ function generateName(prompt: string): string {
   if (prompt.includes('波动聚集') || prompt.includes('volcluster')) return '波动聚集过滤策略';
   if (prompt.includes('hold') || prompt.includes('买入持有') || prompt.includes('持有收益')) return 'HOLD 对比策略';
   if (prompt.includes('反转') || prompt.includes('reversal')) return '反转因子策略';
+  if (prompt.includes('突破') || prompt.includes('breakout')) return '高低点突破策略';
+  if (prompt.includes('成交量') || prompt.includes('放量') || prompt.includes('volume')) return '量价策略';
+  if (prompt.includes('回撤') || prompt.includes('drawdown')) return '回撤策略';
   return 'AI 生成策略';
 }

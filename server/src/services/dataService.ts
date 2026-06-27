@@ -230,7 +230,17 @@ export async function getVisualStrategy(id: string) {
 export async function createVisualStrategy(
   strategy: typeof visualStrategies.$inferInsert,
 ) {
-  await getDb().insert(visualStrategies).values(strategy);
+  await getDb()
+    .insert(visualStrategies)
+    .values(strategy)
+    .onDuplicateKeyUpdate({
+      set: {
+        name: strategy.name,
+        document: strategy.document,
+        status: strategy.status,
+        updatedAt: strategy.updatedAt,
+      },
+    });
 }
 
 export async function deleteVisualStrategy(id: string) {

@@ -99,10 +99,13 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
     const strategy = result.strategy;
     const signals: import('@/features/visualStrategies/types').StrategySignalWithTrace[] = [];
 
-    // Simulate position across bars so sell signals and risk rules are visible
+    // Simulate percentage-based step-in/step-out position changes so repeated
+    // studio signals remain visible in preview.
     let posQuantity = 0;
     let posAvgCost = 0;
     let posEntryTime: string | undefined;
+    let previewCash = 100_000;
+    const previewTradePercent = 0.25;
 
     for (let i = 0; i < candles.length; i++) {
       if (i > 0 && i % 200 === 0) {
@@ -126,15 +129,27 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       const signal = strategy.evaluate(ctx, params);
 
       // Simulate position changes from signals (simplified — no slippage/commission)
-      if (signal.action === 'buy' && posQuantity === 0 && i < candles.length - 1) {
+      if (signal.action === 'buy' && previewCash > 0 && i < candles.length - 1) {
         const fillPrice = candles[i + 1].open;
-        posQuantity = 100; // nominal quantity for preview
-        posAvgCost = fillPrice;
-        posEntryTime = candles[i + 1].time;
+        const spend = previewCash * previewTradePercent;
+        const addedQuantity = spend / fillPrice;
+        const totalCost = posAvgCost * posQuantity + spend;
+        posQuantity += addedQuantity;
+        previewCash -= spend;
+        posAvgCost = totalCost / posQuantity;
+        posEntryTime ??= candles[i + 1].time;
       } else if (signal.action === 'sell' && posQuantity > 0 && i < candles.length - 1) {
-        posQuantity = 0;
-        posAvgCost = 0;
-        posEntryTime = undefined;
+        const fillPrice = candles[i + 1].open;
+        const partialQuantity = posQuantity * previewTradePercent;
+        const remainingMarketValue = (posQuantity - partialQuantity) * fillPrice;
+        const soldQuantity = remainingMarketValue < 1 ? posQuantity : partialQuantity;
+        posQuantity -= soldQuantity;
+        previewCash += soldQuantity * fillPrice;
+        if (posQuantity === 0) {
+          posQuantity = 0;
+          posAvgCost = 0;
+          posEntryTime = undefined;
+        }
       }
 
       signals.push({

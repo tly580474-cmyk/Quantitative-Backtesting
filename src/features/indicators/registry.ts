@@ -1,15 +1,4 @@
 import type { IndicatorDefinition } from '@/models';
-import { calculateSMA } from './sma';
-import { calculateEMA } from './ema';
-import { calculateBOLL } from './boll';
-import { calculateMACD } from './macd';
-import { calculateRSI } from './rsi';
-import { calculateKDJ } from './kdj';
-import { calculateATR } from './atr';
-import { calculateCCI } from './cci';
-import { calculateWR } from './wr';
-import { calculateOBV } from './obv';
-import { calculateVolumeMA } from './volumeMa';
 
 export const INDICATOR_REGISTRY: IndicatorDefinition[] = [
   {
@@ -103,12 +92,16 @@ export const INDICATOR_REGISTRY: IndicatorDefinition[] = [
     id: 'rsi',
     name: 'RSI 相对强弱',
     params: [
-      { name: 'period', label: '周期', defaultValue: 14, min: 2, max: 500, step: 1 },
+      { name: 'period1', label: 'RSI1 周期', defaultValue: 6, min: 2, max: 500, step: 1 },
+      { name: 'period2', label: 'RSI2 周期', defaultValue: 12, min: 2, max: 500, step: 1 },
+      { name: 'period3', label: 'RSI3 周期', defaultValue: 24, min: 2, max: 500, step: 1 },
     ],
     display: {
       pane: 'separate',
       series: [
-        { type: 'line', color: '#9C27B0', key: 'rsi', label: 'RSI' },
+        { type: 'line', color: '#7C3AED', key: 'rsi1', label: 'RSI1' },
+        { type: 'line', color: '#2563EB', key: 'rsi2', label: 'RSI2' },
+        { type: 'line', color: '#D97706', key: 'rsi3', label: 'RSI3' },
       ],
     },
   },
@@ -195,6 +188,49 @@ export const INDICATOR_REGISTRY: IndicatorDefinition[] = [
           label: '量均线',
           priceScale: 'volume',
         },
+      ],
+    },
+  },
+  {
+    id: 'volume',
+    name: '成交量',
+    params: [
+      { name: 'period', label: '均量周期', defaultValue: 20, min: 1, max: 500, step: 1 },
+    ],
+    display: {
+      pane: 'separate',
+      series: [
+        { type: 'histogram', color: '#64748B', key: 'volume', label: '成交量' },
+        { type: 'line', color: '#F59E0B', key: 'volumeAverage', label: '平均成交量' },
+        { type: 'line', color: '#2563EB', key: 'volumeRatio', label: '量比' },
+      ],
+    },
+  },
+  {
+    id: 'highLowBreakout',
+    name: '高低点突破',
+    params: [
+      { name: 'period', label: '回看周期', defaultValue: 20, min: 1, max: 500, step: 1 },
+    ],
+    display: {
+      pane: 'overlay',
+      series: [
+        { type: 'line', color: '#DC2626', key: 'previousHigh', label: '前期高点' },
+        { type: 'line', color: '#16A34A', key: 'previousLow', label: '前期低点' },
+      ],
+    },
+  },
+  {
+    id: 'drawdown',
+    name: '回撤',
+    params: [
+      { name: 'period', label: '峰值周期', defaultValue: 60, min: 1, max: 1000, step: 1 },
+    ],
+    display: {
+      pane: 'separate',
+      series: [
+        { type: 'line', color: '#94A3B8', key: 'peak', label: '区间峰值' },
+        { type: 'line', color: '#DC2626', key: 'drawdown', label: '回撤率' },
       ],
     },
   },

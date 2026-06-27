@@ -24,6 +24,11 @@ import { calculateCCI, type CciParams } from '@/features/indicators/cci';
 import { calculateWR, type WrParams } from '@/features/indicators/wr';
 import { calculateOBV } from '@/features/indicators/obv';
 import { calculateVolumeMA, type VolumeMaParams } from '@/features/indicators/volumeMa';
+import {
+  calculateDrawdown,
+  calculateHighLowBreakout,
+  calculateVolume,
+} from '@/features/indicators/strategySignals';
 
 type IndicatorSeriesMap = Record<string, readonly (number | null)[]>;
 
@@ -82,8 +87,19 @@ function calculateNodeIndicators(
         break;
       }
       case 'rsi': {
-        result.rsi = calculateRSI(candles as Candle[], {
-          period: params.period ?? 14,
+        if (params.period != null && params.period1 == null) {
+          result.rsi = calculateRSI(candles as Candle[], {
+            period: params.period,
+          });
+          break;
+        }
+        const periods = [
+          params.period1 ?? 6,
+          params.period2 ?? 12,
+          params.period3 ?? 24,
+        ];
+        periods.forEach((period, index) => {
+          result[`rsi${index + 1}`] = calculateRSI(candles as Candle[], { period });
         });
         break;
       }
@@ -125,6 +141,25 @@ function calculateNodeIndicators(
         result.volumeMa = calculateVolumeMA(candles as Candle[], {
           period: params.period ?? 20,
         });
+        break;
+      }
+      case 'volume': {
+        const r = calculateVolume(candles as Candle[], { period: params.period ?? 20 });
+        result.volume = r.volume;
+        result.volumeAverage = r.volumeAverage;
+        result.volumeRatio = r.volumeRatio;
+        break;
+      }
+      case 'highLowBreakout': {
+        const r = calculateHighLowBreakout(candles as Candle[], { period: params.period ?? 20 });
+        result.previousHigh = r.previousHigh;
+        result.previousLow = r.previousLow;
+        break;
+      }
+      case 'drawdown': {
+        const r = calculateDrawdown(candles as Candle[], { period: params.period ?? 60 });
+        result.peak = r.peak;
+        result.drawdown = r.drawdown;
         break;
       }
     }
@@ -251,13 +286,6 @@ export function compileToStrategyDefinition(
     // ---- Step 5: Evaluate entry conditions ----
     const entryResult = evaluateGroup(document.entry, context, allIndicatorValues, resolvedParams, document);
     if (entryResult.match) {
-      if (position.quantity > 0) {
-        return {
-          time: candles[index].time,
-          action: 'hold',
-          reason: '已持仓，忽略买入信号',
-        };
-      }
       return {
         time: candles[index].time,
         action: 'buy',

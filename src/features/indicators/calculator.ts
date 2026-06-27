@@ -17,6 +17,11 @@ import {
   calculateVolCluster,
   calculateVolatility,
 } from './phase2Quant';
+import {
+  calculateDrawdown,
+  calculateHighLowBreakout,
+  calculateVolume,
+} from './strategySignals';
 
 /**
  * Calculate all active indicators against the given candles.
@@ -81,8 +86,24 @@ function calculateOne(candles: Candle[], active: ActiveIndicator): IndicatorResu
       return { id, series: { dif, dea, histogram } };
     }
     case 'rsi': {
-      const values = calculateRSI(candles, { period: paramValues.period });
-      return { id, series: { rsi: values } };
+      // Keep persisted single-period RSI strategies readable while new
+      // indicators use the standard 6/12/24 three-line configuration.
+      if (paramValues.period != null && paramValues.period1 == null) {
+        const values = calculateRSI(candles, { period: paramValues.period });
+        return { id, series: { rsi: values } };
+      }
+      const periods = [
+        paramValues.period1 ?? 6,
+        paramValues.period2 ?? 12,
+        paramValues.period3 ?? 24,
+      ];
+      return {
+        id,
+        series: Object.fromEntries(periods.map((period, index) => [
+          `rsi${index + 1}`,
+          calculateRSI(candles, { period }),
+        ])),
+      };
     }
     case 'kdj': {
       const { k, d, j } = calculateKDJ(candles, {
@@ -111,6 +132,24 @@ function calculateOne(candles: Candle[], active: ActiveIndicator): IndicatorResu
     case 'volumeMa': {
       const values = calculateVolumeMA(candles, { period: paramValues.period });
       return { id, series: { volumeMa: values } };
+    }
+    case 'volume': {
+      const { volume, volumeAverage, volumeRatio } = calculateVolume(candles, {
+        period: paramValues.period,
+      });
+      return { id, series: { volume, volumeAverage, volumeRatio } };
+    }
+    case 'highLowBreakout': {
+      const { previousHigh, previousLow } = calculateHighLowBreakout(candles, {
+        period: paramValues.period,
+      });
+      return { id, series: { previousHigh, previousLow } };
+    }
+    case 'drawdown': {
+      const { peak, drawdown } = calculateDrawdown(candles, {
+        period: paramValues.period,
+      });
+      return { id, series: { peak, drawdown } };
     }
     case 'bias': {
       const values = calculateBIAS(candles, { period: paramValues.period });

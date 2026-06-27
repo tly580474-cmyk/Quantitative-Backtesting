@@ -649,9 +649,9 @@ describe('compileToStrategyDefinition', () => {
     }
   });
 
-  // ---- Position guard (no double buy) ----
+  // ---- Percentage-based gradual position changes ----
 
-  it('ignores buy signal when already holding', () => {
+  it('keeps emitting buy signals while holding so the engine can add by percentage', () => {
     const doc = makeDoc({
       entry: makeEntryGroup([
         {
@@ -667,10 +667,7 @@ describe('compileToStrategyDefinition', () => {
     const candles = candlesFromCloses([10, 15, 20]);
     const { signals } = runEvaluate(doc, candles, { quantity: 100, avgCost: 10 });
 
-    // All should be hold since already have position
     const buySignals = signals.filter((s) => s.action === 'buy');
-    expect(buySignals).toHaveLength(0);
-    const holds = signals.filter((s) => s.reason.includes('已持仓'));
-    expect(holds.length).toBeGreaterThan(0);
+    expect(buySignals.length).toBeGreaterThan(0);
   });
 });
