@@ -6,8 +6,19 @@ import type {
   ExplainStrategyRequest,
   StrategyExplanation,
 } from './types';
+import { API_BASE_URL } from '@/api/config';
 
-const BASE_URL = 'http://localhost:3001';
+export class AIServiceError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+    public readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = 'AIServiceError';
+  }
+}
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -17,39 +28,47 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || body.error || `HTTP ${res.status}`);
+    throw new AIServiceError(
+      body.message || body.error || `HTTP ${res.status}`,
+      res.status,
+      body.error,
+      body.details,
+    );
   }
 
   return res.json();
 }
 
-export async function getAIStatus(): Promise<AIStatus> {
-  return fetchJson<AIStatus>(`${BASE_URL}/api/ai/status`);
+export async function getAIStatus(signal?: AbortSignal): Promise<AIStatus> {
+  return fetchJson<AIStatus>(`${API_BASE_URL}/api/ai/status`, { signal });
 }
 
 export async function generateStrategy(
   request: GenerateStrategyRequest,
+  signal?: AbortSignal,
 ): Promise<GenerateStrategyResult> {
   return fetchJson<GenerateStrategyResult>(
-    `${BASE_URL}/api/ai/strategies/generate`,
-    { method: 'POST', body: JSON.stringify(request) },
+    `${API_BASE_URL}/api/ai/strategies/generate`,
+    { method: 'POST', body: JSON.stringify(request), signal },
   );
 }
 
 export async function refineStrategy(
   request: RefineStrategyRequest,
+  signal?: AbortSignal,
 ): Promise<GenerateStrategyResult> {
   return fetchJson<GenerateStrategyResult>(
-    `${BASE_URL}/api/ai/strategies/refine`,
-    { method: 'POST', body: JSON.stringify(request) },
+    `${API_BASE_URL}/api/ai/strategies/refine`,
+    { method: 'POST', body: JSON.stringify(request), signal },
   );
 }
 
 export async function explainStrategy(
   request: ExplainStrategyRequest,
+  signal?: AbortSignal,
 ): Promise<StrategyExplanation> {
   return fetchJson<StrategyExplanation>(
-    `${BASE_URL}/api/ai/strategies/explain`,
-    { method: 'POST', body: JSON.stringify(request) },
+    `${API_BASE_URL}/api/ai/strategies/explain`,
+    { method: 'POST', body: JSON.stringify(request), signal },
   );
 }

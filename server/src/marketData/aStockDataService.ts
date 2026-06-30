@@ -111,7 +111,7 @@ export interface MarketSentimentOverview {
 let marketSentimentCache: { data: MarketSentimentOverview; cachedAt: number } | null = null;
 let marketSentimentInFlight: Promise<MarketSentimentOverview> | null = null;
 let marketSentimentRefreshTimer: NodeJS.Timeout | null = null;
-const MARKET_SENTIMENT_CACHE_MS = 10 * 60_000;
+const MARKET_SENTIMENT_CACHE_MS = 5 * 60_000;
 const AKSHARE_MARKET_SNAPSHOT_SCRIPT = fileURLToPath(new URL('./akshareMarketSnapshot.py', import.meta.url));
 const MARKET_SENTIMENT_CACHE_FILE = fileURLToPath(new URL('../../.cache/market-sentiment.json', import.meta.url));
 const MARKET_SENTIMENT_UNIVERSE_FILE = fileURLToPath(new URL('../../.cache/market-universe.json', import.meta.url));
@@ -669,9 +669,8 @@ function isMarketSentimentAutoRefreshWindow(now = new Date()): boolean {
     && minutes <= MARKET_SENTIMENT_REFRESH_END_MINUTE;
 }
 
-function refreshMarketSentimentInBackground(): void {
-  if (!isMarketSentimentAutoRefreshWindow()) return;
-  if (marketSentimentInFlight) return;
+function refreshMarketSentiment(): Promise<MarketSentimentOverview> {
+  if (marketSentimentInFlight) return marketSentimentInFlight;
   marketSentimentInFlight = fetchMarketSentimentOverview()
     .then(async (data) => {
       const cachedAt = Date.now();
@@ -683,7 +682,12 @@ function refreshMarketSentimentInBackground(): void {
     .finally(() => {
       marketSentimentInFlight = null;
     });
-  marketSentimentInFlight.catch(() => undefined);
+  return marketSentimentInFlight;
+}
+
+function refreshMarketSentimentInBackground(): void {
+  if (!isMarketSentimentAutoRefreshWindow()) return;
+  void refreshMarketSentiment().catch(() => undefined);
 }
 
 function ensureMarketSentimentRefreshLoop(): void {
@@ -700,12 +704,7 @@ export async function fetchCachedMarketSentimentOverview(force = false): Promise
     return marketSentimentCache.data;
   }
   if (force) {
-    const data = await fetchMarketSentimentOverview();
-    const cachedAt = Date.now();
-    marketSentimentCache = { data, cachedAt };
-    await writeMarketSentimentDiskCache(data, cachedAt).catch(() => undefined);
-    ensureMarketSentimentRefreshLoop();
-    return data;
+    return refreshMarketSentiment();
   }
   if (!marketSentimentCache) {
     const diskCache = await readMarketSentimentDiskCache();

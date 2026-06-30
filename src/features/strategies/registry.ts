@@ -4,6 +4,9 @@ import { rsiStrategy } from './builtins/rsiStrategy';
 import { macdStrategy } from './builtins/macdStrategy';
 import { bollStrategy } from './builtins/bollStrategy';
 import { smaCrossStrategy } from './builtins/smaCrossStrategy';
+import { volatilityStrategy } from './builtins/volatilityStrategy';
+import { reversalStrategy } from './builtins/reversalStrategy';
+import { compositeFactorStrategy } from './builtins/compositeFactorStrategy';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const STRATEGY_REGISTRY: StrategyDefinition<any>[] = [
@@ -12,6 +15,9 @@ export const STRATEGY_REGISTRY: StrategyDefinition<any>[] = [
   macdStrategy,
   bollStrategy,
   smaCrossStrategy,
+  volatilityStrategy,
+  reversalStrategy,
+  compositeFactorStrategy,
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

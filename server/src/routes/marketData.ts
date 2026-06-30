@@ -75,9 +75,9 @@ export function registerMarketDataRoutes(
     }
   });
 
-  app.get('/api/market-data/market-sentiment', async (_req, reply) => {
+  app.get<{ Querystring: { force?: string } }>('/api/market-data/market-sentiment', async (req, reply) => {
     try {
-      return reply.send(await fetchCachedMarketSentimentOverview());
+      return reply.send(await fetchCachedMarketSentimentOverview(req.query.force === 'true'));
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : '市场情绪获取失败' });
     }

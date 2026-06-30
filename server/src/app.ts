@@ -45,6 +45,11 @@ async function main(): Promise<void> {
     provider = new MockStrategyGenerationProvider();
     console.log('[AI] Using mock provider (no API key configured)');
   }
+  const availableAiModels = [...new Set([
+    config.OPENAI_MODEL,
+    'deepseek-v4-flash',
+    'deepseek-v4-pro',
+  ])];
 
   // ── MySQL Connection ────────────────────────────────────────
   console.log(`[DB] Connecting to MySQL at ${config.DB_HOST}:${config.DB_PORT}/${config.DB_NAME}...`);
@@ -90,7 +95,7 @@ async function main(): Promise<void> {
     aiEnabled,
     aiConfigured,
     config.OPENAI_MODEL,
-    ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    availableAiModels,
   );
 
   // Register data routes
@@ -136,7 +141,7 @@ async function main(): Promise<void> {
     baseURL: config.OPENAI_BASE_URL,
     model: config.OPENAI_MODEL,
     timeoutMs: parseInt(config.OPENAI_TIMEOUT_MS, 10),
-    availableModels: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    availableModels: availableAiModels,
   });
   registerSyncJobRoutes(app, dbOnline);
   registerDataQualityRoutes(app, dbOnline);

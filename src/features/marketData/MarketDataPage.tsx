@@ -7,6 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { apiFetch } from '../../api/client';
 import MarketKlineChart from './MarketKlineChart';
+import StockSelectionScore from './StockSelectionScore';
 import { klineCacheKey, marketDataCache } from './marketDataCache';
 import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
 import type { AgentStatus, KlinePoint, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem } from './types';
@@ -14,6 +15,7 @@ import type { ImportResult } from '@/models';
 
 const { Text, Title, Paragraph } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
+const MARKET_SENTIMENT_REFRESH_MS = 5 * 60_000;
 const DEFAULT_WATCHLIST: StockSearchItem[] = [
   { code: '600519', name: '贵州茅台', market: 'SH', type: 'stock' },
   { code: '000001', name: '平安银行', market: 'SZ', type: 'stock' },
@@ -509,6 +511,11 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
   const [period, setPeriod] = useState<MarketKlinePeriod>(marketDataCache.period);
   const [klines, setKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(marketDataCache.selectedCode ?? initial[0]?.code ?? '600519', marketDataCache.period)] ?? []);
   const [klineLoading, setKlineLoading] = useState(false);
+  const [scoreKlines, setScoreKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(marketDataCache.selectedCode ?? initial[0]?.code ?? '600519', 'day')] ?? []);
+  const [scoreCode, setScoreCode] = useState<string | null>(marketDataCache.selectedCode ?? initial[0]?.code ?? '600519');
+  const [scoreKlineLoading, setScoreKlineLoading] = useState(false);
+  const [benchmarkKlines, setBenchmarkKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey('sh000300', 'day')] ?? []);
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [indexQuotes, setIndexQuotes] = useState<StockQuote[]>(() => marketDataCache.indexQuotes ?? []);
   const [indexLoading, setIndexLoading] = useState(false);
   const [marketSentiment, setMarketSentiment] = useState<MarketSentimentOverview | null>(() => marketDataCache.marketSentiment ?? null);
@@ -565,10 +572,11 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
       if (!silent) setIndexLoading(false);
     }
   }, [message]);
-  const loadMarketSentiment = useCallback(async (silent = false) => {
+  const loadMarketSentiment = useCallback(async (silent = false, force = false) => {
     if (!silent) setMarketSentimentLoading(true);
     try {
-      const next = await apiFetch<MarketSentimentOverview>('/api/market-data/market-sentiment', { timeoutMs: 150000 });
+      const path = `/api/market-data/market-sentiment${force ? '?force=true' : ''}`;
+      const next = await apiFetch<MarketSentimentOverview>(path, { timeoutMs: 240000 });
       marketDataCache.marketSentiment = next;
       setMarketSentiment(next);
     } catch (e) {
@@ -619,6 +627,72 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCode, loadQuote, loadKline, loadReports]);
   useEffect(() => {
+    let cancelled = false;
+    const cacheKey = klineCacheKey(selectedCode, 'day');
+    const cached = marketDataCache.klines[cacheKey];
+    if (cached) {
+      setScoreKlines(cached);
+      setScoreCode(selectedCode);
+      setScoreKlineLoading(false);
+      return undefined;
+    }
+
+    setScoreKlines([]);
+    setScoreCode(null);
+    if (period === 'day') {
+      setScoreKlineLoading(true);
+      return () => { cancelled = true; };
+    }
+
+    setScoreKlineLoading(true);
+    void apiFetch<{ items: KlinePoint[] }>(`/api/market-data/stocks/${selectedCode}/kline?period=day`)
+      .then((data) => {
+        if (cancelled) return;
+        const next = data.items ?? [];
+        marketDataCache.klines[cacheKey] = next;
+        setScoreKlines(next);
+        setScoreCode(selectedCode);
+      })
+      .catch((error) => {
+        if (!cancelled) message.warning(error instanceof Error ? `评分日 K 加载失败：${error.message}` : '评分日 K 加载失败');
+      })
+      .finally(() => { if (!cancelled) setScoreKlineLoading(false); });
+    return () => { cancelled = true; };
+  }, [message, period, selectedCode]);
+  useEffect(() => {
+    if (period !== 'day') return;
+    const cachedForSelected = marketDataCache.klines[klineCacheKey(selectedCode, 'day')];
+    if (klines.length > 0 && cachedForSelected === klines) {
+      setScoreKlines(klines);
+      setScoreCode(selectedCode);
+      setScoreKlineLoading(false);
+    } else if (!klineLoading && klines.length === 0) {
+      setScoreKlineLoading(false);
+    }
+  }, [klineLoading, klines, period, selectedCode]);
+  useEffect(() => {
+    const cacheKey = klineCacheKey('sh000300', 'day');
+    const cached = marketDataCache.klines[cacheKey];
+    if (cached) {
+      setBenchmarkKlines(cached);
+      return undefined;
+    }
+    let cancelled = false;
+    setBenchmarkLoading(true);
+    void apiFetch<{ items: KlinePoint[] }>('/api/market-data/stocks/sh000300/kline?period=day')
+      .then((data) => {
+        if (cancelled) return;
+        const next = data.items ?? [];
+        marketDataCache.klines[cacheKey] = next;
+        setBenchmarkKlines(next);
+      })
+      .catch((error) => {
+        if (!cancelled) message.warning(error instanceof Error ? `沪深 300 日 K 加载失败：${error.message}` : '沪深 300 日 K 加载失败');
+      })
+      .finally(() => { if (!cancelled) setBenchmarkLoading(false); });
+    return () => { cancelled = true; };
+  }, [message]);
+  useEffect(() => {
     if (marketDataCache.agentStatus) return;
     void apiFetch<AgentStatus>('/api/market-data/research-agent/status').then((s) => { marketDataCache.agentStatus = s; setAgentStatus(s); if (!marketDataCache.agentModel) setAgentModel(s.currentModel); }).catch(() => undefined);
   }, []);
@@ -628,10 +702,10 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
     return () => window.clearInterval(timer);
   }, [loadIndexQuotes]);
   useEffect(() => {
-    if (!marketSentimentOpen) return undefined;
-    const timer = window.setInterval(() => void loadMarketSentiment(true), 5 * 60_000);
+    void loadMarketSentiment(true);
+    const timer = window.setInterval(() => void loadMarketSentiment(true, true), MARKET_SENTIMENT_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [loadMarketSentiment, marketSentimentOpen]);
+  }, [loadMarketSentiment]);
   useEffect(() => {
     if (!marketSentimentOpen || marketSentimentLoading || (marketSentiment?.total ?? 0) > 0) return undefined;
     const timer = window.setInterval(() => void loadMarketSentiment(true), 5000);
@@ -827,7 +901,7 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
           key: 'market-sentiment',
           label: <Space><DashboardOutlined />市场概况</Space>,
           extra: marketSentimentOpen
-            ? <Tooltip title="刷新市场情绪"><Button size="small" icon={<ReloadOutlined />} loading={marketSentimentLoading} onClick={(event) => { event.stopPropagation(); void loadMarketSentiment(); }}>刷新</Button></Tooltip>
+            ? <Tooltip title="刷新市场情绪"><Button size="small" icon={<ReloadOutlined />} loading={marketSentimentLoading} onClick={(event) => { event.stopPropagation(); void loadMarketSentiment(false, true); }}>刷新</Button></Tooltip>
             : <Tag>展开后加载</Tag>,
           children: <MarketSentimentPanel overview={marketSentiment} loading={marketSentimentLoading} />,
         }]}
@@ -840,7 +914,8 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
       <div className="market-main">
         <Card className="market-quote-card" variant="borderless"><Skeleton loading={quoteLoading} active paragraph={{ rows: 3 }}>
           {quote ? <><div className="market-quote-head"><div className="market-quote-meta"><Space align="baseline"><Title level={3}>{quote.name}</Title><Text type="secondary">{quote.code} · {quote.market}</Text></Space><Space wrap><Tag color="blue">{quote.industry || '行业待补充'}</Tag>{quote.source.map((s) => <Tag key={s}>{s}</Tag>)}</Space><Space wrap className="market-quote-actions"><Button icon={<ReloadOutlined />} onClick={() => loadQuote(selectedCode)}>刷新行情</Button><Button icon={<ExportOutlined />} loading={exporting === 'analysis'} onClick={openInAnalysis}>导入行情分析</Button><Button icon={<DownloadOutlined />} loading={exporting === 'excel'} onClick={exportExcel}>导出 Excel</Button></Space></div><div className="market-price-block"><span className={accent && `market-${accent}`}>{fmt(quote.price)}</span><Text className={accent && `market-${accent}`}>{fmt(quote.changeAmount)} / {fmt(quote.changePct)}%</Text></div></div>
-          <div className="market-metrics-grid"><Metric label="今开 / 最高 / 最低" value={`${fmt(quote.open)} / ${fmt(quote.high)} / ${fmt(quote.low)}`} /><Metric label="昨收 / 涨停 / 跌停" value={`${fmt(quote.previousClose)} / ${fmt(quote.limitUp)} / ${fmt(quote.limitDown)}`} /><Metric label="换手率" value={`${fmt(quote.turnoverPct)}%`} /><Metric label="振幅" value={`${fmt(quote.amplitudePct)}%`} /><Metric label="量比" value={fmt(quote.volumeRatio)} /><Metric label="成交额" value={amount(quote.amountWan)} /><Metric label="PE(TTM) / PE(静)" value={`${fmt(quote.peTtm)} / ${fmt(quote.peStatic)}`} /><Metric label="PB" value={fmt(quote.pb)} /><Metric label="总市值" value={`${fmt(quote.marketCapYi)} 亿`} /><Metric label="流通市值" value={`${fmt(quote.floatMarketCapYi)} 亿`} /><Metric label="上市日期" value={quote.listDate || '—'} /><Metric label="所属行业" value={quote.industry || '—'} /></div></> : <Empty description={`无法加载 ${selected?.name ?? selectedCode} 行情`} />}
+          <div className="market-metrics-grid"><Metric label="今开 / 最高 / 最低" value={`${fmt(quote.open)} / ${fmt(quote.high)} / ${fmt(quote.low)}`} /><Metric label="昨收 / 涨停 / 跌停" value={`${fmt(quote.previousClose)} / ${fmt(quote.limitUp)} / ${fmt(quote.limitDown)}`} /><Metric label="换手率" value={`${fmt(quote.turnoverPct)}%`} /><Metric label="振幅" value={`${fmt(quote.amplitudePct)}%`} /><Metric label="量比" value={fmt(quote.volumeRatio)} /><Metric label="成交额" value={amount(quote.amountWan)} /><Metric label="PE(TTM) / PE(静)" value={`${fmt(quote.peTtm)} / ${fmt(quote.peStatic)}`} /><Metric label="PB" value={fmt(quote.pb)} /><Metric label="总市值" value={`${fmt(quote.marketCapYi)} 亿`} /><Metric label="流通市值" value={`${fmt(quote.floatMarketCapYi)} 亿`} /><Metric label="上市日期" value={quote.listDate || '—'} /><Metric label="所属行业" value={quote.industry || '—'} /></div>
+          {quote.type === 'stock' && <StockSelectionScore candles={scoreCode === selectedCode ? scoreKlines : []} benchmarkCandles={benchmarkKlines} loading={scoreKlineLoading || benchmarkLoading || scoreCode !== selectedCode} />}</> : <Empty description={`无法加载 ${selected?.name ?? selectedCode} 行情`} />}
         </Skeleton></Card>
         <Card className="market-chart-card" variant="borderless" title={<Space wrap><span>价格走势</span><Tag color="gold">MA5/10/20</Tag><Tag color="blue">RSI14</Tag><Tag color="purple">MACD</Tag>{period === 'intraday' && <Tag color="cyan">5秒刷新</Tag>}</Space>} extra={<Segmented value={period} onChange={(v) => changePeriod(v as MarketKlinePeriod)} options={[{ label: '分时', value: 'intraday' }, { label: '日K', value: 'day' }, { label: '周K', value: 'week' }, { label: '年K', value: 'year' }]} />}><Spin spinning={klineLoading}><MarketKlineChart data={klines} period={period} previousClose={quote?.previousClose} /></Spin></Card>
         <div className="market-lower-grid">
