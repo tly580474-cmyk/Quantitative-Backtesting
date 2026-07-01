@@ -108,8 +108,21 @@ export interface MarketSentimentOverview {
   notes: string[];
 }
 
+export interface MarketTechnicalRow {
+  code: string;
+  name: string;
+  market: 'SH' | 'SZ' | 'BJ';
+  price: number | null;
+  changePct: number | null;
+  amountYi: number | null;
+  turnoverPct: number | null;
+  amplitudePct: number | null;
+  volumeRatio: number | null;
+}
+
 let marketSentimentCache: { data: MarketSentimentOverview; cachedAt: number } | null = null;
 let marketSentimentInFlight: Promise<MarketSentimentOverview> | null = null;
+let marketTechnicalRowsCache: { data: MarketTechnicalRow[]; cachedAt: number } | null = null;
 let marketSentimentRefreshTimer: NodeJS.Timeout | null = null;
 const MARKET_SENTIMENT_CACHE_MS = 5 * 60_000;
 const AKSHARE_MARKET_SNAPSHOT_SCRIPT = fileURLToPath(new URL('./akshareMarketSnapshot.py', import.meta.url));
@@ -407,8 +420,8 @@ async function writeMarketUniverse(items: MarketUniverseItem[]): Promise<void> {
 }
 
 function tencentMarketPrefix(code: string): string {
-  if (/^[689]/.test(code)) return `sh${code}`;
-  if (/^[48]/.test(code)) return `bj${code}`;
+  if (/^[489]/.test(code)) return `bj${code}`;
+  if (/^[68]/.test(code)) return `sh${code}`;
   return `sz${code}`;
 }
 
@@ -423,8 +436,12 @@ function parseTencentSentimentRows(text: string, universeByCode: Map<string, Mar
     rows.push({
       f12: code,
       f14: name,
+      f2: numberOrNull(values[3]),
       f3: numberOrNull(values[32]),
       f6: (numberOrNull(values[37]) ?? 0) * 10000,
+      f8: numberOrNull(values[38]),
+      f10: numberOrNull(values[49]),
+      f7: numberOrNull(values[43]),
       f62: 0,
     });
   }
@@ -432,17 +449,22 @@ function parseTencentSentimentRows(text: string, universeByCode: Map<string, Mar
 }
 
 async function fetchTencentAStockRows(universe: MarketUniverseItem[]): Promise<Array<Record<string, unknown>>> {
-  const rows: Array<Record<string, unknown>> = [];
   const universeByCode = new Map(universe.map((item) => [item.code, item]));
   const prefixed = universe.map((item) => tencentMarketPrefix(item.code));
   const chunkSize = 70;
-  for (let index = 0; index < prefixed.length; index += chunkSize) {
-    const chunk = prefixed.slice(index, index + chunkSize);
-    const text = await fetchText(`${TENCENT_QUOTE_URL}${chunk.join(',')}`, 'gbk');
-    rows.push(...parseTencentSentimentRows(text, universeByCode));
-    if (index + chunkSize < prefixed.length) await new Promise((resolve) => setTimeout(resolve, 120));
-  }
-  return rows;
+  const chunks: string[][] = [];
+  for (let index = 0; index < prefixed.length; index += chunkSize) chunks.push(prefixed.slice(index, index + chunkSize));
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(6, chunks.length) }, async () => {
+    const workerRows: Array<Record<string, unknown>> = [];
+    while (cursor < chunks.length) {
+      const chunk = chunks[cursor++];
+      const text = await fetchText(`${TENCENT_QUOTE_URL}${chunk.join(',')}`, 'gbk');
+      workerRows.push(...parseTencentSentimentRows(text, universeByCode));
+    }
+    return workerRows;
+  });
+  return (await Promise.all(workers)).flat();
 }
 
 async function fetchAStockSentimentRows(): Promise<Array<Record<string, unknown>>> {
@@ -459,6 +481,41 @@ async function fetchAStockSentimentRows(): Promise<Array<Record<string, unknown>
   const nextUniverse = rows.map(rowToUniverseItem).filter((item): item is MarketUniverseItem => item != null);
   if (nextUniverse.length > 500) await writeMarketUniverse(nextUniverse).catch(() => undefined);
   return rows;
+}
+
+function marketForCode(code: string): MarketTechnicalRow['market'] {
+  if (/^[489]/.test(code)) return 'BJ';
+  if (/^[68]/.test(code)) return 'SH';
+  return 'SZ';
+}
+
+function toMarketTechnicalRows(rows: Array<Record<string, unknown>>): MarketTechnicalRow[] {
+  return rows.flatMap((row) => {
+    const code = String(row.f12 ?? '').trim();
+    const name = String(row.f14 ?? '').trim();
+    if (!/^\d{6}$/.test(code) || !name) return [];
+    const amount = numberOrNull(row.f6);
+    return [{
+      code,
+      name,
+      market: marketForCode(code),
+      price: numberOrNull(row.f2),
+      changePct: numberOrNull(row.f3),
+      amountYi: amount == null ? null : round(amount / 100_000_000),
+      turnoverPct: numberOrNull(row.f8),
+      amplitudePct: numberOrNull(row.f7),
+      volumeRatio: numberOrNull(row.f10),
+    }];
+  });
+}
+
+export async function fetchMarketTechnicalRows(force = false): Promise<MarketTechnicalRow[]> {
+  if (!force && marketTechnicalRowsCache && Date.now() - marketTechnicalRowsCache.cachedAt < MARKET_SENTIMENT_CACHE_MS) {
+    return marketTechnicalRowsCache.data;
+  }
+  const data = toMarketTechnicalRows(await fetchAStockSentimentRows());
+  marketTechnicalRowsCache = { data, cachedAt: Date.now() };
+  return data;
 }
 
 function buildMainNetInTrend(mainNetInYi: number): MarketSentimentOverview['mainNetInTrend'] {

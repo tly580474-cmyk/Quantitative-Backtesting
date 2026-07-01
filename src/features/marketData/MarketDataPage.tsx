@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm';
 import { apiFetch } from '../../api/client';
 import MarketKlineChart from './MarketKlineChart';
 import StockSelectionScore from './StockSelectionScore';
+import StockSelectionWorkspace from './StockSelectionWorkspace';
 import { klineCacheKey, marketDataCache } from './marketDataCache';
 import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
 import type { AgentStatus, KlinePoint, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem } from './types';
@@ -15,6 +16,7 @@ import type { ImportResult } from '@/models';
 
 const { Text, Title, Paragraph } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
+const PINNED_WATCHLIST_KEY = 'quant-market-watchlist-pinned-v1';
 const MARKET_SENTIMENT_REFRESH_MS = 5 * 60_000;
 const DEFAULT_WATCHLIST: StockSearchItem[] = [
   { code: '600519', name: '贵州茅台', market: 'SH', type: 'stock' },
@@ -108,6 +110,12 @@ function readWatchlist(): StockSearchItem[] {
     const stored = JSON.parse(localStorage.getItem(WATCHLIST_KEY) ?? '[]') as StockSearchItem[];
     return Array.isArray(stored) && stored.length ? stored : DEFAULT_WATCHLIST;
   } catch { return DEFAULT_WATCHLIST; }
+}
+function readPinnedCodes(): string[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PINNED_WATCHLIST_KEY) ?? '[]') as string[];
+    return Array.isArray(stored) ? stored.filter((item) => typeof item === 'string') : [];
+  } catch { return []; }
 }
 function fmt(value: number | null | undefined, digits = 2) {
   return value == null ? '—' : value.toLocaleString('zh-CN', { maximumFractionDigits: digits });
@@ -502,6 +510,7 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
   const { message } = App.useApp();
   const initial = marketDataCache.watchlist ?? readWatchlist();
   const [watchlist, setWatchlist] = useState<StockSearchItem[]>(initial);
+  const [pinnedCodes, setPinnedCodes] = useState<string[]>(readPinnedCodes);
   const [selectedCode, setSelectedCode] = useState(marketDataCache.selectedCode ?? initial[0]?.code ?? '600519');
   const [searchText, setSearchText] = useState('');
   const [searchItems, setSearchItems] = useState<StockSearchItem[]>([]);
@@ -536,6 +545,7 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist)); marketDataCache.watchlist = watchlist; }, [watchlist]);
+  useEffect(() => { localStorage.setItem(PINNED_WATCHLIST_KEY, JSON.stringify(pinnedCodes)); }, [pinnedCodes]);
   useEffect(() => { marketDataCache.selectedCode = selectedCode; }, [selectedCode]);
   useEffect(() => { marketDataCache.period = period; }, [period]);
   useEffect(() => { marketDataCache.agentQuestion = agentQuestion; }, [agentQuestion]);
@@ -739,6 +749,9 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
     if (selectedCode === code && next[0]) setSelectedCode(next[0].code);
     return next;
   });
+  const togglePinnedStock = (code: string) => setPinnedCodes((all) => (
+    all.includes(code) ? all.filter((item) => item !== code) : [...all, code]
+  ));
   const runAgent = async () => {
     setAgentRunning(true); setAgentResult(''); setReasoningSummary([]); setThinkingOpen(true);
     try {
@@ -843,6 +856,9 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
 
   const accent = (quote?.changePct ?? 0) > 0 ? 'up' : (quote?.changePct ?? 0) < 0 ? 'down' : '';
   const selected = watchlist.find((x) => x.code === selectedCode);
+  const orderedWatchlist = useMemo(() => [...watchlist].sort((a, b) => (
+    Number(pinnedCodes.includes(b.code)) - Number(pinnedCodes.includes(a.code))
+  )), [pinnedCodes, watchlist]);
   const options = useMemo(() => searchItems.map((item) => ({ value: item.code, label: <div className="market-search-option"><span><b>{item.name}</b> <Text type="secondary">{item.code}</Text></span><Tag>{item.market}</Tag></div> })), [searchItems]);
   const selectIndexQuote = (item: StockQuote) => {
     const code = `${item.market.toLowerCase()}${item.code}`;
@@ -907,9 +923,20 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
         }]}
       />
     </section>
+    <section className="market-selection-section" aria-label="选股评分与市场技术筛选">
+      <StockSelectionWorkspace
+        watchlist={watchlist}
+        selectedCode={selectedCode}
+        pinnedCodes={pinnedCodes}
+        benchmarkCandles={benchmarkKlines}
+        onSelect={setSelectedCode}
+        onTogglePin={togglePinnedStock}
+        onAdd={addStock}
+      />
+    </section>
     <div className="market-workspace">
       <aside className="market-watchlist"><div className="market-section-title"><span><StarFilled /> 我的自选</span><Tag>{watchlist.length}</Tag></div>
-        {watchlist.length ? <div className="market-watchlist-items">{watchlist.map((item) => <div key={item.code} className={`market-watchlist-item${item.code === selectedCode ? ' is-active' : ''}`}><button type="button" className="market-stock-select" aria-pressed={item.code === selectedCode} onClick={() => setSelectedCode(item.code)}><strong>{item.name}</strong><span>{item.code} · {item.market}</span></button><Tooltip title="移出自选"><Button type="text" danger icon={<DeleteOutlined />} aria-label={`移除 ${item.name}`} onClick={() => removeStock(item.code)} /></Tooltip></div>)}</div> : <Empty description="搜索并加入第一只自选股" />}
+        {watchlist.length ? <div className="market-watchlist-items">{orderedWatchlist.map((item) => <div key={item.code} className={`market-watchlist-item${item.code === selectedCode ? ' is-active' : ''}`}><button type="button" className="market-stock-select" aria-pressed={item.code === selectedCode} onClick={() => setSelectedCode(item.code)}><strong>{pinnedCodes.includes(item.code) && <span className="market-pinned-mark" aria-label="已置顶">置顶</span>}{item.name}</strong><span>{item.code} · {item.market}</span></button><Tooltip title="移出自选"><Button type="text" danger icon={<DeleteOutlined />} aria-label={`移除 ${item.name}`} onClick={() => removeStock(item.code)} /></Tooltip></div>)}</div> : <Empty description="搜索并加入第一只自选股" />}
       </aside>
       <div className="market-main">
         <Card className="market-quote-card" variant="borderless"><Skeleton loading={quoteLoading} active paragraph={{ rows: 3 }}>

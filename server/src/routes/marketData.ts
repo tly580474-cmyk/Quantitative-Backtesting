@@ -9,12 +9,14 @@ import { getInstrument } from '../marketData/repositories/instrumentRepository.j
 import {
   fetchResearchReports,
   fetchCachedMarketSentimentOverview,
+  fetchMarketTechnicalRows,
   fetchMarketIndexQuotes,
   fetchStockIntraday,
   fetchStockKline,
   fetchStockQuote,
   searchStocks,
 } from '../marketData/aStockDataService.js';
+import { screenMarketTechnicalRows } from '../marketData/marketTechnicalScreen.js';
 import { tencentProvider } from '../marketData/providers/tencentProvider.js';
 import { updateIndexDatasets } from '../marketData/jobs/indexDatasetUpdater.js';
 import { StockResearchAgent } from '../services/stockResearchAgent.js';
@@ -80,6 +82,36 @@ export function registerMarketDataRoutes(
       return reply.send(await fetchCachedMarketSentimentOverview(req.query.force === 'true'));
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : '市场情绪获取失败' });
+    }
+  });
+
+  app.post('/api/market-data/technical-screen', async (req, reply) => {
+    const body = z.object({
+      markets: z.array(z.enum(['SH', 'SZ', 'BJ'])).min(1).default(['SH', 'SZ']),
+      minChangePct: z.number().min(-30).max(30).default(0),
+      maxChangePct: z.number().min(-30).max(30).default(7),
+      minAmountYi: z.number().min(0).max(10000).default(1),
+      minTurnoverPct: z.number().min(0).max(100).default(0),
+      minVolumeRatio: z.number().min(0).max(20).default(0),
+      maxAmplitudePct: z.number().min(0).max(100).default(15),
+      excludeRiskNames: z.boolean().default(true),
+      limit: z.number().int().min(1).max(200).default(50),
+      force: z.boolean().optional(),
+    }).safeParse(req.body ?? {});
+    if (!body.success || body.data.minChangePct > body.data.maxChangePct) {
+      return reply.status(400).send({ message: '技术筛选条件无效，请检查涨跌幅范围' });
+    }
+    try {
+      const { force, ...criteria } = body.data;
+      const rows = await fetchMarketTechnicalRows(force);
+      return reply.send({
+        items: screenMarketTechnicalRows(rows, criteria),
+        totalScanned: rows.length,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '市场技术筛选失败' });
     }
   });
 

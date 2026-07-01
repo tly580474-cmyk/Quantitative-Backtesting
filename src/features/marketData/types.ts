@@ -101,6 +101,45 @@ export interface KlinePoint {
   volume: number;
 }
 
+export interface WatchlistScoreSnapshot {
+  code: string;
+  score: number | null;
+  tier: 'core' | 'watch' | 'weak' | 'blocked' | null;
+  tierLabel: string;
+  asOf: string | null;
+  status: 'ready' | 'insufficient' | 'error';
+  updatedAt: string;
+}
+
+export interface MarketScreenerCriteria {
+  markets: Array<'SH' | 'SZ' | 'BJ'>;
+  minChangePct: number;
+  maxChangePct: number;
+  minAmountYi: number;
+  minTurnoverPct: number;
+  minVolumeRatio: number;
+  maxAmplitudePct: number;
+  excludeRiskNames: boolean;
+  limit: number;
+}
+
+export interface MarketTechnicalCandidate extends StockSearchItem {
+  price: number | null;
+  changePct: number | null;
+  amountYi: number | null;
+  turnoverPct: number | null;
+  amplitudePct: number | null;
+  volumeRatio: number | null;
+  technicalScore: number;
+  matchedSignals: string[];
+}
+
+export interface MarketScreenerSnapshot {
+  items: MarketTechnicalCandidate[];
+  totalScanned: number;
+  updatedAt: string;
+}
+
 export type MarketKlinePeriod = 'intraday' | 'day' | 'week' | 'year';
 
 export interface ResearchReport {
