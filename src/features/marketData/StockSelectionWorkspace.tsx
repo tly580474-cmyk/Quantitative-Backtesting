@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { App, Button, Card, Checkbox, Empty, InputNumber, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd';
+import { App, Button, Checkbox, Collapse, Empty, InputNumber, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { FilterOutlined, MinusOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ReloadOutlined, StarFilled } from '@ant-design/icons';
 import { apiFetch } from '../../api/client';
 import { calculateSelectionScore } from './selectionScore';
@@ -113,6 +113,7 @@ export default function StockSelectionWorkspace({
   });
   const [screenSnapshot, setScreenSnapshot] = useState<MarketScreenerSnapshot | null>(storedScreener.snapshot);
   const [screenLoading, setScreenLoading] = useState(false);
+  const [activeSections, setActiveSections] = useState<string[]>([]);
 
   useEffect(() => {
     localStorage.setItem(SCORE_STORAGE_KEY, JSON.stringify(scores));
@@ -171,9 +172,10 @@ export default function StockSelectionWorkspace({
   }, [benchmarkCandles, watchlist]);
 
   useEffect(() => {
+    if (!activeSections.includes('ranking')) return;
     const missing = watchlist.filter((item) => item.type === 'stock' && !scores[item.code]);
     if (missing.length > 0 && !rankingLoading) void refreshScores(missing);
-  }, [rankingLoading, refreshScores, scores, watchlist]);
+  }, [activeSections, rankingLoading, refreshScores, scores, watchlist]);
 
   const rankingRows = useMemo(() => [...watchlist]
     .sort((a, b) => {
@@ -323,12 +325,21 @@ export default function StockSelectionWorkspace({
     />
   </div>;
 
-  return <Card className="selection-workspace-card" variant="borderless">
-    <Tabs
-      items={[
-        { key: 'ranking', label: <Space><StarFilled />自选评分</Space>, children: rankingTab },
-        { key: 'screen', label: <Space><FilterOutlined />市场技术筛选</Space>, children: screenerTab },
-      ]}
-    />
-  </Card>;
+  return <Collapse
+    className="selection-workspace-collapse"
+    activeKey={activeSections}
+    onChange={(keys) => setActiveSections((Array.isArray(keys) ? keys : [keys]).map(String))}
+    items={[
+      {
+        key: 'ranking',
+        label: <Space><StarFilled />自选评分<Tag>{watchlist.length}</Tag></Space>,
+        children: rankingTab,
+      },
+      {
+        key: 'screen',
+        label: <Space><FilterOutlined />市场技术筛选{screenSnapshot && <Tag color="blue">{screenSnapshot.items.length}</Tag>}</Space>,
+        children: screenerTab,
+      },
+    ]}
+  />;
 }

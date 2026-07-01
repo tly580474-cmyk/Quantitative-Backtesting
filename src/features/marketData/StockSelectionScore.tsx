@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Collapse, Progress, Skeleton, Space, Tag, Tooltip, Typography } from 'antd';
 import { CheckCircleOutlined, InfoCircleOutlined, MinusCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import { calculateSelectionScore, type SelectionScoreTier } from './selectionScore';
@@ -26,6 +26,13 @@ export default function StockSelectionScore({
     () => calculateSelectionScore(candles, benchmarkCandles),
     [benchmarkCandles, candles],
   );
+  const [activeSections, setActiveSections] = useState<string[]>([]);
+  const [activeDetails, setActiveDetails] = useState<string[]>([]);
+
+  useEffect(() => {
+    setActiveSections([]);
+    setActiveDetails([]);
+  }, [candles]);
 
   if (loading && candles.length === 0) {
     return (
@@ -59,7 +66,7 @@ export default function StockSelectionScore({
             percent={result.score}
             size={104}
             strokeColor={tierColor}
-            trailColor="#e2e8f0"
+            railColor="#e2e8f0"
             format={(value) => (
               <span className="stock-score-number" style={{ color: tierColor }}>
                 {value}
@@ -94,50 +101,62 @@ export default function StockSelectionScore({
       </div>
 
       <Collapse
-        ghost
-        className="stock-score-breakdown"
-        items={result.sections.map((scoreSection) => ({
-          key: scoreSection.key,
-          label: (
-            <div className="stock-score-section-label">
-              <span>{scoreSection.title}</span>
-              <Tag color={scoreSection.score < 0 ? 'error' : 'blue'}>
-                {scoreSection.score > 0 ? '+' : ''}{scoreSection.score}
-                {scoreSection.maxScore == null ? '' : ` / ${scoreSection.maxScore}`}
-              </Tag>
+        className="stock-score-details"
+        activeKey={activeDetails}
+        onChange={(keys) => setActiveDetails((Array.isArray(keys) ? keys : [keys]).map(String))}
+        items={[{
+          key: 'details',
+          label: <div className="stock-score-details-label"><span>详细数据</span><Tag>{result.sections.length} 类评分</Tag></div>,
+          children: <>
+            <Collapse
+              ghost
+              className="stock-score-breakdown"
+              activeKey={activeSections}
+              onChange={(keys) => setActiveSections((Array.isArray(keys) ? keys : [keys]).map(String))}
+              items={result.sections.map((scoreSection) => ({
+                key: scoreSection.key,
+                label: (
+                  <div className="stock-score-section-label">
+                    <span>{scoreSection.title}</span>
+                    <Tag color={scoreSection.score < 0 ? 'error' : 'blue'}>
+                      {scoreSection.score > 0 ? '+' : ''}{scoreSection.score}
+                      {scoreSection.maxScore == null ? '' : ` / ${scoreSection.maxScore}`}
+                    </Tag>
+                  </div>
+                ),
+                children: (
+                  <div className="stock-score-rules">
+                    {scoreSection.items.map((item) => (
+                      <div
+                        className={`stock-score-rule${item.matched ? ' is-matched' : ''}${item.kind === 'penalty' ? ' is-penalty' : ''}`}
+                        key={item.label}
+                      >
+                        {item.matched
+                          ? item.kind === 'penalty'
+                            ? <WarningOutlined aria-hidden />
+                            : <CheckCircleOutlined aria-hidden />
+                          : <MinusCircleOutlined aria-hidden />}
+                        <span>
+                          <b>{item.label}</b>
+                          <small>{item.detail}</small>
+                        </span>
+                        <Tag color={item.points > 0 ? 'success' : item.points < 0 ? 'error' : 'default'}>
+                          {item.points > 0 ? '+' : ''}{item.points}
+                        </Tag>
+                      </div>
+                    ))}
+                  </div>
+                ),
+              }))}
+            />
+            <div className="stock-score-footnote">
+              <Tooltip title={result.assumptions.map((item) => <div key={item}>{item}</div>)}>
+                <Text type="secondary"><InfoCircleOutlined /> 评分口径与量化代理</Text>
+              </Tooltip>
             </div>
-          ),
-          children: (
-            <div className="stock-score-rules">
-              {scoreSection.items.map((item) => (
-                <div
-                  className={`stock-score-rule${item.matched ? ' is-matched' : ''}${item.kind === 'penalty' ? ' is-penalty' : ''}`}
-                  key={item.label}
-                >
-                  {item.matched
-                    ? item.kind === 'penalty'
-                      ? <WarningOutlined aria-hidden />
-                      : <CheckCircleOutlined aria-hidden />
-                    : <MinusCircleOutlined aria-hidden />}
-                  <span>
-                    <b>{item.label}</b>
-                    <small>{item.detail}</small>
-                  </span>
-                  <Tag color={item.points > 0 ? 'success' : item.points < 0 ? 'error' : 'default'}>
-                    {item.points > 0 ? '+' : ''}{item.points}
-                  </Tag>
-                </div>
-              ))}
-            </div>
-          ),
-        }))}
+          </>,
+        }]}
       />
-
-      <div className="stock-score-footnote">
-        <Tooltip title={result.assumptions.map((item) => <div key={item}>{item}</div>)}>
-          <Text type="secondary"><InfoCircleOutlined /> 评分口径与量化代理</Text>
-        </Tooltip>
-      </div>
     </section>
   );
 }
