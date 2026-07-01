@@ -6,6 +6,7 @@ dist/
 .env.*
 !.env.example
 server/.env
+server/.cache/market-technical-rows.json
 .claude/
 *.tsbuildinfo
 新建 文本文档.txt

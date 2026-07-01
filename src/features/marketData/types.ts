@@ -120,7 +120,40 @@ export interface MarketScreenerCriteria {
   minVolumeRatio: number;
   maxAmplitudePct: number;
   excludeRiskNames: boolean;
+  trend: 'any' | 'bullish' | 'aboveMa20' | 'bearish';
+  returnPeriod: 5 | 10 | 20;
+  minPeriodReturn: number;
+  maxPeriodReturn: number;
+  streakDirection: 'any' | 'up' | 'down';
+  minStreakDays: number;
+  minRsi: number;
+  maxRsi: number;
+  kdjSignal: 'any' | 'golden' | 'death';
+  macdSignal: 'any' | 'golden' | 'death';
   limit: number;
+}
+
+export interface HistoricalTechnicalIndicators {
+  asOf: string;
+  close: number;
+  ma5: number;
+  ma10: number;
+  ma20: number;
+  ma60: number;
+  trend: 'bullish' | 'aboveMa20' | 'bearish' | 'mixed';
+  return5d: number;
+  return10d: number;
+  return20d: number;
+  streak: number;
+  rsi14: number;
+  kdjK: number;
+  kdjD: number;
+  kdjJ: number;
+  kdjSignal: 'golden' | 'death' | 'none';
+  macdDif: number;
+  macdDea: number;
+  macdHistogram: number;
+  macdSignal: 'golden' | 'death' | 'none';
 }
 
 export interface MarketTechnicalCandidate extends StockSearchItem {
@@ -132,11 +165,13 @@ export interface MarketTechnicalCandidate extends StockSearchItem {
   volumeRatio: number | null;
   technicalScore: number;
   matchedSignals: string[];
+  indicators: HistoricalTechnicalIndicators | null;
 }
 
 export interface MarketScreenerSnapshot {
   items: MarketTechnicalCandidate[];
   totalScanned: number;
+  totalEnriched: number;
   updatedAt: string;
 }
 

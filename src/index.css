@@ -42,11 +42,16 @@
 .selection-stock-cell { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .selection-stock-cell strong { overflow: hidden; color: #0f172a; text-overflow: ellipsis; white-space: nowrap; }
 .selection-stock-cell span { color: #64748b; font-size: 12px; }
+.selection-filter-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.selection-filter-group > .ant-typography, .selection-filter-group-head > .ant-typography:first-child { display: inline-flex; align-items: center; gap: 8px; color: #1e293b; }
+.selection-filter-group > .ant-typography::before, .selection-filter-group-head > .ant-typography:first-child::before { display: inline-block; width: 3px; height: 16px; border-radius: 999px; background: #2563eb; content: ""; }
+.selection-filter-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .selection-filter-grid { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 12px 14px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; }
 .selection-filter-grid label { display: flex; min-width: 0; flex-direction: column; gap: 6px; color: #334155; font-size: 13px; font-weight: 600; }
 .selection-filter-grid .ant-select, .selection-filter-grid .ant-input-number-group-wrapper, .selection-filter-grid .ant-input-number { width: 100%; }
 .selection-filter-actions { margin-top: 12px; }
 .selection-snapshot-meta { margin: 8px 0 12px; padding: 8px 10px; border-left: 3px solid #2563eb; border-radius: 4px; background: #eff6ff; }
+.selection-return-cell { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .market-pinned-mark { display: inline-flex; margin-right: 5px; padding: 1px 5px; border-radius: 4px; color: #1d4ed8 !important; background: #dbeafe; font-size: 10px !important; font-weight: 700; vertical-align: 1px; }
 .market-sentiment-collapse { overflow: hidden; border: 1px solid #d8e5f5; border-radius: 14px; background: linear-gradient(180deg, #f8fbff, #eef5ff); box-shadow: 0 14px 36px rgba(29,78,216,.08); }
 .market-sentiment-collapse .ant-collapse-header { align-items: center !important; min-height: 58px; padding: 13px 18px !important; font-size: 18px; font-weight: 700; }
@@ -317,6 +322,7 @@
   .market-hero h2 { font-size: 22px !important; }
   .market-hero p { font-size: 13px; line-height: 1.55; }
   .selection-filter-grid { grid-template-columns: 1fr; padding: 10px; }
+  .selection-filter-group-head { align-items: flex-start; flex-direction: column; gap: 3px; }
   .selection-toolbar { align-items: stretch; flex-direction: column; }
   .selection-filter-actions .ant-space { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
   .selection-filter-actions .ant-btn { width: 100%; }

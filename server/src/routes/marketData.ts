@@ -16,7 +16,13 @@ import {
   fetchStockQuote,
   searchStocks,
 } from '../marketData/aStockDataService.js';
-import { screenMarketTechnicalRows } from '../marketData/marketTechnicalScreen.js';
+import {
+  analyzeHistoricalTechnicals,
+  filterEnrichedCandidates,
+  prefilterMarketTechnicalRows,
+  type HistoricalTechnicalIndicators,
+  type MarketTechnicalCandidate,
+} from '../marketData/marketTechnicalScreen.js';
 import { tencentProvider } from '../marketData/providers/tencentProvider.js';
 import { updateIndexDatasets } from '../marketData/jobs/indexDatasetUpdater.js';
 import { StockResearchAgent } from '../services/stockResearchAgent.js';
@@ -28,6 +34,37 @@ const candlesQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(10000).default(500),
 });
+
+const candidateIndicatorCache = new Map<string, { data: HistoricalTechnicalIndicators | null; cachedAt: number }>();
+const CANDIDATE_INDICATOR_CACHE_MS = 30 * 60_000;
+
+async function enrichTechnicalCandidates(
+  candidates: MarketTechnicalCandidate[],
+): Promise<MarketTechnicalCandidate[]> {
+  const result = [...candidates];
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(12, result.length) }, async () => {
+    while (cursor < result.length) {
+      const index = cursor++;
+      const candidate = result[index];
+      const cached = candidateIndicatorCache.get(candidate.code);
+      if (cached && Date.now() - cached.cachedAt < CANDIDATE_INDICATOR_CACHE_MS) {
+        result[index] = { ...candidate, indicators: cached.data };
+        continue;
+      }
+      try {
+        const indicators = analyzeHistoricalTechnicals(await fetchStockKline(candidate.code, 'day', 120));
+        candidateIndicatorCache.set(candidate.code, { data: indicators, cachedAt: Date.now() });
+        result[index] = { ...candidate, indicators };
+      } catch {
+        candidateIndicatorCache.set(candidate.code, { data: null, cachedAt: Date.now() });
+        result[index] = { ...candidate, indicators: null };
+      }
+    }
+  });
+  await Promise.all(workers);
+  return result;
+}
 
 interface ResearchAgentConfig {
   apiKey: string;
@@ -95,18 +132,36 @@ export function registerMarketDataRoutes(
       minVolumeRatio: z.number().min(0).max(20).default(0),
       maxAmplitudePct: z.number().min(0).max(100).default(15),
       excludeRiskNames: z.boolean().default(true),
+      trend: z.enum(['any', 'bullish', 'aboveMa20', 'bearish']).default('any'),
+      returnPeriod: z.union([z.literal(5), z.literal(10), z.literal(20)]).default(20),
+      minPeriodReturn: z.number().min(-100).max(1000).default(-30),
+      maxPeriodReturn: z.number().min(-100).max(1000).default(30),
+      streakDirection: z.enum(['any', 'up', 'down']).default('any'),
+      minStreakDays: z.number().int().min(1).max(20).default(2),
+      minRsi: z.number().min(0).max(100).default(0),
+      maxRsi: z.number().min(0).max(100).default(100),
+      kdjSignal: z.enum(['any', 'golden', 'death']).default('any'),
+      macdSignal: z.enum(['any', 'golden', 'death']).default('any'),
       limit: z.number().int().min(1).max(200).default(50),
       force: z.boolean().optional(),
     }).safeParse(req.body ?? {});
-    if (!body.success || body.data.minChangePct > body.data.maxChangePct) {
-      return reply.status(400).send({ message: '技术筛选条件无效，请检查涨跌幅范围' });
+    if (!body.success
+      || body.data.minChangePct > body.data.maxChangePct
+      || body.data.minPeriodReturn > body.data.maxPeriodReturn
+      || body.data.minRsi > body.data.maxRsi) {
+      return reply.status(400).send({ message: '技术筛选条件无效，请检查范围上下限' });
     }
     try {
       const { force, ...criteria } = body.data;
       const rows = await fetchMarketTechnicalRows(force);
+      const poolLimit = Math.min(160, Math.max(criteria.limit * 3, 80));
+      const prefiltered = prefilterMarketTechnicalRows(rows, criteria, poolLimit);
+      const enriched = await enrichTechnicalCandidates(prefiltered);
+      const items = filterEnrichedCandidates(enriched, criteria);
       return reply.send({
-        items: screenMarketTechnicalRows(rows, criteria),
+        items,
         totalScanned: rows.length,
+        totalEnriched: enriched.filter((item) => item.indicators != null).length,
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {

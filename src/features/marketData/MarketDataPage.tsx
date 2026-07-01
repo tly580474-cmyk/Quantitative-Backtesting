@@ -932,6 +932,7 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
         onSelect={setSelectedCode}
         onTogglePin={togglePinnedStock}
         onAdd={addStock}
+        onRemove={removeStock}
       />
     </section>
     <div className="market-workspace">

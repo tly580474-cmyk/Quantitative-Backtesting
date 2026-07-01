@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { App, Button, Card, Checkbox, Empty, InputNumber, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd';
-import { FilterOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ReloadOutlined, StarFilled } from '@ant-design/icons';
+import { FilterOutlined, MinusOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ReloadOutlined, StarFilled } from '@ant-design/icons';
 import { apiFetch } from '../../api/client';
 import { calculateSelectionScore } from './selectionScore';
 import { klineCacheKey, marketDataCache } from './marketDataCache';
@@ -26,6 +26,16 @@ export const DEFAULT_SCREENER_CRITERIA: MarketScreenerCriteria = {
   minVolumeRatio: 0,
   maxAmplitudePct: 15,
   excludeRiskNames: true,
+  trend: 'any',
+  returnPeriod: 20,
+  minPeriodReturn: -30,
+  maxPeriodReturn: 30,
+  streakDirection: 'any',
+  minStreakDays: 2,
+  minRsi: 0,
+  maxRsi: 100,
+  kdjSignal: 'any',
+  macdSignal: 'any',
   limit: 50,
 };
 
@@ -50,6 +60,20 @@ function numberText(value: number | null, suffix = '') {
   return value == null ? '—' : `${value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}${suffix}`;
 }
 
+function trendTag(value: MarketTechnicalCandidate['indicators']) {
+  if (!value) return <Tag>数据不足</Tag>;
+  if (value.trend === 'bullish') return <Tag color="green">均线多头</Tag>;
+  if (value.trend === 'aboveMa20') return <Tag color="blue">站上 MA20</Tag>;
+  if (value.trend === 'bearish') return <Tag color="red">均线空头</Tag>;
+  return <Tag color="gold">均线交错</Tag>;
+}
+
+function crossTag(value: 'golden' | 'death' | 'none' | undefined) {
+  if (value === 'golden') return <Tag color="green">金叉</Tag>;
+  if (value === 'death') return <Tag color="red">死叉</Tag>;
+  return <Tag>无交叉</Tag>;
+}
+
 interface StockSelectionWorkspaceProps {
   watchlist: StockSearchItem[];
   selectedCode: string;
@@ -58,6 +82,7 @@ interface StockSelectionWorkspaceProps {
   onSelect: (code: string) => void;
   onTogglePin: (code: string) => void;
   onAdd: (stock: StockSearchItem) => void;
+  onRemove: (code: string) => void;
 }
 
 export default function StockSelectionWorkspace({
@@ -68,6 +93,7 @@ export default function StockSelectionWorkspace({
   onSelect,
   onTogglePin,
   onAdd,
+  onRemove,
 }: StockSelectionWorkspaceProps) {
   const { message } = App.useApp();
   const [scores, setScores] = useState<Record<string, WatchlistScoreSnapshot>>(
@@ -81,7 +107,10 @@ export default function StockSelectionWorkspace({
     ),
     [],
   );
-  const [criteria, setCriteria] = useState<MarketScreenerCriteria>(storedScreener.criteria);
+  const [criteria, setCriteria] = useState<MarketScreenerCriteria>({
+    ...DEFAULT_SCREENER_CRITERIA,
+    ...storedScreener.criteria,
+  });
   const [screenSnapshot, setScreenSnapshot] = useState<MarketScreenerSnapshot | null>(storedScreener.snapshot);
   const [screenLoading, setScreenLoading] = useState(false);
 
@@ -165,7 +194,7 @@ export default function StockSelectionWorkspace({
         timeoutMs: 180000,
       });
       setScreenSnapshot(next);
-      message.success(`已扫描 ${next.totalScanned} 只股票，筛出 ${next.items.length} 只`);
+      message.success(`已扫描 ${next.totalScanned} 只，完成 ${next.totalEnriched} 只日 K 分析，筛出 ${next.items.length} 只`);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '市场技术筛选失败');
     } finally {
@@ -218,25 +247,46 @@ export default function StockSelectionWorkspace({
   </div>;
 
   const screenerTab = <div className="selection-screener">
-    <div className="selection-filter-grid">
-      <label><span>市场</span><Select mode="multiple" value={criteria.markets} options={['SH', 'SZ', 'BJ'].map((value) => ({ value, label: value }))} onChange={(markets) => setCriteria((value) => ({ ...value, markets }))} /></label>
-      <label><span>涨幅下限</span><InputNumber value={criteria.minChangePct} min={-30} max={30} suffix="%" onChange={(value) => setCriteria((item) => ({ ...item, minChangePct: value ?? 0 }))} /></label>
-      <label><span>涨幅上限</span><InputNumber value={criteria.maxChangePct} min={-30} max={30} suffix="%" onChange={(value) => setCriteria((item) => ({ ...item, maxChangePct: value ?? 7 }))} /></label>
-      <label><span>最小成交额</span><InputNumber value={criteria.minAmountYi} min={0} max={10000} suffix="亿" onChange={(value) => setCriteria((item) => ({ ...item, minAmountYi: value ?? 0 }))} /></label>
-      <label><span>最小换手率</span><InputNumber value={criteria.minTurnoverPct} min={0} max={100} suffix="%" onChange={(value) => setCriteria((item) => ({ ...item, minTurnoverPct: value ?? 0 }))} /></label>
-      <label><span>最小量比</span><InputNumber value={criteria.minVolumeRatio} min={0} max={20} step={0.1} onChange={(value) => setCriteria((item) => ({ ...item, minVolumeRatio: value ?? 0 }))} /></label>
-      <label><span>最大振幅</span><InputNumber value={criteria.maxAmplitudePct} min={0} max={100} suffix="%" onChange={(value) => setCriteria((item) => ({ ...item, maxAmplitudePct: value ?? 0 }))} /></label>
-      <label><span>结果数量</span><InputNumber value={criteria.limit} min={1} max={200} onChange={(value) => setCriteria((item) => ({ ...item, limit: value ?? 50 }))} /></label>
+    <div className="selection-filter-group">
+      <Text strong>实时量价初筛</Text>
+      <div className="selection-filter-grid">
+        <label><span>市场</span><Select mode="multiple" value={criteria.markets} options={['SH', 'SZ', 'BJ'].map((value) => ({ value, label: value }))} onChange={(markets) => setCriteria((value) => ({ ...value, markets }))} /></label>
+        <label><span>涨幅下限</span><InputNumber value={criteria.minChangePct} min={-30} max={30} suffix="%" onChange={(value) => setCriteria((item) => ({ ...item, minChangePct: value ?? 0 }))} /></label>
+        <label><span>涨幅上限</span><InputNumber value={criteria.maxChangePct} min={-30} max={30} suffix="%" onChange={(value) => setCriteria((item) => ({ ...item, maxChangePct: value ?? 7 }))} /></label>
+        <label><span>最小成交额</span><InputNumber value={criteria.minAmountYi} min={0} max={10000} suffix="亿" onChange={(value) => setCriteria((item) => ({ ...item, minAmountYi: value ?? 0 }))} /></label>
+        <label><span>最小换手率</span><InputNumber value={criteria.minTurnoverPct} min={0} max={100} suffix="%" onChange={(value) => setCriteria((item) => ({ ...item, minTurnoverPct: value ?? 0 }))} /></label>
+        <label><span>最小量比</span><InputNumber value={criteria.minVolumeRatio} min={0} max={20} step={0.1} onChange={(value) => setCriteria((item) => ({ ...item, minVolumeRatio: value ?? 0 }))} /></label>
+        <label><span>最大振幅</span><InputNumber value={criteria.maxAmplitudePct} min={0} max={100} suffix="%" onChange={(value) => setCriteria((item) => ({ ...item, maxAmplitudePct: value ?? 0 }))} /></label>
+        <label><span>结果数量</span><InputNumber value={criteria.limit} min={1} max={200} onChange={(value) => setCriteria((item) => ({ ...item, limit: value ?? 50 }))} /></label>
+      </div>
+    </div>
+    <div className="selection-filter-group">
+      <div className="selection-filter-group-head">
+        <Text strong>日 K 技术条件</Text>
+        <Text type="secondary">实时量价初筛后，并发分析最多 160 只候选股的 120 日日 K。</Text>
+      </div>
+      <div className="selection-filter-grid">
+        <label><span>均线趋势</span><Select value={criteria.trend} options={[{ value: 'any', label: '不限' }, { value: 'bullish', label: 'MA5>10>20>60 多头' }, { value: 'aboveMa20', label: '股价站上 MA20' }, { value: 'bearish', label: 'MA5<10<20<60 空头' }]} onChange={(trend) => setCriteria((item) => ({ ...item, trend }))} /></label>
+        <label><span>阶段周期</span><Select value={criteria.returnPeriod} options={[5, 10, 20].map((value) => ({ value, label: `${value} 日涨跌幅` }))} onChange={(returnPeriod) => setCriteria((item) => ({ ...item, returnPeriod }))} /></label>
+        <label><span>阶段涨幅下限</span><InputNumber value={criteria.minPeriodReturn} min={-100} max={1000} suffix="%" onChange={(value) => setCriteria((item) => ({ ...item, minPeriodReturn: value ?? -30 }))} /></label>
+        <label><span>阶段涨幅上限</span><InputNumber value={criteria.maxPeriodReturn} min={-100} max={1000} suffix="%" onChange={(value) => setCriteria((item) => ({ ...item, maxPeriodReturn: value ?? 30 }))} /></label>
+        <label><span>连续涨跌</span><Select value={criteria.streakDirection} options={[{ value: 'any', label: '不限' }, { value: 'up', label: '连续上涨' }, { value: 'down', label: '连续下跌' }]} onChange={(streakDirection) => setCriteria((item) => ({ ...item, streakDirection }))} /></label>
+        <label><span>最少连续天数</span><InputNumber value={criteria.minStreakDays} min={1} max={20} suffix="天" onChange={(value) => setCriteria((item) => ({ ...item, minStreakDays: value ?? 2 }))} /></label>
+        <label><span>RSI14 下限</span><InputNumber value={criteria.minRsi} min={0} max={100} onChange={(value) => setCriteria((item) => ({ ...item, minRsi: value ?? 0 }))} /></label>
+        <label><span>RSI14 上限</span><InputNumber value={criteria.maxRsi} min={0} max={100} onChange={(value) => setCriteria((item) => ({ ...item, maxRsi: value ?? 100 }))} /></label>
+        <label><span>KDJ 信号</span><Select value={criteria.kdjSignal} options={[{ value: 'any', label: '不限' }, { value: 'golden', label: '当日金叉' }, { value: 'death', label: '当日死叉' }]} onChange={(kdjSignal) => setCriteria((item) => ({ ...item, kdjSignal }))} /></label>
+        <label><span>MACD 信号</span><Select value={criteria.macdSignal} options={[{ value: 'any', label: '不限' }, { value: 'golden', label: '当日金叉' }, { value: 'death', label: '当日死叉' }]} onChange={(macdSignal) => setCriteria((item) => ({ ...item, macdSignal }))} /></label>
+      </div>
     </div>
     <div className="selection-toolbar selection-filter-actions">
       <Checkbox checked={criteria.excludeRiskNames} onChange={(event) => setCriteria((item) => ({ ...item, excludeRiskNames: event.target.checked }))}>排除 ST / 退市风险名称</Checkbox>
       <Space>
         <Button onClick={() => setCriteria(DEFAULT_SCREENER_CRITERIA)}>恢复默认</Button>
-        <Button type="primary" icon={<FilterOutlined />} loading={screenLoading} onClick={() => void runScreen(false)}>开始筛选</Button>
+        <Button type="primary" icon={<FilterOutlined />} loading={screenLoading} onClick={() => void runScreen(false)}>{screenLoading ? '读取快照并分析日 K' : '开始筛选'}</Button>
       </Space>
     </div>
     {screenSnapshot && <div className="selection-snapshot-meta">
-      <Text type="secondary">上次结果：{new Date(screenSnapshot.updatedAt).toLocaleString('zh-CN')} · 扫描 {screenSnapshot.totalScanned} 只 · 命中 {screenSnapshot.items.length} 只</Text>
+      <Text type="secondary">上次结果：{new Date(screenSnapshot.updatedAt).toLocaleString('zh-CN')} · 扫描 {screenSnapshot.totalScanned} 只 · 日 K 分析 {screenSnapshot.totalEnriched ?? 0} 只 · 命中 {screenSnapshot.items.length} 只</Text>
     </div>}
     <Table<MarketTechnicalCandidate>
       size="small"
@@ -244,15 +294,18 @@ export default function StockSelectionWorkspace({
       loading={screenLoading}
       dataSource={screenSnapshot?.items ?? []}
       pagination={{ pageSize: 10, hideOnSinglePage: true, responsive: true }}
-      scroll={{ x: 980 }}
+      scroll={{ x: 1520 }}
       columns={[
         { title: '股票', width: 150, fixed: 'left', render: (_, row) => <div className="selection-stock-cell"><strong>{row.name}</strong><span>{row.code} · {row.market}</span></div> },
         { title: '技术分', dataIndex: 'technicalScore', width: 80, sorter: (a, b) => a.technicalScore - b.technicalScore },
         { title: '涨跌幅', dataIndex: 'changePct', width: 92, render: (value) => <span className={(value ?? 0) > 0 ? 'market-up' : (value ?? 0) < 0 ? 'market-down' : ''}>{numberText(value, '%')}</span> },
+        { title: '均线趋势', width: 118, render: (_, row) => <Tooltip title={row.indicators ? `MA5 ${row.indicators.ma5} / MA10 ${row.indicators.ma10} / MA20 ${row.indicators.ma20} / MA60 ${row.indicators.ma60}` : '有效日 K 少于 65 根或加载失败'}>{trendTag(row.indicators)}</Tooltip> },
+        { title: '5/10/20日', width: 150, render: (_, row) => row.indicators ? <span className="selection-return-cell">{numberText(row.indicators.return5d, '%')} / {numberText(row.indicators.return10d, '%')} / {numberText(row.indicators.return20d, '%')}</span> : '—' },
+        { title: '连续涨跌', width: 90, render: (_, row) => row.indicators?.streak ? <Tag color={row.indicators.streak > 0 ? 'red' : 'green'}>{row.indicators.streak > 0 ? `连涨 ${row.indicators.streak} 天` : `连跌 ${Math.abs(row.indicators.streak)} 天`}</Tag> : '—' },
+        { title: 'RSI14', width: 72, render: (_, row) => numberText(row.indicators?.rsi14 ?? null) },
+        { title: 'KDJ', width: 90, render: (_, row) => <Tooltip title={row.indicators ? `K ${row.indicators.kdjK} / D ${row.indicators.kdjD} / J ${row.indicators.kdjJ}` : '暂无数据'}>{crossTag(row.indicators?.kdjSignal)}</Tooltip> },
+        { title: 'MACD', width: 90, render: (_, row) => <Tooltip title={row.indicators ? `DIF ${row.indicators.macdDif} / DEA ${row.indicators.macdDea} / 柱 ${row.indicators.macdHistogram}` : '暂无数据'}>{crossTag(row.indicators?.macdSignal)}</Tooltip> },
         { title: '成交额', dataIndex: 'amountYi', width: 92, render: (value) => numberText(value, ' 亿') },
-        { title: '换手率', dataIndex: 'turnoverPct', width: 86, render: (value) => numberText(value, '%') },
-        { title: '量比', dataIndex: 'volumeRatio', width: 72, render: (value) => numberText(value) },
-        { title: '振幅', dataIndex: 'amplitudePct', width: 78, render: (value) => numberText(value, '%') },
         { title: '信号', dataIndex: 'matchedSignals', width: 240, render: (signals: string[]) => <Space size={[0, 4]} wrap>{signals.map((signal) => <Tag key={signal}>{signal}</Tag>)}</Space> },
         {
           title: '操作',
@@ -260,7 +313,9 @@ export default function StockSelectionWorkspace({
           fixed: 'right',
           render: (_, row) => {
             const exists = watchlist.some((item) => item.code === row.code);
-            return <Button size="small" type={exists ? 'default' : 'primary'} disabled={exists} icon={<PlusOutlined />} onClick={() => onAdd({ code: row.code, name: row.name, market: row.market, type: 'stock' })}>{exists ? '已自选' : '自选'}</Button>;
+            return exists
+              ? <Button size="small" danger icon={<MinusOutlined />} onClick={() => onRemove(row.code)}>取消自选</Button>
+              : <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => onAdd({ code: row.code, name: row.name, market: row.market, type: 'stock' })}>加自选</Button>;
           },
         },
       ]}

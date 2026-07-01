@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const TENCENT_QUOTE_URL = 'https://qt.gtimg.cn/q=';
@@ -123,11 +124,23 @@ export interface MarketTechnicalRow {
 let marketSentimentCache: { data: MarketSentimentOverview; cachedAt: number } | null = null;
 let marketSentimentInFlight: Promise<MarketSentimentOverview> | null = null;
 let marketTechnicalRowsCache: { data: MarketTechnicalRow[]; cachedAt: number } | null = null;
+let marketTechnicalRowsInFlight: Promise<MarketTechnicalRow[]> | null = null;
 let marketSentimentRefreshTimer: NodeJS.Timeout | null = null;
 const MARKET_SENTIMENT_CACHE_MS = 5 * 60_000;
-const AKSHARE_MARKET_SNAPSHOT_SCRIPT = fileURLToPath(new URL('./akshareMarketSnapshot.py', import.meta.url));
-const MARKET_SENTIMENT_CACHE_FILE = fileURLToPath(new URL('../../.cache/market-sentiment.json', import.meta.url));
-const MARKET_SENTIMENT_UNIVERSE_FILE = fileURLToPath(new URL('../../.cache/market-universe.json', import.meta.url));
+const serverRoot = process.cwd().replace(/[\\/]server$/, '') === process.cwd()
+  ? resolve(process.cwd(), 'server')
+  : process.cwd();
+function localModulePath(relativeUrl: string, fallbackFromServerRoot: string): string {
+  try {
+    return fileURLToPath(new URL(relativeUrl, import.meta.url));
+  } catch {
+    return resolve(serverRoot, fallbackFromServerRoot);
+  }
+}
+const AKSHARE_MARKET_SNAPSHOT_SCRIPT = localModulePath('./akshareMarketSnapshot.py', 'src/marketData/akshareMarketSnapshot.py');
+const MARKET_SENTIMENT_CACHE_FILE = localModulePath('../../.cache/market-sentiment.json', '.cache/market-sentiment.json');
+const MARKET_SENTIMENT_UNIVERSE_FILE = localModulePath('../../.cache/market-universe.json', '.cache/market-universe.json');
+const MARKET_TECHNICAL_CACHE_FILE = localModulePath('../../.cache/market-technical-rows.json', '.cache/market-technical-rows.json');
 const UTC_MINUS_8_OFFSET_MS = 8 * 60 * 60 * 1000;
 const MARKET_SENTIMENT_REFRESH_START_MINUTE = 9 * 60 + 15;
 const MARKET_SENTIMENT_REFRESH_END_MINUTE = 15 * 60 + 30;
@@ -415,7 +428,7 @@ async function readMarketUniverse(): Promise<MarketUniverseItem[]> {
 }
 
 async function writeMarketUniverse(items: MarketUniverseItem[]): Promise<void> {
-  await mkdir(fileURLToPath(new URL('../../.cache/', import.meta.url)), { recursive: true });
+  await mkdir(resolve(MARKET_SENTIMENT_UNIVERSE_FILE, '..'), { recursive: true });
   await writeFile(MARKET_SENTIMENT_UNIVERSE_FILE, JSON.stringify({ items, updatedAt: new Date().toISOString() }), 'utf8');
 }
 
@@ -513,9 +526,41 @@ export async function fetchMarketTechnicalRows(force = false): Promise<MarketTec
   if (!force && marketTechnicalRowsCache && Date.now() - marketTechnicalRowsCache.cachedAt < MARKET_SENTIMENT_CACHE_MS) {
     return marketTechnicalRowsCache.data;
   }
-  const data = toMarketTechnicalRows(await fetchAStockSentimentRows());
-  marketTechnicalRowsCache = { data, cachedAt: Date.now() };
-  return data;
+  if (!force && !marketTechnicalRowsCache) {
+    try {
+      const parsed = JSON.parse(await readFile(MARKET_TECHNICAL_CACHE_FILE, 'utf8')) as {
+        data?: MarketTechnicalRow[];
+        cachedAt?: number;
+      };
+      if (Array.isArray(parsed.data) && parsed.data.length > 500 && Number.isFinite(parsed.cachedAt)) {
+        marketTechnicalRowsCache = { data: parsed.data, cachedAt: Number(parsed.cachedAt) };
+      }
+    } catch {
+      // The first run has no disk snapshot yet.
+    }
+  }
+  if (!force && marketTechnicalRowsCache) {
+    if (Date.now() - marketTechnicalRowsCache.cachedAt >= MARKET_SENTIMENT_CACHE_MS && !marketTechnicalRowsInFlight) {
+      void refreshMarketTechnicalRows().catch(() => undefined);
+    }
+    return marketTechnicalRowsCache.data;
+  }
+  return refreshMarketTechnicalRows();
+}
+
+async function refreshMarketTechnicalRows(): Promise<MarketTechnicalRow[]> {
+  if (marketTechnicalRowsInFlight) return marketTechnicalRowsInFlight;
+  marketTechnicalRowsInFlight = (async () => {
+    const data = toMarketTechnicalRows(await fetchAStockSentimentRows());
+    const cachedAt = Date.now();
+    marketTechnicalRowsCache = { data, cachedAt };
+    await mkdir(resolve(MARKET_TECHNICAL_CACHE_FILE, '..'), { recursive: true });
+    await writeFile(MARKET_TECHNICAL_CACHE_FILE, JSON.stringify({ data, cachedAt }), 'utf8').catch(() => undefined);
+    return data;
+  })().finally(() => {
+    marketTechnicalRowsInFlight = null;
+  });
+  return marketTechnicalRowsInFlight;
 }
 
 function buildMainNetInTrend(mainNetInYi: number): MarketSentimentOverview['mainNetInTrend'] {
@@ -715,7 +760,7 @@ async function readMarketSentimentDiskCache(): Promise<{ data: MarketSentimentOv
 }
 
 async function writeMarketSentimentDiskCache(data: MarketSentimentOverview, cachedAt: number): Promise<void> {
-  await mkdir(fileURLToPath(new URL('../../.cache/', import.meta.url)), { recursive: true });
+  await mkdir(resolve(MARKET_SENTIMENT_CACHE_FILE, '..'), { recursive: true });
   await writeFile(MARKET_SENTIMENT_CACHE_FILE, JSON.stringify({ data, cachedAt }), 'utf8');
 }
 
