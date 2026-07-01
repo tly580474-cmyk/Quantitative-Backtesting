@@ -27,6 +27,7 @@ import { tencentProvider } from '../marketData/providers/tencentProvider.js';
 import { updateIndexDatasets } from '../marketData/jobs/indexDatasetUpdater.js';
 import { StockResearchAgent } from '../services/stockResearchAgent.js';
 import { fetchSevenLayerSection, fetchSevenLayerSnapshot } from '../marketData/sevenLayerDataService.js';
+import { fetchCachedHotSectors } from '../marketData/hotSectorService.js';
 
 const candlesQuerySchema = z.object({
   startDate: z.string().optional(),
@@ -119,6 +120,15 @@ export function registerMarketDataRoutes(
       return reply.send(await fetchCachedMarketSentimentOverview(req.query.force === 'true'));
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : '市场情绪获取失败' });
+    }
+  });
+
+  app.get<{ Querystring: { force?: string } }>('/api/market-data/hot-sectors', async (req, reply) => {
+    try {
+      return reply.send(await fetchCachedHotSectors(req.query.force === 'true'));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '热门板块获取失败' });
     }
   });
 

@@ -9,6 +9,7 @@ import { apiFetch } from '../../api/client';
 import MarketKlineChart from './MarketKlineChart';
 import StockSelectionScore from './StockSelectionScore';
 import StockSelectionWorkspace from './StockSelectionWorkspace';
+import HotSectorPanel from './HotSectorPanel';
 import { klineCacheKey, marketDataCache } from './marketDataCache';
 import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
 import type { AgentStatus, KlinePoint, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem } from './types';
@@ -923,6 +924,7 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
         }]}
       />
     </section>
+    <HotSectorPanel />
     <section className="market-selection-section" aria-label="选股评分与市场技术筛选">
       <StockSelectionWorkspace
         watchlist={watchlist}

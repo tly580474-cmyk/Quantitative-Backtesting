@@ -175,6 +175,38 @@ export interface MarketScreenerSnapshot {
   updatedAt: string;
 }
 
+export interface HotSectorItem {
+  code: string;
+  name: string;
+  type: 'industry' | 'concept';
+  rank: number;
+  heatScore: number;
+  changePct: number | null;
+  amountYi: number | null;
+  mainNetInYi: number | null;
+  mainNetRatio: number | null;
+  advancers: number | null;
+  decliners: number | null;
+  breadthPct: number | null;
+  leadingStock: string | null;
+  leadingStockChangePct: number | null;
+  signals: string[];
+  scoreDetail: {
+    momentum: number;
+    capital: number;
+    breadth: number;
+    activity: number;
+    persistence: number;
+  };
+}
+
+export interface HotSectorSnapshot {
+  items: HotSectorItem[];
+  updatedAt: string;
+  total: number;
+  source: string;
+}
+
 export type MarketKlinePeriod = 'intraday' | 'day' | 'week' | 'year';
 
 export interface ResearchReport {
