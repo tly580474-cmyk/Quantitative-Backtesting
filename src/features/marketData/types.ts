@@ -207,6 +207,32 @@ export interface HotSectorSnapshot {
   source: string;
 }
 
+export interface SectorConstituent {
+  rank: number;
+  code: string;
+  name: string;
+  price: number | null;
+  changePct: number | null;
+  turnoverPct: number | null;
+  amountYi: number | null;
+  volumeRatio: number | null;
+  high: number | null;
+  low: number | null;
+  open: number | null;
+  previousClose: number | null;
+  mainNetInYi: number | null;
+  mainNetRatio: number | null;
+}
+
+export interface SectorConstituentSnapshot {
+  sectorCode: string;
+  sectorName: string;
+  items: SectorConstituent[];
+  total: number;
+  updatedAt: string;
+  source: string;
+}
+
 export type MarketKlinePeriod = 'intraday' | 'day' | 'week' | 'year';
 
 export interface ResearchReport {
@@ -229,6 +255,30 @@ export interface MarketSentimentFactor {
   description: string;
 }
 
+export type MarketBreadthBucketKey =
+  | 'upLimit' | 'up5' | 'up1' | 'up0' | 'flat'
+  | 'down0' | 'down1' | 'down5' | 'downLimit';
+
+export interface MarketBreadthStock {
+  code: string;
+  name: string;
+  market: 'SH' | 'SZ' | 'BJ';
+  price: number | null;
+  changePct: number;
+  amountYi: number | null;
+  turnoverPct: number | null;
+  amplitudePct: number | null;
+  volumeRatio: number | null;
+}
+
+export interface MarketBreadthBucket {
+  key: MarketBreadthBucketKey;
+  label: string;
+  count: number;
+  tone: 'up' | 'flat' | 'down';
+  items: MarketBreadthStock[];
+}
+
 export interface MarketSentimentOverview {
   updatedAt: string;
   total: number;
@@ -245,7 +295,7 @@ export interface MarketSentimentOverview {
   hs300Amplitude20dPct: number | null;
   breakRate: number | null;
   ma5AbovePct: number | null;
-  distribution: Array<{ key: string; label: string; count: number; tone: 'up' | 'flat' | 'down' }>;
+  distribution: MarketBreadthBucket[];
   mainNetInTrend: Array<{ time: string; value: number }>;
   factors: MarketSentimentFactor[];
   msi: number;

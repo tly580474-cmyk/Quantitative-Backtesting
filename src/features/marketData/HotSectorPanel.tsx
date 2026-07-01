@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { App, Button, Collapse, Empty, Progress, Segmented, Space, Table, Tag, Tooltip, Typography } from 'antd';
-import { FireOutlined, ReloadOutlined } from '@ant-design/icons';
+import { App, Button, Collapse, Drawer, Empty, Input, Progress, Segmented, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import { FireOutlined, ReloadOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons';
 import { apiFetch } from '../../api/client';
-import type { HotSectorItem, HotSectorSnapshot } from './types';
+import type { HotSectorItem, HotSectorSnapshot, SectorConstituent, SectorConstituentSnapshot, StockSearchItem } from './types';
 
 const { Text } = Typography;
 const STORAGE_KEY = 'quant-hot-sector-snapshot-v1';
@@ -30,13 +30,27 @@ function scoreColor(score: number) {
   return '#2563eb';
 }
 
-export default function HotSectorPanel() {
+function marketOfCode(code: string): StockSearchItem['market'] {
+  if (/^[689]/.test(code)) return 'SH';
+  if (/^[48]/.test(code)) return 'BJ';
+  return 'SZ';
+}
+
+interface HotSectorPanelProps {
+  onSelectStock: (stock: StockSearchItem) => void;
+}
+
+export default function HotSectorPanel({ onSelectStock }: HotSectorPanelProps) {
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [loadedOnce, setLoadedOnce] = useState(false);
   const [loading, setLoading] = useState(false);
   const [scope, setScope] = useState<'all' | 'industry' | 'concept'>('all');
   const [snapshot, setSnapshot] = useState<HotSectorSnapshot | null>(readSnapshot);
+  const [selectedSector, setSelectedSector] = useState<HotSectorItem | null>(null);
+  const [constituents, setConstituents] = useState<SectorConstituentSnapshot | null>(null);
+  const [constituentsLoading, setConstituentsLoading] = useState(false);
+  const [constituentQuery, setConstituentQuery] = useState('');
 
   const load = async (force = false) => {
     setLoading(true);
@@ -66,6 +80,41 @@ export default function HotSectorPanel() {
     return (scope === 'all' ? source : source.filter((item) => item.type === scope)).slice(0, 50);
   }, [scope, snapshot]);
   const leaders = items.slice(0, 3);
+  const filteredConstituents = useMemo(() => {
+    const query = constituentQuery.trim().toLowerCase();
+    const source = constituents?.items ?? [];
+    return query
+      ? source.filter((item) => item.code.includes(query) || item.name.toLowerCase().includes(query))
+      : source;
+  }, [constituentQuery, constituents]);
+
+  const showConstituents = async (sector: HotSectorItem) => {
+    setSelectedSector(sector);
+    setConstituentQuery('');
+    setConstituents(null);
+    setConstituentsLoading(true);
+    try {
+      const data = await apiFetch<SectorConstituentSnapshot>(
+        `/api/market-data/hot-sectors/${encodeURIComponent(sector.code)}/constituents?name=${encodeURIComponent(sector.name)}`,
+        { timeoutMs: 30000 },
+      );
+      setConstituents(data);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '板块成分股加载失败');
+    } finally {
+      setConstituentsLoading(false);
+    }
+  };
+
+  const selectConstituent = (stock: SectorConstituent) => {
+    onSelectStock({
+      code: stock.code,
+      name: stock.name,
+      market: marketOfCode(stock.code),
+      type: 'stock',
+    });
+    setSelectedSector(null);
+  };
 
   const content = <div className="hot-sector-panel">
     <div className="hot-sector-toolbar">
@@ -81,7 +130,13 @@ export default function HotSectorPanel() {
       {snapshot && <Text type="secondary">{new Date(snapshot.updatedAt).toLocaleString('zh-CN')} · {snapshot.source}</Text>}
     </div>
     {leaders.length > 0 && <div className="hot-sector-leaders">
-      {leaders.map((item) => <div className="hot-sector-leader-card" key={`${item.type}-${item.code}`}>
+      {leaders.map((item) => <button
+        type="button"
+        className="hot-sector-leader-card"
+        key={`${item.type}-${item.code}`}
+        onClick={() => void showConstituents(item)}
+        aria-label={`查看${item.name}板块成分股`}
+      >
         <div><b>TOP {item.rank}</b><Tag color={item.type === 'industry' ? 'blue' : 'purple'}>{item.type === 'industry' ? '行业' : '概念'}</Tag></div>
         <strong>{item.name}</strong>
         <div className="hot-sector-leader-metrics">
@@ -89,8 +144,8 @@ export default function HotSectorPanel() {
           <small>主力 {signed(item.mainNetInYi, ' 亿')}</small>
         </div>
         <Progress percent={item.heatScore} showInfo={false} strokeColor={scoreColor(item.heatScore)} railColor="#e2e8f0" size="small" />
-        <Text type="secondary">热度 {item.heatScore}</Text>
-      </div>)}
+        <span className="hot-sector-card-footer"><Text type="secondary">热度 {item.heatScore}</Text><Text type="secondary">查看成分股 <RightOutlined /></Text></span>
+      </button>)}
     </div>}
     <Table<HotSectorItem>
       size="small"
@@ -99,9 +154,21 @@ export default function HotSectorPanel() {
       dataSource={items}
       pagination={{ pageSize: 10, hideOnSinglePage: true, responsive: true }}
       scroll={{ x: 1050 }}
+      onRow={(row) => ({
+        className: 'hot-sector-table-row',
+        tabIndex: 0,
+        'aria-label': `查看${row.name}板块成分股`,
+        onClick: () => void showConstituents(row),
+        onKeyDown: (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            void showConstituents(row);
+          }
+        },
+      })}
       columns={[
         { title: '排名', dataIndex: 'rank', width: 64, render: (rank: number) => <b className="hot-sector-rank">{rank}</b> },
-        { title: '板块', width: 150, render: (_, row) => <div className="selection-stock-cell"><strong>{row.name}</strong><span>{row.code} · {row.type === 'industry' ? '行业' : '概念'}</span></div> },
+        { title: '板块', width: 170, render: (_, row) => <div className="hot-sector-name-cell"><strong>{row.name}</strong><span>{row.code} · {row.type === 'industry' ? '行业' : '概念'}</span></div> },
         {
           title: '热度',
           dataIndex: 'heatScore',
@@ -136,5 +203,61 @@ export default function HotSectorPanel() {
         children: content,
       }]}
     />
+    <Drawer
+      className="sector-constituent-drawer"
+      title={<div className="sector-constituent-title"><span>{selectedSector?.name ?? '板块'}成分股</span>{selectedSector && <Tag color={selectedSector.type === 'industry' ? 'blue' : 'purple'}>{selectedSector.type === 'industry' ? '行业' : '概念'}</Tag>}</div>}
+      open={selectedSector != null}
+      onClose={() => setSelectedSector(null)}
+      size="min(900px, 92vw)"
+      destroyOnHidden
+    >
+      <div className="sector-constituent-toolbar">
+        <div>
+          <Text strong>{selectedSector?.code}</Text>
+          <Text type="secondary">{constituents ? `${constituents.total} 只成分股 · ${new Date(constituents.updatedAt).toLocaleString('zh-CN')} · 点击股票加入自选并查看行情` : '按当日涨跌幅排序'}</Text>
+        </div>
+        <Input
+          allowClear
+          prefix={<SearchOutlined />}
+          placeholder="搜索股票名称或代码"
+          aria-label="搜索板块成分股"
+          value={constituentQuery}
+          onChange={(event) => setConstituentQuery(event.target.value)}
+        />
+      </div>
+      <Table<SectorConstituent>
+        className="sector-constituent-table"
+        size="small"
+        rowKey="code"
+        loading={constituentsLoading}
+        dataSource={filteredConstituents}
+        pagination={{ pageSize: 15, showSizeChanger: false, showTotal: (total) => `共 ${total} 只` }}
+        scroll={{ x: 860 }}
+        onRow={(row) => ({
+          className: 'sector-constituent-row',
+          tabIndex: 0,
+          'aria-label': `将${row.name}加入自选并查看实时行情`,
+          onClick: () => selectConstituent(row),
+          onKeyDown: (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              selectConstituent(row);
+            }
+          },
+        })}
+        columns={[
+          { title: '序号', dataIndex: 'rank', width: 64 },
+          { title: '股票', fixed: 'left', width: 132, render: (_, row) => <div className="selection-stock-cell"><strong>{row.name}</strong><span>{row.code}</span></div> },
+          { title: '最新价', dataIndex: 'price', width: 84, align: 'right', render: (value) => numberText(value) },
+          { title: '涨跌幅', dataIndex: 'changePct', width: 88, align: 'right', sorter: (a, b) => (a.changePct ?? -Infinity) - (b.changePct ?? -Infinity), render: (value) => <span className={(value ?? 0) >= 0 ? 'market-up' : 'market-down'}>{signed(value, '%')}</span> },
+          { title: '成交额', dataIndex: 'amountYi', width: 94, align: 'right', sorter: (a, b) => (a.amountYi ?? 0) - (b.amountYi ?? 0), render: (value) => numberText(value, ' 亿') },
+          { title: '换手率', dataIndex: 'turnoverPct', width: 88, align: 'right', render: (value) => numberText(value, '%') },
+          { title: '量比', dataIndex: 'volumeRatio', width: 76, align: 'right', render: (value) => numberText(value) },
+          { title: '主力净流入', dataIndex: 'mainNetInYi', width: 112, align: 'right', sorter: (a, b) => (a.mainNetInYi ?? 0) - (b.mainNetInYi ?? 0), render: (value) => <span className={(value ?? 0) >= 0 ? 'market-up' : 'market-down'}>{signed(value, ' 亿')}</span> },
+          { title: '净流入占比', dataIndex: 'mainNetRatio', width: 104, align: 'right', render: (value) => signed(value, '%') },
+        ]}
+        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={constituentsLoading ? '正在加载成分股' : constituentQuery ? '没有匹配的成分股' : '暂无成分股数据'} /> }}
+      />
+    </Drawer>
   </section>;
 }

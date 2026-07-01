@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { App, AutoComplete, Button, Card, Collapse, Empty, Input, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
+import { App, AutoComplete, Button, Card, Collapse, Drawer, Empty, Input, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
 import { ApiOutlined, ArrowDownOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, LineChartOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, StarFilled, ThunderboltOutlined } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
@@ -12,7 +12,7 @@ import StockSelectionWorkspace from './StockSelectionWorkspace';
 import HotSectorPanel from './HotSectorPanel';
 import { klineCacheKey, marketDataCache } from './marketDataCache';
 import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
-import type { AgentStatus, KlinePoint, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem } from './types';
+import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem } from './types';
 import type { ImportResult } from '@/models';
 
 const { Text, Title, Paragraph } = Typography;
@@ -177,35 +177,120 @@ function SentimentMetricStrip({ overview }: { overview: MarketSentimentOverview 
   </div>;
 }
 
-function MarketBreadthChart({ overview }: { overview: MarketSentimentOverview }) {
+function MarketBreadthChart({
+  overview,
+  onSelectStock,
+}: {
+  overview: MarketSentimentOverview;
+  onSelectStock: (stock: StockSearchItem) => void;
+}) {
+  const [selectedBucket, setSelectedBucket] = useState<MarketBreadthBucket | null>(null);
+  const [stockQuery, setStockQuery] = useState('');
   const maxCount = Math.max(1, ...overview.distribution.map((item) => item.count));
   const advanceRatio = (overview.advancers / Math.max(1, overview.advancers + overview.decliners)) * 100;
-  return <div className="market-breadth-chart" aria-label="涨跌分布图">
-    <div className="market-panel-title"><span><BarChartOutlined />涨跌分布</span><Tooltip title="A股全市场非 ST/退市样本，涨跌停为涨跌幅阈值估算"><Text type="secondary">?</Text></Tooltip></div>
-    <div className="market-breadth-body">
-      <div className="market-breadth-summary">
-        <div className="is-up"><strong>{overview.advancers}</strong><span>上涨家数</span><b>↑</b></div>
-        <div className="is-down"><strong>{overview.decliners}</strong><span>下跌家数</span><b>↓</b></div>
+  const filteredStocks = useMemo(() => {
+    const query = stockQuery.trim().toLowerCase();
+    const source = selectedBucket?.items ?? [];
+    return query
+      ? source.filter((stock) => stock.code.includes(query) || stock.name.toLowerCase().includes(query))
+      : source;
+  }, [selectedBucket, stockQuery]);
+  const openBucket = (bucket: MarketBreadthBucket) => {
+    setSelectedBucket(bucket);
+    setStockQuery('');
+  };
+  const selectStock = (stock: MarketBreadthStock) => {
+    onSelectStock({ code: stock.code, name: stock.name, market: stock.market, type: 'stock' });
+    setSelectedBucket(null);
+  };
+
+  return <>
+    <div className="market-breadth-chart" aria-label="涨跌分布图">
+      <div className="market-panel-title">
+        <span><BarChartOutlined />涨跌分布</span>
+        <Tooltip title="有效A股报价按代码去重并排除ST/退市；涨跌停优先按当日涨停价/跌停价判断。点击柱形查看股票明细。"><Text type="secondary">?</Text></Tooltip>
       </div>
-      <div className="market-breadth-bars">
-        {overview.distribution.map((item) => {
-          const height = 18 + (item.count / maxCount) * 138;
-          return <div key={item.key} className={`market-breadth-bar is-${item.tone}`}>
-            <b>{item.count}</b>
-            <i style={{ height }} />
-            <span>{item.label}</span>
-          </div>;
+      <div className="market-breadth-body">
+        <div className="market-breadth-summary">
+          <div className="is-up"><strong>{overview.advancers}</strong><span>上涨家数</span><b>↑</b></div>
+          <div className="is-down"><strong>{overview.decliners}</strong><span>下跌家数</span><b>↓</b></div>
+        </div>
+        <div className="market-breadth-bars">
+          {overview.distribution.map((item) => {
+            const height = 18 + (item.count / maxCount) * 138;
+            return <button
+              type="button"
+              key={item.key}
+              className={`market-breadth-bar is-${item.tone}`}
+              onClick={() => openBucket(item)}
+              aria-label={`查看${item.label}的${item.count}只股票`}
+            >
+              <b>{item.count}</b>
+              <i style={{ height }} />
+              <span>{item.label}</span>
+            </button>;
+          })}
+        </div>
+      </div>
+      <div className="market-breadth-scale">
+        <div>
+          <span><i />涨 {overview.advancers} 家</span>
+          <em style={{ background: `linear-gradient(90deg, #ef4444 0%, #ef4444 ${advanceRatio}%, #16a34a ${advanceRatio}%, #16a34a 100%)` }} />
+          <strong>跌 {overview.decliners} 家</strong>
+        </div>
+      </div>
+    </div>
+    <Drawer
+      className="market-breadth-drawer"
+      title={<Space><span>{selectedBucket?.label ?? '涨跌区间'}股票明细</span>{selectedBucket && <Tag color={selectedBucket.tone === 'up' ? 'red' : selectedBucket.tone === 'down' ? 'green' : 'default'}>{selectedBucket.count} 只</Tag>}</Space>}
+      open={selectedBucket != null}
+      onClose={() => setSelectedBucket(null)}
+      size="min(900px, 92vw)"
+      destroyOnHidden
+    >
+      <div className="market-breadth-detail-toolbar">
+        <Text type="secondary">快照时间：{new Date(overview.updatedAt).toLocaleString('zh-CN')} · 点击股票加入自选并查看实时行情</Text>
+        <Input
+          allowClear
+          prefix={<SearchOutlined />}
+          placeholder="搜索股票名称或代码"
+          aria-label="搜索涨跌区间股票"
+          value={stockQuery}
+          onChange={(event) => setStockQuery(event.target.value)}
+        />
+      </div>
+      <Table<MarketBreadthStock>
+        className="market-breadth-detail-table"
+        size="small"
+        rowKey="code"
+        dataSource={filteredStocks}
+        pagination={{ pageSize: 15, showSizeChanger: false, showTotal: (total) => `共 ${total} 只` }}
+        scroll={{ x: 760 }}
+        onRow={(row) => ({
+          className: 'market-breadth-stock-row',
+          tabIndex: 0,
+          'aria-label': `将${row.name}加入自选并查看实时行情`,
+          onClick: () => selectStock(row),
+          onKeyDown: (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              selectStock(row);
+            }
+          },
         })}
-      </div>
-    </div>
-    <div className="market-breadth-scale">
-      <div>
-        <span><i />涨 {overview.advancers} 家</span>
-        <em style={{ background: `linear-gradient(90deg, #ef4444 0%, #ef4444 ${advanceRatio}%, #16a34a ${advanceRatio}%, #16a34a 100%)` }} />
-        <strong>跌 {overview.decliners} 家</strong>
-      </div>
-    </div>
-  </div>;
+        columns={[
+          { title: '股票', fixed: 'left', width: 140, render: (_, row) => <div className="selection-stock-cell"><strong>{row.name}</strong><span>{row.code} · {row.market}</span></div> },
+          { title: '最新价', dataIndex: 'price', width: 90, align: 'right', render: (value) => fmt(value) },
+          { title: '涨跌幅', dataIndex: 'changePct', width: 96, align: 'right', sorter: (a, b) => a.changePct - b.changePct, render: (value) => <span className={value > 0 ? 'market-up' : value < 0 ? 'market-down' : ''}>{signed(value)}%</span> },
+          { title: '成交额', dataIndex: 'amountYi', width: 100, align: 'right', sorter: (a, b) => (a.amountYi ?? 0) - (b.amountYi ?? 0), render: (value) => value == null ? '—' : `${fmt(value)} 亿` },
+          { title: '换手率', dataIndex: 'turnoverPct', width: 90, align: 'right', render: (value) => value == null ? '—' : `${fmt(value)}%` },
+          { title: '振幅', dataIndex: 'amplitudePct', width: 86, align: 'right', render: (value) => value == null ? '—' : `${fmt(value)}%` },
+          { title: '量比', dataIndex: 'volumeRatio', width: 78, align: 'right', render: (value) => fmt(value) },
+        ]}
+        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={stockQuery ? '没有匹配的股票' : '该区间暂无股票明细，请刷新市场概况'} /> }}
+      />
+    </Drawer>
+  </>;
 }
 
 function MarketThermometer({ overview }: { overview: MarketSentimentOverview }) {
@@ -235,13 +320,13 @@ function MarketThermometer({ overview }: { overview: MarketSentimentOverview }) 
   </div>;
 }
 
-function MarketSentimentPanel({ overview, loading }: { overview: MarketSentimentOverview | null; loading: boolean }) {
+function MarketSentimentPanel({ overview, loading, onSelectStock }: { overview: MarketSentimentOverview | null; loading: boolean; onSelectStock: (stock: StockSearchItem) => void }) {
   return <div className="market-sentiment-panel">
     <Skeleton loading={loading && !overview} active paragraph={{ rows: 6 }}>
       {overview ? <div className="market-sentiment-layout">
         <div className="market-sentiment-main">
           <SentimentMetricStrip overview={overview} />
-          <MarketBreadthChart overview={overview} />
+          <MarketBreadthChart overview={overview} onSelectStock={onSelectStock} />
         </div>
         <MarketThermometer overview={overview} />
         <div className="market-sentiment-notes">
@@ -513,6 +598,7 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
   const [watchlist, setWatchlist] = useState<StockSearchItem[]>(initial);
   const [pinnedCodes, setPinnedCodes] = useState<string[]>(readPinnedCodes);
   const [selectedCode, setSelectedCode] = useState(marketDataCache.selectedCode ?? initial[0]?.code ?? '600519');
+  const [watchlistQuery, setWatchlistQuery] = useState('');
   const [searchText, setSearchText] = useState('');
   const [searchItems, setSearchItems] = useState<StockSearchItem[]>([]);
   const [searching, setSearching] = useState(false);
@@ -544,6 +630,7 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
   const [reasoningSummary, setReasoningSummary] = useState<string[]>(() => marketDataCache.agentResults[marketDataCache.selectedCode ?? initial[0]?.code ?? '600519']?.reasoningSummary ?? []);
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const marketWorkspaceRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist)); marketDataCache.watchlist = watchlist; }, [watchlist]);
   useEffect(() => { localStorage.setItem(PINNED_WATCHLIST_KEY, JSON.stringify(pinnedCodes)); }, [pinnedCodes]);
@@ -745,6 +832,15 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
     setWatchlist((all) => all.some((x) => x.code === stock.code) ? all : [...all, stock]);
     setSelectedCode(stock.code); setSearchText(''); setSearchItems([]);
   };
+  const openSectorConstituent = (stock: StockSearchItem) => {
+    const alreadyAdded = watchlist.some((item) => item.code === stock.code);
+    addStock(stock);
+    message.success(alreadyAdded ? `已切换至 ${stock.name} 实时行情` : `${stock.name} 已加入自选`);
+    window.requestAnimationFrame(() => {
+      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      marketWorkspaceRef.current?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+    });
+  };
   const removeStock = (code: string) => setWatchlist((all) => {
     const next = all.filter((x) => x.code !== code);
     if (selectedCode === code && next[0]) setSelectedCode(next[0].code);
@@ -860,6 +956,15 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
   const orderedWatchlist = useMemo(() => [...watchlist].sort((a, b) => (
     Number(pinnedCodes.includes(b.code)) - Number(pinnedCodes.includes(a.code))
   )), [pinnedCodes, watchlist]);
+  const filteredWatchlist = useMemo(() => {
+    const query = watchlistQuery.trim().toLowerCase();
+    if (!query) return orderedWatchlist;
+    return orderedWatchlist.filter((item) => (
+      item.code.toLowerCase().includes(query)
+      || item.name.toLowerCase().includes(query)
+      || item.market.toLowerCase().includes(query)
+    ));
+  }, [orderedWatchlist, watchlistQuery]);
   const options = useMemo(() => searchItems.map((item) => ({ value: item.code, label: <div className="market-search-option"><span><b>{item.name}</b> <Text type="secondary">{item.code}</Text></span><Tag>{item.market}</Tag></div> })), [searchItems]);
   const selectIndexQuote = (item: StockQuote) => {
     const code = `${item.market.toLowerCase()}${item.code}`;
@@ -920,11 +1025,11 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
           extra: marketSentimentOpen
             ? <Tooltip title="刷新市场情绪"><Button size="small" icon={<ReloadOutlined />} loading={marketSentimentLoading} onClick={(event) => { event.stopPropagation(); void loadMarketSentiment(false, true); }}>刷新</Button></Tooltip>
             : <Tag>展开后加载</Tag>,
-          children: <MarketSentimentPanel overview={marketSentiment} loading={marketSentimentLoading} />,
+          children: <MarketSentimentPanel overview={marketSentiment} loading={marketSentimentLoading} onSelectStock={openSectorConstituent} />,
         }]}
       />
     </section>
-    <HotSectorPanel />
+    <HotSectorPanel onSelectStock={openSectorConstituent} />
     <section className="market-selection-section" aria-label="选股评分与市场技术筛选">
       <StockSelectionWorkspace
         watchlist={watchlist}
@@ -937,9 +1042,24 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
         onRemove={removeStock}
       />
     </section>
-    <div className="market-workspace">
+    <div className="market-workspace" ref={marketWorkspaceRef}>
       <aside className="market-watchlist"><div className="market-section-title"><span><StarFilled /> 我的自选</span><Tag>{watchlist.length}</Tag></div>
-        {watchlist.length ? <div className="market-watchlist-items">{orderedWatchlist.map((item) => <div key={item.code} className={`market-watchlist-item${item.code === selectedCode ? ' is-active' : ''}`}><button type="button" className="market-stock-select" aria-pressed={item.code === selectedCode} onClick={() => setSelectedCode(item.code)}><strong>{pinnedCodes.includes(item.code) && <span className="market-pinned-mark" aria-label="已置顶">置顶</span>}{item.name}</strong><span>{item.code} · {item.market}</span></button><Tooltip title="移出自选"><Button type="text" danger icon={<DeleteOutlined />} aria-label={`移除 ${item.name}`} onClick={() => removeStock(item.code)} /></Tooltip></div>)}</div> : <Empty description="搜索并加入第一只自选股" />}
+        {watchlist.length ? <>
+          <div className="market-watchlist-search">
+            <Input
+              allowClear
+              prefix={<SearchOutlined />}
+              placeholder="搜索名称或代码"
+              aria-label="搜索我的自选"
+              value={watchlistQuery}
+              onChange={(event) => setWatchlistQuery(event.target.value)}
+              suffix={watchlistQuery ? <Text type="secondary">{filteredWatchlist.length}/{watchlist.length}</Text> : null}
+            />
+          </div>
+          {filteredWatchlist.length
+            ? <div className="market-watchlist-items" aria-label="自选股列表">{filteredWatchlist.map((item) => <div key={item.code} className={`market-watchlist-item${item.code === selectedCode ? ' is-active' : ''}`}><button type="button" className="market-stock-select" aria-pressed={item.code === selectedCode} onClick={() => setSelectedCode(item.code)}><strong>{pinnedCodes.includes(item.code) && <span className="market-pinned-mark" aria-label="已置顶">置顶</span>}{item.name}</strong><span>{item.code} · {item.market}</span></button><Tooltip title="移出自选"><Button type="text" danger icon={<DeleteOutlined />} aria-label={`移除 ${item.name}`} onClick={() => removeStock(item.code)} /></Tooltip></div>)}</div>
+            : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未找到匹配的自选股" />}
+        </> : <Empty description="搜索并加入第一只自选股" />}
       </aside>
       <div className="market-main">
         <Card className="market-quote-card" variant="borderless"><Skeleton loading={quoteLoading} active paragraph={{ rows: 3 }}>

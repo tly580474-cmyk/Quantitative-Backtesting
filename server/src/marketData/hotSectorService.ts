@@ -39,7 +39,34 @@ export interface HotSectorSnapshot {
   source: string;
 }
 
+export interface SectorConstituent {
+  rank: number;
+  code: string;
+  name: string;
+  price: number | null;
+  changePct: number | null;
+  turnoverPct: number | null;
+  amountYi: number | null;
+  volumeRatio: number | null;
+  high: number | null;
+  low: number | null;
+  open: number | null;
+  previousClose: number | null;
+  mainNetInYi: number | null;
+  mainNetRatio: number | null;
+}
+
+export interface SectorConstituentSnapshot {
+  sectorCode: string;
+  sectorName: string;
+  items: SectorConstituent[];
+  total: number;
+  updatedAt: string;
+  source: string;
+}
+
 const CACHE_MS = 5 * 60_000;
+const CONSTITUENT_CACHE_MS = 60_000;
 const serverRoot = process.cwd().replace(/[\\/]server$/, '') === process.cwd()
   ? resolve(process.cwd(), 'server')
   : process.cwd();
@@ -58,6 +85,7 @@ const ENDPOINTS = [
 
 let memoryCache: { data: HotSectorSnapshot; cachedAt: number } | null = null;
 let refreshInFlight: Promise<HotSectorSnapshot> | null = null;
+const constituentCache = new Map<string, { data: SectorConstituentSnapshot; cachedAt: number }>();
 
 function finite(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -67,6 +95,32 @@ function finite(value: unknown): number | null {
 function round(value: number, digits = 2): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
+}
+
+export function normalizeSectorConstituents(rows: Array<Record<string, unknown>>): SectorConstituent[] {
+  return rows.flatMap((row, index) => {
+    const code = String(row.f12 ?? '').trim();
+    const name = String(row.f14 ?? '').trim();
+    if (!/^\d{6}$/.test(code) || !name) return [];
+    const amount = finite(row.f6);
+    const mainNet = finite(row.f62);
+    return [{
+      rank: index + 1,
+      code,
+      name,
+      price: finite(row.f2),
+      changePct: finite(row.f3),
+      turnoverPct: finite(row.f8),
+      amountYi: amount == null ? null : round(amount / 100_000_000),
+      volumeRatio: finite(row.f10),
+      high: finite(row.f15),
+      low: finite(row.f16),
+      open: finite(row.f17),
+      previousClose: finite(row.f18),
+      mainNetInYi: mainNet == null ? null : round(mainNet / 100_000_000),
+      mainNetRatio: finite(row.f184),
+    }];
+  });
 }
 
 function percentile(values: number[], value: number | null): number {
@@ -243,4 +297,56 @@ export async function fetchCachedHotSectors(force = false): Promise<HotSectorSna
     return memoryCache.data;
   }
   return refreshHotSectors();
+}
+
+export async function fetchSectorConstituents(
+  sectorCode: string,
+  sectorName: string,
+): Promise<SectorConstituentSnapshot> {
+  const cacheKey = sectorCode.toUpperCase();
+  const cached = constituentCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < CONSTITUENT_CACHE_MS) return cached.data;
+
+  const params = new URLSearchParams({
+    fid: 'f3',
+    po: '1',
+    pz: '500',
+    pn: '1',
+    np: '1',
+    fltt: '2',
+    invt: '2',
+    fs: `b:${cacheKey}`,
+    fields: 'f2,f3,f6,f8,f10,f12,f14,f15,f16,f17,f18,f62,f184',
+  });
+  let lastError: unknown;
+  for (const endpoint of ENDPOINTS) {
+    try {
+      const response = await fetch(`${endpoint}?${params.toString()}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
+          Referer: 'https://quote.eastmoney.com/',
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) throw new Error(`成分股接口 HTTP ${response.status}`);
+      const payload = await response.json() as {
+        data?: { total?: number; diff?: Array<Record<string, unknown>> };
+      };
+      const items = normalizeSectorConstituents(payload.data?.diff ?? []);
+      if (items.length === 0) throw new Error('该板块暂无可用成分股数据');
+      const data: SectorConstituentSnapshot = {
+        sectorCode: cacheKey,
+        sectorName,
+        items,
+        total: finite(payload.data?.total) ?? items.length,
+        updatedAt: new Date().toISOString(),
+        source: '东方财富板块成分股',
+      };
+      constituentCache.set(cacheKey, { data, cachedAt: Date.now() });
+      return data;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('板块成分股数据源暂不可用');
 }

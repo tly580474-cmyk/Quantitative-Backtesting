@@ -27,7 +27,7 @@ import { tencentProvider } from '../marketData/providers/tencentProvider.js';
 import { updateIndexDatasets } from '../marketData/jobs/indexDatasetUpdater.js';
 import { StockResearchAgent } from '../services/stockResearchAgent.js';
 import { fetchSevenLayerSection, fetchSevenLayerSnapshot } from '../marketData/sevenLayerDataService.js';
-import { fetchCachedHotSectors } from '../marketData/hotSectorService.js';
+import { fetchCachedHotSectors, fetchSectorConstituents } from '../marketData/hotSectorService.js';
 
 const candlesQuerySchema = z.object({
   startDate: z.string().optional(),
@@ -131,6 +131,26 @@ export function registerMarketDataRoutes(
       return reply.status(502).send({ message: error instanceof Error ? error.message : '热门板块获取失败' });
     }
   });
+
+  app.get<{ Params: { code: string }; Querystring: { name?: string } }>(
+    '/api/market-data/hot-sectors/:code/constituents',
+    async (req, reply) => {
+      const input = z.object({
+        code: z.string().trim().regex(/^BK\d{4}$/i),
+        name: z.string().trim().max(40).optional(),
+      }).safeParse({ ...req.params, ...req.query });
+      if (!input.success) return reply.status(400).send({ message: '板块代码格式不正确' });
+      try {
+        return reply.send(await fetchSectorConstituents(
+          input.data.code.toUpperCase(),
+          input.data.name ?? input.data.code.toUpperCase(),
+        ));
+      } catch (error) {
+        req.log.error(error);
+        return reply.status(502).send({ message: error instanceof Error ? error.message : '板块成分股获取失败' });
+      }
+    },
+  );
 
   app.post('/api/market-data/technical-screen', async (req, reply) => {
     const body = z.object({

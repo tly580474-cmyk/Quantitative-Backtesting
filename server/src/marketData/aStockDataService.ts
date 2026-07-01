@@ -84,6 +84,30 @@ export interface MarketSentimentFactor {
   description: string;
 }
 
+export type MarketBreadthBucketKey =
+  | 'upLimit' | 'up5' | 'up1' | 'up0' | 'flat'
+  | 'down0' | 'down1' | 'down5' | 'downLimit';
+
+export interface MarketBreadthStock {
+  code: string;
+  name: string;
+  market: 'SH' | 'SZ' | 'BJ';
+  price: number | null;
+  changePct: number;
+  amountYi: number | null;
+  turnoverPct: number | null;
+  amplitudePct: number | null;
+  volumeRatio: number | null;
+}
+
+export interface MarketBreadthBucket {
+  key: MarketBreadthBucketKey;
+  label: string;
+  count: number;
+  tone: 'up' | 'flat' | 'down';
+  items: MarketBreadthStock[];
+}
+
 export interface MarketSentimentOverview {
   updatedAt: string;
   total: number;
@@ -100,7 +124,7 @@ export interface MarketSentimentOverview {
   hs300Amplitude20dPct: number | null;
   breakRate: number | null;
   ma5AbovePct: number | null;
-  distribution: Array<{ key: string; label: string; count: number; tone: 'up' | 'flat' | 'down' }>;
+  distribution: MarketBreadthBucket[];
   mainNetInTrend: Array<{ time: string; value: number }>;
   factors: MarketSentimentFactor[];
   msi: number;
@@ -456,6 +480,8 @@ function parseTencentSentimentRows(text: string, universeByCode: Map<string, Mar
       f10: numberOrNull(values[49]),
       f7: numberOrNull(values[43]),
       f62: 0,
+      f47: numberOrNull(values[47]),
+      f48: numberOrNull(values[48]),
     });
   }
   return rows;
@@ -497,7 +523,7 @@ async function fetchAStockSentimentRows(): Promise<Array<Record<string, unknown>
 }
 
 function marketForCode(code: string): MarketTechnicalRow['market'] {
-  if (/^[489]/.test(code)) return 'BJ';
+  if (/^(?:4|8|92)/.test(code)) return 'BJ';
   if (/^[68]/.test(code)) return 'SH';
   return 'SZ';
 }
@@ -576,6 +602,123 @@ function buildMainNetInTrend(mainNetInYi: number): MarketSentimentOverview['main
   });
 }
 
+const MARKET_BREADTH_BUCKETS: Array<Omit<MarketBreadthBucket, 'count' | 'items'>> = [
+  { key: 'upLimit', label: '涨停', tone: 'up' },
+  { key: 'up5', label: '5%至涨停', tone: 'up' },
+  { key: 'up1', label: '1%至5%', tone: 'up' },
+  { key: 'up0', label: '0%至1%', tone: 'up' },
+  { key: 'flat', label: '平盘', tone: 'flat' },
+  { key: 'down0', label: '0%至-1%', tone: 'down' },
+  { key: 'down1', label: '-1%至-5%', tone: 'down' },
+  { key: 'down5', label: '-5%至跌停', tone: 'down' },
+  { key: 'downLimit', label: '跌停', tone: 'down' },
+];
+
+function fallbackLimitPct(code: string): number {
+  if (/^(?:4|8|92)/.test(code)) return 30;
+  if (/^(?:300|301|688|689)/.test(code)) return 20;
+  return 10;
+}
+
+function priceLimitState(
+  row: Record<string, unknown>,
+  code: string,
+  changePct: number,
+): 'up' | 'down' | null {
+  const price = numberOrNull(row.f2);
+  const limitUp = numberOrNull(row.f47);
+  const limitDown = numberOrNull(row.f48);
+  const hasExactLimitFields = Object.hasOwn(row, 'f47') || Object.hasOwn(row, 'f48');
+  if (hasExactLimitFields) {
+    if (price != null && limitUp != null && limitUp > 0 && price >= limitUp - 0.005) return 'up';
+    if (price != null && limitDown != null && limitDown > 0 && price <= limitDown + 0.005) return 'down';
+    return null;
+  }
+  const threshold = fallbackLimitPct(code) - 0.2;
+  if (changePct >= threshold) return 'up';
+  if (changePct <= -threshold) return 'down';
+  return null;
+}
+
+export function buildMarketBreadthSnapshot(rows: Array<Record<string, unknown>>): {
+  total: number;
+  advancers: number;
+  decliners: number;
+  flat: number;
+  upLimit: number;
+  downLimit: number;
+  totalAmountYuan: number;
+  mainNetInYuan: number;
+  distribution: MarketBreadthBucket[];
+} {
+  const bucketItems = new Map<MarketBreadthBucketKey, MarketBreadthStock[]>(
+    MARKET_BREADTH_BUCKETS.map((bucket) => [bucket.key, []]),
+  );
+  const seen = new Set<string>();
+  let totalAmountYuan = 0;
+  let mainNetInYuan = 0;
+
+  for (const row of rows) {
+    const code = String(row.f12 ?? '').trim();
+    const name = String(row.f14 ?? '').trim();
+    const changePct = numberOrNull(row.f3);
+    if (!/^\d{6}$/.test(code) || !name || /ST|退/i.test(name) || changePct == null || seen.has(code)) continue;
+    seen.add(code);
+    const amountYuan = numberOrNull(row.f6);
+    totalAmountYuan += amountYuan ?? 0;
+    mainNetInYuan += numberOrNull(row.f62) ?? 0;
+
+    const stock: MarketBreadthStock = {
+      code,
+      name,
+      market: marketForCode(code),
+      price: numberOrNull(row.f2),
+      changePct,
+      amountYi: amountYuan == null ? null : round(amountYuan / 100_000_000),
+      turnoverPct: numberOrNull(row.f8),
+      amplitudePct: numberOrNull(row.f7),
+      volumeRatio: numberOrNull(row.f10),
+    };
+    const limitState = priceLimitState(row, code, changePct);
+    let bucket: MarketBreadthBucketKey;
+    if (limitState === 'up') bucket = 'upLimit';
+    else if (limitState === 'down') bucket = 'downLimit';
+    else if (changePct >= 5) bucket = 'up5';
+    else if (changePct >= 1) bucket = 'up1';
+    else if (changePct > 0) bucket = 'up0';
+    else if (changePct === 0) bucket = 'flat';
+    else if (changePct > -1) bucket = 'down0';
+    else if (changePct > -5) bucket = 'down1';
+    else bucket = 'down5';
+    bucketItems.get(bucket)!.push(stock);
+  }
+
+  const distribution = MARKET_BREADTH_BUCKETS.map((bucket) => {
+    const items = bucketItems.get(bucket.key)!;
+    items.sort((a, b) => bucket.tone === 'up'
+      ? b.changePct - a.changePct
+      : bucket.tone === 'down'
+        ? a.changePct - b.changePct
+        : (b.amountYi ?? 0) - (a.amountYi ?? 0));
+    return { ...bucket, count: items.length, items };
+  });
+  const count = (keys: MarketBreadthBucketKey[]) => distribution
+    .filter((bucket) => keys.includes(bucket.key))
+    .reduce((sum, bucket) => sum + bucket.count, 0);
+
+  return {
+    total: distribution.reduce((sum, bucket) => sum + bucket.count, 0),
+    advancers: count(['upLimit', 'up5', 'up1', 'up0']),
+    decliners: count(['down0', 'down1', 'down5', 'downLimit']),
+    flat: count(['flat']),
+    upLimit: count(['upLimit']),
+    downLimit: count(['downLimit']),
+    totalAmountYuan,
+    mainNetInYuan,
+    distribution,
+  };
+}
+
 export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOverview> {
   const [rowsResult, hs300KlineResult] = await Promise.allSettled([
     fetchAStockSentimentRows(),
@@ -591,51 +734,11 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
   if (hs300KlineResult.status === 'rejected') {
     dataNotes.push('沪深300波动数据暂不可用。');
   }
-  const stocks = rows.filter((row) => {
-    const name = String(row.f14 ?? '');
-    return name && !/ST|退/.test(name);
-  });
-
-  let advancers = 0;
-  let decliners = 0;
-  let flat = 0;
-  let upLimit = 0;
-  let downLimit = 0;
-  let mainNetInYuan = 0;
-  let totalAmountYuan = 0;
-  const buckets = {
-    upLimit: 0,
-    up5: 0,
-    up1: 0,
-    up0: 0,
-    flat: 0,
-    down0: 0,
-    down1: 0,
-    down5: 0,
-    downLimit: 0,
-  };
-
-  for (const row of stocks) {
-    const changePct = numberOrNull(row.f3);
-    const amountYuan = numberOrNull(row.f6) ?? 0;
-    const mainYuan = numberOrNull(row.f62) ?? 0;
-    totalAmountYuan += amountYuan;
-    mainNetInYuan += mainYuan;
-    if (changePct == null) continue;
-    if (changePct > 0) advancers += 1;
-    else if (changePct < 0) decliners += 1;
-    else flat += 1;
-
-    if (changePct >= 9.8) { upLimit += 1; buckets.upLimit += 1; }
-    else if (changePct >= 5) buckets.up5 += 1;
-    else if (changePct >= 1) buckets.up1 += 1;
-    else if (changePct > 0) buckets.up0 += 1;
-    else if (changePct === 0) buckets.flat += 1;
-    else if (changePct > -1) buckets.down0 += 1;
-    else if (changePct > -5) buckets.down1 += 1;
-    else if (changePct > -9.8) buckets.down5 += 1;
-    else { downLimit += 1; buckets.downLimit += 1; }
-  }
+  const breadth = buildMarketBreadthSnapshot(rows);
+  const {
+    advancers, decliners, flat, upLimit, downLimit,
+    mainNetInYuan, totalAmountYuan,
+  } = breadth;
 
   const latestHs300 = hs300Kline.at(-1);
   const previousHs300 = hs300Kline.at(-2);
@@ -666,7 +769,7 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
 
   return {
     updatedAt: new Date().toISOString(),
-    total: stocks.length,
+    total: breadth.total,
     advancers,
     decliners,
     flat,
@@ -680,25 +783,15 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
     hs300Amplitude20dPct: hs300Amplitude20dPct == null ? null : round(hs300Amplitude20dPct),
     breakRate: null,
     ma5AbovePct: null,
-    distribution: [
-      { key: 'upLimit', label: '涨停', count: buckets.upLimit, tone: 'up' },
-      { key: 'up5', label: '涨幅>5%', count: buckets.up5, tone: 'up' },
-      { key: 'up1', label: '5-1%', count: buckets.up1, tone: 'up' },
-      { key: 'up0', label: '1-0%', count: buckets.up0, tone: 'up' },
-      { key: 'flat', label: '平盘', count: buckets.flat, tone: 'flat' },
-      { key: 'down0', label: '0--1%', count: buckets.down0, tone: 'down' },
-      { key: 'down1', label: '1--5%', count: buckets.down1, tone: 'down' },
-      { key: 'down5', label: '5%--跌停', count: buckets.down5, tone: 'down' },
-      { key: 'downLimit', label: '跌停', count: buckets.downLimit, tone: 'down' },
-    ],
+    distribution: breadth.distribution,
     mainNetInTrend: buildMainNetInTrend(round(mainNetInYuan / 100000000)),
     factors,
     msi,
     ...status,
     notes: [
       ...dataNotes,
-      '全市场涨跌分布数据源：本地股票池 + 腾讯批量行情；股票池缺失时使用 AKShare/Sina 初始化。',
-      '涨停/跌停家数使用涨跌幅阈值近似，待接入交易所涨跌停状态后可替换为精确口径。',
+      '统计口径：A股有效报价，按证券代码去重并排除名称含 ST/退的股票；九个涨跌区间严格互斥，其合计等于有效样本数。',
+      '涨跌停优先按腾讯行情返回的当日涨停价/跌停价判断；仅在 AKShare/Sina 首次初始化且缺少限价字段时，按主板10%、创业板/科创板20%、北交所30%的阈值估算。',
       'MSI = 0.6 × 涨跌家数因子 A + 0.4 × 涨跌停情绪因子 B。',
     ],
   };
@@ -726,15 +819,7 @@ function buildPendingMarketSentimentOverview(): MarketSentimentOverview {
     breakRate: null,
     ma5AbovePct: null,
     distribution: [
-      { key: 'upLimit', label: '涨停', count: 0, tone: 'up' },
-      { key: 'up5', label: '涨幅>5%', count: 0, tone: 'up' },
-      { key: 'up1', label: '5-1%', count: 0, tone: 'up' },
-      { key: 'up0', label: '1-0%', count: 0, tone: 'up' },
-      { key: 'flat', label: '平盘', count: 0, tone: 'flat' },
-      { key: 'down0', label: '0--1%', count: 0, tone: 'down' },
-      { key: 'down1', label: '1--5%', count: 0, tone: 'down' },
-      { key: 'down5', label: '5%--跌停', count: 0, tone: 'down' },
-      { key: 'downLimit', label: '跌停', count: 0, tone: 'down' },
+      ...MARKET_BREADTH_BUCKETS.map((bucket) => ({ ...bucket, count: 0, items: [] })),
     ],
     mainNetInTrend: buildMainNetInTrend(0),
     factors,
@@ -752,7 +837,12 @@ async function readMarketSentimentDiskCache(): Promise<{ data: MarketSentimentOv
   try {
     const text = await readFile(MARKET_SENTIMENT_CACHE_FILE, 'utf8');
     const parsed = JSON.parse(text) as { data?: MarketSentimentOverview; cachedAt?: number };
-    if (!parsed.data || typeof parsed.cachedAt !== 'number') return null;
+    if (
+      !parsed.data
+      || typeof parsed.cachedAt !== 'number'
+      || !Array.isArray(parsed.data.distribution)
+      || !parsed.data.distribution.every((bucket) => Array.isArray(bucket.items))
+    ) return null;
     return { data: parsed.data, cachedAt: parsed.cachedAt };
   } catch {
     return null;
@@ -822,7 +912,7 @@ export async function fetchCachedMarketSentimentOverview(force = false): Promise
     }
     return marketSentimentCache.data;
   }
-  refreshMarketSentimentInBackground();
+  void refreshMarketSentiment().catch(() => undefined);
   return buildPendingMarketSentimentOverview();
 }
 
