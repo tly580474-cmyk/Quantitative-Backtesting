@@ -1,14 +1,15 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Card, Row, Col, Button, Space, Input, Select, InputNumber,
+  Card, Button, Space, Input, Select, InputNumber,
   Typography, Divider, Empty, Tag, Tooltip, Popconfirm,
-  message, Drawer, List, Collapse, Badge, Table, Progress, Alert,
+  message, Drawer, List, Collapse, Badge, Table, Progress, Alert, Dropdown, Modal,
 } from 'antd';
 import {
   PlusOutlined, SaveOutlined, UndoOutlined, RedoOutlined,
   PlayCircleOutlined, CheckCircleOutlined, CloseCircleOutlined,
   ExportOutlined, ImportOutlined, DeleteOutlined, CopyOutlined,
-  EditOutlined, BulbOutlined, ThunderboltOutlined,
+  EditOutlined, BulbOutlined, ThunderboltOutlined, MoreOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
 import { useStrategyStudioStore } from '@/stores/useStrategyStudioStore';
 import { explainStrategy } from '@/features/visualStrategies/explainer';
@@ -54,6 +55,74 @@ const ACCOUNT_FIELD_LABELS: Record<string, string> = {
 const OPERATOR_OPTIONS: CompareOperator[] = [
   'gt', 'gte', 'lt', 'lte', 'eq', 'crossesAbove', 'crossesBelow', 'between',
 ];
+
+function operandLabel(operand: Operand, doc: VisualStrategyDocument): string {
+  switch (operand.type) {
+    case 'market':
+      return `${MARKET_FIELD_LABELS[operand.field] ?? operand.field}${operand.offset ? `[${operand.offset}]` : ''}`;
+    case 'indicator': {
+      const indicator = doc.indicators.find((item) => item.id === operand.nodeId);
+      const definition = INDICATOR_REGISTRY.find((item) => item.id === indicator?.indicatorId);
+      const output = indicator?.outputs.find((item) => item.key === operand.output);
+      return `${definition?.name ?? indicator?.indicatorId ?? '未选择指标'} · ${output?.label ?? (operand.output || '输出')}`;
+    }
+    case 'account':
+      return ACCOUNT_FIELD_LABELS[operand.field] ?? operand.field;
+    case 'parameter': {
+      const parameter = doc.parameters.find((item) => item.name === operand.name);
+      return `参数「${parameter?.label ?? (operand.name || '未选择')}」`;
+    }
+    case 'literal':
+      return typeof operand.value === 'boolean'
+        ? (operand.value ? '是' : '否')
+        : String(operand.value);
+  }
+}
+
+function findRuleNode(group: RuleGroup, nodeId: string): ConditionRule | RuleGroup | null {
+  if (group.id === nodeId) return group;
+  for (const child of group.children) {
+    if (child.id === nodeId) return child;
+    if (child.type === 'group') {
+      const nested = findRuleNode(child, nodeId);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+function findConditionIdByPath(document: VisualStrategyDocument, path: string): string | null {
+  const root = path.startsWith('entry') ? document.entry : path.startsWith('exit') ? document.exit : null;
+  if (!root) return null;
+  let current: ConditionRule | RuleGroup = root;
+  const indexes = [...path.matchAll(/children\[(\d+)\]/g)].map((match) => Number(match[1]));
+  for (const index of indexes) {
+    if (current.type !== 'group' || !current.children[index]) return current.id;
+    current = current.children[index];
+  }
+  return current.id;
+}
+
+function updateConditionInGroup(
+  group: RuleGroup,
+  nodeId: string,
+  condition: ConditionRule,
+): RuleGroup {
+  return {
+    ...group,
+    children: group.children.map((child) => {
+      if (child.id === nodeId) return condition;
+      return child.type === 'group' ? updateConditionInGroup(child, nodeId, condition) : child;
+    }),
+  };
+}
+
+function countConditions(group: RuleGroup): number {
+  return group.children.reduce(
+    (count, child) => count + (child.type === 'condition' ? 1 : countConditions(child)),
+    0,
+  );
+}
 
 // ---- Helper: create empty condition ----
 
@@ -307,81 +376,51 @@ function OperandEditor({
 
 function ConditionEditor({
   condition,
-  onChange,
   onDelete,
   doc,
+  selected,
+  onSelect,
 }: {
   condition: ConditionRule;
-  onChange: (c: ConditionRule) => void;
   onDelete: () => void;
   doc: VisualStrategyDocument;
+  selected: boolean;
+  onSelect: () => void;
 }) {
   return (
-    <Card
-      size="small"
-      style={{ marginBottom: 8, background: '#fafafa' }}
-      title={
-        <Space>
-          <Tag color="blue">条件</Tag>
-          <Text code style={{ fontSize: 11 }}>{condition.id}</Text>
-        </Space>
-      }
-      extra={
+    <div
+      className={`strategy-condition-row${selected ? ' is-selected' : ''}`}
+      data-node-id={condition.id}
+      role="button"
+      tabIndex={0}
+      aria-label={`编辑条件 ${operandLabel(condition.left, doc)} ${OPERATOR_LABELS[condition.operator]} ${operandLabel(condition.right, doc)}`}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+    >
+      <span className="strategy-condition-kind">条件</span>
+      <span className="strategy-condition-operand">{operandLabel(condition.left, doc)}</span>
+      <span className="strategy-condition-operator">{OPERATOR_LABELS[condition.operator]}</span>
+      <span className="strategy-condition-operand">{operandLabel(condition.right, doc)}</span>
+      {condition.operator === 'between' && condition.upper && (
+        <>
+          <span className="strategy-condition-operator">至</span>
+          <span className="strategy-condition-operand">{operandLabel(condition.upper, doc)}</span>
+        </>
+      )}
+      <Tooltip title="在右侧面板编辑">
+        <EditOutlined className="strategy-condition-edit" aria-hidden />
+      </Tooltip>
+      <div onClick={(event) => event.stopPropagation()}>
         <Popconfirm title="删除此条件？" onConfirm={onDelete}>
           <Button size="small" type="link" danger icon={<DeleteOutlined />} aria-label="删除条件" />
         </Popconfirm>
-      }
-    >
-      <Space direction="vertical" style={{ width: '100%' }} size="small">
-        <Text type="secondary" style={{ fontSize: 12 }}>左操作数</Text>
-        <OperandEditor
-          operand={condition.left}
-          doc={doc}
-          onChange={(left) => onChange({ ...condition, left })}
-        />
-
-        <Divider style={{ margin: '4px 0' }} />
-
-        <Select
-          size="small"
-          value={condition.operator}
-          style={{ width: '100%' }}
-          onChange={(operator) => onChange({ ...condition, operator })}
-          options={OPERATOR_OPTIONS.map((op) => ({
-            label: `${OPERATOR_LABELS[op]} (${op})`,
-            value: op,
-          }))}
-        />
-
-        {condition.operator === 'between' && (
-          <>
-            <Text type="secondary" style={{ fontSize: 12 }}>下界</Text>
-            <OperandEditor
-              operand={condition.right}
-              doc={doc}
-              onChange={(right) => onChange({ ...condition, right })}
-            />
-            <Text type="secondary" style={{ fontSize: 12 }}>上界</Text>
-            <OperandEditor
-              operand={condition.upper ?? { type: 'literal', value: 0 }}
-              doc={doc}
-              onChange={(upper) => onChange({ ...condition, upper })}
-            />
-          </>
-        )}
-
-        {condition.operator !== 'between' && (
-          <>
-            <Text type="secondary" style={{ fontSize: 12 }}>右操作数</Text>
-            <OperandEditor
-              operand={condition.right}
-              doc={doc}
-              onChange={(right) => onChange({ ...condition, right })}
-            />
-          </>
-        )}
-      </Space>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -391,11 +430,15 @@ function RuleGroupEditor({
   group,
   onChange,
   doc,
+  selectedNodeId,
+  onSelectNode,
   depth = 0,
 }: {
   group: RuleGroup;
   onChange: (g: RuleGroup) => void;
   doc: VisualStrategyDocument;
+  selectedNodeId: string | null;
+  onSelectNode: (nodeId: string) => void;
   depth?: number;
 }) {
   const colors = ['blue', 'green', 'orange', 'purple'];
@@ -421,19 +464,18 @@ function RuleGroupEditor({
   };
 
   return (
-    <div style={{ marginLeft: depth > 0 ? 16 : 0, marginBottom: 8 }}>
-      <Card
-        size="small"
-        style={{
-          borderLeft: `3px solid ${['#1677ff', '#52c41a', '#fa8c16', '#722ed1'][depth % 4]}`,
-        }}
-        title={
-          <Space>
-            <Tag color={color}>{group.id}</Tag>
+    <div
+      className={`strategy-rule-group depth-${Math.min(depth, 3)}${selectedNodeId === group.id ? ' is-selected' : ''}`}
+      data-node-id={group.id}
+    >
+      <div className="strategy-rule-group-head" onClick={() => onSelectNode(group.id)}>
+        <Space size="small" wrap>
+            <Tag color={color}>规则组</Tag>
             <Select
               size="small"
               value={group.operator}
-              style={{ width: 100 }}
+              style={{ width: 136 }}
+              onClick={(event) => event.stopPropagation()}
               onChange={(operator) => onChange({ ...group, operator })}
               options={[
                 { label: '全部满足 (AND)', value: 'all' },
@@ -444,19 +486,17 @@ function RuleGroupEditor({
             <Text type="secondary" style={{ fontSize: 11 }}>
               {group.children.length} 个子项
             </Text>
-          </Space>
-        }
-        extra={
-          <Space size="small">
+        </Space>
+        <Space size="small" onClick={(event) => event.stopPropagation()}>
             <Tooltip title="添加条件">
               <Button size="small" icon={<PlusOutlined />} onClick={addCondition} aria-label="添加条件" />
             </Tooltip>
             <Tooltip title="添加子组">
               <Button size="small" icon={<CopyOutlined />} onClick={addSubGroup} aria-label="添加子组" />
             </Tooltip>
-          </Space>
-        }
-      >
+        </Space>
+      </div>
+      <div className="strategy-rule-group-body">
         {group.children.length === 0 && (
           <Empty description="空规则组，请添加条件" image={Empty.PRESENTED_IMAGE_SIMPLE} />
         )}
@@ -466,8 +506,9 @@ function RuleGroupEditor({
               <ConditionEditor
                 condition={child}
                 doc={doc}
-                onChange={(c) => handleChildChange(i, c)}
                 onDelete={() => handleDeleteChild(i)}
+                selected={selectedNodeId === child.id}
+                onSelect={() => onSelectNode(child.id)}
               />
             ) : (
               <RuleGroupEditor
@@ -475,11 +516,13 @@ function RuleGroupEditor({
                 doc={doc}
                 depth={depth + 1}
                 onChange={(g) => handleChildChange(i, g)}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={onSelectNode}
               />
             )}
           </div>
         ))}
-      </Card>
+      </div>
     </div>
   );
 }
@@ -852,13 +895,176 @@ function RiskManager({
   );
 }
 
+function StrategyInspector({
+  document,
+  selectedNodeId,
+  validationResult,
+  previewStatus,
+  previewSignals,
+  onConditionChange,
+  onSelectError,
+}: {
+  document: VisualStrategyDocument;
+  selectedNodeId: string | null;
+  validationResult: ReturnType<typeof validateDocument> | null;
+  previewStatus: ReturnType<typeof useStrategyPreview>['status'];
+  previewSignals: ReturnType<typeof useStrategyPreview>['signals'];
+  onConditionChange: (condition: ConditionRule) => void;
+  onSelectError: (path: string) => void;
+}) {
+  const selectedNode = selectedNodeId
+    ? findRuleNode(document.entry, selectedNodeId) ?? findRuleNode(document.exit, selectedNodeId)
+    : null;
+  const buySignals = previewSignals.filter((signal) => signal.action === 'buy');
+  const sellSignals = previewSignals.filter((signal) => signal.action === 'sell');
+  const actionableSignals = previewSignals.filter((signal) => signal.action !== 'hold');
+
+  return (
+    <div className="strategy-inspector-stack">
+      <Card
+        size="small"
+        className="strategy-inspector-card"
+        title="属性"
+        extra={selectedNode && <Tag color="blue">{selectedNode.type === 'condition' ? '条件' : '规则组'}</Tag>}
+      >
+        {!selectedNode && (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="选择画布中的条件进行编辑"
+          />
+        )}
+        {selectedNode?.type === 'group' && (
+          <Space direction="vertical" size="small">
+            <Text strong>{selectedNode.id}</Text>
+            <Text type="secondary">
+              {selectedNode.operator === 'all' ? '所有子项同时满足' : selectedNode.operator === 'any' ? '任一子项满足' : '对子项结果取反'}
+            </Text>
+            <Tag>{selectedNode.children.length} 个子项</Tag>
+          </Space>
+        )}
+        {selectedNode?.type === 'condition' && (
+          <Space direction="vertical" style={{ width: '100%' }} size="small">
+            <Text type="secondary">左操作数</Text>
+            <OperandEditor
+              operand={selectedNode.left}
+              doc={document}
+              onChange={(left) => onConditionChange({ ...selectedNode, left })}
+            />
+            <Text type="secondary">比较关系</Text>
+            <Select
+              size="small"
+              value={selectedNode.operator}
+              style={{ width: '100%' }}
+              onChange={(operator) => onConditionChange({
+                ...selectedNode,
+                operator,
+                upper: operator === 'between'
+                  ? selectedNode.upper ?? { type: 'literal', value: 0 }
+                  : undefined,
+              })}
+              options={OPERATOR_OPTIONS.map((operator) => ({
+                label: `${OPERATOR_LABELS[operator]} (${operator})`,
+                value: operator,
+              }))}
+            />
+            <Text type="secondary">{selectedNode.operator === 'between' ? '下界' : '右操作数'}</Text>
+            <OperandEditor
+              operand={selectedNode.right}
+              doc={document}
+              onChange={(right) => onConditionChange({ ...selectedNode, right })}
+            />
+            {selectedNode.operator === 'between' && (
+              <>
+                <Text type="secondary">上界</Text>
+                <OperandEditor
+                  operand={selectedNode.upper ?? { type: 'literal', value: 0 }}
+                  doc={document}
+                  onChange={(upper) => onConditionChange({ ...selectedNode, upper })}
+                />
+              </>
+            )}
+          </Space>
+        )}
+      </Card>
+
+      <Card size="small" className="strategy-inspector-card" title="校验与反馈">
+        {validationResult?.valid ? (
+          <Alert
+            type={validationResult.warnings.length ? 'warning' : 'success'}
+            showIcon
+            title={validationResult.warnings.length ? `${validationResult.warnings.length} 条提示` : '策略校验通过'}
+          />
+        ) : (
+          <Alert
+            type="error"
+            showIcon
+            title={`${validationResult?.errors.length ?? 0} 个错误`}
+            description="点击问题可定位到对应规则。"
+          />
+        )}
+
+        {!!validationResult?.errors.length && (
+          <div className="strategy-issue-list">
+            {validationResult.errors.map((error, index) => (
+              <button
+                key={`${error.path}-${index}`}
+                type="button"
+                className="strategy-issue is-error"
+                onClick={() => onSelectError(error.path)}
+              >
+                <code>{error.path}</code>
+                <span>{error.message}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {!!validationResult?.warnings.length && (
+          <div className="strategy-issue-list">
+            {validationResult.warnings.map((warning, index) => (
+              <button
+                key={`${warning.path}-${index}`}
+                type="button"
+                className="strategy-issue is-warning"
+                onClick={() => onSelectError(warning.path)}
+              >
+                <code>{warning.path}</code>
+                <span>{warning.message}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <Divider style={{ margin: '12px 0' }} />
+        <div className="strategy-signal-summary">
+          <div>
+            <span>买入</span>
+            <strong>{previewStatus === 'completed' ? buySignals.length : '—'}</strong>
+          </div>
+          <div>
+            <span>卖出</span>
+            <strong>{previewStatus === 'completed' ? sellSignals.length : '—'}</strong>
+          </div>
+          <div>
+            <span>最近信号</span>
+            <strong>
+              {previewStatus === 'completed'
+                ? actionableSignals[actionableSignals.length - 1]?.time?.slice(0, 10) ?? '无'
+                : '待预览'}
+            </strong>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ---- Main Page ----
 
 export default function StrategyStudioPage() {
   const {
-    document, isDirty, undoStack, redoStack, validationResult,
+    document, isDirty, undoStack, redoStack, validationResult, selectedNodeId,
     createNew, updateDocument, undo, redo, save, publish,
-    importDocument, exportDocument,
+    importDocument, exportDocument, selectNode,
   } = useStrategyStudioStore();
 
   const [listOpen, setListOpen] = useState(false);
@@ -891,6 +1097,20 @@ export default function StrategyStudioPage() {
     createNew();
     message.success('已新建空白策略');
   }, [createNew]);
+
+  const handleNewRequest = useCallback(() => {
+    if (!isDirty) {
+      handleCreateNew();
+      return;
+    }
+    Modal.confirm({
+      title: '新建策略？',
+      content: '当前策略尚未保存，新建后未保存内容将丢失。',
+      okText: '仍要新建',
+      cancelText: '取消',
+      onOk: handleCreateNew,
+    });
+  }, [handleCreateNew, isDirty]);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -930,6 +1150,28 @@ export default function StrategyStudioPage() {
   // Generate summary
   const summary = document ? explainStrategy(document) : '';
 
+  const handleConditionChange = useCallback((condition: ConditionRule) => {
+    if (!selectedNodeId) return;
+    updateDocument((draft) => {
+      draft.entry = updateConditionInGroup(draft.entry, selectedNodeId, condition);
+      draft.exit = updateConditionInGroup(draft.exit, selectedNodeId, condition);
+    });
+  }, [selectedNodeId, updateDocument]);
+
+  const handleIssueSelect = useCallback((path: string) => {
+    if (!document) return;
+    const nodeId = findConditionIdByPath(document, path);
+    if (!nodeId) {
+      message.info('该问题位于策略全局配置中');
+      return;
+    }
+    selectNode(nodeId);
+    requestAnimationFrame(() => {
+      const element = window.document.querySelector(`[data-node-id="${CSS.escape(nodeId)}"]`);
+      element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [document, selectNode]);
+
   if (!document) {
     return (
       <div style={{ padding: 24, textAlign: 'center' }}>
@@ -951,106 +1193,67 @@ export default function StrategyStudioPage() {
   }
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '8px 16px' }}>
-      {/* ---- Toolbar ---- */}
-      <div style={{ marginBottom: 8 }}>
-        <Space wrap>
-          <Button icon={<SaveOutlined />} onClick={() => setListOpen(true)}>
-            策略列表
-          </Button>
-          <Popconfirm
-            title="新建策略？"
-            description="当前策略尚未保存，新建后未保存内容将丢失。"
-            okText="仍要新建"
-            cancelText="取消"
-            placement="bottomLeft"
-            disabled={!isDirty}
-            onConfirm={handleCreateNew}
-          >
-            <Button
-              icon={<PlusOutlined />}
-              onClick={isDirty ? undefined : handleCreateNew}
-            >
-              新建策略
-            </Button>
-          </Popconfirm>
+    <div className="strategy-studio">
+      <header className="strategy-studio-header">
+        <div className="strategy-studio-identity">
           <Input
-            style={{ width: 200 }}
-            size="small"
+            className="strategy-studio-name"
             value={document.name}
-            onChange={(e) => updateDocument((d) => { d.name = e.target.value; })}
+            onChange={(event) => updateDocument((draft) => { draft.name = event.target.value; })}
             placeholder="策略名称"
+            aria-label="策略名称"
           />
           <TextArea
-            style={{ width: 200 }}
-            size="small"
-            autoSize
+            className="strategy-studio-description"
+            autoSize={{ minRows: 1, maxRows: 2 }}
             value={document.description}
-            onChange={(e) => updateDocument((d) => { d.description = e.target.value; })}
-            placeholder="策略说明"
+            onChange={(event) => updateDocument((draft) => { draft.description = event.target.value; })}
+            placeholder="补充策略说明，让逻辑和适用场景更清楚"
+            aria-label="策略说明"
           />
+          <Space size="small" wrap>
+            <Tag color={isDirty ? 'orange' : 'default'}>{isDirty ? '有未保存修改' : '已保存'}</Tag>
+            <Tag>版本 {document.strategyVersion}</Tag>
+            {validationResult?.valid ? (
+              <Tag color="success" icon={<CheckCircleOutlined />}>校验通过</Tag>
+            ) : (
+              <Tag color="error" icon={<CloseCircleOutlined />}>
+                {validationResult?.errors.length ?? 0} 个错误
+              </Tag>
+            )}
+          </Space>
+        </div>
 
-          <Divider type="vertical" />
-
-          <Tooltip title="撤销">
-            <Button
-              size="small"
-              icon={<UndoOutlined />}
-              disabled={undoStack.length === 0}
-              onClick={undo}
-              aria-label="撤销"
-            />
-          </Tooltip>
-          <Tooltip title="重做">
-            <Button
-              size="small"
-              icon={<RedoOutlined />}
-              disabled={redoStack.length === 0}
-              onClick={redo}
-              aria-label="重做"
-            />
-          </Tooltip>
-
-          <Divider type="vertical" />
-
+        <div className="strategy-studio-actions">
+          <Space.Compact>
+            <Tooltip title="撤销">
+              <Button
+                icon={<UndoOutlined />}
+                disabled={undoStack.length === 0}
+                onClick={undo}
+                aria-label="撤销"
+              />
+            </Tooltip>
+            <Tooltip title="重做">
+              <Button
+                icon={<RedoOutlined />}
+                disabled={redoStack.length === 0}
+                onClick={redo}
+                aria-label="重做"
+              />
+            </Tooltip>
+          </Space.Compact>
           <Badge dot={isDirty}>
-            <Button type="primary" icon={<SaveOutlined />} onClick={save}>
-              保存草稿
+            <Button type="primary" icon={<SaveOutlined />} onClick={() => void save()}>
+              保存
             </Button>
           </Badge>
-          <Button icon={<CheckCircleOutlined />} onClick={publish}>
-            发布版本
-          </Button>
-
-          <Divider type="vertical" />
-
-          <Tooltip title="导入策略 JSON">
-            <Button size="small" icon={<ImportOutlined />} onClick={handleImport} aria-label="导入策略 JSON" />
-          </Tooltip>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json"
-            style={{ display: 'none' }}
-            onChange={handleFileChange}
-          />
-          <Tooltip title="导出策略 JSON">
-            <Button size="small" icon={<ExportOutlined />} onClick={handleExport} aria-label="导出策略 JSON" />
-          </Tooltip>
-
-          <Tooltip title="AI 生成策略">
-            <Button size="small" icon={<BulbOutlined />} onClick={() => setAiDrawerOpen(true)}>
-              AI 生成
-            </Button>
-          </Tooltip>
-
-          <Tooltip title={candles.length === 0 ? '请先加载行情数据' : '预览策略信号'}>
+          <Tooltip title={candles.length === 0 ? '请先在行情分析中加载数据' : '计算当前数据上的买卖信号'}>
             <Button
-              size="small"
               icon={<PlayCircleOutlined />}
               disabled={candles.length === 0}
+              loading={preview.status === 'running'}
               onClick={() => {
-                if (!document) return;
                 setPreviewOpen(true);
                 preview.run(candles, document, {});
               }}
@@ -1058,30 +1261,50 @@ export default function StrategyStudioPage() {
               信号预览
             </Button>
           </Tooltip>
-
           <Button
-            size="small"
-            icon={<ThunderboltOutlined />}
-            onClick={() => setSummaryOpen(true)}
+            icon={<CheckCircleOutlined />}
+            disabled={!validationResult?.valid}
+            onClick={() => {
+              void publish()
+                .then(() => message.success('策略版本已发布'))
+                .catch((error: unknown) => message.error(error instanceof Error ? error.message : '发布失败'));
+            }}
           >
-            策略摘要
+            发布
           </Button>
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: [
+                { key: 'list', icon: <SaveOutlined />, label: '策略列表', onClick: () => setListOpen(true) },
+                { key: 'new', icon: <PlusOutlined />, label: '新建策略', onClick: handleNewRequest },
+                { type: 'divider' },
+                { key: 'ai', icon: <BulbOutlined />, label: 'AI 生成策略', onClick: () => setAiDrawerOpen(true) },
+                { key: 'summary', icon: <ThunderboltOutlined />, label: '查看策略摘要', onClick: () => setSummaryOpen(true) },
+                { type: 'divider' },
+                { key: 'import', icon: <ImportOutlined />, label: '导入 JSON', onClick: handleImport },
+                { key: 'export', icon: <ExportOutlined />, label: '导出 JSON', onClick: handleExport },
+              ],
+            }}
+          >
+            <Button icon={<MoreOutlined />} aria-label="更多策略操作">更多</Button>
+          </Dropdown>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json"
+          style={{ display: 'none' }}
+          onChange={handleFileChange}
+        />
+      </header>
 
-          {validationResult && !validationResult.valid && (
-            <Tag color="error">
-              {validationResult.errors.length} 个错误
-            </Tag>
-          )}
-          {validationResult && validationResult.valid && (
-            <Tag color="success">校验通过</Tag>
-          )}
-        </Space>
-      </div>
-
-      {/* ---- Main Content ---- */}
-      <Row gutter={12} style={{ flex: 1, overflow: 'hidden' }}>
-        {/* Left: Indicators + Parameters + Risk */}
-        <Col xs={24} lg={6} style={{ overflow: 'auto', maxHeight: '100%' }}>
+      <div className="strategy-studio-workspace">
+        <aside className="strategy-studio-library" aria-label="策略构建素材">
+          <div className="strategy-panel-heading">
+            <span>构建素材</span>
+            <Text type="secondary">指标、参数与风控</Text>
+          </div>
           <Space direction="vertical" style={{ width: '100%' }} size="small">
             <IndicatorManager
               indicators={document.indicators}
@@ -1096,11 +1319,20 @@ export default function StrategyStudioPage() {
               onChange={(risk) => updateDocument((d) => { d.risk = risk; })}
             />
           </Space>
-        </Col>
+        </aside>
 
-        {/* Center: Entry + Exit Rule Groups */}
-        <Col xs={24} lg={14} style={{ overflow: 'auto', maxHeight: '100%' }}>
+        <main className="strategy-studio-canvas">
+          <div className="strategy-panel-heading">
+            <Space size="small">
+              <ExperimentOutlined />
+              <span>策略规则</span>
+            </Space>
+            <Text type="secondary">
+              {countConditions(document.entry) + countConditions(document.exit)} 个条件
+            </Text>
+          </div>
           <Collapse
+            className="strategy-rule-sections"
             defaultActiveKey={['entry', 'exit']}
             items={[
               {
@@ -1109,7 +1341,7 @@ export default function StrategyStudioPage() {
                   <Space>
                     <Tag color="red">买入条件</Tag>
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      {document.entry.children.length} 个条件组
+                      {countConditions(document.entry)} 个条件
                     </Text>
                   </Space>
                 ),
@@ -1118,6 +1350,8 @@ export default function StrategyStudioPage() {
                     group={document.entry}
                     doc={document}
                     onChange={(entry) => updateDocument((d) => { d.entry = entry; })}
+                    selectedNodeId={selectedNodeId}
+                    onSelectNode={selectNode}
                   />
                 ),
               },
@@ -1127,7 +1361,7 @@ export default function StrategyStudioPage() {
                   <Space>
                     <Tag color="green">卖出条件</Tag>
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      {document.exit.children.length} 个条件组
+                      {countConditions(document.exit)} 个条件
                     </Text>
                   </Space>
                 ),
@@ -1136,47 +1370,31 @@ export default function StrategyStudioPage() {
                     group={document.exit}
                     doc={document}
                     onChange={(exit) => updateDocument((d) => { d.exit = exit; })}
+                    selectedNodeId={selectedNodeId}
+                    onSelectNode={selectNode}
                   />
                 ),
               },
             ]}
           />
-        </Col>
+        </main>
 
-        {/* Right: Validation Errors */}
-        <Col xs={24} lg={4} style={{ overflow: 'auto', maxHeight: '100%' }}>
-          <Card size="small" title="校验结果">
-            {!validationResult && <Text type="secondary">未校验</Text>}
-            {validationResult && validationResult.valid && (
-              <Space direction="vertical">
-                <Tag color="success" icon={<CheckCircleOutlined />}>通过</Tag>
-                {validationResult.warnings.length > 0 && (
-                  <>
-                    <Text type="warning" strong>提示:</Text>
-                    {validationResult.warnings.map((w, i) => (
-                      <Text key={i} type="warning" style={{ fontSize: 12 }}>{w.message}</Text>
-                    ))}
-                  </>
-                )}
-              </Space>
-            )}
-            {validationResult && !validationResult.valid && (
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Tag color="error" icon={<CloseCircleOutlined />}>
-                  {validationResult.errors.length} 个错误
-                </Tag>
-                {validationResult.errors.map((e, i) => (
-                  <Card key={i} size="small" style={{ width: '100%' }}>
-                    <Text style={{ fontSize: 11 }} code>{e.path}</Text>
-                    <br />
-                    <Text style={{ fontSize: 12 }} type="danger">{e.message}</Text>
-                  </Card>
-                ))}
-              </Space>
-            )}
-          </Card>
-        </Col>
-      </Row>
+        <aside className="strategy-studio-inspector" aria-label="属性与校验面板">
+          <div className="strategy-panel-heading">
+            <span>属性与反馈</span>
+            <Text type="secondary">选择规则后编辑</Text>
+          </div>
+          <StrategyInspector
+            document={document}
+            selectedNodeId={selectedNodeId}
+            validationResult={validationResult}
+            previewStatus={preview.status}
+            previewSignals={preview.signals}
+            onConditionChange={handleConditionChange}
+            onSelectError={handleIssueSelect}
+          />
+        </aside>
+      </div>
 
       {/* ---- Drawers ---- */}
       <StrategyListDrawer open={listOpen} onClose={() => setListOpen(false)} />
@@ -1223,7 +1441,7 @@ export default function StrategyStudioPage() {
         )}
 
         {preview.status === 'failed' && (
-          <Alert type="error" message="预览失败" description={preview.error} showIcon />
+          <Alert type="error" title="预览失败" description={preview.error} showIcon />
         )}
 
         {preview.status === 'completed' && (

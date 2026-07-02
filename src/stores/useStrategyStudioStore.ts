@@ -83,7 +83,7 @@ export const useStrategyStudioStore = create<StrategyStudioState>((set, get) => 
       undoStack: [],
       redoStack: [],
       selectedNodeId: null,
-      validationResult: null,
+      validationResult: validateDocument(doc),
       isDirty: false,
     });
   },
@@ -97,7 +97,7 @@ export const useStrategyStudioStore = create<StrategyStudioState>((set, get) => 
       undoStack: [],
       redoStack: [],
       selectedNodeId: null,
-      validationResult: null,
+      validationResult: validateDocument(stored.document),
       isDirty: false,
     });
   },
@@ -135,6 +135,7 @@ export const useStrategyStudioStore = create<StrategyStudioState>((set, get) => 
       document: prev,
       undoStack: newUndo,
       redoStack: [...get().redoStack, document],
+      validationResult: validateDocument(prev),
       isDirty: true,
     });
   },
@@ -148,6 +149,8 @@ export const useStrategyStudioStore = create<StrategyStudioState>((set, get) => 
       document: next,
       redoStack: newRedo,
       undoStack: [...get().undoStack, document],
+      validationResult: validateDocument(next),
+      isDirty: true,
     });
   },
 
