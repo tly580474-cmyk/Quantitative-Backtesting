@@ -11,6 +11,7 @@ interface ChartState {
     changePercent?: number;
     volume?: number;
     turnover?: number;
+    turnoverRatePct?: number;
   } | null;
   crosshairIndicators: Array<{
     id: string;

@@ -4,7 +4,8 @@ import type { Candle } from '@/models';
 export function computeDataChecksum(candles: Candle[]): string {
   let hash = 0;
   for (const c of candles) {
-    const s = `${c.time}|${c.open}|${c.high}|${c.low}|${c.close}|${c.volume ?? 0}`;
+    const base = `${c.time}|${c.open}|${c.high}|${c.low}|${c.close}|${c.volume ?? 0}`;
+    const s = c.turnoverRatePct == null ? base : `${base}|${c.turnoverRatePct}`;
     for (let i = 0; i < s.length; i++) {
       const ch = s.charCodeAt(i);
       hash = ((hash << 5) - hash) + ch;

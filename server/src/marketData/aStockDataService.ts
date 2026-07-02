@@ -9,6 +9,7 @@ const TENCENT_MINUTE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/minute/query'
 const TENCENT_SEARCH_URL = 'https://smartbox.gtimg.cn/s3/';
 const EASTMONEY_REPORT_URL = 'https://reportapi.eastmoney.com/report/list';
 const EASTMONEY_INFO_URL = 'https://push2.eastmoney.com/api/qt/stock/get';
+const EASTMONEY_KLINE_URL = 'https://push2his.eastmoney.com/api/qt/stock/kline/get';
 
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
@@ -60,6 +61,8 @@ export interface KlinePoint {
   high: number;
   low: number;
   volume: number;
+  /** Daily turnover rate in percentage points; 0.41 means 0.41%. */
+  turnoverRatePct?: number;
 }
 
 export type StockKlinePeriod = 'intraday' | 'day' | 'week' | 'year';
@@ -1122,7 +1125,22 @@ function parseTencentQuote(
 }
 
 export async function fetchStockKline(input: string, period: 'day' | 'week' | 'year', count = 320): Promise<KlinePoint[]> {
-  const { prefixed } = resolveSecurity(input);
+  const security = resolveSecurity(input);
+  const { prefixed } = security;
+
+  // Eastmoney daily rows include f61, the exchange-reported daily turnover
+  // rate. Tencent is retained as a fallback, but its K-line rows only contain
+  // OHLCV and therefore cannot provide this field.
+  if (period === 'day' && inferType(security.code, security.market) === 'stock') {
+    try {
+      const eastmoneyPoints = await fetchEastmoneyDailyKline(input, count);
+      if (eastmoneyPoints.length > 0) return eastmoneyPoints;
+    } catch {
+      // Fall back to Tencent so the price chart remains available when the
+      // richer upstream endpoint is temporarily unavailable.
+    }
+  }
+
   // Tencent's direct `year` interval only returns the current partial year. Pull
   // monthly bars instead, then aggregate them so long-lived stocks retain history.
   const upstreamPeriod = period === 'year' ? 'month' : period;
@@ -1162,6 +1180,45 @@ export async function fetchStockKline(input: string, period: 'day' | 'week' | 'y
     }
   }
   return Array.from(grouped.values()).slice(-30);
+}
+
+async function fetchEastmoneyDailyKline(input: string, count: number): Promise<KlinePoint[]> {
+  const { code, market } = resolveSecurity(input);
+  const marketCode = market === 'SH' ? '1' : '0';
+  const params = new URLSearchParams({
+    secid: `${marketCode}.${code}`,
+    fields1: 'f1,f2,f3,f4,f5,f6',
+    fields2: 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
+    klt: '101',
+    fqt: '1',
+    end: '20500101',
+    lmt: String(Math.min(Math.max(count, 30), 800)),
+  });
+  const response = await eastmoneyGet(EASTMONEY_KLINE_URL, params, 'https://quote.eastmoney.com/');
+  if (!response.ok) throw new Error(`东方财富 K 线接口 HTTP ${response.status}`);
+  const payload = await response.json() as { data?: { klines?: unknown } };
+  return parseEastmoneyDailyKlines(payload.data?.klines);
+}
+
+export function parseEastmoneyDailyKlines(input: unknown): KlinePoint[] {
+  if (!Array.isArray(input)) return [];
+  return input.flatMap((row) => {
+    const fields = String(row).split(',');
+    if (fields.length < 11) return [];
+    const [date, open, close, high, low, volume, , , , , turnoverRatePct] = fields;
+    const prices = [open, close, high, low, volume].map(Number);
+    const rate = numberOrNull(turnoverRatePct);
+    if (!date || prices.some((value) => !Number.isFinite(value))) return [];
+    return [{
+      date,
+      open: prices[0],
+      close: prices[1],
+      high: prices[2],
+      low: prices[3],
+      volume: prices[4],
+      ...(rate == null ? {} : { turnoverRatePct: rate }),
+    }];
+  });
 }
 
 export async function fetchStockIntraday(input: string): Promise<KlinePoint[]> {

@@ -41,6 +41,7 @@ export const candles = mysqlTable('candles', {
   changePercent: double('change_percent'),
   volume: double('volume'),
   turnover: double('turnover'),
+  turnoverRatePct: double('turnover_rate_pct'),
   constituentCount: double('constituent_count'),
 }, (table) => ({
   datasetTimeUnique: uniqueIndex('idx_candles_dataset_time').on(table.datasetId, table.time),
@@ -187,6 +188,7 @@ export const dailyCandles = mysqlTable('daily_candles', {
   close: double('close').notNull(),
   volume: double('volume').notNull(),
   turnover: double('turnover'),
+  turnoverRatePct: double('turnover_rate_pct'),
   sourceId: varchar('source_id', { length: 64 }).notNull(),
   sourceVersion: varchar('source_version', { length: 32 }).notNull().default('1'),
   fetchedAt: varchar('fetched_at', { length: 24 }).notNull(),

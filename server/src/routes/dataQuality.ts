@@ -83,6 +83,14 @@ const QUALITY_RULES: {
         ? '成交量为零（可能停牌）'
         : null,
   },
+  {
+    code: 'TURNOVER_RATE_NEGATIVE',
+    severity: 'warning',
+    check: (c) =>
+      c.turnoverRatePct != null && Number(c.turnoverRatePct) < 0
+        ? `换手率(${c.turnoverRatePct})为负数`
+        : null,
+  },
 ];
 
 // ─── Route Registration ─────────────────────────────────────────────────

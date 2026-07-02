@@ -222,6 +222,7 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
       changePercent,
       volume: candle.volume,
       turnover: candle.turnover,
+      turnoverRatePct: candle.turnoverRatePct,
     });
 
     const indicatorDetails = indicatorResultsRef.current.flatMap((result) => {

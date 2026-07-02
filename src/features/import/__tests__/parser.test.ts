@@ -87,4 +87,15 @@ describe('parseSheetData', () => {
     expect(result.candles[0].changePercent).toBeCloseTo(4.76, 10);
     expect(result.candles[1].changePercent).toBeCloseTo(4.76, 10);
   });
+
+  it('imports turnover rate in percentage points', () => {
+    const header = [...sampleHeader, '换手率(%)'];
+    const numericRow = [...makeRow('20210621', 100, 110, 95, 105), '3.25'];
+    const percentRow = [...makeRow('20210622', 105, 115, 100, 110), '4.50%'];
+
+    const result = parseSheetData([header, numericRow, percentRow]);
+
+    expect(result.candles[0].turnoverRatePct).toBe(3.25);
+    expect(result.candles[1].turnoverRatePct).toBe(4.5);
+  });
 });

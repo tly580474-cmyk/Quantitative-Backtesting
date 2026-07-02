@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchMarketIndexQuotes, fetchStockQuote } from './aStockDataService.js';
+import {
+  fetchMarketIndexQuotes,
+  fetchStockQuote,
+  parseEastmoneyDailyKlines,
+} from './aStockDataService.js';
 
 describe('A-share stock quote service', () => {
   afterEach(() => {
@@ -87,5 +91,29 @@ describe('A-share stock quote service', () => {
       type: 'index',
       price: 4109.27,
     });
+  });
+
+  it('maps Eastmoney daily f61 to the real turnover-rate field', () => {
+    const points = parseEastmoneyDailyKlines([
+      '2026-07-02,1193.01,1203.00,1215.52,1190.51,50870,6122360932.00,2.10,0.84,9.99,0.41',
+    ]);
+
+    expect(points).toEqual([{
+      date: '2026-07-02',
+      open: 1193.01,
+      close: 1203,
+      high: 1215.52,
+      low: 1190.51,
+      volume: 50870,
+      turnoverRatePct: 0.41,
+    }]);
+  });
+
+  it('does not invent a turnover rate when Eastmoney returns a placeholder', () => {
+    const points = parseEastmoneyDailyKlines([
+      '2026-07-02,4100,4110,4120,4090,100000,1000000000,0.73,0.20,8.20,-',
+    ]);
+
+    expect(points[0].turnoverRatePct).toBeUndefined();
   });
 });

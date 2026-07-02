@@ -104,6 +104,9 @@ function buildCandle(
   const turnover = parseNumber(values['turnover']);
   if (!Number.isNaN(turnover)) candle.turnover = turnover;
 
+  const turnoverRatePct = parsePercentPoints(values['turnoverRatePct']);
+  if (!Number.isNaN(turnoverRatePct)) candle.turnoverRatePct = turnoverRatePct;
+
   const cc = parseNumber(values['constituentCount']);
   if (!Number.isNaN(cc)) candle.constituentCount = cc;
 

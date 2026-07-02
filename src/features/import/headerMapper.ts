@@ -18,6 +18,7 @@ export const FIELD_MAPPINGS: FieldMapping[] = [
   { field: 'changePercent', aliases: ['涨跌幅(%)Change(%)', '涨跌幅(%)', '涨跌幅', 'changePercent'] },
   { field: 'volume', aliases: ['成交量 Volume', '成交量', 'volume', 'Volume'] },
   { field: 'turnover', aliases: ['成交金额（亿元）Turnover', '成交金额', '成交金额(亿元)', 'turnover', 'Turnover'] },
+  { field: 'turnoverRatePct', aliases: ['换手率百分比', '换手率(%)', '换手率', 'turnoverRatePct'] },
   { field: 'constituentCount', aliases: ['样本数量ConsNumber', '样本数量', 'constituentCount'] },
 ];
 

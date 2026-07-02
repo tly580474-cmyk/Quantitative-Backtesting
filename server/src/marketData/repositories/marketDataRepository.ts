@@ -80,6 +80,7 @@ export async function upsertDailyCandles(
             close: sql`VALUES(${dailyCandles.close})`,
             volume: sql`VALUES(${dailyCandles.volume})`,
             turnover: sql`VALUES(${dailyCandles.turnover})`,
+            turnoverRatePct: sql`VALUES(${dailyCandles.turnoverRatePct})`,
             sourceVersion: sql`VALUES(${dailyCandles.sourceVersion})`,
             fetchedAt: sql`VALUES(${dailyCandles.fetchedAt})`,
           },

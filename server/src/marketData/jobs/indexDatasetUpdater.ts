@@ -172,6 +172,7 @@ async function fetchChinaIndexCandles(
       low: item.low,
       close: item.close,
       volume: item.volume,
+      turnoverRatePct: item.turnoverRatePct,
     }));
     if (rows.length > 0) return rows;
   } catch {
@@ -216,6 +217,7 @@ async function fetchEastmoneyIndexCandles(symbol: string, startDate: string, end
       changePercent: Number(changePercent),
       volume: Number(volume) || 0,
       turnover: Number(turnover) || undefined,
+      turnoverRatePct: undefined,
       constituentCount: undefined,
     }];
   });
@@ -280,6 +282,7 @@ async function appendDatasetCandles(
     changePercent: item.changePercent ?? null,
     volume: item.volume ?? null,
     turnover: item.turnover ?? null,
+    turnoverRatePct: item.turnoverRatePct ?? null,
     constituentCount: item.constituentCount ?? null,
   }));
 
@@ -293,6 +296,7 @@ async function appendDatasetCandles(
           close: row.close,
           volume: row.volume,
           turnover: row.turnover,
+          turnoverRatePct: row.turnoverRatePct,
           constituentCount: row.constituentCount,
         },
       });
@@ -333,6 +337,7 @@ async function computeDatasetChecksum(datasetId: string): Promise<string> {
       low: candles.low,
       close: candles.close,
       volume: candles.volume,
+      turnoverRatePct: candles.turnoverRatePct,
     })
     .from(candles)
     .where(eq(candles.datasetId, datasetId))
@@ -340,7 +345,8 @@ async function computeDatasetChecksum(datasetId: string): Promise<string> {
 
   let hash = 0;
   for (const candle of rows) {
-    const value = `${candle.time}|${candle.open}|${candle.high}|${candle.low}|${candle.close}|${candle.volume ?? 0}`;
+    const base = `${candle.time}|${candle.open}|${candle.high}|${candle.low}|${candle.close}|${candle.volume ?? 0}`;
+    const value = candle.turnoverRatePct == null ? base : `${base}|${candle.turnoverRatePct}`;
     for (let index = 0; index < value.length; index += 1) {
       hash = ((hash << 5) - hash) + value.charCodeAt(index);
       hash |= 0;

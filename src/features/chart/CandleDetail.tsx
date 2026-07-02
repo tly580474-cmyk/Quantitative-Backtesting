@@ -58,6 +58,9 @@ export default function CandleDetail() {
       {data.turnover != null && (
         <Row label="成交额" value={`${data.turnover.toFixed(2)} 亿`} />
       )}
+      {data.turnoverRatePct != null && (
+        <Row label="换手率" value={`${data.turnoverRatePct.toFixed(2)}%`} />
+      )}
       {indicators.map((indicator) => (
         <div
           key={indicator.id}

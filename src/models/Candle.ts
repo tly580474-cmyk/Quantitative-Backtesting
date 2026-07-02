@@ -9,5 +9,7 @@ export interface Candle {
   changePercent?: number;
   volume?: number;
   turnover?: number;
+  /** Daily turnover rate in percentage points; 0.41 means 0.41%. */
+  turnoverRatePct?: number;
   constituentCount?: number;
 }

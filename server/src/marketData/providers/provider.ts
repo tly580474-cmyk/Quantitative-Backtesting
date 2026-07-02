@@ -70,6 +70,7 @@ export interface ProviderCandle {
   close: number;
   volume: number;
   turnover?: number;
+  turnoverRatePct?: number;
 }
 
 export interface AdjustmentFactor {

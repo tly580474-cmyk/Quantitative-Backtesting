@@ -36,9 +36,19 @@ describe('computeDataChecksum', () => {
     expect(typeof result).toBe('string');
   });
 
+  it('keeps the legacy checksum when turnover rate is absent', () => {
+    expect(computeDataChecksum([makeCandle()])).toBe('-75694ba5');
+  });
+
   it('is sensitive to volume changes', () => {
     const a = [makeCandle({ volume: 1000 })];
     const b = [makeCandle({ volume: 2000 })];
+    expect(computeDataChecksum(a)).not.toBe(computeDataChecksum(b));
+  });
+
+  it('is sensitive to turnover-rate changes', () => {
+    const a = [makeCandle({ turnoverRatePct: 1.2 })];
+    const b = [makeCandle({ turnoverRatePct: 3.4 })];
     expect(computeDataChecksum(a)).not.toBe(computeDataChecksum(b));
   });
 });

@@ -87,6 +87,7 @@ export function calculateForwardAdjusted(
       close: round(candle.close * ratio),
       volume: candle.volume,
       turnover: candle.turnover,
+      turnoverRatePct: candle.turnoverRatePct,
       adjustmentMode: 'qfq',
     };
   });
@@ -133,6 +134,7 @@ export function calculateBackwardAdjusted(
       close: round(candle.close * ratio),
       volume: candle.volume,
       turnover: candle.turnover,
+      turnoverRatePct: candle.turnoverRatePct,
       adjustmentMode: 'hfq',
     };
   });
@@ -187,6 +189,7 @@ function toAdjustedCandle(
     close: candle.close,
     volume: candle.volume,
     turnover: candle.turnover,
+    turnoverRatePct: candle.turnoverRatePct,
     adjustmentMode: mode,
   };
 }

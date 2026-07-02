@@ -49,6 +49,10 @@ export function validateCandles(candles: Candle[]): ValidationResult {
       errors.push({ row, message: '成交金额不得为负' });
       hasError = true;
     }
+    if (c.turnoverRatePct != null && c.turnoverRatePct < 0) {
+      errors.push({ row, message: '换手率不得为负' });
+      hasError = true;
+    }
 
     // Duplicate date check
     if (seenDates.has(c.time)) {

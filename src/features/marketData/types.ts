@@ -99,6 +99,8 @@ export interface KlinePoint {
   high: number;
   low: number;
   volume: number;
+  /** Daily turnover rate in percentage points; 0.41 means 0.41%. */
+  turnoverRatePct?: number;
 }
 
 export interface WatchlistScoreSnapshot {

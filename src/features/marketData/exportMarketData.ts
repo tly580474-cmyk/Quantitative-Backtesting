@@ -17,6 +17,7 @@ export function toCandles(points: KlinePoint[], quote: Pick<StockQuote, 'code'>)
       change,
       changePercent,
       volume: point.volume,
+      turnoverRatePct: point.turnoverRatePct,
     };
   });
 }
@@ -33,10 +34,11 @@ export function exportMarketKlinesToExcel(quote: StockQuote, points: KlinePoint[
     涨跌额: candle.change ?? null,
     涨跌幅百分比: candle.changePercent ?? null,
     成交量: candle.volume ?? null,
+    换手率百分比: candle.turnoverRatePct ?? null,
   }));
   const workbook = XLSX.utils.book_new();
   const sheet = XLSX.utils.json_to_sheet(rows);
-  sheet['!autofilter'] = { ref: `A1:J${Math.max(1, rows.length + 1)}` };
+  sheet['!autofilter'] = { ref: `A1:K${Math.max(1, rows.length + 1)}` };
   sheet['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
   sheet['!cols'] = [
     { wch: 12 },
@@ -47,6 +49,7 @@ export function exportMarketKlinesToExcel(quote: StockQuote, points: KlinePoint[
     { wch: 12 },
     { wch: 12 },
     { wch: 12 },
+    { wch: 14 },
     { wch: 14 },
     { wch: 14 },
   ];

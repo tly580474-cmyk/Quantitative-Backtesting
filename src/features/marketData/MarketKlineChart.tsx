@@ -93,6 +93,10 @@ function formatPct(value: number | null) {
   return value == null || !Number.isFinite(value) ? '—' : `${value >= 0 ? '+' : ''}${fmt(value)}%`;
 }
 
+function formatTurnoverRate(value: number | null | undefined) {
+  return value == null || !Number.isFinite(value) ? '—' : `${fmt(value)}%`;
+}
+
 function chartTime(date: string): Time {
   if (date.includes(' ')) return Math.floor(new Date(`${date.replace(' ', 'T')}:00+08:00`).getTime() / 1000) as Time;
   return date as Time;
@@ -378,6 +382,7 @@ export default function MarketKlineChart({ data, period, previousClose }: { data
       <span className="ma20">MA20 {fmt(latest?.ma20 ?? null)}</span>
       <span>RSI14 {fmt(latest?.rsi14 ?? null)}</span>
       <span>MACD {fmt(latest?.macd ?? null)}</span>
+      {period === 'day' && <span>换手率 {formatTurnoverRate(data[data.length - 1]?.turnoverRatePct)}</span>}
     </div>
     <div ref={ref} className="market-kline" aria-label={isIntraday ? '股票分时图，移动鼠标查看分钟数据' : '股票 K 线图，移动鼠标查看每日数据'} />
     {hover && <div className="market-chart-tooltip" role="status">
@@ -387,7 +392,9 @@ export default function MarketKlineChart({ data, period, previousClose }: { data
         <dt>最低</dt><dd>{fmt(hover.low)}</dd><dt>收盘</dt><dd>{fmt(hover.close)}</dd>
         <dt>涨跌</dt><dd className={(hover.change ?? 0) >= 0 ? 'market-up' : 'market-down'}>{fmt(hover.change)}</dd>
         <dt>涨跌幅</dt><dd className={(hover.changePct ?? 0) >= 0 ? 'market-up' : 'market-down'}>{fmt(hover.changePct)}%</dd>
-        <dt>成交量</dt><dd>{formatVolume(hover.volume)}</dd><dt>RSI14</dt><dd>{fmt(hover.rsi14)}</dd>
+        <dt>成交量</dt><dd>{formatVolume(hover.volume)}</dd>
+        {period === 'day' && <><dt>换手率</dt><dd>{formatTurnoverRate(hover.turnoverRatePct)}</dd></>}
+        <dt>RSI14</dt><dd>{fmt(hover.rsi14)}</dd>
         <dt>MA5/10/20</dt><dd>{fmt(hover.ma5)} / {fmt(hover.ma10)} / {fmt(hover.ma20)}</dd>
         <dt>MACD</dt><dd>{fmt(hover.macd)}</dd>
       </dl>

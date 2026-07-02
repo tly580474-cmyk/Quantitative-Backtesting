@@ -24,6 +24,7 @@ const RULES = {
   LOW_ABOVE_OHLC: 'LOW_ABOVE_OHLC',
   VOLUME_NEGATIVE: 'VOLUME_NEGATIVE',
   TURNOVER_NEGATIVE: 'TURNOVER_NEGATIVE',
+  TURNOVER_RATE_NEGATIVE: 'TURNOVER_RATE_NEGATIVE',
   DUPLICATE_DATE: 'DUPLICATE_DATE',
   DATES_OUT_OF_ORDER: 'DATES_OUT_OF_ORDER',
 } as const;
@@ -133,6 +134,14 @@ export function validateCandleSet(candles: DailyCandle[]): ValidationResult {
         tradeDate: candle.tradeDate,
         ruleCode: RULES.TURNOVER_NEGATIVE,
         message: `turnover is negative: ${candle.turnover}`,
+      });
+    }
+
+    if (candle.turnoverRatePct !== undefined && candle.turnoverRatePct < 0) {
+      warnings.push({
+        tradeDate: candle.tradeDate,
+        ruleCode: RULES.TURNOVER_RATE_NEGATIVE,
+        message: `turnoverRatePct is negative: ${candle.turnoverRatePct}`,
       });
     }
 

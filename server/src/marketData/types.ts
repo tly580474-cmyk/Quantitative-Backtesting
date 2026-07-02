@@ -51,6 +51,7 @@ export interface DailyCandle {
   close: number;
   volume: number;
   turnover?: number;
+  turnoverRatePct?: number;
   sourceId: string;
   sourceVersion: string;
   fetchedAt: string;
@@ -143,5 +144,6 @@ export interface AdjustedCandle {
   close: number;
   volume: number;
   turnover?: number;
+  turnoverRatePct?: number;
   adjustmentMode: 'none' | 'qfq' | 'hfq';
 }

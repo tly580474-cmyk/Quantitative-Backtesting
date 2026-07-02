@@ -36,6 +36,7 @@ export function normalizeCandle(
     close: Number(raw.close),
     volume: Number(raw.volume),
     turnover: raw.turnover != null ? Number(raw.turnover) : undefined,
+    turnoverRatePct: raw.turnoverRatePct != null ? Number(raw.turnoverRatePct) : undefined,
     sourceId,
     sourceVersion: '1.0',
     fetchedAt: now,
@@ -118,6 +119,9 @@ export function validateCandle(candle: DailyCandle): {
   }
 
   if (candle.volume < 0) errors.push('volume must be >= 0');
+  if (candle.turnoverRatePct != null && candle.turnoverRatePct < 0) {
+    errors.push('turnoverRatePct must be >= 0');
+  }
 
   return { valid: errors.length === 0, errors };
 }
