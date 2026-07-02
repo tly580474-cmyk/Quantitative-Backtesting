@@ -286,13 +286,24 @@ async function eastmoneyGet(url: string, params: URLSearchParams, referer: strin
   const run = eastmoneyQueue.then(async () => {
     const wait = Math.max(0, 1200 - (Date.now() - eastmoneyLastCall));
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait + Math.floor(Math.random() * 250)));
+    let lastError: unknown;
     try {
-      const response = await fetch(`${url}?${params.toString()}`, {
-        headers: { ...BROWSER_HEADERS, Referer: referer },
-        signal: AbortSignal.timeout(20000),
-      });
-      if (!response.ok) throw new Error(`东方财富接口 HTTP ${response.status}`);
-      return response;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          const response = await fetch(`${url}?${params.toString()}`, {
+            headers: { ...BROWSER_HEADERS, Referer: referer },
+            signal: AbortSignal.timeout(20000),
+          });
+          if (response.ok) return response;
+          lastError = new Error(`东方财富接口 HTTP ${response.status}`);
+        } catch (error) {
+          lastError = error;
+        }
+        if (attempt < 3) {
+          await new Promise((resolve) => setTimeout(resolve, 400 * attempt + Math.floor(Math.random() * 200)));
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error('东方财富接口暂时不可用');
     } finally {
       eastmoneyLastCall = Date.now();
     }

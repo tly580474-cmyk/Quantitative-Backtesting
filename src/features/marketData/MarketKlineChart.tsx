@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, type Time } from 'lightweight-charts';
 import { Empty, Segmented } from 'antd';
 import type { KlinePoint, MarketKlinePeriod } from './types';
+import {
+  calculateChipDistribution,
+  type ChipDistribution,
+} from './chipDistribution';
 
 interface IndicatorPoint {
   ma5: number | null;
@@ -150,7 +154,77 @@ function timeKey(time: Time): string {
   return `${value.year}-${String(value.month).padStart(2, '0')}-${String(value.day).padStart(2, '0')}`;
 }
 
-export default function MarketKlineChart({ data, period, previousClose }: { data: KlinePoint[]; period: MarketKlinePeriod; previousClose?: number | null }) {
+function ChipProfile({
+  distribution,
+  asOfDate,
+}: {
+  distribution: ChipDistribution | null;
+  asOfDate: string | null;
+}) {
+  if (!distribution) {
+    return (
+      <aside className="market-chip-profile is-empty" aria-label="筹码峰暂无数据">
+        <strong>筹码峰</strong>
+        <span>{asOfDate ? `${asOfDate} 缺少足够的每日换手率` : '缺少完整的每日换手率'}</span>
+      </aside>
+    );
+  }
+
+  const maxWeight = Math.max(...distribution.bins.map((bin) => bin.weight));
+  const minPrice = distribution.bins[0].price;
+  const maxPrice = distribution.bins[distribution.bins.length - 1].price;
+  const priceRange = Math.max(maxPrice - minPrice, 0.01);
+  const position = (price: number) => (maxPrice - price) / priceRange * 100;
+  const peakTop = position(distribution.peakPrice);
+  const visibleThreshold = maxWeight * 0.05;
+  const visibleBins = distribution.bins.filter((bin) => bin.weight >= visibleThreshold);
+
+  return (
+    <aside
+      className="market-chip-profile"
+      aria-label={`${asOfDate ?? '最新'}筹码峰，峰值 ${fmt(distribution.peakPrice)}，平均成本 ${fmt(distribution.averageCost)}，获利比例 ${fmt(distribution.profitRatio * 100)}%`}
+    >
+      <div className="market-chip-summary">
+        <strong>筹码峰 {fmt(distribution.peakPrice)}</strong>
+        {asOfDate && <time dateTime={asOfDate}>截至 {asOfDate}</time>}
+        <span>平均成本 {fmt(distribution.averageCost)}</span>
+        <span>获利 {fmt(distribution.profitRatio * 100)}%</span>
+      </div>
+      <div className="market-chip-bars" aria-hidden="true">
+        {visibleBins.map((bin, index) => (
+          <i
+            key={`${bin.price}-${index}`}
+            className={bin.price <= distribution.latestClose ? 'is-profit' : 'is-trapped'}
+            style={{
+              top: `${position(bin.price)}%`,
+              width: `${maxWeight > 0 ? bin.weight / maxWeight * 92 : 0}%`,
+              height: `${Math.max(1.2, 100 / distribution.bins.length + 0.3)}%`,
+            }}
+          />
+        ))}
+        <b className="market-chip-peak-line" style={{ top: `${peakTop}%` }} />
+      </div>
+      <div className="market-chip-foot">
+        70%成本 {fmt(distribution.costRange70[0])}–{fmt(distribution.costRange70[1])}
+        {distribution.coverageRatio < 1 && ` · 覆盖 ${fmt(distribution.coverageRatio * 100, 0)}%`}
+      </div>
+    </aside>
+  );
+}
+
+interface MarketKlineChartProps {
+  data: KlinePoint[];
+  period: MarketKlinePeriod;
+  previousClose?: number | null;
+  showChipProfile?: boolean;
+}
+
+export default function MarketKlineChart({
+  data,
+  period,
+  previousClose,
+  showChipProfile = false,
+}: MarketKlineChartProps) {
   const ref = useRef<HTMLDivElement>(null);
   const intradayPriceRef = useRef<HTMLDivElement>(null);
   const intradayVolumeRef = useRef<HTMLDivElement>(null);
@@ -162,6 +236,18 @@ export default function MarketKlineChart({ data, period, previousClose }: { data
   const isIntraday = period === 'intraday';
   const avgPrices = useMemo(() => averagePrice(data), [data]);
   const volumeRatios = useMemo(() => intradayVolumeRatio(data), [data]);
+  const chipEndIndex = useMemo(() => {
+    if (!showChipProfile || period !== 'day' || !hover) return data.length - 1;
+    const index = data.findIndex((item) => item.date === hover.date);
+    return index >= 0 ? index : data.length - 1;
+  }, [data, hover, period, showChipProfile]);
+  const chipAsOfDate = data[chipEndIndex]?.date ?? null;
+  const chipDistribution = useMemo(
+    () => showChipProfile && period === 'day'
+      ? calculateChipDistribution(data.slice(0, chipEndIndex + 1))
+      : null,
+    [chipEndIndex, data, period, showChipProfile],
+  );
 
   useEffect(() => {
     if (!isIntraday) return undefined;
@@ -314,18 +400,25 @@ export default function MarketKlineChart({ data, period, previousClose }: { data
       const item = data[index];
       const previous = data[index - 1];
       const change = previous ? item.close - previous.close : null;
-      setHover({
-        ...item, ...indicators[index], change,
-        changePct: change != null && previous.close ? change / previous.close * 100 : null,
-      });
+      setHover((current) => current?.date === item.date ? current : {
+          ...item, ...indicators[index], change,
+          changePct: change != null && previous.close ? change / previous.close * 100 : null,
+        });
     });
+    const clearHover = () => setHover(null);
+    el.addEventListener('pointerleave', clearHover);
     chart.timeScale().fitContent();
     const observer = new ResizeObserver(() => {
       if (el.clientWidth > 0 && el.clientHeight > 0) chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
     });
     observer.observe(el);
-    return () => { observer.disconnect(); chart.remove(); setHover(null); };
-  }, [data, indicators, isIntraday]);
+    return () => {
+      observer.disconnect();
+      el.removeEventListener('pointerleave', clearHover);
+      chart.remove();
+      setHover(null);
+    };
+  }, [data, indicators, isIntraday, showChipProfile]);
 
   if (!data.length) return <Empty className="market-chart-empty" description={isIntraday ? '暂无分时数据' : '暂无 K 线数据'} />;
   if (isIntraday) {
@@ -375,7 +468,7 @@ export default function MarketKlineChart({ data, period, previousClose }: { data
       </div>}
     </div>;
   }
-  return <div className="market-kline-shell">
+  return <div className={`market-kline-shell${showChipProfile && period === 'day' ? ' has-chip-profile' : ''}`}>
     <div className="market-indicator-legend" aria-label="最新技术指标">
       <span className="ma5">MA5 {fmt(latest?.ma5 ?? null)}</span>
       <span className="ma10">MA10 {fmt(latest?.ma10 ?? null)}</span>
@@ -384,7 +477,10 @@ export default function MarketKlineChart({ data, period, previousClose }: { data
       <span>MACD {fmt(latest?.macd ?? null)}</span>
       {period === 'day' && <span>换手率 {formatTurnoverRate(data[data.length - 1]?.turnoverRatePct)}</span>}
     </div>
-    <div ref={ref} className="market-kline" aria-label={isIntraday ? '股票分时图，移动鼠标查看分钟数据' : '股票 K 线图，移动鼠标查看每日数据'} />
+    <div className="market-kline-stage">
+      <div ref={ref} className="market-kline" aria-label="股票 K 线图，移动鼠标查看每日数据" />
+      {showChipProfile && period === 'day' && <ChipProfile distribution={chipDistribution} asOfDate={chipAsOfDate} />}
+    </div>
     {hover && <div className="market-chart-tooltip" role="status">
       <strong>{hover.date}</strong>
       <dl>
