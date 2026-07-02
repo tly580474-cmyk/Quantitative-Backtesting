@@ -54,9 +54,7 @@ export async function updateIndexDatasets(
   now = new Date(),
   options: { force?: boolean } = {},
 ): Promise<IndexDatasetUpdateResult> {
-  const targetDate = group === 'cn-index'
-    ? dateInTimezone(now, 'Asia/Shanghai')
-    : currentOrPreviousBusinessDate(dateInTimezone(now, 'America/New_York'));
+  const targetDate = resolveIndexTargetDate(group, now);
   const runKey = `${group}:${targetDate}`;
 
   if (!options.force && await hasTerminalRun(runKey)) {
@@ -409,6 +407,39 @@ function dateInTimezone(date: Date, timeZone: string): string {
   const month = parts.find((part) => part.type === 'month')?.value;
   const day = parts.find((part) => part.type === 'day')?.value;
   return `${year}-${month}-${day}`;
+}
+
+function timeInTimezone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const hour = parts.find((part) => part.type === 'hour')?.value;
+  const minute = parts.find((part) => part.type === 'minute')?.value;
+  const second = parts.find((part) => part.type === 'second')?.value;
+  return `${hour}:${minute}:${second}`;
+}
+
+/**
+ * Daily candles are only eligible after their market has closed.
+ * A manual intraday update therefore stops at the previous business day,
+ * preventing an unfinished daily candle from entering a backtest dataset.
+ */
+export function resolveIndexTargetDate(group: IndexGroup, now = new Date()): string {
+  const timeZone = group === 'cn-index' ? 'Asia/Shanghai' : 'America/New_York';
+  const closeTime = group === 'cn-index' ? '15:00:00' : '16:00:00';
+  const localDate = dateInTimezone(now, timeZone);
+  const localTime = timeInTimezone(now, timeZone);
+  const localDay = new Date(`${localDate}T00:00:00Z`).getUTCDay();
+  const isBusinessDay = localDay !== 0 && localDay !== 6;
+
+  const candidate = isBusinessDay && localTime >= closeTime
+    ? localDate
+    : addDays(localDate, -1);
+  return currentOrPreviousBusinessDate(candidate);
 }
 
 function addDays(value: string, days: number): string {

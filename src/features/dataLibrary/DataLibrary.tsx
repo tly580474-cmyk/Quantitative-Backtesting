@@ -106,6 +106,11 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
               目标日期：{result.targetDate}；扫描 {result.scanned} 个，更新 {result.updated} 个，
               跳过 {result.skipped} 个，失败 {result.failed} 个。
             </p>
+            <p>
+              <Text type="secondary">
+                日线数据仅同步至最近一个已收盘交易日；盘中手动更新不会写入当日未完成 K 线。
+              </Text>
+            </p>
             {result.details.length > 0 && (
               <List
                 size="small"
@@ -164,6 +169,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
             icon={<SyncOutlined />}
             loading={updatingGroup === 'cn-index'}
             disabled={updatingGroup != null}
+            title="盘后更新当日数据；盘中仅更新至前一交易日"
             onClick={() => handleIndexUpdate('cn-index')}
           >
             更新沪深中证指数
@@ -172,6 +178,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
             icon={<SyncOutlined />}
             loading={updatingGroup === 'us-index'}
             disabled={updatingGroup != null}
+            title="纽约市场收盘后更新当日数据；盘中仅更新至前一交易日"
             onClick={() => handleIndexUpdate('us-index')}
           >
             更新纳斯达克100
