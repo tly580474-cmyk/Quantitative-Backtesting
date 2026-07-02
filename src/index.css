@@ -271,21 +271,23 @@
 .market-indicator-legend .ma5 { color: #b45309; }
 .market-indicator-legend .ma10 { color: #1d4ed8; }
 .market-indicator-legend .ma20 { color: #7c3aed; }
-.market-chip-profile { position: relative; display: flex; flex: 0 0 170px; width: 170px; height: 100%; min-height: 0; flex-direction: column; gap: 5px; overflow: hidden; padding: 7px 0; border-left: 1px solid #e2e8f0; background: linear-gradient(90deg, #f8fafc 0, #fff 28%); color: #475569; font-variant-numeric: tabular-nums; }
+.market-chip-profile { position: relative; flex: 0 0 170px; width: 170px; height: 100%; min-height: 0; overflow: hidden; border-left: 1px solid #e2e8f0; background: linear-gradient(90deg, #f8fafc 0, #fff 28%); color: #475569; font-variant-numeric: tabular-nums; }
 .market-chip-profile.is-empty { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 6px; padding: 18px; text-align: center; }
 .market-chip-profile.is-empty strong { color: #0f172a; }
 .market-chip-profile.is-empty span { color: #64748b; font-size: 12px; line-height: 1.5; }
-.market-chip-summary { position: relative; z-index: 3; display: grid; flex: 0 0 auto; gap: 1px; margin: 0 7px; padding: 5px 7px; border: 1px solid rgba(226,232,240,.9); border-radius: 7px; background: #fff; box-shadow: 0 3px 12px rgba(15,23,42,.06); font-size: 10px; line-height: 1.35; pointer-events: none; }
+.market-chip-summary { position: absolute; z-index: 3; top: 7px; right: 7px; left: 7px; display: grid; gap: 1px; padding: 5px 7px; border: 1px solid rgba(226,232,240,.9); border-radius: 7px; background: rgba(255,255,255,.94); box-shadow: 0 3px 12px rgba(15,23,42,.06); font-size: 10px; line-height: 1.35; pointer-events: none; }
 .market-chip-summary strong { color: #c2410c; font-size: 11px; }
 .market-chip-summary time { color: #64748b; font-size: 9px; }
-.market-chip-bars { position: relative; flex: 1 1 auto; min-height: 0; }
+.market-chip-bars { position: absolute; inset: 0; overflow: hidden; }
 .market-chip-bars i { position: absolute; right: 7px; display: block; min-width: 1px; transform: translateY(-50%); border-radius: 2px 0 0 2px; opacity: .76; }
 .market-chip-bars i.is-profit { background: #ef4444; }
 .market-chip-bars i.is-trapped { background: #3b82f6; }
 .market-chip-peak-line { position: absolute; z-index: 2; right: 4px; left: 4px; height: 2px; transform: translateY(-50%); border-radius: 2px; background: #f97316; box-shadow: 0 0 0 1px rgba(255,255,255,.8); }
-.market-chip-foot { flex: 0 0 auto; margin: 0 7px; padding: 4px 6px; border-radius: 5px; background: #f8fafc; color: #64748b; font-size: 9px; text-align: center; white-space: nowrap; }
-.market-kline-shell.has-chip-profile .market-chart-tooltip { right: 182px; }
+.market-chip-foot { position: absolute; z-index: 3; right: 7px; bottom: 7px; left: 7px; padding: 4px 6px; border-radius: 5px; background: rgba(248,250,252,.94); color: #64748b; font-size: 9px; text-align: center; white-space: nowrap; pointer-events: none; }
+.market-kline-shell.has-chip-profile .market-chart-tooltip.is-right { right: 182px; }
 .market-chart-tooltip { position: absolute; z-index: 6; top: 48px; right: 12px; width: 274px; padding: 12px 14px; border: 1px solid rgba(203,213,225,.72); border-radius: 10px; background: rgba(255,255,255,.82); box-shadow: 0 10px 26px rgba(15,23,42,.12); color: #1e293b; pointer-events: none; backdrop-filter: blur(12px) saturate(125%); -webkit-backdrop-filter: blur(12px) saturate(125%); }
+.market-chart-tooltip.is-right { right: 12px; left: auto; }
+.market-chart-tooltip.is-left { right: auto; left: 12px; }
 .market-chart-tooltip > strong { display: block; margin-bottom: 9px; color: #0f172a; }
 .market-chart-tooltip dl { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 5px 14px; margin: 0; font-size: 13px; }
 .market-chart-tooltip dt { color: #64748b; }
@@ -417,7 +419,7 @@
   .market-kline-shell { height: clamp(300px, 46vh, 390px); }
   .market-chip-profile { flex-basis: 140px; width: 140px; }
   .market-kline-shell.has-chip-profile .market-indicator-legend { max-width: calc(100% - 158px); }
-  .market-kline-shell.has-chip-profile .market-chart-tooltip { right: 152px; }
+  .market-kline-shell.has-chip-profile .market-chart-tooltip.is-right { right: 152px; }
   .market-intraday-shell { height: clamp(420px, 62vh, 600px); }
   .market-intraday-toolbar { align-items: flex-start; flex-direction: column; }
   .market-intraday-indicator-picker { width: 100%; justify-content: space-between; }
@@ -484,10 +486,11 @@
   .market-kline-shell { height: 300px; }
   .market-chip-profile { flex-basis: 108px; width: 108px; }
   .market-kline-shell.has-chip-profile .market-indicator-legend { max-width: calc(100% - 118px); }
-  .market-chip-summary { margin-inline: 4px; padding: 4px; }
+  .market-chip-summary { right: 4px; left: 4px; padding: 4px; }
   .market-chip-summary span { display: none; }
-  .market-chip-foot { margin-inline: 3px; overflow: hidden; text-overflow: ellipsis; }
-  .market-kline-shell.has-chip-profile .market-chart-tooltip { right: 116px; width: min(210px, calc(100% - 124px)); }
+  .market-chip-foot { right: 3px; left: 3px; overflow: hidden; text-overflow: ellipsis; }
+  .market-kline-shell.has-chip-profile .market-chart-tooltip { width: min(210px, calc(100% - 124px)); }
+  .market-kline-shell.has-chip-profile .market-chart-tooltip.is-right { right: 116px; }
   .market-chart-card .ant-segmented-item-label { min-height: 40px; padding-inline: 7px; line-height: 40px; }
   .market-intraday-shell { height: 430px; border-radius: 8px; }
   .market-intraday-legend { gap: 5px 9px; font-size: 12px; }

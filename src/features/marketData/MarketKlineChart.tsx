@@ -157,9 +157,13 @@ function timeKey(time: Time): string {
 function ChipProfile({
   distribution,
   asOfDate,
+  priceToCoordinate,
+  chartHeight,
 }: {
   distribution: ChipDistribution | null;
   asOfDate: string | null;
+  priceToCoordinate: ((price: number) => number | null) | null;
+  chartHeight: number;
 }) {
   if (!distribution) {
     return (
@@ -171,13 +175,18 @@ function ChipProfile({
   }
 
   const maxWeight = Math.max(...distribution.bins.map((bin) => bin.weight));
-  const minPrice = distribution.bins[0].price;
-  const maxPrice = distribution.bins[distribution.bins.length - 1].price;
-  const priceRange = Math.max(maxPrice - minPrice, 0.01);
-  const position = (price: number) => (maxPrice - price) / priceRange * 100;
+  const position = (price: number) => priceToCoordinate?.(price) ?? null;
   const peakTop = position(distribution.peakPrice);
   const visibleThreshold = maxWeight * 0.05;
-  const visibleBins = distribution.bins.filter((bin) => bin.weight >= visibleThreshold);
+  const coordinateStep = distribution.bins.length > 1
+    ? Math.abs((position(distribution.bins[1].price) ?? 0) - (position(distribution.bins[0].price) ?? 0))
+    : 1;
+  const visibleBins = distribution.bins
+    .map((bin) => ({ ...bin, coordinate: position(bin.price) }))
+    .filter((bin) => bin.weight >= visibleThreshold
+      && bin.coordinate != null
+      && bin.coordinate >= 0
+      && bin.coordinate <= chartHeight);
 
   return (
     <aside
@@ -196,13 +205,14 @@ function ChipProfile({
             key={`${bin.price}-${index}`}
             className={bin.price <= distribution.latestClose ? 'is-profit' : 'is-trapped'}
             style={{
-              top: `${position(bin.price)}%`,
+              top: `${bin.coordinate}px`,
               width: `${maxWeight > 0 ? bin.weight / maxWeight * 92 : 0}%`,
-              height: `${Math.max(1.2, 100 / distribution.bins.length + 0.3)}%`,
+              height: `${Math.max(1.2, coordinateStep + 0.3)}px`,
             }}
           />
         ))}
-        <b className="market-chip-peak-line" style={{ top: `${peakTop}%` }} />
+        {peakTop != null && peakTop >= 0 && peakTop <= chartHeight
+          && <b className="market-chip-peak-line" style={{ top: `${peakTop}px` }} />}
       </div>
       <div className="market-chip-foot">
         70%成本 {fmt(distribution.costRange70[0])}–{fmt(distribution.costRange70[1])}
@@ -229,6 +239,8 @@ export default function MarketKlineChart({
   const intradayPriceRef = useRef<HTMLDivElement>(null);
   const intradayVolumeRef = useRef<HTMLDivElement>(null);
   const intradayIndicatorRef = useRef<HTMLDivElement>(null);
+  const chipPriceToCoordinateRef = useRef<((price: number) => number | null) | null>(null);
+  const [chipChartLayout, setChipChartLayout] = useState({ height: 0, revision: 0 });
   const [hover, setHover] = useState<HoverPoint | null>(null);
   const [subIndicator, setSubIndicator] = useState<IntradayIndicator>('volumeRatio');
   const indicators = useMemo(() => calculateIndicators(data), [data]);
@@ -368,13 +380,8 @@ export default function MarketKlineChart({
       rightPriceScale: { borderColor: '#e2e8f0', scaleMargins: { top: 0.1, bottom: 0.25 } },
       timeScale: { borderColor: '#e2e8f0', timeVisible: isIntraday, secondsVisible: false },
     });
-    if (isIntraday) {
-      const priceLine = chart.addSeries(LineSeries, { color: '#2563eb', lineWidth: 2, priceLineColor: '#2563eb' });
-      priceLine.setData(data.map((item, index) => ({ time: times[index], value: item.close })));
-    } else {
-      const candles = chart.addSeries(CandlestickSeries, { upColor: '#ef4444', downColor: '#16a34a', borderVisible: false, wickUpColor: '#ef4444', wickDownColor: '#16a34a' });
-      candles.setData(data.map((item, index) => ({ time: times[index], open: item.open, high: item.high, low: item.low, close: item.close })));
-    }
+    const candles = chart.addSeries(CandlestickSeries, { upColor: '#ef4444', downColor: '#16a34a', borderVisible: false, wickUpColor: '#ef4444', wickDownColor: '#16a34a' });
+    candles.setData(data.map((item, index) => ({ time: times[index], open: item.open, high: item.high, low: item.low, close: item.close })));
     const volume = chart.addSeries(HistogramSeries, { priceScaleId: 'volume', priceFormat: { type: 'volume' } });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     volume.setData(data.map((item, index) => ({ time: times[index], value: item.volume, color: item.close >= item.open ? '#ef444466' : '#16a34a66' })));
@@ -400,21 +407,41 @@ export default function MarketKlineChart({
       const item = data[index];
       const previous = data[index - 1];
       const change = previous ? item.close - previous.close : null;
-      setHover((current) => current?.date === item.date ? current : {
+      const pointerX = param.point.x;
+      setHover((current) => {
+        const side = pointerX > el.clientWidth / 2 ? 'left' : 'right';
+        if (current?.date === item.date && current.side === side) return current;
+        return {
           ...item, ...indicators[index], change,
           changePct: change != null && previous.close ? change / previous.close * 100 : null,
-        });
+          side,
+        };
+      });
     });
     const clearHover = () => setHover(null);
     el.addEventListener('pointerleave', clearHover);
+    const updateChipCoordinates = () => {
+      setChipChartLayout((current) => ({
+        height: el.clientHeight,
+        revision: current.revision + 1,
+      }));
+    };
+    chipPriceToCoordinateRef.current = (price) => candles.priceToCoordinate(price);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(updateChipCoordinates);
     chart.timeScale().fitContent();
+    updateChipCoordinates();
     const observer = new ResizeObserver(() => {
-      if (el.clientWidth > 0 && el.clientHeight > 0) chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+      if (el.clientWidth > 0 && el.clientHeight > 0) {
+        chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+        updateChipCoordinates();
+      }
     });
     observer.observe(el);
     return () => {
       observer.disconnect();
       el.removeEventListener('pointerleave', clearHover);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(updateChipCoordinates);
+      chipPriceToCoordinateRef.current = null;
       chart.remove();
       setHover(null);
     };
@@ -479,9 +506,16 @@ export default function MarketKlineChart({
     </div>
     <div className="market-kline-stage">
       <div ref={ref} className="market-kline" aria-label="股票 K 线图，移动鼠标查看每日数据" />
-      {showChipProfile && period === 'day' && <ChipProfile distribution={chipDistribution} asOfDate={chipAsOfDate} />}
+      {showChipProfile && period === 'day' && (
+        <ChipProfile
+          distribution={chipDistribution}
+          asOfDate={chipAsOfDate}
+          priceToCoordinate={chipPriceToCoordinateRef.current}
+          chartHeight={chipChartLayout.height}
+        />
+      )}
     </div>
-    {hover && <div className="market-chart-tooltip" role="status">
+    {hover && <div className={`market-chart-tooltip is-${hover.side ?? 'right'}`} role="status">
       <strong>{hover.date}</strong>
       <dl>
         <dt>开盘</dt><dd>{fmt(hover.open)}</dd><dt>最高</dt><dd>{fmt(hover.high)}</dd>
