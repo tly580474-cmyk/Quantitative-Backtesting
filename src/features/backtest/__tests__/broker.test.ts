@@ -123,6 +123,18 @@ describe('Broker - Sell', () => {
     expect(result.trade.quantity).toBe(300);
   });
 
+  it('rounds partial stock-mode sales down to board lots', () => {
+    const config = { ...baseConfig, tradingUnitMode: 'stock' as const };
+    const result = fillOrder(sellOrder(255), 10, 100000, 500, config);
+    expect(result.trade.quantity).toBe(200);
+  });
+
+  it('allows a full stock-mode sale to clear an odd-lot tail', () => {
+    const config = { ...baseConfig, tradingUnitMode: 'stock' as const };
+    const result = fillOrder(sellOrder(50), 10, 100000, 50, config);
+    expect(result.trade.quantity).toBe(50);
+  });
+
   it('includes tax on sell', () => {
     const result = fillOrder(sellOrder(1000), 10, 100000, 1000, baseConfig);
     expect(result.trade.tax).toBeCloseTo(result.trade.amount * baseConfig.sellTaxRate, 2);

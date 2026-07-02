@@ -138,14 +138,19 @@ function createSellOrder(
   estimatedFillPrice: number,
   config: BacktestConfig,
 ): Order | null {
-  const partialQuantity = positionQuantity * config.positionSizing.value;
+  const requestedQuantity = positionQuantity * config.positionSizing.value;
+  const partialQuantity = config.tradingUnitMode === 'stock'
+    ? Math.max(100, Math.floor(requestedQuantity / 100) * 100)
+    : requestedQuantity;
   const remainingQuantity = positionQuantity - partialQuantity;
   const remainingIsTradable = config.tradingUnitMode === 'stock'
     ? remainingQuantity >= 100
     : remainingQuantity * estimatedFillPrice >= (config.minimumTradeAmount ?? 1);
   // Avoid an asymptotic dust position: when the tail can no longer form one
   // effective trading unit, include it in the current sell order.
-  const quantity = remainingIsTradable ? partialQuantity : positionQuantity;
+  const quantity = remainingIsTradable
+    ? Math.min(partialQuantity, positionQuantity)
+    : positionQuantity;
   if (quantity <= 0) return null;
   return {
     id: crypto.randomUUID(),

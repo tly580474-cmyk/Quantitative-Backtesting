@@ -194,7 +194,16 @@ function fillSell(
   }
 
   const fillPrice = open * (1 - slippageFactor);
-  const quantity = Math.min(order.quantity, positionQuantity);
+  const requestedQuantity = Math.min(order.quantity, positionQuantity);
+  const quantity = config.tradingUnitMode === 'stock' && requestedQuantity < positionQuantity
+    ? Math.floor(requestedQuantity / 100) * 100
+    : requestedQuantity;
+  if (quantity <= 0) {
+    return {
+      trade: createRejectedTrade(order, fillPrice, '卖出数量不足一手（100 股）'),
+      error: '卖出数量不足一手',
+    };
+  }
   const amount = quantity * fillPrice;
   const commission = Math.max(amount * config.commissionRate, config.minimumCommission);
   const tax = amount * config.sellTaxRate;

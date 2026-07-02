@@ -163,6 +163,32 @@ describe('Backtest Engine', () => {
     expect(result.equityCurve[result.equityCurve.length - 1].positionQuantity).toBeLessThan(buy!.quantity);
   });
 
+  it('keeps percentage-sized stock sales in 100-share board lots', () => {
+    const result = runBacktest({
+      candles: makeCandles([10, 10, 10, 10]),
+      strategy: scriptedStrategy(['buy', 'sell', 'hold', 'hold']),
+      strategyParams: {},
+      config: {
+        ...baseConfig,
+        initialCapital: 10000,
+        positionSizing: { type: 'percent', value: 0.25 },
+        commissionRate: 0,
+        minimumCommission: 0,
+        sellTaxRate: 0,
+        tradingUnitMode: 'stock',
+        forceCloseAtEnd: false,
+      },
+      datasetId: 'ds-stock-lots',
+      datasetChecksum: 'stock-lots',
+      resultName: 'stock-lots-test',
+    });
+
+    const buy = result.trades.find((trade) => trade.side === 'buy' && trade.quantity > 0);
+    const sell = result.trades.find((trade) => trade.side === 'sell' && trade.quantity > 0);
+    expect(buy?.quantity).toBe(200);
+    expect(sell?.quantity).toBe(100);
+  });
+
   it('fully closes a percentage-sized dust position instead of selling forever', () => {
     const candles = makeCandles(Array.from({ length: 60 }, () => 10));
     const actions: Array<'buy' | 'sell' | 'hold'> = [
