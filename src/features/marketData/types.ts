@@ -280,6 +280,7 @@ export interface MarketBreadthBucket {
 }
 
 export interface MarketSentimentOverview {
+  modelVersion: 2;
   updatedAt: string;
   total: number;
   advancers: number;
@@ -299,6 +300,10 @@ export interface MarketSentimentOverview {
   mainNetInTrend: Array<{ time: string; value: number }>;
   factors: MarketSentimentFactor[];
   msi: number;
+  breadthIndexDivergence: number;
+  structure: 'broad-rally' | 'broad-decline' | 'small-cap-led' | 'large-cap-led' | 'balanced';
+  structureLabel: string;
+  structureDescription: string;
   status: 'euphoria' | 'bullish' | 'neutral' | 'bearish' | 'panic';
   statusLabel: string;
   notes: string[];

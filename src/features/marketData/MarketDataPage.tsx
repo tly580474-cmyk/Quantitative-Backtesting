@@ -308,10 +308,15 @@ function MarketThermometer({ overview }: { overview: MarketSentimentOverview }) 
     </div>
     <div className="market-thermometer-axis"><span>-100</span><span>-60</span><span>-30</span><span>30</span><span>60</span><span>100</span></div>
     <Text type="secondary">{sentimentRangeLabel(overview.msi)}</Text>
+    <div className={`market-structure-callout is-${overview.structure}`}>
+      <strong>{overview.structureLabel}</strong>
+      <span>{overview.structureDescription}</span>
+      <small>广度－权重指数：{signed(overview.breadthIndexDivergence)}</small>
+    </div>
     <div className="market-factor-list">
       {overview.factors.map((factor) => <Tooltip key={factor.key} title={`${factor.formula}。${factor.description}`}>
         <div className="market-factor-row">
-          <span><b>{factor.key}</b>{factor.label}</span>
+          <span><b>{factor.key}</b>{factor.label}<small>{Math.round(factor.weight * 100)}%</small></span>
           {sourceTag(factor.source)}
           <strong className={factor.value > 0 ? 'market-up' : factor.value < 0 ? 'market-down' : ''}>{fmt(factor.value)}</strong>
         </div>

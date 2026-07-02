@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMarketBreadthSnapshot } from './aStockDataService.js';
+import { buildMarketBreadthSnapshot, calculateMarketSentiment } from './aStockDataService.js';
 
 function row(code: string, name: string, changePct: number, extra: Record<string, unknown> = {}) {
   return {
@@ -54,5 +54,54 @@ describe('market breadth snapshot', () => {
 
     expect(snapshot).toMatchObject({ total: 3, advancers: 1, decliners: 1, flat: 1 });
     expect(bucketTotal).toBe(snapshot.total);
+  });
+});
+
+describe('market sentiment v2', () => {
+  it('identifies small-cap-led divergence instead of reporting euphoria when the index falls', () => {
+    const snapshot = buildMarketBreadthSnapshot([
+      row('600001', '上涨一', 2),
+      row('600002', '上涨二', 1.5),
+      row('600003', '上涨三', 1),
+      row('600004', '下跌一', -1),
+    ]);
+    const result = calculateMarketSentiment(snapshot, [
+      { code: '000300', changePct: -2 },
+      { code: '399001', changePct: -1.8 },
+      { code: '000905', changePct: -1.2 },
+      { code: '000852', changePct: -0.8 },
+      { code: '000688', changePct: -2.5 },
+    ]);
+
+    expect(result.structure).toBe('small-cap-led');
+    expect(result.structureLabel).toBe('结构性分化');
+    expect(result.factors.find((factor) => factor.key === 'A')?.value).toBe(50);
+    expect(result.factors.find((factor) => factor.key === 'C')?.value).toBeLessThan(-70);
+    expect(result.msi).toBeLessThan(30);
+  });
+
+  it('uses liquidity-aware return strength rather than stock count alone', () => {
+    const snapshot = buildMarketBreadthSnapshot([
+      row('600001', '微量上涨一', 2, { f6: 100_000_000 }),
+      row('600002', '微量上涨二', 2, { f6: 100_000_000 }),
+      row('600003', '微量上涨三', 2, { f6: 100_000_000 }),
+      row('600004', '微量上涨四', 2, { f6: 100_000_000 }),
+      row('600005', '放量下跌', -3, { f6: 10_000_000_000 }),
+    ]);
+    const result = calculateMarketSentiment(snapshot, [{ code: '000300', changePct: 0 }]);
+
+    expect(result.factors.find((factor) => factor.key === 'A')?.value).toBe(60);
+    expect(result.factors.find((factor) => factor.key === 'B')?.value).toBeLessThan(0);
+  });
+
+  it('keeps factor weights normalized when index quotes are unavailable', () => {
+    const snapshot = buildMarketBreadthSnapshot([
+      row('600001', '上涨股', 2),
+      row('600002', '下跌股', -1),
+    ]);
+    const result = calculateMarketSentiment(snapshot, []);
+
+    expect(result.factors.reduce((sum, factor) => sum + factor.weight, 0)).toBeCloseTo(1);
+    expect(result.factors.find((factor) => factor.key === 'C')?.weight).toBe(0);
   });
 });

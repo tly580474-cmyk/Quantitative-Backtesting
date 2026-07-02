@@ -109,6 +109,7 @@ export interface MarketBreadthBucket {
 }
 
 export interface MarketSentimentOverview {
+  modelVersion: 2;
   updatedAt: string;
   total: number;
   advancers: number;
@@ -128,6 +129,10 @@ export interface MarketSentimentOverview {
   mainNetInTrend: Array<{ time: string; value: number }>;
   factors: MarketSentimentFactor[];
   msi: number;
+  breadthIndexDivergence: number;
+  structure: 'broad-rally' | 'broad-decline' | 'small-cap-led' | 'large-cap-led' | 'balanced';
+  structureLabel: string;
+  structureDescription: string;
   status: 'euphoria' | 'bullish' | 'neutral' | 'bearish' | 'panic';
   statusLabel: string;
   notes: string[];
@@ -719,13 +724,177 @@ export function buildMarketBreadthSnapshot(rows: Array<Record<string, unknown>>)
   };
 }
 
+interface MarketSentimentCalculation {
+  factors: MarketSentimentFactor[];
+  msi: number;
+  breadthIndexDivergence: number;
+  structure: MarketSentimentOverview['structure'];
+  structureLabel: string;
+  structureDescription: string;
+}
+
+export function calculateMarketSentiment(
+  breadth: Pick<
+    ReturnType<typeof buildMarketBreadthSnapshot>,
+    'total' | 'advancers' | 'decliners' | 'upLimit' | 'downLimit' | 'distribution'
+  >,
+  indexQuotes: Array<Pick<StockQuote, 'code' | 'changePct'>>,
+): MarketSentimentCalculation {
+  const directionalCount = breadth.advancers + breadth.decliners;
+  const breadthScore = directionalCount > 0
+    ? ((breadth.advancers - breadth.decliners) / directionalCount) * 100
+    : 0;
+
+  const stocks = breadth.distribution.flatMap((bucket) => bucket.items);
+  let strengthNumerator = 0;
+  let strengthDenominator = 0;
+  for (const stock of stocks) {
+    const amountWeight = Math.sqrt(Math.max(stock.amountYi ?? 0, 0)) || 1;
+    strengthNumerator += amountWeight * clamp(stock.changePct, -7, 7);
+    strengthDenominator += amountWeight * 7;
+  }
+  const strengthScore = strengthDenominator > 0
+    ? clamp((strengthNumerator / strengthDenominator) * 100)
+    : 0;
+
+  const indexWeights: Record<string, number> = {
+    '000300': 0.50,
+    '399001': 0.20,
+    '000905': 0.15,
+    '000852': 0.10,
+    '000688': 0.05,
+  };
+  let indexReturn = 0;
+  let availableIndexWeight = 0;
+  for (const quote of indexQuotes) {
+    const weight = indexWeights[quote.code];
+    if (!weight || quote.changePct == null || !Number.isFinite(quote.changePct)) continue;
+    indexReturn += quote.changePct * weight;
+    availableIndexWeight += weight;
+  }
+  const hasIndexFactor = availableIndexWeight > 0;
+  const normalizedIndexReturn = hasIndexFactor ? indexReturn / availableIndexWeight : 0;
+  const indexScore = hasIndexFactor ? clamp(100 * Math.tanh(normalizedIndexReturn / 1.5)) : 0;
+  const extremeScore = breadth.total > 0
+    ? clamp(2000 * (breadth.upLimit - breadth.downLimit) / breadth.total)
+    : 0;
+
+  const definitions = [
+    {
+      key: 'A' as const,
+      label: '市场广度',
+      value: breadthScore,
+      baseWeight: 0.25,
+      source: directionalCount > 0 ? 'live' as const : 'neutral' as const,
+      active: directionalCount > 0,
+      formula: '(上涨家数-下跌家数)/(上涨家数+下跌家数)×100',
+      description: '等权衡量多数股票的方向，不单独代表权重指数',
+    },
+    {
+      key: 'B' as const,
+      label: '涨跌强度',
+      value: strengthScore,
+      baseWeight: 0.20,
+      source: stocks.length > 0 ? 'live' as const : 'neutral' as const,
+      active: stocks.length > 0,
+      formula: 'Σ(√成交额×截断涨跌幅)/Σ(√成交额×7%)×100',
+      description: '兼顾涨跌幅和流动性，并降低少数巨量股票的支配程度',
+    },
+    {
+      key: 'C' as const,
+      label: '权重指数',
+      value: indexScore,
+      baseWeight: 0.40,
+      source: hasIndexFactor ? 'live' as const : 'neutral' as const,
+      active: hasIndexFactor,
+      formula: '100×tanh(宽基指数加权涨跌幅/1.5%)',
+      description: '沪深300占50%，并综合深证成指、中证500/1000与科创50',
+    },
+    {
+      key: 'D' as const,
+      label: '极端情绪',
+      value: extremeScore,
+      baseWeight: 0.15,
+      source: breadth.total > 0 ? 'estimated' as const : 'neutral' as const,
+      active: breadth.total > 0,
+      formula: '2000×(涨停家数-跌停家数)/有效股票数',
+      description: '按全市场样本归一化，避免少量涨跌停把温度计推至极端',
+    },
+  ];
+  const activeWeight = definitions
+    .filter((factor) => factor.active)
+    .reduce((sum, factor) => sum + factor.baseWeight, 0);
+  const factors = definitions.map((factor) => buildFactor(
+    factor.key,
+    factor.label,
+    clamp(factor.value),
+    factor.active && activeWeight > 0 ? factor.baseWeight / activeWeight : 0,
+    factor.source,
+    factor.formula,
+    factor.description,
+  ));
+  const msi = round(clamp(factors.reduce((sum, factor) => sum + factor.value * factor.weight, 0)));
+  const breadthIndexDivergence = round(breadthScore - indexScore);
+
+  if (breadthScore > 15 && indexScore < -15 && breadthIndexDivergence > 35) {
+    return {
+      factors,
+      msi,
+      breadthIndexDivergence,
+      structure: 'small-cap-led',
+      structureLabel: '结构性分化',
+      structureDescription: '多数个股上涨，但权重指数承压；小盘与题材相对活跃。',
+    };
+  }
+  if (breadthScore < -15 && indexScore > 15 && breadthIndexDivergence < -35) {
+    return {
+      factors,
+      msi,
+      breadthIndexDivergence,
+      structure: 'large-cap-led',
+      structureLabel: '权重股主导',
+      structureDescription: '权重指数走强，但多数个股下跌；赚钱效应集中于大盘股。',
+    };
+  }
+  if (breadthScore > 15 && indexScore > 15) {
+    return {
+      factors,
+      msi,
+      breadthIndexDivergence,
+      structure: 'broad-rally',
+      structureLabel: '普涨共振',
+      structureDescription: '多数个股与权重指数同步走强，市场风险偏好较一致。',
+    };
+  }
+  if (breadthScore < -15 && indexScore < -15) {
+    return {
+      factors,
+      msi,
+      breadthIndexDivergence,
+      structure: 'broad-decline',
+      structureLabel: '普跌共振',
+      structureDescription: '多数个股与权重指数同步走弱，市场风险偏好明显下降。',
+    };
+  }
+  return {
+    factors,
+    msi,
+    breadthIndexDivergence,
+    structure: 'balanced',
+    structureLabel: '震荡均衡',
+    structureDescription: '市场广度与权重指数未形成显著同向或背离结构。',
+  };
+}
+
 export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOverview> {
-  const [rowsResult, hs300KlineResult] = await Promise.allSettled([
+  const [rowsResult, hs300KlineResult, indexQuotesResult] = await Promise.allSettled([
     fetchAStockSentimentRows(),
     fetchStockKline('sh000300', 'day', 28).catch(() => []),
+    fetchMarketIndexQuotes(),
   ]);
   const rows = rowsResult.status === 'fulfilled' ? rowsResult.value : [];
   const hs300Kline = hs300KlineResult.status === 'fulfilled' ? hs300KlineResult.value : [];
+  const indexQuotes = indexQuotesResult.status === 'fulfilled' ? indexQuotesResult.value : [];
   const dataNotes: string[] = [];
   if (rowsResult.status === 'rejected') {
     const reason = rowsResult.reason instanceof Error ? rowsResult.reason.message : '未知错误';
@@ -733,6 +902,9 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
   }
   if (hs300KlineResult.status === 'rejected') {
     dataNotes.push('沪深300波动数据暂不可用。');
+  }
+  if (indexQuotesResult.status === 'rejected') {
+    dataNotes.push('宽基指数实时涨跌暂不可用，综合情绪已按可用因子重新归一化。');
   }
   const breadth = buildMarketBreadthSnapshot(rows);
   const {
@@ -754,20 +926,11 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
     ? amplitudeSeries.slice(0, -1).reduce((sum, value) => sum + value, 0) / (amplitudeSeries.length - 1)
     : null;
 
-  const a = (advancers + decliners) > 0 ? ((advancers - decliners) / (advancers + decliners)) * 100 : 0;
-  const b = ((upLimit - downLimit) / (upLimit + downLimit + 1)) * 100;
-  const d = hs300AmplitudePct != null && hs300Amplitude20dPct
-    ? (1 - hs300AmplitudePct / hs300Amplitude20dPct) * 100
-    : 0;
-
-  const factors: MarketSentimentFactor[] = [
-    buildFactor('A', '涨跌家数', a, 0.60, 'live', '(上涨家数-下跌家数)/(上涨家数+下跌家数)*100', '全市场个股多空力量基础'),
-    buildFactor('B', '涨跌停情绪', b, 0.40, 'estimated', '(涨停家数-跌停家数)/(涨停家数+跌停家数+1)*100', '以涨跌幅阈值近似识别极端情绪'),
-  ];
-  const msi = round(factors.reduce((sum, factor) => sum + factor.value * factor.weight, 0));
-  const status = sentimentStatus(msi);
+  const calculation = calculateMarketSentiment(breadth, indexQuotes);
+  const status = sentimentStatus(calculation.msi);
 
   return {
+    modelVersion: 2,
     updatedAt: new Date().toISOString(),
     total: breadth.total,
     advancers,
@@ -785,24 +948,27 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
     ma5AbovePct: null,
     distribution: breadth.distribution,
     mainNetInTrend: buildMainNetInTrend(round(mainNetInYuan / 100000000)),
-    factors,
-    msi,
+    ...calculation,
     ...status,
     notes: [
       ...dataNotes,
       '统计口径：A股有效报价，按证券代码去重并排除名称含 ST/退的股票；九个涨跌区间严格互斥，其合计等于有效样本数。',
       '涨跌停优先按腾讯行情返回的当日涨停价/跌停价判断；仅在 AKShare/Sina 首次初始化且缺少限价字段时，按主板10%、创业板/科创板20%、北交所30%的阈值估算。',
-      'MSI = 0.6 × 涨跌家数因子 A + 0.4 × 涨跌停情绪因子 B。',
+      'MSI v2 = 0.25 × 市场广度 + 0.20 × 涨跌强度 + 0.40 × 权重指数 + 0.15 × 极端情绪；数据缺失时按可用因子重新归一化。',
+      '权重指数综合沪深300、深证成指、中证500、中证1000与科创50；涨跌强度使用成交额平方根加权。',
     ],
   };
 }
 
 function buildPendingMarketSentimentOverview(): MarketSentimentOverview {
   const factors: MarketSentimentFactor[] = [
-    buildFactor('A', '涨跌家数', 0, 0.60, 'neutral', '(上涨家数-下跌家数)/(上涨家数+下跌家数)*100', '等待全市场快照刷新'),
-    buildFactor('B', '涨跌停情绪', 0, 0.40, 'neutral', '(涨停家数-跌停家数)/(涨停家数+跌停家数+1)*100', '等待全市场快照刷新'),
+    buildFactor('A', '市场广度', 0, 0.25, 'neutral', '(上涨家数-下跌家数)/(上涨家数+下跌家数)×100', '等待全市场快照刷新'),
+    buildFactor('B', '涨跌强度', 0, 0.20, 'neutral', '成交额平方根加权涨跌幅', '等待全市场快照刷新'),
+    buildFactor('C', '权重指数', 0, 0.40, 'neutral', '宽基指数加权涨跌幅', '等待宽基指数报价刷新'),
+    buildFactor('D', '极端情绪', 0, 0.15, 'neutral', '(涨停家数-跌停家数)/有效股票数', '等待全市场快照刷新'),
   ];
   return {
+    modelVersion: 2,
     updatedAt: new Date().toISOString(),
     total: 0,
     advancers: 0,
@@ -824,6 +990,10 @@ function buildPendingMarketSentimentOverview(): MarketSentimentOverview {
     mainNetInTrend: buildMainNetInTrend(0),
     factors,
     msi: 0,
+    breadthIndexDivergence: 0,
+    structure: 'balanced',
+    structureLabel: '数据更新中',
+    structureDescription: '正在生成市场广度与权重指数联合快照。',
     status: 'neutral',
     statusLabel: '后台更新中',
     notes: [
@@ -839,6 +1009,7 @@ async function readMarketSentimentDiskCache(): Promise<{ data: MarketSentimentOv
     const parsed = JSON.parse(text) as { data?: MarketSentimentOverview; cachedAt?: number };
     if (
       !parsed.data
+      || parsed.data.modelVersion !== 2
       || typeof parsed.cachedAt !== 'number'
       || !Array.isArray(parsed.data.distribution)
       || !parsed.data.distribution.every((bucket) => Array.isArray(bucket.items))
