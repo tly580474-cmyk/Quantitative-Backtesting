@@ -4,9 +4,21 @@ import type { ImportResult } from '@/models';
 import { parseSheetData } from './parser';
 import { validateCandles } from './validator';
 
-async function parseImportFile(file: File): Promise<ImportResult> {
+function decodeCsv(buffer: ArrayBuffer) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch {
+    // A large share of Chinese brokerage/export tools still emit GBK CSV.
+    return new TextDecoder('gb18030').decode(buffer);
+  }
+}
+
+export async function parseImportFile(file: File): Promise<ImportResult> {
   const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array' });
+  const isCsv = /\.csv$/i.test(file.name);
+  const workbook = isCsv
+    ? XLSX.read(decodeCsv(buffer), { type: 'string', raw: true })
+    : XLSX.read(buffer, { type: 'array' });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {

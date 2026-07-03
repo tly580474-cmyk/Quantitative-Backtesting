@@ -104,7 +104,7 @@ function AppContent() {
           continue;
         }
         const now = new Date().toISOString();
-        const baseName = item.fileName.replace(/\.xlsx$/i, '');
+        const baseName = item.fileName.replace(/\.(?:xlsx|xls|csv)$/i, '');
         await getRepository().saveDataset({
           id: crypto.randomUUID(),
           name: item.symbol || baseName,

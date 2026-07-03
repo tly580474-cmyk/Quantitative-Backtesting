@@ -24,7 +24,7 @@ export function parseSheetData(rows: unknown[][]): ParseResult {
   }
 
   const headerRow = rows[0];
-  const { mapping, missingFields } = mapHeaders(headerRow);
+  const { mapping, valueMultipliers, missingFields } = mapHeaders(headerRow);
 
   if (missingFields.length > 0) {
     errors.push({
@@ -36,7 +36,7 @@ export function parseSheetData(rows: unknown[][]): ParseResult {
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    const candle = buildCandle(row, mapping, i);
+    const candle = buildCandle(row, mapping, valueMultipliers);
 
     if (!candle) {
       errors.push({ row: i, message: '行数据为空' });
@@ -57,7 +57,7 @@ export function parseSheetData(rows: unknown[][]): ParseResult {
 function buildCandle(
   row: unknown[],
   mapping: Record<number, string>,
-  rowIndex: number,
+  valueMultipliers: Record<number, number>,
 ): { value?: Candle; error?: string } | null {
   if (!row || row.every(c => c == null || String(c).trim() === '')) return null;
 
@@ -65,7 +65,9 @@ function buildCandle(
   for (let col = 0; col < row.length; col++) {
     const field = mapping[col];
     if (field) {
-      values[field] = row[col];
+      const multiplier = valueMultipliers[col] ?? 1;
+      const parsedValue = multiplier === 1 ? row[col] : parseNumber(row[col]) * multiplier;
+      values[field] = parsedValue;
     }
   }
 

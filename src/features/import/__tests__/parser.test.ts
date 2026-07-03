@@ -98,4 +98,34 @@ describe('parseSheetData', () => {
     expect(result.candles[0].turnoverRatePct).toBe(3.25);
     expect(result.candles[1].turnoverRatePct).toBe(4.5);
   });
+
+  it.each([
+    ['成交额（元）', 15234567.89],
+    ['成交金额(元)', 250000000],
+  ])('converts %s to the internal 亿元 unit', (turnoverHeader, turnoverValue) => {
+    const header = [...sampleHeader];
+    header[13] = turnoverHeader;
+    const row = makeRow('20210621', 100, 110, 95, 105);
+    row[13] = String(turnoverValue);
+
+    const result = parseSheetData([header, row]);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.candles[0].turnover).toBeCloseTo(turnoverValue / 100_000_000, 10);
+  });
+
+  it.each([
+    '成交金额（亿元）Turnover',
+    '成交额(亿元)',
+  ])('keeps %s values expressed in 亿元', (turnoverHeader) => {
+    const header = [...sampleHeader];
+    header[13] = turnoverHeader;
+    const row = makeRow('20210621', 100, 110, 95, 105);
+    row[13] = '12.34';
+
+    const result = parseSheetData([header, row]);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.candles[0].turnover).toBe(12.34);
+  });
 });

@@ -9,7 +9,7 @@ interface FileUploaderProps {
 
 export default function FileUploader({ onImport, loading }: FileUploaderProps) {
   const props: UploadProps = {
-    accept: '.xlsx',
+    accept: '.xlsx,.xls,.csv',
     multiple: true,
     showUploadList: false,
     beforeUpload: (file, fileList) => {
@@ -21,7 +21,7 @@ export default function FileUploader({ onImport, loading }: FileUploaderProps) {
   return (
     <Upload {...props}>
       <Button icon={<UploadOutlined />} loading={loading}>
-        批量导入 Excel
+        批量导入 Excel / CSV
       </Button>
     </Upload>
   );
