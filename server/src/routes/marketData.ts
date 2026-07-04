@@ -2,8 +2,15 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
 import {
-  getDailyCandles, getDataFreshness, getHistoryDailyBars,
+  getDailyCandles,
+  getDataFreshness,
+  getHistoryDailyBars,
+  getPublishedHistoryAdjustment,
 } from '../marketData/repositories/marketDataRepository.js';
+import {
+  applyHistoryAdjustment,
+  type HistoryAdjustmentMode,
+} from '../marketData/normalization/historyAdjustment.js';
 import { listProviders } from '../marketData/providers/providerRegistry.js';
 import { getInstrument } from '../marketData/repositories/instrumentRepository.js';
 import {
@@ -32,6 +39,7 @@ import { fetchCachedHotSectors, fetchSectorConstituents } from '../marketData/ho
 const candlesQuerySchema = z.object({
   startDate: z.string().optional(),
   endDate: z.string().optional(),
+  adjustmentMode: z.enum(['none', 'qfq', 'hfq']).default('none'),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(10000).default(500),
 });
@@ -310,16 +318,56 @@ export function registerMarketDataRoutes(
         );
       }
 
-      const { startDate, endDate, offset, limit } = parsed.data;
+      const {
+        startDate, endDate, adjustmentMode, offset, limit,
+      } = parsed.data;
       if (inst.instrumentKey != null) {
-        const history = await getHistoryDailyBars(inst.instrumentKey, {
-          startDate,
-          endDate,
-          offset,
-          limit,
-        });
+        const history = await getHistoryDailyBars(
+          inst.instrumentKey,
+          adjustmentMode === 'none'
+            ? { startDate, endDate, offset, limit }
+            : { startDate, endDate, offset: 0, limit: 10000 },
+        );
         if (history.total > 0) {
-          return reply.send({ items: history.data, total: history.total, storage: 'history-v2' });
+          if (adjustmentMode === 'none') {
+            return reply.send({
+              items: history.data,
+              total: history.total,
+              storage: 'history-v2',
+              adjustmentMode,
+              factorVersion: null,
+              adjustmentQualityStatus: 'pass',
+              adjustmentWarnings: [],
+            });
+          }
+          const adjustment = await getPublishedHistoryAdjustment(
+            inst.instrumentKey,
+            inst.id,
+            adjustmentMode,
+          );
+          if (!adjustment || adjustment.factors.length === 0) {
+            return reply.status(409).send(
+              apiError(ErrorCodes.VALIDATION_ERROR, '该证券暂无已发布的复权参数'),
+            );
+          }
+          const adjusted = applyHistoryAdjustment(
+            history.data,
+            adjustment.factors,
+            adjustment.overrides,
+            adjustmentMode as Exclude<HistoryAdjustmentMode, 'none'>,
+          ).filter((bar) => (
+            (!startDate || bar.tradeDate >= startDate)
+            && (!endDate || bar.tradeDate <= endDate)
+          ));
+          return reply.send({
+            items: adjusted.slice(offset, offset + limit),
+            total: adjusted.length,
+            storage: 'history-v2',
+            adjustmentMode,
+            factorVersion: adjustment.factorVersion,
+            adjustmentQualityStatus: adjustment.warnings.length > 0 ? 'warning' : 'pass',
+            adjustmentWarnings: adjustment.warnings,
+          });
         }
       }
       const result = await getDailyCandles(req.params.id, {
@@ -328,7 +376,14 @@ export function registerMarketDataRoutes(
         offset,
         limit,
       });
-      return reply.send({ items: result.data, total: result.total });
+      return reply.send({
+        items: result.data,
+        total: result.total,
+        adjustmentMode: 'none',
+        factorVersion: null,
+        adjustmentQualityStatus: 'pass',
+        adjustmentWarnings: [],
+      });
     },
   );
 

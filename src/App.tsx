@@ -73,6 +73,9 @@ function AppContent() {
   const [batchSummary, setBatchSummary] = useState<string[] | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
+  const activeKey = location.pathname === '/'
+    ? '/market-data'
+    : location.pathname.startsWith('/') ? location.pathname : '/market-data';
 
   const handleImport = useCallback(async (files: File[]) => {
     const results = files.length === 1
@@ -139,12 +142,11 @@ function AppContent() {
         <StockInfoBar
           result={importResult}
           onSaveToDb={handleSaveToDb}
+          showAdjustmentControl={activeKey === '/analysis'}
         />
       )}
     </>
   );
-
-  const activeKey = location.pathname === '/' ? '/market-data' : location.pathname.startsWith('/') ? location.pathname : '/market-data';
 
   const tabBar = (
     <Tabs

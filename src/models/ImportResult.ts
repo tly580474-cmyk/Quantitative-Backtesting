@@ -20,4 +20,12 @@ export interface ImportResult {
   errors: ImportError[];
   warnings: ImportWarning[];
   candles: Candle[];
+  instrumentId?: string;
+  adjustmentMode?: 'none' | 'qfq' | 'hfq';
+  factorVersion?: string | null;
+  adjustmentQualityStatus?: 'pass' | 'warning';
+  adjustmentWarnings?: Array<{
+    ruleCode: string;
+    details?: Record<string, unknown>;
+  }>;
 }

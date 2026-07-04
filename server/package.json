@@ -9,6 +9,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "import:history": "tsx src/historyImport/cli.ts",
+    "import:factors": "tsx src/historyImport/factorCli.ts",
     "benchmark:history": "tsx src/historyImport/benchmark.ts"
   },
   "dependencies": {

@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, desc, inArray, sql } from 'drizzle-orm';
+import { eq, and, gte, lte, desc, inArray, isNotNull, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import type {
   DailyCandle,
@@ -13,6 +13,10 @@ const {
   marketDataVersions,
   dailyBarsV2,
   instruments,
+  adjustmentFactorsV2,
+  adjustedBarOverrides,
+  dataImportBatches,
+  dataQualityIssues,
 } = schema;
 const CHUNK_SIZE = 500;
 
@@ -118,6 +122,78 @@ export async function getHistoryDailyBars(
       .where(where),
   ]);
   return { data, total: Number(countRow?.count ?? 0) };
+}
+
+export async function getPublishedHistoryAdjustment(
+  instrumentKey: number,
+  instrumentId: string,
+  mode: 'qfq' | 'hfq',
+) {
+  const [published] = await getDb()
+    .select({
+      factorVersion: adjustmentFactorsV2.factorVersion,
+      publishedAt: dataImportBatches.publishedAt,
+    })
+    .from(adjustmentFactorsV2)
+    .innerJoin(
+      dataImportBatches,
+      eq(adjustmentFactorsV2.sourceBatchId, dataImportBatches.id),
+    )
+    .where(isNotNull(dataImportBatches.publishedAt))
+    .orderBy(desc(dataImportBatches.publishedAt))
+    .limit(1);
+  if (!published) return null;
+
+  const [factors, overrides, warnings] = await Promise.all([
+    getDb()
+      .select({
+        effectiveDate: adjustmentFactorsV2.effectiveDate,
+        factor: adjustmentFactorsV2.factor,
+        priceOffset: adjustmentFactorsV2.priceOffset,
+      })
+      .from(adjustmentFactorsV2)
+      .where(and(
+        eq(adjustmentFactorsV2.instrumentKey, instrumentKey),
+        eq(adjustmentFactorsV2.factorVersion, published.factorVersion),
+      ))
+      .orderBy(adjustmentFactorsV2.effectiveDate),
+    getDb()
+      .select({
+        tradeDate: adjustedBarOverrides.tradeDate,
+        open: adjustedBarOverrides.open,
+        high: adjustedBarOverrides.high,
+        low: adjustedBarOverrides.low,
+        close: adjustedBarOverrides.close,
+      })
+      .from(adjustedBarOverrides)
+      .where(and(
+        eq(adjustedBarOverrides.instrumentKey, instrumentKey),
+        eq(adjustedBarOverrides.adjustmentMode, 'qfq'),
+      ))
+      .orderBy(adjustedBarOverrides.tradeDate),
+    getDb()
+      .select({
+        ruleCode: dataQualityIssues.ruleCode,
+        details: dataQualityIssues.details,
+      })
+      .from(dataQualityIssues)
+      .where(and(
+        eq(dataQualityIssues.instrumentId, instrumentId),
+        eq(dataQualityIssues.status, 'open'),
+        mode === 'qfq'
+          ? eq(dataQualityIssues.ruleCode, 'ADJUSTMENT_QFQ_RECONSTRUCTION')
+          : inArray(dataQualityIssues.ruleCode, [
+              'ADJUSTMENT_QFQ_RECONSTRUCTION',
+              'ADJUSTMENT_HFQ_CROSSCHECK',
+            ]),
+      )),
+  ]);
+  return {
+    factorVersion: published.factorVersion,
+    factors,
+    overrides,
+    warnings,
+  };
 }
 
 export async function upsertDailyCandles(

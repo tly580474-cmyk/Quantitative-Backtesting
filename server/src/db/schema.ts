@@ -335,6 +335,7 @@ export const adjustmentFactorsV2 = mysqlTable('adjustment_factors_v2', {
   effectiveDate: date('effective_date', { mode: 'string' }).notNull(),
   factorVersion: varchar('factor_version', { length: 32 }).notNull(),
   factor: double('factor').notNull(),
+  priceOffset: double('price_offset').notNull().default(0),
   sourceKey: int('source_key', { unsigned: true }).notNull().default(1),
   sourceBatchId: varchar('source_batch_id', { length: 36 }).notNull(),
 }, (table) => ({

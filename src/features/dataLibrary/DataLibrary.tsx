@@ -32,7 +32,7 @@ import { exportDatabaseToExcel } from '@/db/databaseExport';
 import type { MarketDataset } from '@/models';
 import { useCandleStore } from '@/stores/useCandleStore';
 import { getDatasetAssetType, type DatasetAssetType } from './datasetAssetType';
-import { amountYuanToYi } from './historyBar';
+import { fetchHistoryCandles } from './historyBar';
 
 const { Text, Title } = Typography;
 
@@ -71,18 +71,6 @@ interface HistoryInstrument {
   endDate?: string;
   recordCount: number;
   qualityStatus?: 'pass' | 'warning' | 'blocked';
-}
-
-interface HistoryBar {
-  tradeDate: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  previousClose?: number;
-  volume?: number;
-  amount?: number;
-  turnoverRatePct?: number;
 }
 
 export default function DataLibrary({ onOpen }: DataLibraryProps) {
@@ -207,21 +195,11 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
     }
     setOpeningInstrumentId(instrument.id);
     try {
-      const result = await apiFetch<{ items: HistoryBar[]; total: number }>(
-        `/api/instruments/${instrument.id}/candles?offset=0&limit=10000`,
-        { timeoutMs: 60000 },
+      const { response: result, candles } = await fetchHistoryCandles(
+        instrument.id,
+        instrument.symbol,
+        'none',
       );
-      const candles = result.items.map((bar) => ({
-        time: bar.tradeDate,
-        symbol: instrument.symbol,
-        open: bar.open,
-        high: bar.high,
-        low: bar.low,
-        close: bar.close,
-        volume: bar.volume,
-        turnover: amountYuanToYi(bar.amount),
-        turnoverRatePct: bar.turnoverRatePct,
-      }));
       setCandles(candles);
       setImportResult({
         success: true,
@@ -238,6 +216,11 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
           ? [{ row: 0, message: '该证券存在阻断级数据质量问题，请核查后再用于回测。' }]
           : [],
         candles,
+        instrumentId: instrument.id,
+        adjustmentMode: result.adjustmentMode,
+        factorVersion: result.factorVersion,
+        adjustmentQualityStatus: result.adjustmentQualityStatus,
+        adjustmentWarnings: result.adjustmentWarnings,
       });
       if (instrument.qualityStatus === 'blocked') {
         message.warning('行情已打开，但该证券存在阻断级数据质量问题');

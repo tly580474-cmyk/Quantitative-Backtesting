@@ -770,6 +770,28 @@ body {
   flex-wrap: wrap;
 }
 
+.stock-info-bar {
+  min-width: 0;
+}
+
+.stock-adjustment-control {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 1px solid #e5e7eb;
+}
+
+.stock-adjustment-control .ant-segmented {
+  background: #f1f5f9;
+}
+
+.stock-adjustment-control .ant-segmented-item {
+  min-width: 58px;
+  text-align: center;
+}
+
 .app-tabs {
   flex-shrink: 0;
   min-width: 0;
@@ -1422,6 +1444,17 @@ body {
 
   .app-header-tools {
     width: 100%;
+  }
+
+  .stock-info-bar,
+  .stock-adjustment-control {
+    width: 100%;
+  }
+
+  .stock-adjustment-control {
+    min-height: 44px;
+    padding-left: 0;
+    border-left: 0;
   }
 
   .app-tabs {

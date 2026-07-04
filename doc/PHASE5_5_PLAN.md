@@ -146,7 +146,7 @@ daily_stock_metrics
   PK (instrument_key, trade_date)
 
 adjustment_factors_v2
-  instrument_key, effective_date, factor,
+  instrument_key, effective_date, factor, price_offset,
   source_key, factor_version
   PK (instrument_key, effective_date, factor_version)
 
@@ -192,7 +192,8 @@ Repository 再切换到新表；旧表至少保留一个发布周期。
 
 1. 不复权 OHLCV 作为权威原始价格；
 2. 在日期重叠区间，根据不复权和前复权价格推导或校验复权因子；
-3. 因子按公司行为变化点压缩保存，不按交易日无意义重复；
+3. 复权参数按公司行为变化点压缩保存；现金分红使用
+   `adjusted_price = raw_price × factor + price_offset`，不按交易日无意义重复；
 4. 使用后复权文件交叉验证因子，不将其作为第二份权威事实；
 5. 前复权独有的早期记录写入 `adjusted_bar_overrides`；
 6. 无法验证的复权区间标记为 `warning`，不得宣称已精确重建；
@@ -390,7 +391,7 @@ Repository 再切换到新表；旧表至少保留一个发布周期。
 - [x] 17,036,064 行日线与同量每日估值核对；
 - [x] 单证券、最新截面和并发查询达到性能预算；
 - [x] 非法 OHLC 原始行保留并进入阻断级质量清单；
-- [ ] M2 复权因子推导、压缩和前复权独有历史迁移；
+- [x] M2 复权参数推导、压缩和前复权独有历史迁移；
 - [ ] M3 Repository 与业务查询灰度切换；
 - [ ] M4 Parquet 与 DuckDB 研究镜像；
 - [ ] M5 运维界面、备份恢复和正式发布。
