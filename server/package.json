@@ -7,7 +7,9 @@
     "dev": "tsx watch src/app.ts",
     "start": "tsx src/app.ts",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "import:history": "tsx src/historyImport/cli.ts",
+    "benchmark:history": "tsx src/historyImport/benchmark.ts"
   },
   "dependencies": {
     "fastify": "^5.2.0",

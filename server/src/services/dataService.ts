@@ -331,23 +331,3 @@ export async function deleteDraft(strategyId: string) {
     .delete(strategyDrafts)
     .where(eq(strategyDrafts.strategyId, strategyId));
 }
-
-// ─── Migration Helpers ───────────────────────────────────────────
-
-export async function getTableCounts() {
-  const tables = [
-    'market_datasets', 'candles', 'strategy_configs',
-    'backtest_results', 'equity_points', 'visual_strategies',
-    'strategy_versions', 'strategy_drafts',
-  ] as const;
-
-  const counts: Record<string, number> = {};
-  for (const table of tables) {
-    const [row] = await getDb().execute(
-      sql.raw(`SELECT COUNT(*) as cnt FROM ${table}`),
-    );
-    const rowObj = row as unknown as { cnt: number };
-    counts[table] = Number(rowObj.cnt ?? 0);
-  }
-  return counts;
-}

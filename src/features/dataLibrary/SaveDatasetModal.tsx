@@ -1,4 +1,4 @@
-import { Modal, Form, Input, Alert } from 'antd';
+import { Modal, Form, Input, Alert, Segmented } from 'antd';
 import { useCandleStore } from '@/stores/useCandleStore';
 import { getRepository } from '@/api/useRepository';
 import { computeChecksum } from '@/db/marketDataRepository';
@@ -29,6 +29,7 @@ export default function SaveDatasetModal({ open, onClose }: Props) {
               id: existing.id,
               name: values.name,
               symbol: importResult!.symbol,
+              assetType: values.assetType,
               timeframe: '1d',
               startTime: importResult!.dateRange.from,
               endTime: importResult!.dateRange.to,
@@ -52,6 +53,7 @@ export default function SaveDatasetModal({ open, onClose }: Props) {
       id,
       name: values.name,
       symbol: importResult!.symbol,
+      assetType: values.assetType,
       timeframe: '1d',
       startTime: importResult!.dateRange.from,
       endTime: importResult!.dateRange.to,
@@ -88,6 +90,20 @@ export default function SaveDatasetModal({ open, onClose }: Props) {
               rules={[{ required: true, message: '请输入数据集名称' }]}
             >
               <Input />
+            </Form.Item>
+            <Form.Item
+              label="行情类型"
+              name="assetType"
+              initialValue="stock"
+              rules={[{ required: true, message: '请选择行情类型' }]}
+            >
+              <Segmented
+                block
+                options={[
+                  { label: '个股行情', value: 'stock' },
+                  { label: '指数行情', value: 'index' },
+                ]}
+              />
             </Form.Item>
           </Form>
           <Alert

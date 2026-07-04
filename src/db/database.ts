@@ -42,6 +42,17 @@ export class BacktestDatabase extends Dexie {
       strategyDrafts: 'id, strategyId, updatedAt',
     });
 
+    this.version(4).stores({
+      marketDatasets: 'id, symbol, assetType, checksum, createdAt',
+      candles: '[datasetId+time], datasetId, time',
+      strategyConfigs: 'id, strategyId, createdAt',
+      backtestResults: 'id, status, startedAt',
+      equityPoints: '[resultId+time], resultId, time',
+      visualStrategies: 'id, status, updatedAt',
+      strategyVersions: '[strategyId+version], strategyId, createdAt',
+      strategyDrafts: 'id, strategyId, updatedAt',
+    });
+
     this.marketDatasets = this.table('marketDatasets');
     this.candles = this.table('candles');
     this.strategyConfigs = this.table('strategyConfigs');

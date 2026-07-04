@@ -7,7 +7,13 @@ import type {
   DataFreshness,
 } from '../../marketData/types.js';
 
-const { dailyCandles, adjustmentFactors, marketDataVersions } = schema;
+const {
+  dailyCandles,
+  adjustmentFactors,
+  marketDataVersions,
+  dailyBarsV2,
+  instruments,
+} = schema;
 const CHUNK_SIZE = 500;
 
 // ─── Daily Candles ──────────────────────────────────────────────────
@@ -62,6 +68,56 @@ export async function getInstrumentDataSummaries(instrumentIds: string[]) {
     .from(dailyCandles)
     .where(inArray(dailyCandles.instrumentId, instrumentIds))
     .groupBy(dailyCandles.instrumentId);
+}
+
+export async function getHistoryInstrumentSummaries(instrumentIds: string[]) {
+  if (instrumentIds.length === 0) return [];
+  return getDb()
+    .select({
+      instrumentId: instruments.id,
+      startDate: sql<string>`min(${dailyBarsV2.tradeDate})`,
+      endDate: sql<string>`max(${dailyBarsV2.tradeDate})`,
+      recordCount: sql<number>`count(*)`,
+    })
+    .from(instruments)
+    .innerJoin(
+      dailyBarsV2,
+      eq(dailyBarsV2.instrumentKey, instruments.instrumentKey),
+    )
+    .where(inArray(instruments.id, instrumentIds))
+    .groupBy(instruments.id);
+}
+
+export async function getHistoryDailyBars(
+  instrumentKey: number,
+  options?: {
+    startDate?: string;
+    endDate?: string;
+    offset?: number;
+    limit?: number;
+  },
+) {
+  const conditions = [eq(dailyBarsV2.instrumentKey, instrumentKey)];
+  if (options?.startDate) conditions.push(gte(dailyBarsV2.tradeDate, options.startDate));
+  if (options?.endDate) conditions.push(lte(dailyBarsV2.tradeDate, options.endDate));
+  const where = and(...conditions);
+  const offset = options?.offset ?? 0;
+  const limit = options?.limit ?? 500;
+
+  const [data, [countRow]] = await Promise.all([
+    getDb()
+      .select()
+      .from(dailyBarsV2)
+      .where(where)
+      .orderBy(dailyBarsV2.tradeDate)
+      .limit(limit)
+      .offset(offset),
+    getDb()
+      .select({ count: sql<number>`count(*)` })
+      .from(dailyBarsV2)
+      .where(where),
+  ]);
+  return { data, total: Number(countRow?.count ?? 0) };
 }
 
 export async function upsertDailyCandles(

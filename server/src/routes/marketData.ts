@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
 import {
-  getDailyCandles, getDataFreshness,
+  getDailyCandles, getDataFreshness, getHistoryDailyBars,
 } from '../marketData/repositories/marketDataRepository.js';
 import { listProviders } from '../marketData/providers/providerRegistry.js';
 import { getInstrument } from '../marketData/repositories/instrumentRepository.js';
@@ -311,6 +311,17 @@ export function registerMarketDataRoutes(
       }
 
       const { startDate, endDate, offset, limit } = parsed.data;
+      if (inst.instrumentKey != null) {
+        const history = await getHistoryDailyBars(inst.instrumentKey, {
+          startDate,
+          endDate,
+          offset,
+          limit,
+        });
+        if (history.total > 0) {
+          return reply.send({ items: history.data, total: history.total, storage: 'history-v2' });
+        }
+      }
       const result = await getDailyCandles(req.params.id, {
         startDate,
         endDate,

@@ -6,12 +6,17 @@ import {
   json,
   uniqueIndex,
   index,
+  date,
+  datetime,
+  bigint,
+  primaryKey,
 } from 'drizzle-orm/mysql-core';
 
 // ─── market_datasets ─────────────────────────────────────────────
 export const marketDatasets = mysqlTable('market_datasets', {
   id: varchar('id', { length: 36 }).primaryKey(),
   symbol: varchar('symbol', { length: 20 }).notNull(),
+  assetType: varchar('asset_type', { length: 10 }).notNull().default('stock'),
   checksum: varchar('checksum', { length: 64 }).notNull().unique(),
   name: varchar('name', { length: 255 }).notNull(),
   timeframe: varchar('timeframe', { length: 10 }).notNull().default('1d'),
@@ -138,9 +143,11 @@ export const strategyDrafts = mysqlTable('strategy_drafts', {
 // ─── Phase 5: instruments ─────────────────────────────────────────
 export const instruments = mysqlTable('instruments', {
   id: varchar('id', { length: 36 }).primaryKey(),
+  instrumentKey: int('instrument_key', { unsigned: true }).autoincrement().notNull(),
   market: varchar('market', { length: 16 }).notNull(),
   symbol: varchar('symbol', { length: 20 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(),
+  industry: varchar('industry', { length: 128 }),
   type: varchar('type', { length: 32 }).notNull(),
   listDate: varchar('list_date', { length: 10 }),
   delistDate: varchar('delist_date', { length: 10 }),
@@ -148,6 +155,7 @@ export const instruments = mysqlTable('instruments', {
   createdAt: varchar('created_at', { length: 24 }).notNull(),
   updatedAt: varchar('updated_at', { length: 24 }).notNull(),
 }, (table) => ({
+  instrumentKeyUnique: uniqueIndex('idx_inst_instrument_key').on(table.instrumentKey),
   marketSymbolTypeUnique: uniqueIndex('idx_inst_market_symbol_type').on(table.market, table.symbol, table.type),
   statusIdx: index('idx_inst_status').on(table.status),
   symbolIdx: index('idx_inst_symbol').on(table.symbol),
@@ -277,4 +285,112 @@ export const dataQualityIssues = mysqlTable('data_quality_issues', {
   statusSeverityIdx: index('idx_dqi_status_severity').on(table.status, table.severity, table.detectedAt),
   instrumentIdx: index('idx_dqi_instrument').on(table.instrumentId),
   dateIdx: index('idx_dqi_date').on(table.tradeDate),
+}));
+
+// ─── Phase 5.5: compact authoritative history store ───────────────
+export const dailyBarsV2 = mysqlTable('daily_bars_v2', {
+  instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
+  tradeDate: date('trade_date', { mode: 'string' }).notNull(),
+  open: double('open').notNull(),
+  high: double('high').notNull(),
+  low: double('low').notNull(),
+  close: double('close').notNull(),
+  previousClose: double('previous_close'),
+  volume: bigint('volume', { mode: 'number', unsigned: true }),
+  amount: double('amount'),
+  turnoverRatePct: double('turnover_rate_pct'),
+  sourceKey: int('source_key', { unsigned: true }).notNull().default(1),
+  sourceVersion: varchar('source_version', { length: 64 }).notNull(),
+  fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.instrumentKey, table.tradeDate] }),
+  tradeDateIdx: index('idx_dbv2_trade_date_instrument').on(
+    table.tradeDate,
+    table.instrumentKey,
+    table.close,
+    table.volume,
+  ),
+}));
+
+export const dailyStockMetrics = mysqlTable('daily_stock_metrics', {
+  instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
+  tradeDate: date('trade_date', { mode: 'string' }).notNull(),
+  totalShares: bigint('total_shares', { mode: 'number', unsigned: true }),
+  floatShares: bigint('float_shares', { mode: 'number', unsigned: true }),
+  totalMarketCap: double('total_market_cap'),
+  floatMarketCap: double('float_market_cap'),
+  peTtm: double('pe_ttm'),
+  pb: double('pb'),
+  psTtm: double('ps_ttm'),
+  volumeRatio: double('volume_ratio'),
+  isSt: int('is_st', { unsigned: true }).notNull().default(0),
+  isLimitUp: int('is_limit_up', { unsigned: true }).notNull().default(0),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.instrumentKey, table.tradeDate] }),
+  tradeDateIdx: index('idx_dsm_trade_date_instrument').on(table.tradeDate, table.instrumentKey),
+}));
+
+export const adjustmentFactorsV2 = mysqlTable('adjustment_factors_v2', {
+  instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
+  effectiveDate: date('effective_date', { mode: 'string' }).notNull(),
+  factorVersion: varchar('factor_version', { length: 32 }).notNull(),
+  factor: double('factor').notNull(),
+  sourceKey: int('source_key', { unsigned: true }).notNull().default(1),
+  sourceBatchId: varchar('source_batch_id', { length: 36 }).notNull(),
+}, (table) => ({
+  pk: primaryKey({
+    columns: [table.instrumentKey, table.effectiveDate, table.factorVersion],
+  }),
+}));
+
+export const adjustedBarOverrides = mysqlTable('adjusted_bar_overrides', {
+  instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
+  tradeDate: date('trade_date', { mode: 'string' }).notNull(),
+  adjustmentMode: varchar('adjustment_mode', { length: 4 }).notNull(),
+  open: double('open').notNull(),
+  high: double('high').notNull(),
+  low: double('low').notNull(),
+  close: double('close').notNull(),
+  reason: varchar('reason', { length: 64 }).notNull(),
+  sourceBatchId: varchar('source_batch_id', { length: 36 }).notNull(),
+}, (table) => ({
+  pk: primaryKey({
+    columns: [table.instrumentKey, table.tradeDate, table.adjustmentMode],
+  }),
+}));
+
+export const dataImportBatches = mysqlTable('data_import_batches', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  sourceRoot: varchar('source_root', { length: 1024 }).notNull(),
+  sourceSnapshot: varchar('source_snapshot', { length: 64 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('pending'),
+  totalFiles: int('total_files').notNull().default(0),
+  completedFiles: int('completed_files').notNull().default(0),
+  failedFiles: int('failed_files').notNull().default(0),
+  totalRows: bigint('total_rows', { mode: 'number', unsigned: true }).notNull().default(0),
+  importedRows: bigint('imported_rows', { mode: 'number', unsigned: true }).notNull().default(0),
+  startedAt: datetime('started_at', { mode: 'string' }),
+  finishedAt: datetime('finished_at', { mode: 'string' }),
+  publishedAt: datetime('published_at', { mode: 'string' }),
+}, (table) => ({
+  statusIdx: index('idx_dib_status_started').on(table.status, table.startedAt),
+}));
+
+export const dataImportFiles = mysqlTable('data_import_files', {
+  batchId: varchar('batch_id', { length: 36 }).notNull(),
+  relativePath: varchar('relative_path', { length: 512 }).notNull(),
+  adjustmentMode: varchar('adjustment_mode', { length: 4 }).notNull(),
+  checksum: varchar('checksum', { length: 64 }).notNull(),
+  expectedRows: int('expected_rows', { unsigned: true }).notNull().default(0),
+  importedRows: int('imported_rows', { unsigned: true }).notNull().default(0),
+  minDate: date('min_date', { mode: 'string' }),
+  maxDate: date('max_date', { mode: 'string' }),
+  status: varchar('status', { length: 16 }).notNull().default('pending'),
+  errorMessage: varchar('error_message', { length: 1000 }),
+  startedAt: datetime('started_at', { mode: 'string' }),
+  finishedAt: datetime('finished_at', { mode: 'string' }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.batchId, table.relativePath] }),
+  statusIdx: index('idx_dif_batch_status').on(table.batchId, table.status),
+  checksumIdx: index('idx_dif_checksum').on(table.checksum),
 }));

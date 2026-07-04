@@ -144,11 +144,12 @@ export async function updateIndexDatasets(
 }
 
 function isChinaIndexDataset(dataset: DatasetRow): boolean {
-  return CN_INDEX_SYMBOLS.has(dataset.symbol);
+  return dataset.assetType === 'index' && CN_INDEX_SYMBOLS.has(dataset.symbol);
 }
 
 function isNasdaq100Dataset(dataset: DatasetRow): boolean {
-  return dataset.symbol.toUpperCase() === 'NDX' || dataset.name.includes('纳斯达克100');
+  return dataset.assetType === 'index'
+    && (dataset.symbol.toUpperCase() === 'NDX' || dataset.name.includes('纳斯达克100'));
 }
 
 async function fetchChinaIndexCandles(

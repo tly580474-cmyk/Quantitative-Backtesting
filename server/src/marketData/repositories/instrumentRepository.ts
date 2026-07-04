@@ -1,4 +1,4 @@
-import { eq, and, like, or, sql, type SQL } from 'drizzle-orm';
+import { eq, and, like, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import type { Instrument } from '../../marketData/types.js';
 
@@ -11,6 +11,8 @@ interface ListFilters {
   search?: string;
   type?: string;
   status?: string;
+  excludeDelisted?: boolean;
+  excludeSt?: boolean;
   offset?: number;
   limit?: number;
 }
@@ -31,6 +33,17 @@ export async function listInstruments(
   }
   if (filters?.type) conditions.push(eq(instruments.type, filters.type));
   if (filters?.status) conditions.push(eq(instruments.status, filters.status));
+  if (filters?.excludeDelisted) {
+    conditions.push(ne(instruments.status, 'delisted'));
+  }
+  if (filters?.excludeSt) {
+    conditions.push(
+      and(
+        notLike(instruments.name, 'ST%'),
+        notLike(instruments.name, '*ST%'),
+      )!,
+    );
+  }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -53,7 +66,7 @@ export async function listInstruments(
   const limit = filters?.limit ?? 100;
 
   const [data, [countRow]] = await Promise.all([
-    base.orderBy(instruments.market, instruments.symbol).limit(limit).offset(offset),
+    base.orderBy(instruments.symbol, instruments.market).limit(limit).offset(offset),
     countQuery,
   ]);
 

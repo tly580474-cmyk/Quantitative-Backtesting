@@ -5,7 +5,10 @@ import {
   listInstruments, getInstrument, createInstrument,
 } from '../marketData/repositories/instrumentRepository.js';
 import type { Market, InstrumentType } from '../marketData/types.js';
-import { getInstrumentDataSummaries } from '../marketData/repositories/marketDataRepository.js';
+import {
+  getHistoryInstrumentSummaries,
+  getInstrumentDataSummaries,
+} from '../marketData/repositories/marketDataRepository.js';
 import { getOpenQualitySeverities } from '../marketData/repositories/dataQualityRepository.js';
 
 const listQuerySchema = z.object({
@@ -14,6 +17,10 @@ const listQuerySchema = z.object({
   search: z.string().optional(),
   type: z.string().optional(),
   status: z.string().optional(),
+  excludeDelisted: z.enum(['true', 'false']).optional()
+    .transform((value) => value === 'true'),
+  excludeSt: z.enum(['true', 'false']).optional()
+    .transform((value) => value === 'true'),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(500).default(50),
 });
@@ -45,22 +52,31 @@ export function registerInstrumentRoutes(app: FastifyInstance, dbOnline: boolean
       );
     }
 
-    const { market, symbol, search, type, status, offset, limit } = parsed.data;
+    const {
+      market, symbol, search, type, status, excludeDelisted, excludeSt, offset, limit,
+    } = parsed.data;
 
-    const filters: Record<string, string> = {};
-    if (market) filters.market = market;
-    if (symbol) filters.symbol = symbol;
-    if (search) filters.search = search;
-    if (type) filters.type = type;
-    if (status) filters.status = status;
-
-    const result = await listInstruments({ ...filters, offset, limit });
+    const result = await listInstruments({
+      market,
+      symbol,
+      search,
+      type,
+      status,
+      excludeDelisted,
+      excludeSt,
+      offset,
+      limit,
+    });
     const ids = result.data.map((instrument) => instrument.id);
-    const [summaries, severities] = await Promise.all([
+    const [legacySummaries, historySummaries, severities] = await Promise.all([
       getInstrumentDataSummaries(ids),
+      getHistoryInstrumentSummaries(ids),
       getOpenQualitySeverities(ids),
     ]);
-    const summaryById = new Map(summaries.map((summary) => [summary.instrumentId, summary]));
+    const summaryById = new Map(
+      [...legacySummaries, ...historySummaries]
+        .map((summary) => [summary.instrumentId, summary]),
+    );
     const severityById = new Map<string, 'warning' | 'blocked'>();
     for (const issue of severities) {
       const current = severityById.get(issue.instrumentId);
@@ -74,6 +90,7 @@ export function registerInstrumentRoutes(app: FastifyInstance, dbOnline: boolean
         ...instrument,
         startDate: summary?.startDate,
         endDate: summary?.endDate,
+        recordCount: Number(summary?.recordCount ?? 0),
         qualityStatus: summary
           ? (severityById.get(instrument.id) ?? 'pass')
           : undefined,

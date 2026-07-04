@@ -263,6 +263,9 @@ cd server && npm run dev
 # 后端类型检查
 cd server && npm run typecheck
 
+# 历史行情只读预检（路径也可配置为 STOCK_HISTORY_ROOT）
+cd server && npm run import:history -- --source "D:\github_public_repo\所有股票的历史数据\每只股票一个文件" --limit 10 --dry-run
+
 # 预览生产构建
 npm run preview
 ```

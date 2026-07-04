@@ -10,7 +10,6 @@ import { registerDatasetRoutes } from './routes/datasets.js';
 import { registerStrategyConfigRoutes } from './routes/strategyConfigs.js';
 import { registerResultRoutes } from './routes/results.js';
 import { registerVisualStrategyRoutes } from './routes/visualStrategies.js';
-import { registerMigrationRoutes } from './routes/migration.js';
 import { registerExportRoutes } from './routes/export.js';
 import { registerInstrumentRoutes } from './routes/instruments.js';
 import { registerMarketDataRoutes } from './routes/marketData.js';
@@ -74,7 +73,7 @@ async function main(): Promise<void> {
   }
 
   // ── Fastify App ─────────────────────────────────────────────
-  const app = Fastify({ logger: true, bodyLimit: 104857600 }); // 100MB for data migration
+  const app = Fastify({ logger: true, bodyLimit: 104857600 });
 
   await app.register(cors, {
     origin: /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
@@ -104,7 +103,6 @@ async function main(): Promise<void> {
   registerStrategyConfigRoutes(app, dbOnline);
   registerResultRoutes(app, dbOnline);
   registerVisualStrategyRoutes(app, dbOnline);
-  registerMigrationRoutes(app, dbOnline);
   registerExportRoutes(app, dbOnline);
 
   // Phase 5: Market data platform

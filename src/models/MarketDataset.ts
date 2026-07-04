@@ -4,6 +4,7 @@ export interface MarketDataset {
   id: string;
   name: string;
   symbol: string;
+  assetType?: 'index' | 'stock';
   timeframe: '1d';
   startTime: string;
   endTime: string;

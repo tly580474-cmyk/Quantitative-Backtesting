@@ -12,9 +12,11 @@ export type QualityIssueStatus = 'open' | 'confirmed' | 'ignored' | 'resolved';
 // ─── Instrument ────────────────────────────────────────────────────
 export interface Instrument {
   id: string;
+  instrumentKey?: number;
   market: Market;
   symbol: string;
   name: string;
+  industry?: string;
   type: InstrumentType;
   listDate?: string;
   delistDate?: string;
