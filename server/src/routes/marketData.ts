@@ -35,13 +35,18 @@ import { updateIndexDatasets } from '../marketData/jobs/indexDatasetUpdater.js';
 import { StockResearchAgent } from '../services/stockResearchAgent.js';
 import { fetchSevenLayerSection, fetchSevenLayerSnapshot } from '../marketData/sevenLayerDataService.js';
 import { fetchCachedHotSectors, fetchSectorConstituents } from '../marketData/hotSectorService.js';
+import type { HistoryReadMode } from '../marketData/repositories/historyStorePolicy.js';
+import {
+  getCurrentResearchSnapshot,
+  queryResearchSnapshot,
+} from '../research/duckdbResearchService.js';
 
 const candlesQuerySchema = z.object({
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   adjustmentMode: z.enum(['none', 'qfq', 'hfq']).default('none'),
   offset: z.coerce.number().int().min(0).default(0),
-  limit: z.coerce.number().int().min(1).max(10000).default(500),
+  limit: z.coerce.number().int().min(1).max(5000).default(5000),
 });
 
 const candidateIndicatorCache = new Map<string, { data: HistoricalTechnicalIndicators | null; cachedAt: number }>();
@@ -87,6 +92,15 @@ export function registerMarketDataRoutes(
   app: FastifyInstance,
   dbOnline: boolean,
   agentConfig: ResearchAgentConfig,
+  storageConfig: {
+    historyReadMode: HistoryReadMode;
+    snapshotRoot: string;
+    researchQueryMaxRows: number;
+  } = {
+    historyReadMode: 'prefer-v2',
+    snapshotRoot: './data/research-snapshots',
+    researchQueryMaxRows: 10000,
+  },
 ): void {
   const agent = new StockResearchAgent(
     agentConfig.apiKey,
@@ -277,6 +291,48 @@ export function registerMarketDataRoutes(
     }
   });
 
+  app.get('/api/research-snapshots/current', async (_req, reply) => {
+    const snapshot = await getCurrentResearchSnapshot(storageConfig.snapshotRoot);
+    return reply.send(snapshot ?? { status: 'unavailable' });
+  });
+
+  app.get('/api/research-snapshots/scan', async (req, reply) => {
+    const parsed = z.object({
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      fields: z.string().max(512).default('market,symbol,tradeDate,close'),
+      markets: z.string().max(64).optional(),
+      symbols: z.string().max(5000).optional(),
+      limit: z.coerce.number().int().min(1)
+        .max(storageConfig.researchQueryMaxRows)
+        .default(Math.min(1000, storageConfig.researchQueryMaxRows)),
+    }).safeParse(req.query);
+    if (
+      !parsed.success
+      || parsed.data.startDate > parsed.data.endDate
+      || daysBetween(parsed.data.startDate, parsed.data.endDate) > 366
+    ) {
+      return reply.status(400).send(
+        apiError(ErrorCodes.VALIDATION_ERROR, '研究查询参数无效', parsed.success ? [] : parsed.error.issues),
+      );
+    }
+    try {
+      return reply.send(await queryResearchSnapshot(storageConfig.snapshotRoot, {
+        startDate: parsed.data.startDate,
+        endDate: parsed.data.endDate,
+        fields: parsed.data.fields.split(',').map((field) => field.trim()).filter(Boolean),
+        markets: parsed.data.markets?.split(',').map((market) => market.trim()).filter(Boolean),
+        symbols: parsed.data.symbols?.split(',').map((symbol) => symbol.trim()).filter(Boolean),
+        limit: parsed.data.limit,
+      }));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(503).send({
+        message: error instanceof Error ? error.message : '研究快照查询失败',
+      });
+    }
+  });
+
   if (!dbOnline) {
     const stub = async () => { throw { statusCode: 503, ...dbUnavailable() }; };
     app.get('/api/instruments/:id/candles', stub);
@@ -321,7 +377,7 @@ export function registerMarketDataRoutes(
       const {
         startDate, endDate, adjustmentMode, offset, limit,
       } = parsed.data;
-      if (inst.instrumentKey != null) {
+      if (storageConfig.historyReadMode !== 'legacy' && inst.instrumentKey != null) {
         const history = await getHistoryDailyBars(
           inst.instrumentKey,
           adjustmentMode === 'none'
@@ -370,6 +426,16 @@ export function registerMarketDataRoutes(
           });
         }
       }
+      if (storageConfig.historyReadMode === 'v2') {
+        return reply.status(404).send(
+          apiError(ErrorCodes.INSTRUMENT_NOT_FOUND, 'v2 行情库中不存在该证券数据'),
+        );
+      }
+      if (adjustmentMode !== 'none') {
+        return reply.status(409).send(
+          apiError(ErrorCodes.VALIDATION_ERROR, '旧行情路径不支持按需复权，请切换到 v2'),
+        );
+      }
       const result = await getDailyCandles(req.params.id, {
         startDate,
         endDate,
@@ -379,6 +445,7 @@ export function registerMarketDataRoutes(
       return reply.send({
         items: result.data,
         total: result.total,
+        storage: 'legacy',
         adjustmentMode: 'none',
         factorVersion: null,
         adjustmentQualityStatus: 'pass',
@@ -404,4 +471,11 @@ export function registerMarketDataRoutes(
     }));
     return reply.send(data);
   });
+}
+
+function daysBetween(startDate: string, endDate: string): number {
+  return Math.floor(
+    (Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`))
+    / 86_400_000,
+  );
 }

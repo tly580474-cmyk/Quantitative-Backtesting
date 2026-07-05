@@ -25,6 +25,10 @@ const envSchema = z.object({
   MARKET_INDEX_AUTO_UPDATE_ENABLED: z.enum(['true', 'false']).default('true'),
   MARKET_CN_INDEX_UPDATE_TIME: z.string().default('15:05'),
   MARKET_US_INDEX_UPDATE_TIME: z.string().default('05:00'),
+  HISTORY_STORE_READ_MODE: z.enum(['legacy', 'prefer-v2', 'v2']).default('prefer-v2'),
+  HISTORY_STORE_DUAL_WRITE: z.enum(['true', 'false']).default('true'),
+  RESEARCH_SNAPSHOT_ROOT: z.string().default('./data/research-snapshots'),
+  RESEARCH_QUERY_MAX_ROWS: z.string().default('10000'),
 
   PORT: z.string().default('3001'),
 });

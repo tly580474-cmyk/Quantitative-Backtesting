@@ -9,6 +9,7 @@ server/.env
 server/.cache/market-technical-rows.json
 server/.cache/hot-sectors.json
 server/.cache/history-import/
+server/data/research-snapshots/
 .claude/
 *.tsbuildinfo
 新建 文本文档.txt

@@ -7,6 +7,7 @@ import type {
   MarketDataVersion,
   DataFreshness,
 } from '../../marketData/types.js';
+import { getHistoryStorePolicy } from './historyStorePolicy.js';
 
 const {
   dailyCandles,
@@ -514,6 +515,7 @@ export async function getLatestVersion(
 // ─── Data Freshness ─────────────────────────────────────────────────
 
 export async function getDataFreshness(): Promise<DataFreshness> {
+  const useV2 = getHistoryStorePolicy().readMode !== 'legacy';
   const [
     [instrumentCount],
     [syncedCount],
@@ -524,16 +526,28 @@ export async function getDataFreshness(): Promise<DataFreshness> {
     getDb()
       .select({ count: sql<number>`count(*)` })
       .from(schema.instruments),
-    getDb()
-      .select({
-        count: sql<number>`count(distinct ${dailyCandles.instrumentId})`,
-      })
-      .from(dailyCandles),
-    getDb()
-      .select({ tradeDate: dailyCandles.tradeDate })
-      .from(dailyCandles)
-      .orderBy(desc(dailyCandles.tradeDate))
-      .limit(1),
+    useV2
+      ? getDb()
+        .select({
+          count: sql<number>`count(distinct ${dailyBarsV2.instrumentKey})`,
+        })
+        .from(dailyBarsV2)
+      : getDb()
+        .select({
+          count: sql<number>`count(distinct ${dailyCandles.instrumentId})`,
+        })
+        .from(dailyCandles),
+    useV2
+      ? getDb()
+        .select({ tradeDate: dailyBarsV2.tradeDate })
+        .from(dailyBarsV2)
+        .orderBy(desc(dailyBarsV2.tradeDate))
+        .limit(1)
+      : getDb()
+        .select({ tradeDate: dailyCandles.tradeDate })
+        .from(dailyCandles)
+        .orderBy(desc(dailyCandles.tradeDate))
+        .limit(1),
     getDb()
       .select({ count: sql<number>`count(*)` })
       .from(schema.syncJobItems)

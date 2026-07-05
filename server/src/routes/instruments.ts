@@ -10,6 +10,7 @@ import {
   getInstrumentDataSummaries,
 } from '../marketData/repositories/marketDataRepository.js';
 import { getOpenQualitySeverities } from '../marketData/repositories/dataQualityRepository.js';
+import type { HistoryReadMode } from '../marketData/repositories/historyStorePolicy.js';
 
 const listQuerySchema = z.object({
   market: z.string().optional(),
@@ -35,7 +36,11 @@ const createBodySchema = z.object({
   delistDate: z.string().optional(),
 });
 
-export function registerInstrumentRoutes(app: FastifyInstance, dbOnline: boolean): void {
+export function registerInstrumentRoutes(
+  app: FastifyInstance,
+  dbOnline: boolean,
+  options: { historyReadMode: HistoryReadMode } = { historyReadMode: 'prefer-v2' },
+): void {
   if (!dbOnline) {
     const stub = async () => { throw { statusCode: 503, ...dbUnavailable() }; };
     app.get('/api/instruments', stub);
@@ -73,8 +78,8 @@ export function registerInstrumentRoutes(app: FastifyInstance, dbOnline: boolean
     });
     const ids = result.data.map((instrument) => instrument.id);
     const [legacySummaries, historySummaries, severities] = await Promise.all([
-      getInstrumentDataSummaries(ids),
-      getHistoryInstrumentSummaries(ids),
+      options.historyReadMode === 'v2' ? [] : getInstrumentDataSummaries(ids),
+      options.historyReadMode === 'legacy' ? [] : getHistoryInstrumentSummaries(ids),
       getOpenQualitySeverities(ids),
     ]);
     const summaryById = new Map(

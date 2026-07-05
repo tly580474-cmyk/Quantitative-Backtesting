@@ -20,7 +20,7 @@ export interface HistoryBar {
 export interface HistoryCandleResponse {
   items: HistoryBar[];
   total: number;
-  storage: 'history-v2';
+  storage: 'history-v2' | 'legacy';
   adjustmentMode: AdjustmentMode;
   factorVersion: string | null;
   adjustmentQualityStatus: 'pass' | 'warning';
@@ -59,11 +59,23 @@ export async function fetchHistoryCandles(
   symbol: string,
   adjustmentMode: AdjustmentMode,
 ): Promise<{ response: HistoryCandleResponse; candles: Candle[] }> {
-  const response = await apiFetch<HistoryCandleResponse>(
-    `/api/instruments/${instrumentId}/candles?offset=0&limit=10000`
-    + `&adjustmentMode=${adjustmentMode}`,
-    { timeoutMs: 60000 },
-  );
+  const pageSize = 5000;
+  let offset = 0;
+  let response: HistoryCandleResponse | undefined;
+  const items: HistoryBar[] = [];
+  do {
+    const page = await apiFetch<HistoryCandleResponse>(
+      `/api/instruments/${instrumentId}/candles?offset=${offset}&limit=${pageSize}`
+      + `&adjustmentMode=${adjustmentMode}`,
+      { timeoutMs: 60000 },
+    );
+    response ??= page;
+    items.push(...page.items);
+    offset += page.items.length;
+    if (page.items.length === 0) break;
+  } while (offset < (response?.total ?? 0));
+  if (!response) throw new Error('历史行情接口未返回数据');
+  response = { ...response, items };
   return {
     response,
     candles: mapHistoryBarsToCandles(response.items, symbol),

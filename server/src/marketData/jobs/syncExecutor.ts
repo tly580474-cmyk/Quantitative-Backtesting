@@ -18,6 +18,7 @@ import {
   upsertDailyCandles,
   upsertHistoryDailyBars,
 } from '../repositories/marketDataRepository.js';
+import { getHistoryStorePolicy } from '../repositories/historyStorePolicy.js';
 import {
   getSyncJob,
   updateSyncJobStatus,
@@ -511,7 +512,10 @@ async function processSymbolCandles(
   const validation = validateCandleSet(normalized);
 
   // Upsert candles (always upsert even if validation warnings exist)
-  await upsertDailyCandles(normalized);
+  const historyPolicy = getHistoryStorePolicy();
+  if (historyPolicy.dualWrite) {
+    await upsertDailyCandles(normalized);
+  }
   if (instrument.instrumentKey != null) {
     const fetchedAt = new Date().toISOString().slice(0, 23).replace('T', ' ');
     const today = getChinaMarketSession().tradeDate;
@@ -575,6 +579,8 @@ async function processSymbolCandles(
         }
       }
     }
+  } else if (!historyPolicy.dualWrite) {
+    throw new Error(`证券 ${symbol} 缺少 instrument_key，无法写入 v2 行情库`);
   }
 
   // Create quality issues for validation errors

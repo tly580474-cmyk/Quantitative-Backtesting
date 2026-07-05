@@ -23,9 +23,14 @@ import { primaryProvider } from './marketData/providers/primaryProvider.js';
 import { tencentProvider } from './marketData/providers/tencentProvider.js';
 import { startScheduler } from './marketData/jobs/syncScheduler.js';
 import { startIndexDatasetScheduler } from './marketData/jobs/indexDatasetScheduler.js';
+import { configureHistoryStorePolicy } from './marketData/repositories/historyStorePolicy.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  configureHistoryStorePolicy({
+    readMode: config.HISTORY_STORE_READ_MODE,
+    dualWrite: config.HISTORY_STORE_DUAL_WRITE === 'true',
+  });
 
   // ── AI Provider ─────────────────────────────────────────────
   const aiEnabled = config.AI_STRATEGY_ENABLED === 'true';
@@ -137,13 +142,22 @@ async function main(): Promise<void> {
     }
   }
 
-  registerInstrumentRoutes(app, dbOnline);
+  registerInstrumentRoutes(app, dbOnline, {
+    historyReadMode: config.HISTORY_STORE_READ_MODE,
+  });
   registerMarketDataRoutes(app, dbOnline, {
     apiKey: aiConfigured ? config.OPENAI_API_KEY : '',
     baseURL: config.OPENAI_BASE_URL,
     model: config.OPENAI_MODEL,
     timeoutMs: parseInt(config.OPENAI_TIMEOUT_MS, 10),
     availableModels: availableAiModels,
+  }, {
+    historyReadMode: config.HISTORY_STORE_READ_MODE,
+    snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
+    researchQueryMaxRows: Math.max(
+      1,
+      parseInt(config.RESEARCH_QUERY_MAX_ROWS, 10) || 10000,
+    ),
   });
   registerSyncJobRoutes(app, dbOnline);
   registerDataQualityRoutes(app, dbOnline);

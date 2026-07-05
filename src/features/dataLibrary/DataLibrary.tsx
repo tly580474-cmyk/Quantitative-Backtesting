@@ -32,6 +32,7 @@ import { getRepository } from '@/api/useRepository';
 import { exportDatabaseToExcel } from '@/db/databaseExport';
 import type { MarketDataset } from '@/models';
 import { useCandleStore } from '@/stores/useCandleStore';
+import { useDataLibraryViewStore } from '@/stores/useDataLibraryViewStore';
 import { getDatasetAssetType, type DatasetAssetType } from './datasetAssetType';
 import { fetchHistoryCandles } from './historyBar';
 
@@ -82,19 +83,26 @@ interface IndustryCount {
 export default function DataLibrary({ onOpen }: DataLibraryProps) {
   const { message } = App.useApp();
   const [datasets, setDatasets] = useState<MarketDataset[]>([]);
-  const [activeType, setActiveType] = useState<DatasetAssetType>('index');
-  const [search, setSearch] = useState('');
-  const [stockQuery, setStockQuery] = useState('');
+  const activeType = useDataLibraryViewStore((state) => state.activeType);
+  const setActiveType = useDataLibraryViewStore((state) => state.setActiveType);
+  const search = useDataLibraryViewStore((state) => state.search);
+  const setSearch = useDataLibraryViewStore((state) => state.setSearch);
+  const stockPage = useDataLibraryViewStore((state) => state.stockPage);
+  const setStockPage = useDataLibraryViewStore((state) => state.setStockPage);
+  const stockPageSize = useDataLibraryViewStore((state) => state.stockPageSize);
+  const setStockPageSize = useDataLibraryViewStore((state) => state.setStockPageSize);
+  const selectedIndustry = useDataLibraryViewStore((state) => state.selectedIndustry);
+  const setSelectedIndustry = useDataLibraryViewStore((state) => state.setSelectedIndustry);
+  const excludeDelisted = useDataLibraryViewStore((state) => state.excludeDelisted);
+  const setExcludeDelisted = useDataLibraryViewStore((state) => state.setExcludeDelisted);
+  const excludeSt = useDataLibraryViewStore((state) => state.excludeSt);
+  const setExcludeSt = useDataLibraryViewStore((state) => state.setExcludeSt);
+  const [stockQuery, setStockQuery] = useState(() => search.trim());
   const [stockItems, setStockItems] = useState<HistoryInstrument[]>([]);
   const [stockTotal, setStockTotal] = useState(0);
-  const [stockPage, setStockPage] = useState(1);
-  const [stockPageSize, setStockPageSize] = useState(20);
-  const [selectedIndustry, setSelectedIndustry] = useState('all');
   const [industryItems, setIndustryItems] = useState<IndustryCount[]>([]);
   const [industryTotal, setIndustryTotal] = useState(0);
   const [industryLoading, setIndustryLoading] = useState(false);
-  const [excludeDelisted, setExcludeDelisted] = useState(true);
-  const [excludeSt, setExcludeSt] = useState(true);
   const [stockLoading, setStockLoading] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
   const [stockRefreshKey, setStockRefreshKey] = useState(0);
@@ -102,6 +110,8 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
   const [updatingGroup, setUpdatingGroup] = useState<IndexDatasetUpdateResult['group'] | null>(null);
   const stockRequestRef = useRef(0);
   const industryRequestRef = useRef(0);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const savedScrollTopRef = useRef(useDataLibraryViewStore.getState().scrollTop);
   const setCandles = useCandleStore((state) => state.setCandles);
   const setImportResult = useCandleStore((state) => state.setImportResult);
 
@@ -115,11 +125,45 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setStockQuery(search.trim());
-      setStockPage(1);
+      const nextQuery = search.trim();
+      setStockQuery((currentQuery) => {
+        if (currentQuery !== nextQuery) setStockPage(1);
+        return nextQuery;
+      });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [search]);
+  }, [search, setStockPage]);
+
+  useEffect(() => {
+    const page = pageRef.current;
+    if (!page) return;
+    const handleScroll = () => {
+      useDataLibraryViewStore.getState().setScrollTop(page.scrollTop);
+    };
+    page.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      page.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeType === 'stock' && DATA_SOURCE === 'api' && stockLoading) return;
+    if (activeType === 'stock' && DATA_SOURCE === 'api' && stockItems.length === 0) return;
+    if (activeType === 'index' && datasets.length === 0) return;
+
+    const page = pageRef.current;
+    if (!page) return;
+    let secondFrame: number | undefined;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        page.scrollTop = savedScrollTopRef.current;
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame !== undefined) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [activeType, datasets.length, stockItems.length, stockLoading]);
 
   useEffect(() => {
     if (DATA_SOURCE !== 'api') return;
@@ -624,7 +668,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
   );
 
   return (
-    <div className="data-library-page">
+    <div ref={pageRef} className="data-library-page">
       <header className="data-library-header">
         <div>
           <Title level={4}>行情数据库</Title>
