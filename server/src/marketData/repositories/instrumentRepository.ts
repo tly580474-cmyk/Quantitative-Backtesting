@@ -1,4 +1,14 @@
-import { eq, and, like, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  like,
+  ne,
+  notLike,
+  or,
+  isNull,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import type { Instrument } from '../../marketData/types.js';
 
@@ -11,6 +21,7 @@ interface ListFilters {
   search?: string;
   type?: string;
   status?: string;
+  industry?: string;
   excludeDelisted?: boolean;
   excludeSt?: boolean;
   offset?: number;
@@ -20,30 +31,7 @@ interface ListFilters {
 export async function listInstruments(
   filters?: ListFilters,
 ): Promise<{ data: Instrument[]; total: number }> {
-  const conditions: SQL[] = [];
-
-  if (filters?.market) conditions.push(eq(instruments.market, filters.market));
-  if (filters?.symbol) conditions.push(eq(instruments.symbol, filters.symbol));
-  if (filters?.search) {
-    const keyword = `%${filters.search.trim()}%`;
-    conditions.push(or(
-      like(instruments.symbol, keyword),
-      like(instruments.name, keyword),
-    )!);
-  }
-  if (filters?.type) conditions.push(eq(instruments.type, filters.type));
-  if (filters?.status) conditions.push(eq(instruments.status, filters.status));
-  if (filters?.excludeDelisted) {
-    conditions.push(ne(instruments.status, 'delisted'));
-  }
-  if (filters?.excludeSt) {
-    conditions.push(
-      and(
-        notLike(instruments.name, 'ST%'),
-        notLike(instruments.name, '*ST%'),
-      )!,
-    );
-  }
+  const conditions = buildConditions(filters, true);
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -71,6 +59,29 @@ export async function listInstruments(
   ]);
 
   return { data: data as Instrument[], total: Number(countRow?.count ?? 0) };
+}
+
+export async function listInstrumentIndustryCounts(
+  filters?: Omit<ListFilters, 'industry' | 'offset' | 'limit'>,
+): Promise<Array<{ industry: string; count: number }>> {
+  const conditions = buildConditions(filters, false);
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const industryName = sql<string>`COALESCE(NULLIF(TRIM(${instruments.industry}), ''), '未分类')`;
+  const query = getDb()
+    .select({
+      industry: industryName,
+      count: sql<number>`count(*)`,
+    })
+    .from(instruments)
+    .$dynamic();
+  if (where) query.where(where);
+  const rows = await query
+    .groupBy(industryName)
+    .orderBy(sql`count(*) DESC`, industryName);
+  return rows.map((row) => ({
+    industry: row.industry,
+    count: Number(row.count),
+  }));
 }
 
 export async function getInstrument(id: string): Promise<Instrument | null> {
@@ -142,4 +153,40 @@ export async function upsertInstrument(instrument: Instrument): Promise<void> {
         updatedAt: sql`VALUES(${instruments.updatedAt})`,
       },
     });
+}
+
+function buildConditions(
+  filters: ListFilters | undefined,
+  includeIndustry: boolean,
+): SQL[] {
+  const conditions: SQL[] = [];
+  if (filters?.market) conditions.push(eq(instruments.market, filters.market));
+  if (filters?.symbol) conditions.push(eq(instruments.symbol, filters.symbol));
+  if (filters?.search) {
+    const keyword = `%${filters.search.trim()}%`;
+    conditions.push(or(
+      like(instruments.symbol, keyword),
+      like(instruments.name, keyword),
+    )!);
+  }
+  if (filters?.type) conditions.push(eq(instruments.type, filters.type));
+  if (filters?.status) conditions.push(eq(instruments.status, filters.status));
+  if (includeIndustry && filters?.industry) {
+    if (filters.industry === '未分类') {
+      conditions.push(or(
+        isNull(instruments.industry),
+        eq(instruments.industry, ''),
+      )!);
+    } else {
+      conditions.push(eq(instruments.industry, filters.industry));
+    }
+  }
+  if (filters?.excludeDelisted) conditions.push(ne(instruments.status, 'delisted'));
+  if (filters?.excludeSt) {
+    conditions.push(and(
+      notLike(instruments.name, 'ST%'),
+      notLike(instruments.name, '*ST%'),
+    )!);
+  }
+  return conditions;
 }

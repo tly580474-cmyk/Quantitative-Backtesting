@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Button, Typography, Tooltip } from 'antd';
 import { AimOutlined, InfoCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import { useCandleStore } from '@/stores/useCandleStore';
 import { useChartStore } from '@/stores/useChartStore';
 import { calculateRangeChange } from '@/utils/rangeChange';
 import type { RangeChangeResult } from '@/utils/rangeChange';
+import type { Candle } from '@/models';
 
 const { Text } = Typography;
 
@@ -29,11 +30,18 @@ function ResultRow({ label, value, tooltip }: { label: string; value: string; to
 interface RangeChangePanelProps {
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
+  candles?: Candle[];
+  extra?: ReactNode;
 }
 
-export default function RangeChangePanel({ enabled, onEnabledChange }: RangeChangePanelProps) {
-  const importResult = useCandleStore((s) => s.importResult);
-  const candles = useCandleStore((s) => s.candles);
+export default function RangeChangePanel({
+  enabled,
+  onEnabledChange,
+  candles: providedCandles,
+  extra,
+}: RangeChangePanelProps) {
+  const storedCandles = useCandleStore((s) => s.candles);
+  const candles = providedCandles ?? storedCandles;
   const rangeLineStart = useChartStore((s) => s.rangeLineStart);
   const rangeLineEnd = useChartStore((s) => s.rangeLineEnd);
 
@@ -47,10 +55,11 @@ export default function RangeChangePanel({ enabled, onEnabledChange }: RangeChan
   const isPositive = result != null && result.change >= 0;
   const changeColor = result == null ? undefined : isPositive ? '#CF1322' : '#3F8600';
 
-  if (!importResult || candles.length === 0) return null;
+  if (candles.length === 0) return null;
 
   return (
     <div
+      className="market-analysis-toolbar"
       style={{
         padding: '6px 16px',
         background: '#FAFBFC',
@@ -111,6 +120,7 @@ export default function RangeChangePanel({ enabled, onEnabledChange }: RangeChan
           <Text style={{ color: '#8C8C8C', fontSize: 12 }}>{error}</Text>
         </span>
       )}
+      {extra && <div className="market-analysis-toolbar-extra">{extra}</div>}
     </div>
   );
 }

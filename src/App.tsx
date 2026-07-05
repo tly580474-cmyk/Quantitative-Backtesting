@@ -1,6 +1,7 @@
-import { useState, useCallback, lazy, Suspense } from 'react';
+import { useState, useCallback, lazy, Suspense, useMemo } from 'react';
 import { HashRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
-import { ConfigProvider, App as AntApp, Modal, Tabs } from 'antd';
+import { ConfigProvider, App as AntApp, Button, Modal, Segmented, Space, Tabs } from 'antd';
+import { BarChartOutlined } from '@ant-design/icons';
 import zhCN from 'antd/locale/zh_CN';
 import AppLayout from './components/AppLayout';
 import FileUploader from './components/FileUploader';
@@ -15,6 +16,7 @@ import { useCandleStore } from './stores/useCandleStore';
 import { getRepository } from './api/useRepository';
 import { computeChecksum } from './db/marketDataRepository';
 import type { ImportResult } from './models';
+import { aggregateCandles, type ChartPeriod } from './features/chart/timeframe';
 
 const ChartContainer = lazy(() => import('./features/chart/ChartContainer'));
 const DataLibrary = lazy(() => import('./features/dataLibrary/DataLibrary'));
@@ -39,18 +41,57 @@ function DataLibraryRoute() {
 
 function MarketAnalysisRoute() {
   const [rangeSelectionEnabled, setRangeSelectionEnabled] = useState(false);
+  const [period, setPeriod] = useState<ChartPeriod>('day');
+  const [showChipProfile, setShowChipProfile] = useState(false);
+  const sourceCandles = useCandleStore((state) => state.candles);
+  const displayCandles = useMemo(
+    () => aggregateCandles(sourceCandles, period),
+    [period, sourceCandles],
+  );
 
   return (
-    <>
+    <div className="market-analysis-page">
       <RangeChangePanel
         enabled={rangeSelectionEnabled}
         onEnabledChange={setRangeSelectionEnabled}
+        candles={displayCandles}
+        extra={(
+          <Space className="market-analysis-toolbar-controls" size={8} wrap>
+            <Button
+              className="market-chip-toggle"
+              type={showChipProfile && period === 'day' ? 'primary' : 'default'}
+              size="small"
+              icon={<BarChartOutlined />}
+              aria-pressed={showChipProfile && period === 'day'}
+              disabled={period !== 'day' || sourceCandles.length === 0}
+              title={period === 'day' ? '在主图右侧显示筹码峰' : '筹码峰仅支持日 K'}
+              onClick={() => setShowChipProfile((value) => !value)}
+            >
+              筹码峰
+            </Button>
+            <Segmented<ChartPeriod>
+              aria-label="K线周期"
+              size="small"
+              value={period}
+              options={[
+                { label: '日K', value: 'day' },
+                { label: '周K', value: 'week' },
+                { label: '月K', value: 'month' },
+              ]}
+              onChange={setPeriod}
+            />
+          </Space>
+        )}
       />
-      <ChartContainer
-        key={rangeSelectionEnabled ? 'range-selection-on' : 'range-selection-off'}
-        showRangeLines={rangeSelectionEnabled}
-      />
-    </>
+      <div className="market-analysis-chart">
+        <ChartContainer
+          key={`${rangeSelectionEnabled ? 'range-on' : 'range-off'}-${period}`}
+          showRangeLines={rangeSelectionEnabled}
+          period={period}
+          showChipProfile={showChipProfile && period === 'day'}
+        />
+      </div>
+    </div>
   );
 }
 

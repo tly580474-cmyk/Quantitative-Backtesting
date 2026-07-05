@@ -10,6 +10,7 @@ import {
   Modal,
   Pagination,
   Popconfirm,
+  Select,
   Skeleton,
   Space,
   Tabs,
@@ -73,6 +74,11 @@ interface HistoryInstrument {
   qualityStatus?: 'pass' | 'warning' | 'blocked';
 }
 
+interface IndustryCount {
+  industry: string;
+  count: number;
+}
+
 export default function DataLibrary({ onOpen }: DataLibraryProps) {
   const { message } = App.useApp();
   const [datasets, setDatasets] = useState<MarketDataset[]>([]);
@@ -83,6 +89,10 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
   const [stockTotal, setStockTotal] = useState(0);
   const [stockPage, setStockPage] = useState(1);
   const [stockPageSize, setStockPageSize] = useState(20);
+  const [selectedIndustry, setSelectedIndustry] = useState('all');
+  const [industryItems, setIndustryItems] = useState<IndustryCount[]>([]);
+  const [industryTotal, setIndustryTotal] = useState(0);
+  const [industryLoading, setIndustryLoading] = useState(false);
   const [excludeDelisted, setExcludeDelisted] = useState(true);
   const [excludeSt, setExcludeSt] = useState(true);
   const [stockLoading, setStockLoading] = useState(false);
@@ -91,6 +101,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
   const [openingInstrumentId, setOpeningInstrumentId] = useState<string | null>(null);
   const [updatingGroup, setUpdatingGroup] = useState<IndexDatasetUpdateResult['group'] | null>(null);
   const stockRequestRef = useRef(0);
+  const industryRequestRef = useRef(0);
   const setCandles = useCandleStore((state) => state.setCandles);
   const setImportResult = useCandleStore((state) => state.setImportResult);
 
@@ -121,6 +132,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
       excludeSt: String(excludeSt),
     });
     if (stockQuery) params.set('search', stockQuery);
+    if (selectedIndustry !== 'all') params.set('industry', selectedIndustry);
 
     setStockLoading(true);
     setStockError(null);
@@ -143,7 +155,33 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
     stockPageSize,
     stockQuery,
     stockRefreshKey,
+    selectedIndustry,
   ]);
+
+  useEffect(() => {
+    if (DATA_SOURCE !== 'api') return;
+    const requestId = ++industryRequestRef.current;
+    const params = new URLSearchParams({
+      type: 'stock',
+      excludeDelisted: String(excludeDelisted),
+      excludeSt: String(excludeSt),
+    });
+    if (stockQuery) params.set('search', stockQuery);
+    setIndustryLoading(true);
+    void apiFetch<{ items: IndustryCount[]; total: number }>(
+      `/api/instruments/industries?${params.toString()}`,
+    ).then((result) => {
+      if (industryRequestRef.current !== requestId) return;
+      setIndustryItems(result.items);
+      setIndustryTotal(result.total);
+    }).catch(() => {
+      if (industryRequestRef.current !== requestId) return;
+      setIndustryItems([]);
+      setIndustryTotal(0);
+    }).finally(() => {
+      if (industryRequestRef.current === requestId) setIndustryLoading(false);
+    });
+  }, [excludeDelisted, excludeSt, stockQuery, stockRefreshKey]);
 
   const groupedDatasets = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -443,6 +481,49 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
         </div>
       </div>
 
+      <div className="data-library-industry-bar">
+        <div>
+          <Text strong>行业分类</Text>
+          <Text type="secondary">按所属行业筛选证券</Text>
+        </div>
+        <Select
+          aria-label="选择证券行业"
+          className="data-library-industry-select"
+          value={selectedIndustry}
+          loading={industryLoading}
+          showSearch
+          optionFilterProp="label"
+          popupMatchSelectWidth={320}
+          options={[
+            {
+              value: 'all',
+              label: `全部行业（${industryTotal.toLocaleString()}）`,
+            },
+            ...industryItems.map((item) => ({
+              value: item.industry,
+              label: `${item.industry}（${item.count.toLocaleString()}）`,
+            })),
+          ]}
+          onChange={(value) => {
+            setSelectedIndustry(value);
+            setStockPage(1);
+          }}
+        />
+        {selectedIndustry !== 'all' && (
+          <Tag
+            closable
+            color="blue"
+            onClose={(event) => {
+              event.preventDefault();
+              setSelectedIndustry('all');
+              setStockPage(1);
+            }}
+          >
+            {selectedIndustry}
+          </Tag>
+        )}
+      </div>
+
       {stockError && (
         <Alert
           className="data-library-stock-alert"
@@ -465,7 +546,11 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
       ) : stockItems.length === 0 ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={stockQuery ? '没有匹配的证券' : '暂无个股行情数据'}
+          description={
+            stockQuery || selectedIndustry !== 'all'
+              ? '没有匹配的证券'
+              : '暂无个股行情数据'
+          }
         />
       ) : (
         <>
@@ -505,7 +590,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
                   )}
                   description={(
                     <Space size={[10, 4]} wrap>
-                      {instrument.industry && <Text type="secondary">{instrument.industry}</Text>}
+                      {instrument.industry && <Tag color="geekblue">{instrument.industry}</Tag>}
                       {instrument.startDate && instrument.endDate ? (
                         <Text type="secondary">
                           {instrument.startDate} ~ {instrument.endDate}

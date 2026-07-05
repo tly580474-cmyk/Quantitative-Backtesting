@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
 import {
-  listInstruments, getInstrument, createInstrument,
+  listInstruments, listInstrumentIndustryCounts, getInstrument, createInstrument,
 } from '../marketData/repositories/instrumentRepository.js';
 import type { Market, InstrumentType } from '../marketData/types.js';
 import {
@@ -17,6 +17,7 @@ const listQuerySchema = z.object({
   search: z.string().optional(),
   type: z.string().optional(),
   status: z.string().optional(),
+  industry: z.string().trim().min(1).max(128).optional(),
   excludeDelisted: z.enum(['true', 'false']).optional()
     .transform((value) => value === 'true'),
   excludeSt: z.enum(['true', 'false']).optional()
@@ -38,6 +39,7 @@ export function registerInstrumentRoutes(app: FastifyInstance, dbOnline: boolean
   if (!dbOnline) {
     const stub = async () => { throw { statusCode: 503, ...dbUnavailable() }; };
     app.get('/api/instruments', stub);
+    app.get('/api/instruments/industries', stub);
     app.get('/api/instruments/:id', stub);
     app.post('/api/instruments', stub);
     return;
@@ -53,7 +55,8 @@ export function registerInstrumentRoutes(app: FastifyInstance, dbOnline: boolean
     }
 
     const {
-      market, symbol, search, type, status, excludeDelisted, excludeSt, offset, limit,
+      market, symbol, search, type, status, industry,
+      excludeDelisted, excludeSt, offset, limit,
     } = parsed.data;
 
     const result = await listInstruments({
@@ -62,6 +65,7 @@ export function registerInstrumentRoutes(app: FastifyInstance, dbOnline: boolean
       search,
       type,
       status,
+      industry,
       excludeDelisted,
       excludeSt,
       offset,
@@ -97,6 +101,24 @@ export function registerInstrumentRoutes(app: FastifyInstance, dbOnline: boolean
       };
     });
     return reply.send({ items, total: result.total });
+  });
+
+  app.get('/api/instruments/industries', async (req, reply) => {
+    const parsed = listQuerySchema.omit({
+      industry: true,
+      offset: true,
+      limit: true,
+    }).safeParse(req.query);
+    if (!parsed.success) {
+      return reply.status(400).send(
+        apiError(ErrorCodes.VALIDATION_ERROR, '参数校验失败', parsed.error.issues),
+      );
+    }
+    const items = await listInstrumentIndustryCounts(parsed.data);
+    return reply.send({
+      items,
+      total: items.reduce((sum, item) => sum + item.count, 0),
+    });
   });
 
   // GET /api/instruments/:id — Single instrument

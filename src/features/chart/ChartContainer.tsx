@@ -32,6 +32,9 @@ import {
 } from './chartConfig';
 import CandleDetail from './CandleDetail';
 import { RangeLinePrimitive } from './RangeLinePrimitive';
+import { aggregateCandles, type ChartPeriod } from './timeframe';
+import { calculateChipDistribution } from '@/features/marketData/chipDistribution';
+import ChipProfile from '@/features/marketData/ChipProfile';
 
 interface IndicatorPaneEntry {
   chart: IChartApi;
@@ -43,9 +46,15 @@ interface IndicatorPaneEntry {
 
 interface ChartContainerProps {
   showRangeLines?: boolean;
+  period?: ChartPeriod;
+  showChipProfile?: boolean;
 }
 
-export default function ChartContainer({ showRangeLines = false }: ChartContainerProps) {
+export default function ChartContainer({
+  showRangeLines = false,
+  period = 'day',
+  showChipProfile = false,
+}: ChartContainerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
   const panesRef = useRef<HTMLDivElement>(null);
@@ -56,10 +65,17 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
   const indicatorPanesRef = useRef<Map<string, IndicatorPaneEntry>>(new Map());
   const [mainChartHeight, setMainChartHeight] = useState(MAIN_CHART_MIN_HEIGHT);
 
-  const candles = useCandleStore((s) => s.candles);
+  const sourceCandles = useCandleStore((s) => s.candles);
+  const candles = useMemo(
+    () => aggregateCandles(sourceCandles, period),
+    [period, sourceCandles],
+  );
   const actives = useIndicatorStore((s) => s.actives);
   const signals = useBacktestStore((s) => s.signals);
   const candlesRef = useRef(candles);
+  const sourceCandlesRef = useRef(sourceCandles);
+  const periodRef = useRef(period);
+  const showChipProfileRef = useRef(showChipProfile);
   const activesRef = useRef(actives);
   const indicatorResultsRef = useRef<IndicatorResult[]>([]);
   const setCrosshairTime = useChartStore((s) => s.setCrosshairTime);
@@ -71,11 +87,36 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
   const visibleRangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rangeLineRef = useRef<RangeLinePrimitive | null>(null);
   const rangeLineHoveredRef = useRef<'start' | 'end' | null>(null);
+  const chipPriceToCoordinateRef = useRef<((price: number) => number | null) | null>(null);
+  const [chipChartLayout, setChipChartLayout] = useState({ height: 0, revision: 0 });
+  const [chipEndIndex, setChipEndIndex] = useState(-1);
 
   const indicatorResults = useMemo(
     () => calculateAllIndicators(candles, actives),
     [candles, actives],
   );
+  const effectiveChipEndIndex = chipEndIndex >= 0
+    ? Math.min(chipEndIndex, sourceCandles.length - 1)
+    : sourceCandles.length - 1;
+  const chipAsOfDate = sourceCandles[effectiveChipEndIndex]?.time ?? null;
+  const chipDistribution = useMemo(() => {
+    if (!showChipProfile || period !== 'day' || effectiveChipEndIndex < 0) return null;
+    return calculateChipDistribution(
+      sourceCandles.slice(0, effectiveChipEndIndex + 1).map((candle) => ({
+        date: candle.time,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume ?? 0,
+        turnoverRatePct: candle.turnoverRatePct,
+      })),
+    );
+  }, [effectiveChipEndIndex, period, showChipProfile, sourceCandles]);
+
+  useEffect(() => {
+    setChipEndIndex(sourceCandles.length - 1);
+  }, [sourceCandles]);
 
   // Lightweight Charts consumes wheel events for time-scale zooming. When the
   // indicator stack is taller than its viewport, reserve an unmodified vertical
@@ -185,6 +226,9 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
   }, [separates.length]);
 
   candlesRef.current = candles;
+  sourceCandlesRef.current = sourceCandles;
+  periodRef.current = period;
+  showChipProfileRef.current = showChipProfile;
   activesRef.current = actives;
   indicatorResultsRef.current = indicatorResults;
 
@@ -192,6 +236,9 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
     setCrosshairTime(null);
     setCrosshairData(null);
     setCrosshairIndicators([]);
+    if (showChipProfileRef.current && periodRef.current === 'day') {
+      setChipEndIndex(sourceCandlesRef.current.length - 1);
+    }
   };
 
   const publishCrosshairDetails = (timeStr: string): number | null => {
@@ -255,6 +302,9 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
         : [];
     });
     setCrosshairIndicators(indicatorDetails);
+    if (showChipProfileRef.current && periodRef.current === 'day') {
+      setChipEndIndex(index);
+    }
     return index;
   };
 
@@ -299,6 +349,14 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
       wickDownColor: CHART_COLORS.wickDown,
     });
     candleSeriesRef.current = candleSeries;
+    chipPriceToCoordinateRef.current = (price) => candleSeries.priceToCoordinate(price);
+    const publishChipLayout = () => {
+      setChipChartLayout((current) => ({
+        height: container.clientHeight,
+        revision: current.revision + 1,
+      }));
+    };
+    publishChipLayout();
 
     const volSeries = chart.addSeries(HistogramSeries, {
       priceScaleId: 'volume',
@@ -411,6 +469,7 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
     mainChartRef.current = chart;
 
     const handleVisibleRangeChange = (range: IRange<number> | null) => {
+      publishChipLayout();
       if (visibleRangeTimerRef.current) {
         clearTimeout(visibleRangeTimerRef.current);
       }
@@ -447,6 +506,7 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
           });
         }
       }
+      publishChipLayout();
     };
     const resizeObserver = new ResizeObserver(onResize);
     resizeObserver.observe(container);
@@ -467,9 +527,11 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
         entry.unsubscribeRange?.();
         entry.unsubscribeCrosshair?.();
         entry.chart.remove();
+        entry.container.remove();
       }
       indicatorPanesRef.current.clear();
       chart.remove();
+      chipPriceToCoordinateRef.current = null;
       mainChartRef.current = null;
       overlayLinesRef.current.clear();
     };
@@ -492,6 +554,10 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
     candleSeriesRef.current.setData(candleData);
     volumeSeriesRef.current.setData(volData);
     mainChartRef.current?.timeScale().fitContent();
+    setChipChartLayout((current) => ({
+      height: mainRef.current?.clientHeight ?? current.height,
+      revision: current.revision + 1,
+    }));
   }, [candles]);
 
   // Signal markers on candlestick chart
@@ -500,7 +566,9 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
     if (!series || candles.length === 0) return;
 
     try {
-      const activeSignals = signals.filter((s) => s.action !== 'hold');
+      const activeSignals = period === 'day'
+        ? signals.filter((s) => s.action !== 'hold')
+        : [];
       if (activeSignals.length === 0) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (series as any).setMarkers?.([]);
@@ -521,7 +589,7 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
     } catch {
       // setMarkers may not be available in all lightweight-charts versions
     }
-  }, [signals, candles]);
+  }, [signals, candles, period]);
 
   // Update overlay indicator series
   useEffect(() => {
@@ -741,7 +809,7 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
       }}
     >
       <div
-        ref={mainRef}
+        className={`analysis-main-stage${showChipProfile && period === 'day' ? ' has-chip-profile' : ''}`}
         style={{
           flexGrow: 0,
           flexShrink: 0,
@@ -750,7 +818,17 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
           minHeight: MAIN_CHART_MIN_HEIGHT,
           overflow: 'hidden',
         }}
-      />
+      >
+        <div ref={mainRef} className="analysis-main-chart" />
+        {showChipProfile && period === 'day' && (
+          <ChipProfile
+            distribution={chipDistribution}
+            asOfDate={chipAsOfDate}
+            priceToCoordinate={chipPriceToCoordinateRef.current}
+            chartHeight={chipChartLayout.height}
+          />
+        )}
+      </div>
       <div
         ref={panesRef}
         style={{
@@ -761,7 +839,7 @@ export default function ChartContainer({ showRangeLines = false }: ChartContaine
           overflow: 'hidden',
         }}
       />
-      <CandleDetail />
+      <CandleDetail right={showChipProfile && period === 'day' ? 182 : 8} />
     </div>
   );
 }
