@@ -2,7 +2,7 @@
 // Core sync execution engine. Orchestrates the full sync flow for all
 // job types: instruments, calendar, history, and incremental.
 
-import type { SyncJob, TradingCalendarEntry } from '../types.js';
+import type { Instrument, SyncJob, TradingCalendarEntry } from '../types.js';
 import type { MarketDataProvider } from '../providers/provider.js';
 import { ProviderError } from '../providers/provider.js';
 import { classifyError, calculateBackoff, shouldRetry } from './retryPolicy.js';
@@ -12,7 +12,12 @@ import { listProviders } from '../providers/providerRegistry.js';
 
 import { listInstruments, upsertInstrument } from '../repositories/instrumentRepository.js';
 import { upsertCalendarEntries } from '../repositories/calendarRepository.js';
-import { getDailyCandles, upsertDailyCandles } from '../repositories/marketDataRepository.js';
+import {
+  getHistoryDailyBarsInRange,
+  getLatestHistoryDailyBar,
+  upsertDailyCandles,
+  upsertHistoryDailyBars,
+} from '../repositories/marketDataRepository.js';
 import {
   getSyncJob,
   updateSyncJobStatus,
@@ -23,6 +28,12 @@ import {
   getPendingItems,
 } from '../repositories/syncJobRepository.js';
 import { createQualityIssue } from '../repositories/dataQualityRepository.js';
+import { getChinaMarketSession } from './marketSession.js';
+import { hasCorporateActionSignal } from './adjustmentRefresh.js';
+import {
+  refreshAdjustmentAfterCorporateAction,
+  sourceKeyForProvider,
+} from './factorRefreshService.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -354,39 +365,66 @@ async function executeIncrementalSync(
   onSuccess: () => void,
   onProcessed: () => void,
 ): Promise<void> {
-  const { market, symbols } = job.requestSnapshot;
-  const targetSymbols = await resolveSymbols(market, symbols);
-  const today = new Date().toISOString().slice(0, 10);
+  const { market, markets, symbols } = job.requestSnapshot;
+  const targets = await resolveIncrementalTargets(market, markets, symbols);
+  const session = getChinaMarketSession();
+  const today = session.tradeDate;
+  const finalizeDailyBar = job.requestSnapshot.finalizeDailyBar
+    ?? session.isDailyBarFinal;
+  let currentQuotes: Awaited<ReturnType<NonNullable<MarketDataProvider['fetchCurrentDailyCandles']>>>
+    | null = null;
+  if (provider.fetchCurrentDailyCandles) {
+    try {
+      currentQuotes = await fetchWithRetry(
+        () => provider.fetchCurrentDailyCandles!({
+          instruments: targets.map((instrument) => ({
+            symbol: instrument.symbol,
+            market: instrument.market,
+          })),
+        }),
+        'fetchCurrentDailyCandles',
+      );
+    } catch (error) {
+      console.warn(
+        `[syncExecutor] 批量当日行情不可用，回退逐证券 K 线：${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  const currentQuoteByInstrument = new Map(
+    (currentQuotes ?? []).map((candle) => [`${candle.symbol}:${candle.date}`, candle]),
+  );
 
-  for (let i = 0; i < targetSymbols.length; i++) {
+  for (let i = 0; i < targets.length; i++) {
     if (await isJobCancelled(job.id)) {
       await skipRemainingItems(job.id);
       return;
     }
 
-    const symbol = targetSymbols[i];
+    const instrument = targets[i];
+    const symbol = instrument.symbol;
     try {
-      // Determine the last date we have data for this symbol
-      const instrument = await getInstrumentBySymbol(symbol, market);
-      if (!instrument) {
-        onError({ symbol, error: `Instrument not found: ${symbol}` });
+      if (instrument.status === 'delisted') {
+        onSuccess();
         onProcessed();
         continue;
       }
+      if (instrument.instrumentKey == null) {
+        throw new Error(`Instrument key missing: ${symbol}`);
+      }
 
-      const { data: existingCandles } = await getDailyCandles(instrument.id);
+      const latestBar = await getLatestHistoryDailyBar(instrument.instrumentKey);
       let fetchStartDate: string;
 
-      if (existingCandles.length === 0) {
+      if (!latestBar) {
         // No data yet — use instrument listDate or a safe default
         fetchStartDate = instrument.listDate ?? '2010-01-01';
       } else {
-        // Start from the day after the latest candle
-        const latestDate = existingCandles.reduce(
-          (max, c) => (c.tradeDate > max ? c.tradeDate : max),
-          existingCandles[0].tradeDate,
-        );
-        fetchStartDate = incrementDate(latestDate);
+        // A provisional current-day row is intentionally fetched again.
+        fetchStartDate = latestBar.isFinal === 0
+          ? latestBar.tradeDate
+          : incrementDate(latestBar.tradeDate);
       }
 
       if (fetchStartDate > today) {
@@ -403,6 +441,13 @@ async function executeIncrementalSync(
         job,
         provider,
         instrument.id,
+        instrument,
+        finalizeDailyBar,
+        fetchStartDate === today && currentQuotes !== null
+          ? [currentQuoteByInstrument.get(`${symbol}:${today}`)].filter(
+              (candle): candle is NonNullable<typeof candle> => candle != null,
+            )
+          : undefined,
       );
       onSuccess();
     } catch (err) {
@@ -411,7 +456,7 @@ async function executeIncrementalSync(
     }
     onProcessed();
 
-    if ((i + 1) % CHUNK_SIZE === 0 || i === targetSymbols.length - 1) {
+    if ((i + 1) % CHUNK_SIZE === 0 || i === targets.length - 1) {
       await updateSyncJobProgress(job.id);
     }
   }
@@ -431,20 +476,23 @@ async function processSymbolCandles(
   job: SyncJob,
   provider: MarketDataProvider,
   instrumentIdOverride?: string,
+  instrumentOverride?: Instrument,
+  finalizeDailyBar = true,
+  rawCandlesOverride?: Awaited<ReturnType<MarketDataProvider['fetchDailyCandles']>>,
 ): Promise<void> {
   // Resolve instrument
-  const instrumentId = instrumentIdOverride
-    ?? (await resolveOrCreateInstrumentId(symbol, job.requestSnapshot.market, provider));
+  const instrument = instrumentOverride
+    ?? await resolveOrCreateInstrument(symbol, job.requestSnapshot.market, provider);
+  const instrumentId = instrumentIdOverride ?? instrument.id;
 
   // Fetch raw candles from provider
-  const rawCandles = await fetchWithRetry(
-    () =>
-      provider.fetchDailyCandles({
-        symbols: [symbol],
-        startDate,
-        endDate,
-        adjustment: 'none',
-      }),
+  const rawCandles = rawCandlesOverride ?? await fetchWithRetry(
+    () => provider.fetchDailyCandles({
+      symbols: [symbol],
+      startDate,
+      endDate,
+      adjustment: 'none',
+    }),
     `fetchDailyCandles:${symbol}`,
   );
 
@@ -464,6 +512,70 @@ async function processSymbolCandles(
 
   // Upsert candles (always upsert even if validation warnings exist)
   await upsertDailyCandles(normalized);
+  if (instrument.instrumentKey != null) {
+    const fetchedAt = new Date().toISOString().slice(0, 23).replace('T', ' ');
+    const today = getChinaMarketSession().tradeDate;
+    await upsertHistoryDailyBars(rawCandles.map((candle) => ({
+      instrumentKey: instrument.instrumentKey!,
+      tradeDate: candle.date,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      previousClose: candle.previousClose,
+      volume: candle.volume,
+      amount: candle.turnover,
+      turnoverRatePct: candle.turnoverRatePct,
+      sourceKey: sourceKeyForProvider(provider.id),
+      sourceVersion: `${SOURCE_VERSION}:${provider.id}`,
+      fetchedAt,
+      isFinal: candle.date < today || finalizeDailyBar,
+    })));
+
+    const latestFetched = [...rawCandles].sort((a, b) =>
+      a.date.localeCompare(b.date)).at(-1);
+    if (
+      latestFetched
+      && (latestFetched.date < today || finalizeDailyBar)
+      && latestFetched.previousClose != null
+    ) {
+      const lookbackStart = addDays(latestFetched.date, -14);
+      const recentBars = await getHistoryDailyBarsInRange(
+        instrument.instrumentKey,
+        lookbackStart,
+        latestFetched.date,
+      );
+      const priorBar = [...recentBars]
+        .filter((bar) => bar.tradeDate < latestFetched.date)
+        .at(-1);
+      if (hasCorporateActionSignal(priorBar?.close, latestFetched.previousClose)) {
+        try {
+          await refreshAdjustmentAfterCorporateAction({
+            instrumentId,
+            instrumentKey: instrument.instrumentKey,
+            symbol,
+            tradeDate: latestFetched.date,
+            storedPreviousClose: priorBar!.close,
+            officialPreviousClose: latestFetched.previousClose,
+            provider,
+          });
+        } catch (error) {
+          await createQualityIssue({
+            id: crypto.randomUUID(),
+            instrumentId,
+            tradeDate: latestFetched.date,
+            ruleCode: 'ADJUSTMENT_REFRESH_FAILED',
+            severity: 'warning',
+            status: 'open',
+            details: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+            detectedAt: new Date().toISOString(),
+          });
+        }
+      }
+    }
+  }
 
   // Create quality issues for validation errors
   for (const err of validation.errors) {
@@ -530,47 +642,74 @@ async function resolveSymbols(
   symbols?: string[],
 ): Promise<string[]> {
   if (symbols && symbols.length > 0) {
-    return symbols;
+    const eligible: string[] = [];
+    for (const symbol of symbols) {
+      const instrument = await getInstrumentBySymbol(symbol, market);
+      if (!instrument || instrument.status !== 'delisted') eligible.push(symbol);
+    }
+    return eligible;
   }
 
   if (!market) {
     throw new Error('Either market or symbols must be specified in request snapshot');
   }
 
-  const { data: instruments } = await listInstruments({ market: market as never, status: 'active' });
-  return instruments.map((inst) => inst.symbol);
+  const instruments = await listAllActiveInstruments([market]);
+  return instruments.map((instrument) => instrument.symbol);
 }
 
-/**
- * Resolves an instrument ID from a symbol and optional market filter.
- */
-async function resolveInstrumentId(
-  symbol: string,
+async function resolveIncrementalTargets(
   market?: string,
-): Promise<string> {
-  // Use listInstruments to find by symbol
-  const { data: instruments } = await listInstruments({
-    symbol,
-    market: market as never | undefined,
-  });
-
-  if (instruments.length === 0) {
-    throw new Error(`Instrument not found for symbol: ${symbol}`);
+  markets?: string[],
+  symbols?: string[],
+): Promise<Instrument[]> {
+  if (symbols && symbols.length > 0) {
+    const targets: Instrument[] = [];
+    for (const symbol of symbols) {
+      const instrument = await getInstrumentBySymbol(symbol, market);
+      if (instrument?.status === 'active') targets.push(instrument);
+    }
+    return targets;
   }
-
-  // Prefer exact symbol match; if multiple, prefer active
-  const active = instruments.find((i) => i.status === 'active');
-  return (active ?? instruments[0]).id;
+  const requestedMarkets = markets?.length
+    ? markets
+    : market ? [market] : ['SH', 'SZ', 'BJ'];
+  return listAllActiveInstruments(requestedMarkets);
 }
 
-async function resolveOrCreateInstrumentId(
+async function listAllActiveInstruments(markets: string[]): Promise<Instrument[]> {
+  const result: Instrument[] = [];
+  for (const market of markets) {
+    let offset = 0;
+    while (true) {
+      const page = await listInstruments({
+        market,
+        type: 'stock',
+        status: 'active',
+        offset,
+        limit: 500,
+      });
+      result.push(...page.data);
+      offset += page.data.length;
+      if (page.data.length === 0 || offset >= page.total) break;
+    }
+  }
+  return result;
+}
+
+async function resolveOrCreateInstrument(
   symbol: string,
   market: string | undefined,
   provider: MarketDataProvider,
-): Promise<string> {
-  try {
-    return await resolveInstrumentId(symbol, market);
-  } catch {
+): Promise<Instrument> {
+  const existing = await getInstrumentBySymbol(symbol, market);
+  if (existing) {
+    if (existing.status === 'delisted') {
+      throw new Error(`证券已退市，跳过更新：${symbol}`);
+    }
+    return existing;
+  }
+  {
     const page = await provider.fetchInstruments({ symbol, market, pageSize: 1 });
     const item = page.items[0];
     if (!item) throw new Error(`无法从 ${provider.name} 识别证券代码：${symbol}`);
@@ -589,7 +728,9 @@ async function resolveOrCreateInstrumentId(
       updatedAt: now,
     });
 
-    return resolveInstrumentId(item.symbol, item.market);
+    const created = await getInstrumentBySymbol(item.symbol, item.market);
+    if (!created) throw new Error(`证券写入后仍无法读取：${symbol}`);
+    return created;
   }
 }
 
@@ -663,6 +804,12 @@ function incrementDate(dateStr: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+function addDays(dateStr: string, days: number): string {
+  const date = new Date(`${dateStr}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -671,7 +818,7 @@ function sleep(ms: number): Promise<void> {
 async function getInstrumentBySymbol(
   symbol: string,
   market?: string,
-): Promise<{ id: string; listDate?: string | null } | null> {
+): Promise<Instrument | null> {
   const { data: instruments } = await listInstruments({
     symbol,
     market: market as never | undefined,

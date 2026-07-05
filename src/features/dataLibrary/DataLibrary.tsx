@@ -501,7 +501,6 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
                         </Tag>
                       )}
                       {instrument.qualityStatus === 'blocked' && <Tag color="red">质量阻断</Tag>}
-                      {instrument.qualityStatus === 'warning' && <Tag color="gold">质量警告</Tag>}
                     </Space>
                   )}
                   description={(

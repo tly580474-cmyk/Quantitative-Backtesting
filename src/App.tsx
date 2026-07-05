@@ -38,7 +38,7 @@ function DataLibraryRoute() {
 }
 
 function MarketAnalysisRoute() {
-  const [rangeSelectionEnabled, setRangeSelectionEnabled] = useState(true);
+  const [rangeSelectionEnabled, setRangeSelectionEnabled] = useState(false);
 
   return (
     <>

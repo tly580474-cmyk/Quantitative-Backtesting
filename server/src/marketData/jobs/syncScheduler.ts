@@ -16,6 +16,7 @@ import {
   createSyncJob,
   listSyncJobs,
 } from '../repositories/syncJobRepository.js';
+import { getChinaMarketSession, shouldRunIntradaySlot } from './marketSession.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -24,12 +25,14 @@ export interface SchedulerConfig {
   dailySyncTime: string; // HH:mm format, e.g. "18:30"
   markets: string[];
   providerId: string;
+  intradayIntervalMinutes: number;
 }
 
 interface SchedulerState {
   config: SchedulerConfig;
   intervalId: ReturnType<typeof setInterval> | null;
   running: boolean;
+  lastTriggeredSlot: string | null;
 }
 
 // ─── State ──────────────────────────────────────────────────────────
@@ -40,9 +43,11 @@ const state: SchedulerState = {
     dailySyncTime: '18:30',
     markets: [],
     providerId: '',
+    intradayIntervalMinutes: 30,
   },
   intervalId: null,
   running: false,
+  lastTriggeredSlot: null,
 };
 
 // ─── Public API ─────────────────────────────────────────────────────
@@ -201,16 +206,21 @@ async function schedulerTick(): Promise<void> {
   if (!config.enabled) return;
   if (config.markets.length === 0) return;
 
-  // Check if current time matches the configured daily sync time
   const now = new Date();
-  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-
-  if (currentTime !== config.dailySyncTime) {
-    return; // Not time yet
-  }
+  const session = getChinaMarketSession(now);
+  const currentTime = `${String(Math.floor(session.minuteOfDay / 60)).padStart(2, '0')}:${String(session.minuteOfDay % 60).padStart(2, '0')}`;
+  const isCloseRun = currentTime === config.dailySyncTime;
+  const isIntradayRun = shouldRunIntradaySlot(
+    session,
+    config.intradayIntervalMinutes,
+  );
+  if (!isCloseRun && !isIntradayRun) return;
+  const trigger = isCloseRun ? 'close' : 'intraday';
+  const slotKey = `${session.tradeDate}:${trigger}:${currentTime}`;
+  if (state.lastTriggeredSlot === slotKey) return;
 
   // Check if today is a trading day for any of the configured markets
-  const today = now.toISOString().slice(0, 10);
+  const today = session.tradeDate;
   let anyMarketOpen = false;
 
   for (const market of config.markets) {
@@ -230,16 +240,22 @@ async function schedulerTick(): Promise<void> {
     return;
   }
 
-  // Check if an incremental sync already completed today
-  const alreadyCompleted = await hasCompletedSyncToday('incremental');
+  // Only the closing run is once-per-day. Intraday slots intentionally repeat.
+  const alreadyCompleted = isCloseRun
+    && await hasCompletedSyncToday('incremental', 'close');
   if (alreadyCompleted) {
-    console.log(`[syncScheduler] Incremental sync already completed today. Skipping.`);
+    console.log('[syncScheduler] Closing incremental sync already completed today. Skipping.');
     return;
   }
 
   // Try to start the incremental sync
   try {
-    const jobId = await runDailyIncrementalSync(config);
+    const jobId = await runDailyIncrementalSync(config, {
+      markets: config.markets,
+      trigger,
+      finalizeDailyBar: isCloseRun || session.isDailyBarFinal,
+    });
+    state.lastTriggeredSlot = slotKey;
     console.log(`[syncScheduler] Started daily incremental sync: ${jobId}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -250,7 +266,10 @@ async function schedulerTick(): Promise<void> {
 /**
  * Creates and kicks off the daily incremental sync job.
  */
-async function runDailyIncrementalSync(config: SchedulerConfig): Promise<string> {
+async function runDailyIncrementalSync(
+  config: SchedulerConfig,
+  requestSnapshot: SyncRequestSnapshot,
+): Promise<string> {
   const jobType: SyncJobType = 'incremental';
   const lockAcquired = await acquireLock(jobType);
 
@@ -266,10 +285,6 @@ async function runDailyIncrementalSync(config: SchedulerConfig): Promise<string>
 
     const jobId = crypto.randomUUID();
     const now = new Date().toISOString();
-
-    const requestSnapshot: SyncRequestSnapshot = {
-      market: config.markets[0],
-    };
 
     await createSyncJob({
       id: jobId,
@@ -322,8 +337,9 @@ async function runDailyIncrementalSync(config: SchedulerConfig): Promise<string>
  */
 async function hasCompletedSyncToday(
   jobType: SyncJobType,
+  trigger?: SyncRequestSnapshot['trigger'],
 ): Promise<boolean> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getChinaMarketSession().tradeDate;
 
   const { data: jobs } = await listSyncJobs({
     jobType,
@@ -333,6 +349,7 @@ async function hasCompletedSyncToday(
 
   return jobs.some((job) => {
     const finishedDate = (job.finishedAt ?? job.createdAt).slice(0, 10);
-    return finishedDate === today;
+    return finishedDate === today
+      && (!trigger || job.requestSnapshot.trigger === trigger);
   });
 }

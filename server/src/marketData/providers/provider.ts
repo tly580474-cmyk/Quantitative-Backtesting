@@ -39,6 +39,10 @@ export interface AdjustmentRequest {
   endDate: string;
 }
 
+export interface CurrentDailyCandleRequest {
+  instruments: Array<{ symbol: string; market: string }>;
+}
+
 // ─── Response Types ────────────────────────────────────────────────
 export interface ProviderInstrument {
   symbol: string;
@@ -68,6 +72,7 @@ export interface ProviderCandle {
   high: number;
   low: number;
   close: number;
+  previousClose?: number;
   volume: number;
   turnover?: number;
   turnoverRatePct?: number;
@@ -113,6 +118,10 @@ export interface MarketDataProvider {
   fetchTradingCalendar(request: CalendarRequest): Promise<TradingDay[]>;
 
   fetchDailyCandles(request: DailyCandleRequest): Promise<ProviderCandle[]>;
+
+  fetchCurrentDailyCandles?(
+    request: CurrentDailyCandleRequest,
+  ): Promise<ProviderCandle[]>;
 
   fetchAdjustmentFactors(
     request: AdjustmentRequest,

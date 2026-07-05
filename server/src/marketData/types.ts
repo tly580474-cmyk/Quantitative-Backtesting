@@ -99,9 +99,12 @@ export interface SyncJob {
 
 export interface SyncRequestSnapshot {
   market?: string;
+  markets?: string[];
   symbols?: string[];
   startDate?: string;
   endDate?: string;
+  trigger?: 'intraday' | 'close' | 'manual';
+  finalizeDailyBar?: boolean;
 }
 
 export interface SyncJobItem {

@@ -1,5 +1,6 @@
 import { eq, and, gte, lte, desc, inArray, isNotNull, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
+import type { CompressedFactor } from '../../historyImport/factor.js';
 import type {
   DailyCandle,
   AdjustmentFactorRecord,
@@ -17,8 +18,27 @@ const {
   adjustedBarOverrides,
   dataImportBatches,
   dataQualityIssues,
+  adjustmentFactorPublications,
+  corporateActions,
 } = schema;
 const CHUNK_SIZE = 500;
+
+export interface HistoryDailyBarUpsert {
+  instrumentKey: number;
+  tradeDate: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  previousClose?: number | null;
+  volume?: number | null;
+  amount?: number | null;
+  turnoverRatePct?: number | null;
+  sourceKey: number;
+  sourceVersion: string;
+  fetchedAt: string;
+  isFinal: boolean;
+}
 
 // ─── Daily Candles ──────────────────────────────────────────────────
 
@@ -124,12 +144,79 @@ export async function getHistoryDailyBars(
   return { data, total: Number(countRow?.count ?? 0) };
 }
 
+export async function getLatestHistoryDailyBar(instrumentKey: number) {
+  const [row] = await getDb()
+    .select()
+    .from(dailyBarsV2)
+    .where(eq(dailyBarsV2.instrumentKey, instrumentKey))
+    .orderBy(desc(dailyBarsV2.tradeDate))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function getHistoryDailyBarsInRange(
+  instrumentKey: number,
+  startDate: string,
+  endDate: string,
+) {
+  return getDb()
+    .select()
+    .from(dailyBarsV2)
+    .where(and(
+      eq(dailyBarsV2.instrumentKey, instrumentKey),
+      gte(dailyBarsV2.tradeDate, startDate),
+      lte(dailyBarsV2.tradeDate, endDate),
+    ))
+    .orderBy(dailyBarsV2.tradeDate);
+}
+
+export async function upsertHistoryDailyBars(
+  bars: HistoryDailyBarUpsert[],
+): Promise<void> {
+  if (bars.length === 0) return;
+  await getDb().transaction(async (tx) => {
+    for (let index = 0; index < bars.length; index += CHUNK_SIZE) {
+      const rows = bars.slice(index, index + CHUNK_SIZE).map((bar) => ({
+        ...bar,
+        isFinal: bar.isFinal ? 1 : 0,
+      }));
+      await tx
+        .insert(dailyBarsV2)
+        .values(rows)
+        .onDuplicateKeyUpdate({
+          set: {
+            open: sql`VALUES(${dailyBarsV2.open})`,
+            high: sql`VALUES(${dailyBarsV2.high})`,
+            low: sql`VALUES(${dailyBarsV2.low})`,
+            close: sql`VALUES(${dailyBarsV2.close})`,
+            previousClose: sql`COALESCE(VALUES(${dailyBarsV2.previousClose}), ${dailyBarsV2.previousClose})`,
+            volume: sql`VALUES(${dailyBarsV2.volume})`,
+            amount: sql`COALESCE(VALUES(${dailyBarsV2.amount}), ${dailyBarsV2.amount})`,
+            turnoverRatePct: sql`COALESCE(VALUES(${dailyBarsV2.turnoverRatePct}), ${dailyBarsV2.turnoverRatePct})`,
+            sourceKey: sql`VALUES(${dailyBarsV2.sourceKey})`,
+            sourceVersion: sql`VALUES(${dailyBarsV2.sourceVersion})`,
+            fetchedAt: sql`VALUES(${dailyBarsV2.fetchedAt})`,
+            isFinal: sql`VALUES(${dailyBarsV2.isFinal})`,
+          },
+        });
+    }
+  });
+}
+
 export async function getPublishedHistoryAdjustment(
   instrumentKey: number,
   instrumentId: string,
   mode: 'qfq' | 'hfq',
 ) {
-  const [published] = await getDb()
+  const [instrumentPublication] = await getDb()
+    .select({
+      factorVersion: adjustmentFactorPublications.factorVersion,
+      publishedAt: adjustmentFactorPublications.publishedAt,
+    })
+    .from(adjustmentFactorPublications)
+    .where(eq(adjustmentFactorPublications.instrumentKey, instrumentKey))
+    .limit(1);
+  const [legacyPublication] = instrumentPublication ? [] : await getDb()
     .select({
       factorVersion: adjustmentFactorsV2.factorVersion,
       publishedAt: dataImportBatches.publishedAt,
@@ -142,6 +229,7 @@ export async function getPublishedHistoryAdjustment(
     .where(isNotNull(dataImportBatches.publishedAt))
     .orderBy(desc(dataImportBatches.publishedAt))
     .limit(1);
+  const published = instrumentPublication ?? legacyPublication;
   if (!published) return null;
 
   const [factors, overrides, warnings] = await Promise.all([
@@ -194,6 +282,144 @@ export async function getPublishedHistoryAdjustment(
     overrides,
     warnings,
   };
+}
+
+export async function getPublishedFactorState(instrumentKey: number) {
+  const [publication] = await getDb()
+    .select()
+    .from(adjustmentFactorPublications)
+    .where(eq(adjustmentFactorPublications.instrumentKey, instrumentKey))
+    .limit(1);
+  if (!publication) return null;
+  const factors = await getDb()
+    .select({
+      effectiveDate: adjustmentFactorsV2.effectiveDate,
+      factor: adjustmentFactorsV2.factor,
+      offset: adjustmentFactorsV2.priceOffset,
+    })
+    .from(adjustmentFactorsV2)
+    .where(and(
+      eq(adjustmentFactorsV2.instrumentKey, instrumentKey),
+      eq(adjustmentFactorsV2.factorVersion, publication.factorVersion),
+    ))
+    .orderBy(adjustmentFactorsV2.effectiveDate);
+  return { publication, factors };
+}
+
+export async function publishHistoryAdjustment(input: {
+  instrumentKey: number;
+  factorVersion: string;
+  sourceBatchId: string;
+  sourceRoot: string;
+  sourceFingerprint: string;
+  sourceKey: number;
+  checkedDate: string;
+  factors: CompressedFactor[];
+  event?: {
+    id: string;
+    exDate: string;
+    previousClose?: number | null;
+    exReferencePrice?: number | null;
+  };
+  priorTransform: { factor: number; offset: number };
+}): Promise<void> {
+  const now = new Date().toISOString().slice(0, 23).replace('T', ' ');
+  await getDb().transaction(async (tx) => {
+    await tx.insert(dataImportBatches).values({
+      id: input.sourceBatchId,
+      sourceRoot: input.sourceRoot,
+      sourceSnapshot: input.sourceFingerprint,
+      status: 'completed',
+      totalFiles: 1,
+      completedFiles: 1,
+      failedFiles: 0,
+      totalRows: input.factors.length,
+      importedRows: input.factors.length,
+      startedAt: now,
+      finishedAt: now,
+      publishedAt: now,
+    });
+
+    for (let index = 0; index < input.factors.length; index += CHUNK_SIZE) {
+      await tx.insert(adjustmentFactorsV2).values(
+        input.factors.slice(index, index + CHUNK_SIZE).map((factor) => ({
+          instrumentKey: input.instrumentKey,
+          effectiveDate: factor.effectiveDate,
+          factorVersion: input.factorVersion,
+          factor: factor.factor,
+          priceOffset: factor.offset,
+          sourceKey: input.sourceKey,
+          sourceBatchId: input.sourceBatchId,
+        })),
+      );
+    }
+
+    const transform = input.priorTransform;
+    if (
+      Math.abs(transform.factor - 1) > 1e-10
+      || Math.abs(transform.offset) > 1e-10
+    ) {
+      await tx
+        .update(adjustedBarOverrides)
+        .set({
+          open: sql`${adjustedBarOverrides.open} * ${transform.factor} + ${transform.offset}`,
+          high: sql`${adjustedBarOverrides.high} * ${transform.factor} + ${transform.offset}`,
+          low: sql`${adjustedBarOverrides.low} * ${transform.factor} + ${transform.offset}`,
+          close: sql`${adjustedBarOverrides.close} * ${transform.factor} + ${transform.offset}`,
+          sourceBatchId: input.sourceBatchId,
+        })
+        .where(and(
+          eq(adjustedBarOverrides.instrumentKey, input.instrumentKey),
+          eq(adjustedBarOverrides.adjustmentMode, 'qfq'),
+        ));
+    }
+
+    if (input.event) {
+      await tx
+        .insert(corporateActions)
+        .values({
+          id: input.event.id,
+          instrumentKey: input.instrumentKey,
+          exDate: input.event.exDate,
+          actionType: 'unknown',
+          previousClose: input.event.previousClose,
+          exReferencePrice: input.event.exReferencePrice,
+          sourceKey: input.sourceKey,
+          sourceFingerprint: input.sourceFingerprint,
+          status: 'confirmed',
+          detectedAt: now,
+        })
+        .onDuplicateKeyUpdate({
+          set: {
+            previousClose: sql`VALUES(${corporateActions.previousClose})`,
+            exReferencePrice: sql`VALUES(${corporateActions.exReferencePrice})`,
+            sourceFingerprint: sql`VALUES(${corporateActions.sourceFingerprint})`,
+            status: 'confirmed',
+            detectedAt: now,
+          },
+        });
+    }
+
+    await tx
+      .insert(adjustmentFactorPublications)
+      .values({
+        instrumentKey: input.instrumentKey,
+        factorVersion: input.factorVersion,
+        sourceBatchId: input.sourceBatchId,
+        sourceFingerprint: input.sourceFingerprint,
+        lastCheckedDate: input.checkedDate,
+        publishedAt: now,
+      })
+      .onDuplicateKeyUpdate({
+        set: {
+          factorVersion: input.factorVersion,
+          sourceBatchId: input.sourceBatchId,
+          sourceFingerprint: input.sourceFingerprint,
+          lastCheckedDate: input.checkedDate,
+          publishedAt: now,
+        },
+      });
+  });
 }
 
 export async function upsertDailyCandles(

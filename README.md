@@ -196,6 +196,23 @@ PORT=3001
 
 `OPENAI_BASE_URL` 支持 OpenAI、DeepSeek 及其他兼容 Chat Completions 的服务。密钥仅保存在后端环境变量中，不发送到浏览器。
 
+需要自动更新 MySQL 全量历史库时，可在 `server/.env` 中启用：
+
+```dotenv
+MARKET_DATA_ENABLED=true
+MARKET_DATA_PROVIDER=tencent
+MARKET_DATA_SYNC_TIME=20:00
+MARKET_DATA_INTRADAY_INTERVAL_MINUTES=30
+```
+
+服务会在 A 股交易时段批量覆盖当天的临时日线，并在收盘任务中定稿。增量任务只
+处理状态为 `active` 的股票，不请求已退市证券；腾讯批量行情负责当日更新，缺失
+多个交易日时再按证券补拉 K 线。
+
+当交易所昨收价与数据库上一交易日收盘价不一致时，系统将该证券标记为疑似除权
+除息，只为该证券拉取近期前复权数据并重新校验压缩因子。校验通过后按证券原子
+发布新因子版本，不复权日线不会被改写。
+
 ## 使用流程
 
 ### 使用公开市场数据

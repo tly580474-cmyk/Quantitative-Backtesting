@@ -7,6 +7,7 @@ import {
 import { executeSyncJob, cancelSyncJob } from '../marketData/jobs/syncExecutor.js';
 import { getActiveProvider, getProvider } from '../marketData/providers/providerRegistry.js';
 import type { SyncJob } from '../marketData/types.js';
+import { getChinaMarketSession } from '../marketData/jobs/marketSession.js';
 
 // ─── Zod Schemas ───────────────────────────────────────────────────────
 
@@ -238,12 +239,17 @@ export function registerSyncJobRoutes(app: FastifyInstance, dbOnline: boolean): 
       }
 
       const now = new Date().toISOString();
+      const session = getChinaMarketSession();
       const job = {
         id: crypto.randomUUID(),
         jobType: 'incremental' as const,
         status: 'pending' as const,
         providerId: provider.id,
-        requestSnapshot: { market },
+        requestSnapshot: {
+          ...(market ? { market } : { markets: ['SH', 'SZ', 'BJ'] }),
+          trigger: 'manual' as const,
+          finalizeDailyBar: session.isDailyBarFinal,
+        },
         totalItems: 0,
         completedItems: 0,
         failedItems: 0,

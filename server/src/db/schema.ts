@@ -302,6 +302,7 @@ export const dailyBarsV2 = mysqlTable('daily_bars_v2', {
   sourceKey: int('source_key', { unsigned: true }).notNull().default(1),
   sourceVersion: varchar('source_version', { length: 64 }).notNull(),
   fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+  isFinal: int('is_final', { unsigned: true }).notNull().default(1),
 }, (table) => ({
   pk: primaryKey({ columns: [table.instrumentKey, table.tradeDate] }),
   tradeDateIdx: index('idx_dbv2_trade_date_instrument').on(
@@ -342,6 +343,34 @@ export const adjustmentFactorsV2 = mysqlTable('adjustment_factors_v2', {
   pk: primaryKey({
     columns: [table.instrumentKey, table.effectiveDate, table.factorVersion],
   }),
+}));
+
+export const adjustmentFactorPublications = mysqlTable('adjustment_factor_publications', {
+  instrumentKey: int('instrument_key', { unsigned: true }).primaryKey(),
+  factorVersion: varchar('factor_version', { length: 32 }).notNull(),
+  sourceBatchId: varchar('source_batch_id', { length: 36 }).notNull(),
+  sourceFingerprint: varchar('source_fingerprint', { length: 64 }).notNull(),
+  lastCheckedDate: date('last_checked_date', { mode: 'string' }).notNull(),
+  publishedAt: datetime('published_at', { mode: 'string' }).notNull(),
+});
+
+export const corporateActions = mysqlTable('corporate_actions', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
+  exDate: date('ex_date', { mode: 'string' }).notNull(),
+  actionType: varchar('action_type', { length: 32 }).notNull().default('unknown'),
+  previousClose: double('previous_close'),
+  exReferencePrice: double('ex_reference_price'),
+  sourceKey: int('source_key', { unsigned: true }).notNull().default(1),
+  sourceFingerprint: varchar('source_fingerprint', { length: 64 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('confirmed'),
+  detectedAt: datetime('detected_at', { mode: 'string' }).notNull(),
+}, (table) => ({
+  instrumentDateUnique: uniqueIndex('idx_ca_instrument_date').on(
+    table.instrumentKey,
+    table.exDate,
+  ),
+  exDateIdx: index('idx_ca_ex_date').on(table.exDate),
 }));
 
 export const adjustedBarOverrides = mysqlTable('adjusted_bar_overrides', {

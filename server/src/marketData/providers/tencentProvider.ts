@@ -2,6 +2,7 @@ import type {
   AdjustmentFactor,
   AdjustmentRequest,
   CalendarRequest,
+  CurrentDailyCandleRequest,
   DailyCandleRequest,
   InstrumentPage,
   InstrumentRequest,
@@ -14,6 +15,7 @@ import type {
 import { ProviderError } from './provider.js';
 
 const BASE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';
+const QUOTE_URL = 'https://qt.gtimg.cn/q=';
 const MAX_WINDOW_DAYS = 700;
 const MIN_REQUEST_INTERVAL_MS = 1800;
 const SH_INDEX_SYMBOLS = new Set(['000001', '000300', '000905', '000852', '000688', '000680']);
@@ -108,6 +110,28 @@ export class TencentMarketDataProvider implements MarketDataProvider {
     return [];
   }
 
+  async fetchCurrentDailyCandles(
+    request: CurrentDailyCandleRequest,
+  ): Promise<ProviderCandle[]> {
+    const chunks: Array<Array<{ symbol: string; market: string }>> = [];
+    for (let index = 0; index < request.instruments.length; index += 70) {
+      chunks.push(request.instruments.slice(index, index + 70));
+    }
+    let cursor = 0;
+    const workers = Array.from(
+      { length: Math.min(6, chunks.length) },
+      async () => {
+        const rows: ProviderCandle[] = [];
+        while (cursor < chunks.length) {
+          const chunk = chunks[cursor++];
+          rows.push(...await this.fetchQuoteChunk(chunk));
+        }
+        return rows;
+      },
+    );
+    return (await Promise.all(workers)).flat();
+  }
+
   private async fetchKline(
     code: string,
     adjustment: Adjustment,
@@ -173,6 +197,42 @@ export class TencentMarketDataProvider implements MarketDataProvider {
     this.requestQueue = run.then(() => undefined, () => undefined);
     return run;
   }
+
+  private async fetchQuoteChunk(
+    instruments: Array<{ symbol: string; market: string }>,
+  ): Promise<ProviderCandle[]> {
+    const codes = instruments.map((item) => toTencentQuoteCode(item.symbol, item.market));
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(`${QUOTE_URL}${codes.join(',')}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+          Referer: 'https://stock.qq.com/',
+        },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new ProviderError(
+          `腾讯批量行情请求失败：HTTP ${response.status}`,
+          response.status === 403 || response.status === 429 ? 'rate_limit' : 'network',
+          response.status >= 500 || response.status === 403 || response.status === 429,
+        );
+      }
+      const text = new TextDecoder('gbk').decode(await response.arrayBuffer());
+      return parseQuoteCandles(text);
+    } catch (error) {
+      if (error instanceof ProviderError) throw error;
+      throw new ProviderError(
+        `腾讯批量行情网络错误：${error instanceof Error ? error.message : String(error)}`,
+        'network',
+        true,
+        error,
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 export const tencentProvider = new TencentMarketDataProvider();
@@ -184,7 +244,11 @@ export function parseCandles(
   adjustment: Adjustment,
 ): ProviderCandle[] {
   const key = adjustment === 'none' ? 'day' : `${adjustment}day` as 'qfqday' | 'hfqday';
-  const rows = payload.data?.[code]?.[key] ?? [];
+  const node = payload.data?.[code];
+  const rows = node?.[key] ?? [];
+  const quote = node?.qt?.[code];
+  const quoteDate = normalizeQuoteDate(quote?.[30]);
+  const quotePreviousClose = Number(quote?.[4]);
 
   return rows.flatMap((row) => {
     // Tencent currently returns: date, open, close, high, low, volume.
@@ -199,9 +263,66 @@ export function parseCandles(
       high: values[1],
       low: values[2],
       close: values[3],
+      ...(date === quoteDate && Number.isFinite(quotePreviousClose)
+        ? { previousClose: quotePreviousClose }
+        : {}),
       volume: values[4],
     }];
   });
+}
+
+function normalizeQuoteDate(value: unknown): string | null {
+  const digits = String(value ?? '').replace(/\D/g, '').slice(0, 8);
+  if (digits.length !== 8) return null;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+}
+
+export function parseQuoteCandles(text: string): ProviderCandle[] {
+  const result: ProviderCandle[] = [];
+  const matches = text.matchAll(/v_(?:sh|sz|bj)(\d{6})="([\s\S]*?)";/g);
+  for (const match of matches) {
+    const values = match[2].split('~');
+    const date = normalizeQuoteDate(values[30]);
+    const open = Number(values[5]);
+    const high = Number(values[33]);
+    const low = Number(values[34]);
+    const close = Number(values[3]);
+    const previousClose = Number(values[4]);
+    const volumeLots = Number(values[36] || values[6]);
+    const amountWan = Number(values[37]);
+    const turnoverRatePct = Number(values[38]);
+    if (
+      !date
+      || [open, high, low, close, previousClose, volumeLots].some(
+        (value) => !Number.isFinite(value),
+      )
+      || open <= 0
+      || high <= 0
+      || low <= 0
+      || close <= 0
+    ) {
+      continue;
+    }
+    result.push({
+      symbol: match[1],
+      date,
+      open,
+      high,
+      low,
+      close,
+      previousClose,
+      volume: volumeLots * 100,
+      ...(Number.isFinite(amountWan) ? { turnover: amountWan * 10_000 } : {}),
+      ...(Number.isFinite(turnoverRatePct) ? { turnoverRatePct } : {}),
+    });
+  }
+  return result;
+}
+
+function toTencentQuoteCode(symbol: string, market: string): string {
+  const normalized = symbol.trim();
+  if (market.toUpperCase() === 'BJ') return `bj${normalized}`;
+  return toTencentCode(normalized, market);
 }
 
 export function toTencentCode(symbol: string, market?: string): string {

@@ -120,6 +120,10 @@ async function main(): Promise<void> {
         dailySyncTime: config.MARKET_DATA_SYNC_TIME,
         markets: ['SH', 'SZ'],
         providerId: providers[0].id,
+        intradayIntervalMinutes: Math.max(
+          1,
+          parseInt(config.MARKET_DATA_INTRADAY_INTERVAL_MINUTES, 10) || 30,
+        ),
       });
       console.log(`[MarketData] Scheduler started, daily sync at ${config.MARKET_DATA_SYNC_TIME}`);
     }
