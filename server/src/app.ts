@@ -123,7 +123,7 @@ async function main(): Promise<void> {
       startScheduler({
         enabled: true,
         dailySyncTime: config.MARKET_DATA_SYNC_TIME,
-        markets: ['SH', 'SZ'],
+        markets: ['SH', 'SZ', 'BJ'],
         providerId: providers[0].id,
         intradayIntervalMinutes: Math.max(
           1,

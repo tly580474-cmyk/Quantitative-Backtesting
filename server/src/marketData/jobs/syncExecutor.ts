@@ -3,18 +3,20 @@
 // job types: instruments, calendar, history, and incremental.
 
 import type { Instrument, SyncJob, TradingCalendarEntry } from '../types.js';
-import type { MarketDataProvider } from '../providers/provider.js';
+import type { MarketDataProvider, ProviderCandle } from '../providers/provider.js';
 import { ProviderError } from '../providers/provider.js';
 import { classifyError, calculateBackoff, shouldRetry } from './retryPolicy.js';
 import { validateCandleSet } from '../quality/validators.js';
-import { normalizeCandles } from '../normalization/candleNormalizer.js';
+import { normalizeCandle, normalizeCandles } from '../normalization/candleNormalizer.js';
 import { listProviders } from '../providers/providerRegistry.js';
 
 import { listInstruments, upsertInstrument } from '../repositories/instrumentRepository.js';
-import { upsertCalendarEntries } from '../repositories/calendarRepository.js';
+import { getOpenTradingDays, upsertCalendarEntries } from '../repositories/calendarRepository.js';
 import {
   getHistoryDailyBarsInRange,
   getLatestHistoryDailyBar,
+  getLatestHistoryDailyBarsBefore,
+  upsertDailyStockMetrics,
   upsertDailyCandles,
   upsertHistoryDailyBars,
 } from '../repositories/marketDataRepository.js';
@@ -27,6 +29,7 @@ import {
   createSyncJobItems,
   getSyncJobItems,
   getPendingItems,
+  updateSyncJobItemsStatus,
 } from '../repositories/syncJobRepository.js';
 import { createQualityIssue } from '../repositories/dataQualityRepository.js';
 import { getChinaMarketSession } from './marketSession.js';
@@ -372,95 +375,278 @@ async function executeIncrementalSync(
   const today = session.tradeDate;
   const finalizeDailyBar = job.requestSnapshot.finalizeDailyBar
     ?? session.isDailyBarFinal;
-  let currentQuotes: Awaited<ReturnType<NonNullable<MarketDataProvider['fetchCurrentDailyCandles']>>>
-    | null = null;
+  const itemIdByInstrumentId = new Map(
+    targets.map((instrument) => [instrument.id, crypto.randomUUID()]),
+  );
+  await createSyncJobItems(targets.map((instrument) => ({
+    id: itemIdByInstrumentId.get(instrument.id)!,
+    jobId: job.id,
+    instrumentId: instrument.id,
+    status: 'pending',
+    attempts: 1,
+  })));
+  await updateSyncJobCounts(job.id, targets.length, 0, 0);
+  if (await isJobCancelled(job.id)) {
+    await skipRemainingItems(job.id);
+    return;
+  }
+
+  const keyedTargets = targets.filter(
+    (instrument): instrument is Instrument & { instrumentKey: number } =>
+      instrument.instrumentKey != null,
+  );
+  const failures = new Map<string, string>();
+  for (const instrument of targets) {
+    if (instrument.instrumentKey == null) {
+      failures.set(instrument.id, `Instrument key missing: ${instrument.symbol}`);
+    }
+  }
+
+  const previousBars = await getLatestHistoryDailyBarsBefore(
+    keyedTargets.map((instrument) => instrument.instrumentKey),
+    today,
+  );
+  const previousBarByKey = new Map(
+    previousBars.map((bar) => [bar.instrumentKey, bar]),
+  );
+  const priorOpenDateByMarket = await getPriorOpenDateByMarket(
+    [...new Set(keyedTargets.map((instrument) => instrument.market))],
+    today,
+  );
+
+  const quoteBySymbol = new Map<string, ProviderCandle>();
   if (provider.fetchCurrentDailyCandles) {
     try {
-      currentQuotes = await fetchWithRetry(
+      const rows = await fetchWithRetry(
         () => provider.fetchCurrentDailyCandles!({
-          instruments: targets.map((instrument) => ({
+          instruments: keyedTargets.map((instrument) => ({
             symbol: instrument.symbol,
             market: instrument.market,
           })),
         }),
         'fetchCurrentDailyCandles',
       );
+      for (const quote of rows) {
+        if (quote.date === today) quoteBySymbol.set(quote.symbol, quote);
+      }
     } catch (error) {
       console.warn(
-        `[syncExecutor] 批量当日行情不可用，回退逐证券 K 线：${
+        `[syncExecutor] 全市场批量行情不可用，改为分片补取：${
           error instanceof Error ? error.message : String(error)
         }`,
       );
     }
   }
-  const currentQuoteByInstrument = new Map(
-    (currentQuotes ?? []).map((candle) => [`${candle.symbol}:${candle.date}`, candle]),
+
+  const missingTargets = keyedTargets.filter(
+    (instrument) => !quoteBySymbol.has(instrument.symbol),
   );
-
-  for (let i = 0; i < targets.length; i++) {
-    if (await isJobCancelled(job.id)) {
-      await skipRemainingItems(job.id);
-      return;
+  if (provider.fetchCurrentDailyCandles && missingTargets.length > 0) {
+    const retryResult = await fetchCurrentQuotesInChunks(
+      provider,
+      missingTargets,
+      today,
+    );
+    for (const quote of retryResult.quotes) {
+      quoteBySymbol.set(quote.symbol, quote);
     }
-
-    const instrument = targets[i];
-    const symbol = instrument.symbol;
-    try {
-      if (instrument.status === 'delisted') {
-        onSuccess();
-        onProcessed();
-        continue;
-      }
-      if (instrument.instrumentKey == null) {
-        throw new Error(`Instrument key missing: ${symbol}`);
-      }
-
-      const latestBar = await getLatestHistoryDailyBar(instrument.instrumentKey);
-      let fetchStartDate: string;
-
-      if (!latestBar) {
-        // No data yet — use instrument listDate or a safe default
-        fetchStartDate = instrument.listDate ?? '2010-01-01';
-      } else {
-        // A provisional current-day row is intentionally fetched again.
-        fetchStartDate = latestBar.isFinal === 0
-          ? latestBar.tradeDate
-          : incrementDate(latestBar.tradeDate);
-      }
-
-      if (fetchStartDate > today) {
-        // Already up to date
-        onSuccess();
-        onProcessed();
-        continue;
-      }
-
-      await processSymbolCandles(
-        symbol,
-        fetchStartDate,
-        today,
-        job,
-        provider,
-        instrument.id,
-        instrument,
-        finalizeDailyBar,
-        fetchStartDate === today && currentQuotes !== null
-          ? [currentQuoteByInstrument.get(`${symbol}:${today}`)].filter(
-              (candle): candle is NonNullable<typeof candle> => candle != null,
-            )
-          : undefined,
-      );
-      onSuccess();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      onError({ symbol, error: message });
-    }
-    onProcessed();
-
-    if ((i + 1) % CHUNK_SIZE === 0 || i === targets.length - 1) {
-      await updateSyncJobProgress(job.id);
+    for (const failure of retryResult.failures) {
+      failures.set(failure.instrument.id, failure.message);
     }
   }
+
+  const quoteUpdates: Array<{
+    instrument: Instrument & { instrumentKey: number };
+    quote: ProviderCandle;
+  }> = [];
+  const gapUpdates: Array<{
+    instrument: Instrument & { instrumentKey: number };
+    startDate: string;
+    endDate: string;
+  }> = [];
+  for (const instrument of keyedTargets) {
+    if (failures.has(instrument.id)) continue;
+    const quote = quoteBySymbol.get(instrument.symbol);
+    if (!quote) continue; // No quote means no trade today (e.g. suspension).
+    if (quote.turnover == null || quote.turnoverRatePct == null) {
+      failures.set(
+        instrument.id,
+        `${instrument.symbol} 当日行情缺少成交额或换手率，拒绝写入不完整日线`,
+      );
+      continue;
+    }
+    quoteUpdates.push({ instrument, quote });
+    const prior = previousBarByKey.get(instrument.instrumentKey);
+    const priorOpenDate = priorOpenDateByMarket.get(instrument.market);
+    if (
+      priorOpenDate
+      && (!prior || prior.tradeDate < priorOpenDate)
+    ) {
+      gapUpdates.push({
+        instrument,
+        startDate: prior ? incrementDate(prior.tradeDate) : (instrument.listDate ?? '2010-01-01'),
+        endDate: priorOpenDate,
+      });
+    }
+  }
+
+  const fetchedAt = new Date().toISOString().slice(0, 23).replace('T', ' ');
+  const normalized = quoteUpdates.map(({ instrument, quote }) =>
+    normalizeCandle(quote, instrument.id, job.providerId));
+  const historyRows = quoteUpdates.map(({ instrument, quote }) => ({
+    instrumentKey: instrument.instrumentKey,
+    tradeDate: quote.date,
+    open: quote.open,
+    high: quote.high,
+    low: quote.low,
+    close: quote.close,
+    previousClose: quote.previousClose,
+    volume: quote.volume,
+    amount: quote.turnover,
+    turnoverRatePct: quote.turnoverRatePct,
+    sourceKey: sourceKeyForProvider(provider.id),
+    sourceVersion: `${SOURCE_VERSION}:${provider.id}`,
+    fetchedAt,
+    isFinal: finalizeDailyBar,
+  }));
+  const metricRows = quoteUpdates.map(({ instrument, quote }) => ({
+    instrumentKey: instrument.instrumentKey,
+    tradeDate: quote.date,
+    totalShares: deriveShares(quote.totalMarketCap, quote.close),
+    floatShares: deriveShares(quote.floatMarketCap, quote.close),
+    totalMarketCap: quote.totalMarketCap,
+    floatMarketCap: quote.floatMarketCap,
+    peTtm: quote.peTtm,
+    pb: quote.pb,
+    psTtm: null,
+    volumeRatio: quote.volumeRatio,
+    isSt: /^(?:S?\*?ST)/i.test(instrument.name.trim()),
+    isLimitUp: quote.limitUp != null
+      && quote.close >= quote.limitUp - 0.005,
+  }));
+  if (historyRows.length > 0) {
+    const historyPolicy = getHistoryStorePolicy();
+    await Promise.all([
+      upsertHistoryDailyBars(historyRows),
+      upsertDailyStockMetrics(metricRows),
+      historyPolicy.dualWrite ? upsertDailyCandles(normalized) : Promise.resolve(),
+    ]);
+  }
+
+  const corporateActionCandidates = quoteUpdates.filter(({ instrument, quote }) => {
+    const prior = previousBarByKey.get(instrument.instrumentKey);
+    return (
+      prior
+      && quote.previousClose != null
+      && hasCorporateActionSignal(prior.close, quote.previousClose)
+    );
+  });
+  const deferredInstrumentIds = new Set([
+    ...gapUpdates.map((gap) => gap.instrument.id),
+    ...corporateActionCandidates.map(({ instrument }) => instrument.id),
+  ]);
+  const earlyCompletedItemIds = targets
+    .filter((instrument) => (
+      !failures.has(instrument.id)
+      && !deferredInstrumentIds.has(instrument.id)
+    ))
+    .map((instrument) => itemIdByInstrumentId.get(instrument.id)!);
+  await updateSyncJobItemsStatus(earlyCompletedItemIds, 'completed');
+  for (const [instrumentId, error] of failures) {
+    await updateSyncJobItem(itemIdByInstrumentId.get(instrumentId)!, {
+      status: 'failed',
+      errorCode: 'data_error',
+      errorMessage: error,
+    });
+  }
+  await updateSyncJobCounts(
+    job.id,
+    targets.length,
+    earlyCompletedItemIds.length,
+    failures.size,
+  );
+
+  const gapFailures = await mapWithConcurrency(gapUpdates, 6, async (gap) => {
+    try {
+      await processSymbolCandles(
+        gap.instrument.symbol,
+        gap.startDate,
+        gap.endDate,
+        job,
+        provider,
+        gap.instrument.id,
+        gap.instrument,
+        true,
+      );
+      return null;
+    } catch (error) {
+      return {
+        instrument: gap.instrument,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+  for (const failure of gapFailures) {
+    if (failure) failures.set(failure.instrument.id, failure.message);
+  }
+
+  await mapWithConcurrency(corporateActionCandidates, 3, async ({ instrument, quote }) => {
+    const prior = previousBarByKey.get(instrument.instrumentKey)!;
+    try {
+      await refreshAdjustmentAfterCorporateAction({
+        instrumentId: instrument.id,
+        instrumentKey: instrument.instrumentKey,
+        symbol: instrument.symbol,
+        tradeDate: quote.date,
+        storedPreviousClose: prior.close,
+        officialPreviousClose: quote.previousClose!,
+        provider,
+      });
+    } catch (error) {
+      await createQualityIssue({
+        id: crypto.randomUUID(),
+        instrumentId: instrument.id,
+        tradeDate: quote.date,
+        ruleCode: 'ADJUSTMENT_REFRESH_FAILED',
+        severity: 'warning',
+        status: 'open',
+        details: {
+          message: error instanceof Error ? error.message : String(error),
+        },
+        detectedAt: new Date().toISOString(),
+      });
+    }
+  });
+
+  if (await isJobCancelled(job.id)) {
+    await skipRemainingItems(job.id);
+    return;
+  }
+
+  const completedItemIds: string[] = [];
+  for (const instrument of targets) {
+    const itemId = itemIdByInstrumentId.get(instrument.id)!;
+    const error = failures.get(instrument.id);
+    if (error) {
+      await updateSyncJobItem(itemId, {
+        status: 'failed',
+        errorCode: 'data_error',
+        errorMessage: error,
+      });
+      onError({ symbol: instrument.symbol, error });
+    } else {
+      completedItemIds.push(itemId);
+      onSuccess();
+    }
+    onProcessed();
+  }
+  await updateSyncJobItemsStatus(completedItemIds, 'completed');
+  await updateSyncJobCounts(
+    job.id,
+    targets.length,
+    completedItemIds.length,
+    failures.size,
+  );
 }
 
 // ─── Symbol-Level Candle Processing ─────────────────────────────────
@@ -779,6 +965,112 @@ async function fetchWithRetry<T>(
   }
 
   throw lastError ?? new Error(`${operationName} failed after ${maxAttempts} attempts`);
+}
+
+async function fetchCurrentQuotesInChunks(
+  provider: MarketDataProvider,
+  instruments: Array<Instrument & { instrumentKey: number }>,
+  today: string,
+): Promise<{
+  quotes: ProviderCandle[];
+  failures: Array<{
+    instrument: Instrument & { instrumentKey: number };
+    message: string;
+  }>;
+}> {
+  if (!provider.fetchCurrentDailyCandles) {
+    return {
+      quotes: [],
+      failures: instruments.map((instrument) => ({
+        instrument,
+        message: `${provider.name} 不支持批量当日行情`,
+      })),
+    };
+  }
+  const chunks = Array.from(
+    { length: Math.ceil(instruments.length / 25) },
+    (_, index) => instruments.slice(index * 25, (index + 1) * 25),
+  );
+  const results = await mapWithConcurrency(chunks, 6, async (chunk) => {
+    try {
+      const quotes = await fetchWithRetry(
+        () => provider.fetchCurrentDailyCandles!({
+          instruments: chunk.map((instrument) => ({
+            symbol: instrument.symbol,
+            market: instrument.market,
+          })),
+        }),
+        `fetchCurrentDailyCandles:${chunk[0]?.symbol ?? 'empty'}`,
+      );
+      return {
+        quotes: quotes.filter((quote) => quote.date === today),
+        failures: [] as Array<{
+          instrument: Instrument & { instrumentKey: number };
+          message: string;
+        }>,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        quotes: [] as ProviderCandle[],
+        failures: chunk.map((instrument) => ({ instrument, message })),
+      };
+    }
+  });
+  return {
+    quotes: results.flatMap((result) => result.quotes),
+    failures: results.flatMap((result) => result.failures),
+  };
+}
+
+async function getPriorOpenDateByMarket(
+  markets: Instrument['market'][],
+  today: string,
+): Promise<Map<Instrument['market'], string>> {
+  const result = new Map<Instrument['market'], string>();
+  await Promise.all(markets.map(async (market) => {
+    const days = await getOpenTradingDays(
+      market,
+      addDays(today, -20),
+      addDays(today, -1),
+    );
+    result.set(market, days.at(-1) ?? previousWeekday(today));
+  }));
+  return result;
+}
+
+function previousWeekday(today: string): string {
+  let value = addDays(today, -1);
+  while ([0, 6].includes(new Date(`${value}T00:00:00Z`).getUTCDay())) {
+    value = addDays(value, -1);
+  }
+  return value;
+}
+
+function deriveShares(
+  marketCap: number | undefined,
+  close: number,
+): number | null {
+  if (marketCap == null || !Number.isFinite(marketCap) || close <= 0) return null;
+  return Math.round(marketCap / close);
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  worker: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const result = new Array<R>(values.length);
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+      while (cursor < values.length) {
+        const index = cursor++;
+        result[index] = await worker(values[index], index);
+      }
+    }),
+  );
+  return result;
 }
 
 /**

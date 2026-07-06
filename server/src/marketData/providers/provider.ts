@@ -76,6 +76,12 @@ export interface ProviderCandle {
   volume: number;
   turnover?: number;
   turnoverRatePct?: number;
+  totalMarketCap?: number;
+  floatMarketCap?: number;
+  peTtm?: number;
+  pb?: number;
+  volumeRatio?: number;
+  limitUp?: number;
 }
 
 export interface AdjustmentFactor {

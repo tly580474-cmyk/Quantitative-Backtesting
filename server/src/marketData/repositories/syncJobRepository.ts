@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import type { SyncJob, SyncJobItem } from '../../marketData/types.js';
 
@@ -136,6 +136,18 @@ export async function updateSyncJobItem(
     .update(syncJobItems)
     .set(setObj)
     .where(eq(syncJobItems.id, id));
+}
+
+export async function updateSyncJobItemsStatus(
+  ids: string[],
+  status: SyncJobItem['status'],
+): Promise<void> {
+  for (let index = 0; index < ids.length; index += CHUNK_SIZE) {
+    await getDb()
+      .update(syncJobItems)
+      .set({ status })
+      .where(inArray(syncJobItems.id, ids.slice(index, index + CHUNK_SIZE)));
+  }
 }
 
 export async function getSyncJobItems(

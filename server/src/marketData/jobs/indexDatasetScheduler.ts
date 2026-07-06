@@ -11,12 +11,14 @@ interface SchedulerState {
   intervalId: ReturnType<typeof setInterval> | null;
   running: boolean;
   activeKeys: Set<string>;
+  completedKeys: Set<string>;
 }
 
 const state: SchedulerState = {
   intervalId: null,
   running: false,
   activeKeys: new Set(),
+  completedKeys: new Set(),
 };
 
 export function startIndexDatasetScheduler(
@@ -53,6 +55,7 @@ export function stopIndexDatasetScheduler(): void {
     state.intervalId = null;
   }
   state.activeKeys.clear();
+  state.completedKeys.clear();
   state.running = false;
   console.log('[indexDatasetScheduler] Stopped.');
 }
@@ -70,15 +73,15 @@ async function tick(
   const shanghaiTime = timeInTimezone(now, 'Asia/Shanghai');
 
   const triggers = [
-    { group: 'cn-index' as const, times: retryTimes(config.cnUpdateTime, ['15:15', '15:30', '16:00']) },
-    { group: 'us-index' as const, times: retryTimes(config.usUpdateTime, ['05:10', '05:30', '06:00']) },
+    { group: 'cn-index' as const, time: config.cnUpdateTime },
+    { group: 'us-index' as const, time: config.usUpdateTime },
   ];
 
   for (const trigger of triggers) {
-    if (!trigger.times.includes(shanghaiTime)) continue;
+    if (!isScheduledTimeDue(shanghaiTime, trigger.time)) continue;
 
-    const activeKey = `${trigger.group}:${shanghaiDate}:${shanghaiTime}`;
-    if (state.activeKeys.has(activeKey)) continue;
+    const activeKey = `${trigger.group}:${shanghaiDate}`;
+    if (state.activeKeys.has(activeKey) || state.completedKeys.has(activeKey)) continue;
     state.activeKeys.add(activeKey);
 
     void updateIndexDatasets(trigger.group, provider, now)
@@ -87,6 +90,9 @@ async function tick(
           `[indexDatasetScheduler] ${trigger.group} ${result.targetDate}: ` +
           `scanned=${result.scanned}, updated=${result.updated}, skipped=${result.skipped}, failed=${result.failed}`,
         );
+        if (result.failed === 0) {
+          state.completedKeys.add(activeKey);
+        }
       })
       .catch((error) => {
         console.error(`[indexDatasetScheduler] ${trigger.group} update failed:`, error);
@@ -97,9 +103,14 @@ async function tick(
   }
 }
 
-function retryTimes(primary: string, fallbackRetries: string[]): string[] {
-  const values = [primary, ...fallbackRetries].filter((value) => /^\d{2}:\d{2}$/.test(value));
-  return Array.from(new Set(values));
+export function isScheduledTimeDue(current: string, scheduled: string): boolean {
+  if (!isValidTime(current) || !isValidTime(scheduled)) return false;
+  return current >= scheduled;
+}
+
+function isValidTime(value: string): boolean {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  return !!match && Number(match[1]) <= 23 && Number(match[2]) <= 59;
 }
 
 function dateInTimezone(date: Date, timeZone: string): string {

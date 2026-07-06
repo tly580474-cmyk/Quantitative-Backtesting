@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $serverRoot = Join-Path $root 'server'
 $backendUrl = 'http://127.0.0.1:3001'
-$frontendUrl = 'http://127.0.0.1:5173'
+$frontendUrl = 'http://127.0.0.1:5432'
 
 function Write-Step([string]$scope, [string]$message) {
     Write-Host "[$scope] $message"
@@ -117,9 +117,9 @@ try {
         Write-Step 'WARN' 'server\.env is missing. Copy server\.env.example to enable MySQL and AI.'
     }
 
-    Write-Step 'INFO' 'Checking ports 3001 and 5173...'
+    Write-Step 'INFO' 'Checking ports 3001 and 5432...'
     Stop-ProjectListener 3001 'server*src/app.ts'
-    Stop-ProjectListener 5173 'node_modules*vite'
+    Stop-ProjectListener 5432 'node_modules*vite'
     Start-Sleep -Milliseconds 500
 
     Write-Step 'BE' "Starting watch server at $backendUrl"
@@ -129,7 +129,7 @@ try {
     Warm-MarketSentiment
 
     Write-Step 'FE' "Starting Vite at $frontendUrl"
-    $frontendCommand = "title Quant-Frontend && cd /d `"$root`" && npm run dev -- --host 127.0.0.1 --port 5173 --strictPort"
+    $frontendCommand = "title Quant-Frontend && cd /d `"$root`" && npm run dev -- --host 127.0.0.1 --port 5432 --strictPort"
     Start-Process -FilePath 'cmd.exe' -ArgumentList '/k', $frontendCommand -WorkingDirectory $root
     Wait-Http "$frontendUrl/" 35 'Frontend'
 

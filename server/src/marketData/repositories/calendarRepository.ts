@@ -89,6 +89,13 @@ export async function isTradeDate(
   market: string,
   date: string,
 ): Promise<boolean> {
+  return (await getTradeDateStatus(market, date)) ?? false;
+}
+
+export async function getTradeDateStatus(
+  market: string,
+  date: string,
+): Promise<boolean | null> {
   const rows = await getDb()
     .select({ isOpen: tradingCalendar.isOpen })
     .from(tradingCalendar)
@@ -101,7 +108,7 @@ export async function isTradeDate(
     .limit(1);
 
   const row = rows[0];
-  return row ? row.isOpen === 1 : false;
+  return row ? row.isOpen === 1 : null;
 }
 
 // ─── Internal helpers ───────────────────────────────────────────────

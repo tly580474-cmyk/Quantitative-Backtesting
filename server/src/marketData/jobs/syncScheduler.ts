@@ -11,7 +11,10 @@ import type {
 import { getProvider } from '../providers/providerRegistry.js';
 import { acquireLock, bindLockToJob, releaseLock } from './jobLock.js';
 import { executeSyncJob } from './syncExecutor.js';
-import { isTradeDate } from '../repositories/calendarRepository.js';
+import {
+  getTradeDateStatus,
+  upsertCalendarEntries,
+} from '../repositories/calendarRepository.js';
 import {
   createSyncJob,
   listSyncJobs,
@@ -82,6 +85,12 @@ export function startScheduler(config: SchedulerConfig): void {
       console.error('[syncScheduler] Error during scheduler tick:', err);
     }
   }, intervalMs);
+
+  // Check immediately so a service restart at/after the configured close time
+  // does not postpone the update until the next trading day.
+  void schedulerTick().catch((err) => {
+    console.error('[syncScheduler] Error during startup tick:', err);
+  });
 
   console.log(
     `[syncScheduler] Started. Daily sync at ${config.dailySyncTime}, ` +
@@ -209,31 +218,23 @@ async function schedulerTick(): Promise<void> {
   const now = new Date();
   const session = getChinaMarketSession(now);
   const currentTime = `${String(Math.floor(session.minuteOfDay / 60)).padStart(2, '0')}:${String(session.minuteOfDay % 60).padStart(2, '0')}`;
-  const isCloseRun = currentTime === config.dailySyncTime;
+  const closeSlotKey = `${session.tradeDate}:close`;
+  const isCloseRun = state.lastTriggeredSlot !== closeSlotKey
+    && isScheduledCloseDue(session.minuteOfDay, config.dailySyncTime);
   const isIntradayRun = shouldRunIntradaySlot(
     session,
     config.intradayIntervalMinutes,
   );
   if (!isCloseRun && !isIntradayRun) return;
   const trigger = isCloseRun ? 'close' : 'intraday';
-  const slotKey = `${session.tradeDate}:${trigger}:${currentTime}`;
+  const slotKey = isCloseRun
+    ? closeSlotKey
+    : `${session.tradeDate}:${trigger}:${currentTime}`;
   if (state.lastTriggeredSlot === slotKey) return;
 
   // Check if today is a trading day for any of the configured markets
   const today = session.tradeDate;
-  let anyMarketOpen = false;
-
-  for (const market of config.markets) {
-    try {
-      if (await isTradeDate(market, today)) {
-        anyMarketOpen = true;
-        break;
-      }
-    } catch {
-      // Calendar data might not exist yet — skip this market
-      continue;
-    }
-  }
+  const anyMarketOpen = await resolveChinaTradingDay(config, today);
 
   if (!anyMarketOpen) {
     console.log(`[syncScheduler] ${today} is not a trading day for configured markets. Skipping.`);
@@ -244,6 +245,7 @@ async function schedulerTick(): Promise<void> {
   const alreadyCompleted = isCloseRun
     && await hasCompletedSyncToday('incremental', 'close');
   if (alreadyCompleted) {
+    state.lastTriggeredSlot = slotKey;
     console.log('[syncScheduler] Closing incremental sync already completed today. Skipping.');
     return;
   }
@@ -261,6 +263,59 @@ async function schedulerTick(): Promise<void> {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[syncScheduler] Could not start daily sync: ${message}`);
   }
+}
+
+async function resolveChinaTradingDay(
+  config: SchedulerConfig,
+  tradeDate: string,
+): Promise<boolean> {
+  const statuses = await Promise.all(
+    config.markets.map((market) => getTradeDateStatus(market, tradeDate)),
+  );
+  const knownStatuses = statuses.filter((status): status is boolean => status !== null);
+  if (knownStatuses.length > 0) {
+    return knownStatuses.some(Boolean);
+  }
+
+  // Bootstrap a missing calendar from the live provider. Chinese exchanges
+  // share the same trading dates, so one SH benchmark request covers SH/SZ/BJ.
+  const provider = getProvider(config.providerId);
+  if (!provider) {
+    throw new Error(`Provider not found: ${config.providerId}`);
+  }
+  const days = await provider.fetchTradingCalendar({
+    market: 'SH',
+    startDate: tradeDate,
+    endDate: tradeDate,
+  });
+  const isOpen = days.find((day) => day.date === tradeDate)?.isOpen ?? false;
+  await upsertCalendarEntries(config.markets.map((market) => ({
+    id: crypto.randomUUID(),
+    market: market as 'SH' | 'SZ' | 'BJ',
+    tradeDate,
+    isOpen,
+    sessionMetadata: {
+      source: config.providerId,
+      bootstrappedBy: 'syncScheduler',
+    },
+  })), config.providerId);
+  console.log(
+    `[syncScheduler] Bootstrapped ${tradeDate} calendar for ` +
+    `[${config.markets.join(', ')}]: ${isOpen ? 'open' : 'closed'}`,
+  );
+  return isOpen;
+}
+
+export function isScheduledCloseDue(
+  currentMinuteOfDay: number,
+  scheduledTime: string,
+): boolean {
+  const match = /^(\d{2}):(\d{2})$/.exec(scheduledTime);
+  if (!match) return false;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return false;
+  return currentMinuteOfDay >= hour * 60 + minute;
 }
 
 /**

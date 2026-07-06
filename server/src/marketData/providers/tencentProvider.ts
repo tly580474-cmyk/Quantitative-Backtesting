@@ -43,7 +43,7 @@ export class TencentMarketDataProvider implements MarketDataProvider {
 
   getCapabilities(): ProviderCapabilities {
     return {
-      supportedMarkets: ['SH', 'SZ'],
+      supportedMarkets: ['SH', 'SZ', 'BJ'],
       supportedDataTypes: ['instruments', 'calendar', 'daily_candles'],
       maxDateRangeDays: MAX_WINDOW_DAYS,
       rateLimit: { requestsPerMinute: 20, requestsPerDay: 10000 },
@@ -118,18 +118,31 @@ export class TencentMarketDataProvider implements MarketDataProvider {
       chunks.push(request.instruments.slice(index, index + 70));
     }
     let cursor = 0;
+    const failures: Error[] = [];
     const workers = Array.from(
       { length: Math.min(6, chunks.length) },
       async () => {
         const rows: ProviderCandle[] = [];
         while (cursor < chunks.length) {
           const chunk = chunks[cursor++];
-          rows.push(...await this.fetchQuoteChunk(chunk));
+          try {
+            rows.push(...await this.fetchQuoteChunk(chunk));
+          } catch (error) {
+            failures.push(error instanceof Error ? error : new Error(String(error)));
+          }
         }
         return rows;
       },
     );
-    return (await Promise.all(workers)).flat();
+    const rows = (await Promise.all(workers)).flat();
+    if (rows.length === 0 && failures.length > 0) throw failures[0];
+    if (failures.length > 0) {
+      console.warn(
+        `[tencentProvider] ${failures.length}/${chunks.length} 个批量行情分片失败，`
+        + `保留 ${rows.length} 条成功结果并交由增量任务补取`,
+      );
+    }
+    return rows;
   }
 
   private async fetchKline(
@@ -249,6 +262,8 @@ export function parseCandles(
   const quote = node?.qt?.[code];
   const quoteDate = normalizeQuoteDate(quote?.[30]);
   const quotePreviousClose = Number(quote?.[4]);
+  const quoteAmountWan = optionalNumber(quote?.[37]);
+  const quoteTurnoverRatePct = optionalNumber(quote?.[38]);
 
   return rows.flatMap((row) => {
     // Tencent currently returns: date, open, close, high, low, volume.
@@ -266,7 +281,13 @@ export function parseCandles(
       ...(date === quoteDate && Number.isFinite(quotePreviousClose)
         ? { previousClose: quotePreviousClose }
         : {}),
-      volume: values[4],
+      volume: values[4] * 100,
+      ...(date === quoteDate && quoteAmountWan != null
+        ? { turnover: quoteAmountWan * 10_000 }
+        : {}),
+      ...(date === quoteDate && quoteTurnoverRatePct != null
+        ? { turnoverRatePct: quoteTurnoverRatePct }
+        : {}),
     }];
   });
 }
@@ -289,8 +310,14 @@ export function parseQuoteCandles(text: string): ProviderCandle[] {
     const close = Number(values[3]);
     const previousClose = Number(values[4]);
     const volumeLots = Number(values[36] || values[6]);
-    const amountWan = Number(values[37]);
-    const turnoverRatePct = Number(values[38]);
+    const amountWan = optionalNumber(values[37]);
+    const turnoverRatePct = optionalNumber(values[38]);
+    const peTtm = optionalNumber(values[39]);
+    const floatMarketCapYi = optionalNumber(values[44]);
+    const totalMarketCapYi = optionalNumber(values[45]);
+    const pb = optionalNumber(values[46]);
+    const limitUp = optionalNumber(values[47]);
+    const volumeRatio = optionalNumber(values[49]);
     if (
       !date
       || [open, high, low, close, previousClose, volumeLots].some(
@@ -312,11 +339,23 @@ export function parseQuoteCandles(text: string): ProviderCandle[] {
       close,
       previousClose,
       volume: volumeLots * 100,
-      ...(Number.isFinite(amountWan) ? { turnover: amountWan * 10_000 } : {}),
-      ...(Number.isFinite(turnoverRatePct) ? { turnoverRatePct } : {}),
+      ...(amountWan == null ? {} : { turnover: amountWan * 10_000 }),
+      ...(turnoverRatePct == null ? {} : { turnoverRatePct }),
+      ...(totalMarketCapYi == null ? {} : { totalMarketCap: totalMarketCapYi * 100_000_000 }),
+      ...(floatMarketCapYi == null ? {} : { floatMarketCap: floatMarketCapYi * 100_000_000 }),
+      ...(peTtm == null ? {} : { peTtm }),
+      ...(pb == null ? {} : { pb }),
+      ...(volumeRatio == null ? {} : { volumeRatio }),
+      ...(limitUp == null ? {} : { limitUp }),
     });
   }
   return result;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  if (value == null || String(value).trim() === '') return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
 }
 
 function toTencentQuoteCode(symbol: string, market: string): string {

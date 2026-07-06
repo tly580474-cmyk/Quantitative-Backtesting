@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, desc, inArray, isNotNull, sql } from 'drizzle-orm';
+import { eq, and, gte, lte, lt, desc, inArray, isNotNull, sql, max } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import type { CompressedFactor } from '../../historyImport/factor.js';
 import type {
@@ -14,6 +14,7 @@ const {
   adjustmentFactors,
   marketDataVersions,
   dailyBarsV2,
+  dailyStockMetrics,
   instruments,
   adjustmentFactorsV2,
   adjustedBarOverrides,
@@ -39,6 +40,21 @@ export interface HistoryDailyBarUpsert {
   sourceVersion: string;
   fetchedAt: string;
   isFinal: boolean;
+}
+
+export interface DailyStockMetricUpsert {
+  instrumentKey: number;
+  tradeDate: string;
+  totalShares?: number | null;
+  floatShares?: number | null;
+  totalMarketCap?: number | null;
+  floatMarketCap?: number | null;
+  peTtm?: number | null;
+  pb?: number | null;
+  psTtm?: number | null;
+  volumeRatio?: number | null;
+  isSt: boolean;
+  isLimitUp: boolean;
 }
 
 // ─── Daily Candles ──────────────────────────────────────────────────
@@ -155,6 +171,68 @@ export async function getLatestHistoryDailyBar(instrumentKey: number) {
   return row ?? null;
 }
 
+export async function getLatestHistoryDailyBars(
+  instrumentKeys: number[],
+) {
+  return getLatestHistoryDailyBarsMatching(instrumentKeys);
+}
+
+export async function getLatestHistoryDailyBarsBefore(
+  instrumentKeys: number[],
+  beforeDate: string,
+) {
+  return getLatestHistoryDailyBarsMatching(instrumentKeys, beforeDate);
+}
+
+async function getLatestHistoryDailyBarsMatching(
+  instrumentKeys: number[],
+  beforeDate?: string,
+) {
+  if (instrumentKeys.length === 0) return [];
+  const result: Array<typeof dailyBarsV2.$inferSelect> = [];
+  for (let index = 0; index < instrumentKeys.length; index += 1000) {
+    const keys = instrumentKeys.slice(index, index + 1000);
+    const latestDates = getDb()
+      .select({
+        instrumentKey: dailyBarsV2.instrumentKey,
+        latestTradeDate: max(dailyBarsV2.tradeDate).as('latest_trade_date'),
+      })
+      .from(dailyBarsV2)
+      .where(and(
+        inArray(dailyBarsV2.instrumentKey, keys),
+        beforeDate ? lt(dailyBarsV2.tradeDate, beforeDate) : undefined,
+      ))
+      .groupBy(dailyBarsV2.instrumentKey)
+      .as('latest_dates');
+    result.push(...await getDb()
+      .select({
+        instrumentKey: dailyBarsV2.instrumentKey,
+        tradeDate: dailyBarsV2.tradeDate,
+        open: dailyBarsV2.open,
+        high: dailyBarsV2.high,
+        low: dailyBarsV2.low,
+        close: dailyBarsV2.close,
+        previousClose: dailyBarsV2.previousClose,
+        volume: dailyBarsV2.volume,
+        amount: dailyBarsV2.amount,
+        turnoverRatePct: dailyBarsV2.turnoverRatePct,
+        sourceKey: dailyBarsV2.sourceKey,
+        sourceVersion: dailyBarsV2.sourceVersion,
+        fetchedAt: dailyBarsV2.fetchedAt,
+        isFinal: dailyBarsV2.isFinal,
+      })
+      .from(dailyBarsV2)
+      .innerJoin(
+        latestDates,
+        and(
+          eq(dailyBarsV2.instrumentKey, latestDates.instrumentKey),
+          eq(dailyBarsV2.tradeDate, latestDates.latestTradeDate),
+        ),
+      ));
+  }
+  return result;
+}
+
 export async function getHistoryDailyBarsInRange(
   instrumentKey: number,
   startDate: string,
@@ -198,6 +276,37 @@ export async function upsertHistoryDailyBars(
             sourceVersion: sql`VALUES(${dailyBarsV2.sourceVersion})`,
             fetchedAt: sql`VALUES(${dailyBarsV2.fetchedAt})`,
             isFinal: sql`VALUES(${dailyBarsV2.isFinal})`,
+          },
+        });
+    }
+  });
+}
+
+export async function upsertDailyStockMetrics(
+  metrics: DailyStockMetricUpsert[],
+): Promise<void> {
+  if (metrics.length === 0) return;
+  await getDb().transaction(async (tx) => {
+    for (let index = 0; index < metrics.length; index += CHUNK_SIZE) {
+      await tx
+        .insert(dailyStockMetrics)
+        .values(metrics.slice(index, index + CHUNK_SIZE).map((metric) => ({
+          ...metric,
+          isSt: metric.isSt ? 1 : 0,
+          isLimitUp: metric.isLimitUp ? 1 : 0,
+        })))
+        .onDuplicateKeyUpdate({
+          set: {
+            totalShares: sql`COALESCE(VALUES(${dailyStockMetrics.totalShares}), ${dailyStockMetrics.totalShares})`,
+            floatShares: sql`COALESCE(VALUES(${dailyStockMetrics.floatShares}), ${dailyStockMetrics.floatShares})`,
+            totalMarketCap: sql`COALESCE(VALUES(${dailyStockMetrics.totalMarketCap}), ${dailyStockMetrics.totalMarketCap})`,
+            floatMarketCap: sql`COALESCE(VALUES(${dailyStockMetrics.floatMarketCap}), ${dailyStockMetrics.floatMarketCap})`,
+            peTtm: sql`COALESCE(VALUES(${dailyStockMetrics.peTtm}), ${dailyStockMetrics.peTtm})`,
+            pb: sql`COALESCE(VALUES(${dailyStockMetrics.pb}), ${dailyStockMetrics.pb})`,
+            psTtm: sql`COALESCE(VALUES(${dailyStockMetrics.psTtm}), ${dailyStockMetrics.psTtm})`,
+            volumeRatio: sql`COALESCE(VALUES(${dailyStockMetrics.volumeRatio}), ${dailyStockMetrics.volumeRatio})`,
+            isSt: sql`VALUES(${dailyStockMetrics.isSt})`,
+            isLimitUp: sql`VALUES(${dailyStockMetrics.isLimitUp})`,
           },
         });
     }
