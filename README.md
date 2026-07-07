@@ -383,6 +383,8 @@ server/src/
 - [3.5 阶段目标与验收](./doc/PHASE3_5_PLAN.md)
 - [第四阶段参数研究与策略稳健性分析计划](./doc/PHASE4_PLAN.md)
 - [第五阶段市场数据平台计划](./doc/PHASE5_PLAN.md)
+- [5.5 阶段全量历史行情库与高性能研究底座](./doc/PHASE5_5_PLAN.md)
+- [第六阶段因子研究与多因子评价平台](./doc/PHASE6_PLAN.md)
 
 ## 数据与隐私说明
 
