@@ -18,8 +18,34 @@ npx vitest run src/features/backtest/__tests__/engine.test.ts
 # Backend
 cd server
 npm run dev           # Start Fastify server at localhost:3001 (tsx watch)
+npm start             # Production start (tsx src/app.ts)
 npm run typecheck     # TypeScript check (tsc --noEmit)
 npm run build         # Compile with tsc
+npm test              # Run server tests (Vitest)
+
+# Phase 5.5: History import (CSV/OHLCV into MySQL daily_candles)
+cd server && npm run import:history -- --source "<path>" --limit 10 --dry-run
+cd server && npm run import:factors -- --source "<path>" --dry-run
+cd server && npm run benchmark:history
+
+# Phase 5.5: Research snapshot management (MySQL → Parquet for DuckDB)
+cd server && npm run snapshot:build
+cd server && npm run snapshot:publish
+cd server && npm run snapshot:verify
+cd server && npm run snapshot:freshness
+cd server && npm run snapshot:benchmark
+
+# Phase 5.5: Backup (MySQL dump + snapshot Parquet)
+cd server && npm run backup:create
+cd server && npm run backup:verify -- --path ./data/backups/<backup-id>
+cd server && npm run backup:restore-check -- --path ./data/backups/<backup-id> --database quant_backtest_restore_check --confirm-drop quant_backtest_restore_check --cleanup true
+
+# Phase 6: Factor research
+cd server && npm run factor:list
+cd server && npm run factor:run -- --factor momentum_20 --start 2026-05-01 --end 2026-06-30 --horizon 5 --layers 5
+cd server && npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --validationStart 2026-06-11 --horizon 5 --layers 5
+cd server && npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --validationStart 2026-06-11 --weighting ic --horizon 5 --layers 5
+cd server && npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --weighting manual --weights momentum_20:2,reversal_5:-1 --horizon 5 --layers 5
 ```
 
 Start both frontend and backend together: double-click `start.bat` (Windows) or run `scripts/start-dev.ps1`.
@@ -28,22 +54,25 @@ Start both frontend and backend together: double-click `start.bat` (Windows) or 
 
 ### Frontend
 - **React 19** + TypeScript 6, Vite
-- **Ant Design 6** with Chinese locale (zhCN)
+- **React Router 7** for client-side routing
+- **Ant Design 6** with Chinese locale (zhCN) and @ant-design/icons
 - **TradingView Lightweight Charts 5** for K-line and indicator charts
-- **Zustand 5** for state management
+- **Zustand 5** + Immer for state management
 - **Dexie 4** (IndexedDB) for local data persistence
 - **SheetJS (xlsx)** for Excel parsing
+- **React Markdown** + remark-gfm for rendering AI-generated reports
+- **@xyflow/react** + dagre for visual strategy node editor
 - **Zod 4** for validation
-- **@xyflow/react** + **dagre** for visual strategy node editor
-- **Vitest** + **happy-dom** for testing
+- **Vitest** + happy-dom for testing
 - **Path alias**: `@/` maps to `src/`
 
 ### Backend (`server/`)
-- **Fastify 5** + TypeScript 5, run with **tsx**
-- **Drizzle ORM** + **MySQL2** for optional server-side persistence
+- **Fastify 5** + TypeScript 5, run with tsx
+- **Drizzle ORM** + MySQL2 for optional server-side persistence
+- **DuckDB** (`@duckdb/node-api`) as embedded OLAP engine for factor research and snapshot queries
 - **OpenAI SDK** for AI strategy generation and stock research agent
-- **Zod 4** for config validation and schema generation (drizzle-zod)
-- Market data from **腾讯财经**, **东方财富**, and **巨潮资讯**
+- **Zod 4** for config validation, route schemas, and drizzle-zod
+- Market data from 腾讯财经, 东方财富, and 巨潮资讯
 
 ## Project Structure
 
@@ -80,10 +109,18 @@ server/src/
     sevenLayerDataService.ts Seven-layer data: quotes, research, signals, capital,
                              fundamental, announcements, news
   routes/            Fastify route modules (marketData, instruments, syncJobs,
-                     dataQuality, datasets, results, aiStrategies, visualStrategies, etc.)
+                     dataQuality, datasets, results, aiStrategies, visualStrategies,
+                     factorResearch, export, strategyConfigs)
   services/          AI stock research agent, data service
     strategyGeneration/ OpenAI + mock providers, prompt templates, schema
   db/                MySQL/Drizzle schema, connection pool, migrations
+  research/          Phase 5.5: snapshot builder, DuckDB query service,
+                     manifest/freshness/verifier, CLI tools
+  historyImport/     Phase 5.5: CSV/factor batch importer into MySQL
+  backup/            Phase 5.5: MySQL dump + snapshot backup, verify, restore-check
+  factorResearch/    Phase 6: factor definitions, compiler, evaluator,
+                     single/composite runner, repository, CLI
+  validation/        Shared error codes and API error helpers
 ```
 
 ## Architecture Highlights
@@ -102,6 +139,36 @@ server/src/
 - **TencentProvider** is the main data source (quotes, K-line, search); East Money provides industry, research reports, and fundamentals
 - AI services use the OpenAI Chat Completions spec — works with OpenAI, DeepSeek, or any compatible endpoint
 - Config is loaded via `dotenv` + Zod schema at startup (`server/src/config.ts`)
+
+### Research Snapshot System (Phase 5.5)
+- **Purpose**: Create immutable, versioned Parquet snapshots from MySQL `daily_candles` for high-performance analytical queries via DuckDB.
+- **Pipeline**: MySQL `daily_candles` → `snapshotBuilder.ts` builds Parquet partitions with manifest → `snapshotVerifier.ts` validates checksums → `publishCli.ts` promotes to current.
+- **DuckDB Research Service** (`research/duckdbResearchService.ts`): Compiles research queries to SQL, executes against Parquet snapshots via `@duckdb/node-api`. Supports K-line fields plus derived metrics (PE TTM, PB, PS TTM, volume ratio).
+- **Snapshot Freshness** (`research/snapshotFreshness.ts`): Guards factor research routes — rejects requests if the current snapshot is stale.
+- **Manifest** (`research/snapshotManifest.ts`): Tracks snapshot ID, source version, date range, SHA-256 checksums.
+
+### History Import System (Phase 5.5)
+- **Bulk CSV Import** (`historyImport/importer.ts`): Imports historical OHLCV data from CSV files into MySQL `daily_candles`. Supports dry-run mode.
+- **Factor Import** (`historyImport/factorImporter.ts`): Bulk-inserts factor values into MySQL factor tables, likely using DuckDB for efficient loading.
+- Both have CLI interfaces and support `--dry-run`, `--limit`, and path configuration.
+
+### Backup System (Phase 5.5)
+- **Create**: Dumps MySQL via `mysqldump`, copies current research snapshot Parquet files and manifest.
+- **Verify**: Validates backup integrity via checksums and SHA-256.
+- **Restore-check**: Restores dump to a temporary `_restore_check` database, validates row counts and max date, optionally cleans up. Safe production dry-run.
+
+### Factor Research System (Phase 6)
+Located in `server/src/factorResearch/`:
+- **Definitions** (`definitions/`): Factor schema types (`FactorDefinition`, `FactorRunConfig`, `CompositeFactorRunConfig`), built-in factor catalog, validator.
+- **Engine** (`engine/`):
+  - `factorCompiler.ts` — compiles factor definitions into executable logic
+  - `evaluator.ts` — evaluates a single factor against market data (via DuckDB on research snapshots)
+  - `factorRunner.ts` — orchestrates single-factor research runs; computes IC, rank IC, ICIR, layer returns
+  - `compositeRunner.ts` — runs multi-factor research with weighting strategies: `equal`, `ic`, `rankIc`, `manual`
+- **Repository** (`repositories/factorRepository.ts`): Persists factor run results to MySQL, lists factor catalog, syncs built-in factors.
+- **Route** (`routes/factorResearch.ts`): `POST /api/factor-research/run` and `POST /api/factor-research/composite`, guarded by snapshot freshness check.
+- **Factor types**: `higher-is-better`, `lower-is-better`, `research`. Dependencies include open/high/low/close/previousClose/volume/amount/turnoverRatePct.
+- **Composite weighting**: `equal`, `ic` (information coefficient), `rankIc`, `manual` (user-specified weights).
 
 ### Backtest Engine Rules
 - Signal generated at bar T, executed at bar T+1 open (no look-ahead bias)
@@ -162,7 +229,13 @@ Indicators follow `IndicatorDefinition` from `src/models/IndicatorTypes.ts`:
 
 **Frontend (Dexie/IndexedDB)**: Schema version 2 with tables: `marketDatasets`, `candles` (composite key `[datasetId+time]`), `strategyConfigs`, `backtestResults`, `equityPoints` (composite key `[resultId+time]`).
 
-**Backend (Drizzle/MySQL)**: Schema in `server/src/db/schema.ts`. Migrations run automatically at server startup. Tables mirror the IndexedDB schema plus additional market data tables (instruments, sync jobs, data quality).
+**Backend (Drizzle/MySQL)**: Schema in `server/src/db/schema.ts` (~490 lines). Migrations run automatically at server startup.
+
+Core tables: `market_datasets`, `candles`, `strategy_configs`, `backtest_results`, `equity_points`, `visual_strategies`, `strategy_versions`, `strategy_drafts`.
+
+Phase 5 market data tables: `instruments` (stock master with market/symbol/name/industry/type/listDate/delistDate/status), `provider_symbol_mappings`, `trading_calendar`, `daily_candles` (OHLCV with source tracking), `adjustment_factors` (复权因子), `market_data_versions` (checksum/quality per instrument), `sync_jobs` + `sync_job_items` (batch sync tracking), `data_quality_issues` (anomaly records).
+
+Phase 6 factor tables: factor catalog, factor run records, composite run records, daily factor metrics, layer metrics, correlation metrics (managed via `factorResearch/repositories/factorRepository.ts`).
 
 ### Environment Configuration
 

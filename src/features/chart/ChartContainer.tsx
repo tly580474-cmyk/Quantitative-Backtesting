@@ -839,7 +839,7 @@ export default function ChartContainer({
           overflow: 'hidden',
         }}
       />
-      <CandleDetail right={showChipProfile && period === 'day' ? 182 : 8} />
+      <CandleDetail left={8} />
     </div>
   );
 }

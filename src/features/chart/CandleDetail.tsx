@@ -1,7 +1,7 @@
 import { useChartStore } from '@/stores/useChartStore';
 import { roundTo } from '@/utils/number';
 
-export default function CandleDetail({ right = 8 }: { right?: number }) {
+export default function CandleDetail({ left = 8 }: { left?: number }) {
   const time = useChartStore((s) => s.crosshairTime);
   const data = useChartStore((s) => s.crosshairData);
   const indicators = useChartStore((s) => s.crosshairIndicators);
@@ -16,7 +16,7 @@ export default function CandleDetail({ right = 8 }: { right?: number }) {
       style={{
         position: 'absolute',
         top: 8,
-        right,
+        left,
         background: 'rgba(255,255,255,0.95)',
         border: '1px solid #E5E7EB',
         borderRadius: 8,

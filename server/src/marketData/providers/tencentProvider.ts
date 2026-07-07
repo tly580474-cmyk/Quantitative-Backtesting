@@ -18,7 +18,7 @@ const BASE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';
 const QUOTE_URL = 'https://qt.gtimg.cn/q=';
 const MAX_WINDOW_DAYS = 700;
 const MIN_REQUEST_INTERVAL_MS = 1800;
-const SH_INDEX_SYMBOLS = new Set(['000001', '000300', '000905', '000852', '000688', '000680']);
+const SH_INDEX_SYMBOLS = new Set(['000001', '000300', '000905', '000852', '000688', '000680', '932000']);
 
 type Adjustment = NonNullable<DailyCandleRequest['adjustment']>;
 
@@ -281,7 +281,7 @@ export function parseCandles(
       ...(date === quoteDate && Number.isFinite(quotePreviousClose)
         ? { previousClose: quotePreviousClose }
         : {}),
-      volume: values[4] * 100,
+      volume: values[4] * volumeMultiplierForTencentCode(code),
       ...(date === quoteDate && quoteAmountWan != null
         ? { turnover: quoteAmountWan * 10_000 }
         : {}),
@@ -300,9 +300,11 @@ function normalizeQuoteDate(value: unknown): string | null {
 
 export function parseQuoteCandles(text: string): ProviderCandle[] {
   const result: ProviderCandle[] = [];
-  const matches = text.matchAll(/v_(?:sh|sz|bj)(\d{6})="([\s\S]*?)";/g);
+  const matches = text.matchAll(/v_((?:sh|sz|bj)(\d{6}))="([\s\S]*?)";/g);
   for (const match of matches) {
-    const values = match[2].split('~');
+    const code = match[1];
+    const symbol = match[2];
+    const values = match[3].split('~');
     const date = normalizeQuoteDate(values[30]);
     const open = Number(values[5]);
     const high = Number(values[33]);
@@ -331,14 +333,14 @@ export function parseQuoteCandles(text: string): ProviderCandle[] {
       continue;
     }
     result.push({
-      symbol: match[1],
+      symbol,
       date,
       open,
       high,
       low,
       close,
       previousClose,
-      volume: volumeLots * 100,
+      volume: volumeLots * volumeMultiplierForTencentCode(code),
       ...(amountWan == null ? {} : { turnover: amountWan * 10_000 }),
       ...(turnoverRatePct == null ? {} : { turnoverRatePct }),
       ...(totalMarketCapYi == null ? {} : { totalMarketCap: totalMarketCapYi * 100_000_000 }),
@@ -362,6 +364,16 @@ function toTencentQuoteCode(symbol: string, market: string): string {
   const normalized = symbol.trim();
   if (market.toUpperCase() === 'BJ') return `bj${normalized}`;
   return toTencentCode(normalized, market);
+}
+
+function volumeMultiplierForTencentCode(code: string): number {
+  return isIndexTencentCode(code) ? 1 : 100;
+}
+
+function isIndexTencentCode(code: string): boolean {
+  const symbol = stripMarketPrefix(code);
+  return (code.startsWith('sh') && SH_INDEX_SYMBOLS.has(symbol))
+    || (code.startsWith('sz') && symbol.startsWith('399'));
 }
 
 export function toTencentCode(symbol: string, market?: string): string {

@@ -73,7 +73,7 @@ export async function updateIndexDatasets(
   const details: IndexDatasetUpdateResult['details'] = [];
 
   for (const dataset of datasets) {
-    const fromDate = addDays(dataset.endTime, 1);
+    const fromDate = options.force ? targetDate : addDays(dataset.endTime, 1);
     if (fromDate > targetDate) {
       details.push({
         datasetId: dataset.id,
@@ -90,7 +90,10 @@ export async function updateIndexDatasets(
         : await fetchNasdaq100Candles(fromDate, targetDate);
 
       const fresh = nextCandles
-        .filter((item) => item.time > dataset.endTime && item.time <= targetDate)
+        .filter((item) => (
+          item.time <= targetDate
+          && (options.force ? item.time >= fromDate : item.time > dataset.endTime)
+        ))
         .sort((a, b) => a.time.localeCompare(b.time));
 
       if (fresh.length === 0) {

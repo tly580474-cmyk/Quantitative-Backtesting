@@ -43,6 +43,27 @@ describe('Tencent market data provider', () => {
     }]);
   });
 
+  it('does not multiply index kline volume because Tencent already returns index volume in shares', () => {
+    const candles = parseCandles({
+      code: 0,
+      data: {
+        sh000852: {
+          day: [['2026-07-07', '8436.390', '8301.800', '8489.480', '8261.400', '244575082.000']],
+        },
+      },
+    }, 'sh000852', '000852', 'none');
+
+    expect(candles).toEqual([{
+      symbol: '000852',
+      date: '2026-07-07',
+      open: 8436.39,
+      high: 8489.48,
+      low: 8261.4,
+      close: 8301.8,
+      volume: 244575082,
+    }]);
+  });
+
   it('normalizes common A-share symbol formats', () => {
     expect(toTencentCode('600519')).toBe('sh600519');
     expect(toTencentCode('000858')).toBe('sz000858');
@@ -85,6 +106,25 @@ describe('Tencent market data provider', () => {
       pb: 0.72,
       volumeRatio: 1.35,
       limitUp: 13.04,
+    }]);
+  });
+
+  it('does not multiply index quote volume', () => {
+    const fields = Array.from({ length: 53 }, () => '');
+    fields[3] = '8301.80';
+    fields[4] = '8472.60';
+    fields[5] = '8436.39';
+    fields[30] = '20260707161401';
+    fields[33] = '8489.48';
+    fields[34] = '8261.40';
+    fields[36] = '244575082';
+    fields[37] = '54445625';
+
+    expect(parseQuoteCandles(`v_sh000852="${fields.join('~')}";`)).toMatchObject([{
+      symbol: '000852',
+      date: '2026-07-07',
+      volume: 244575082,
+      turnover: 544456250000,
     }]);
   });
 
