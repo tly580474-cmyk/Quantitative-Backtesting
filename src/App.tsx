@@ -24,6 +24,7 @@ const BacktestRunner = lazy(() => import('./features/backtest/BacktestRunner'));
 const BacktestResultsPage = lazy(() => import('./features/backtestResults/BacktestResultsPage'));
 const StrategyStudioPage = lazy(() => import('./features/strategyStudio/StrategyStudioPage'));
 const MarketDataPage = lazy(() => import('./features/marketData/MarketDataPage'));
+const FactorResearchPage = lazy(() => import('./features/factorResearch/FactorResearchPage'));
 
 const TAB_ITEMS = [
   { key: '/market-data', label: '市场数据' },
@@ -31,6 +32,7 @@ const TAB_ITEMS = [
   { key: '/data', label: '数据管理' },
   { key: '/backtest', label: '策略回测' },
   { key: '/results', label: '回测结果' },
+  { key: '/factors', label: '因子研究' },
   { key: '/studio', label: '策略工作室' },
 ];
 
@@ -223,6 +225,7 @@ function AppContent() {
                 <Route path="/market-data" element={<MarketDataRoute />} />
                 <Route path="/backtest" element={<BacktestRunner />} />
                 <Route path="/results" element={<BacktestResultsPage />} />
+                <Route path="/factors" element={<FactorResearchPage />} />
                 <Route path="/studio" element={<StrategyStudioPage />} />
               </Routes>
             </Suspense>

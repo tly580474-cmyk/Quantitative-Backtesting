@@ -296,8 +296,20 @@ cd server && npm run dev
 # 后端类型检查
 cd server && npm run typecheck
 
+# 5.5/第六阶段数据底座：确认研究快照已追平 MySQL
+cd server && npm run snapshot:freshness
+cd server && npm run backup:verify -- --path ./data/backups/<backup-id>
+cd server && npm run backup:restore-check -- --path ./data/backups/<backup-id> --database quant_backtest_restore_check --confirm-drop quant_backtest_restore_check --cleanup true
+
 # 历史行情只读预检（路径也可配置为 STOCK_HISTORY_ROOT）
 cd server && npm run import:history -- --source "D:\github_public_repo\所有股票的历史数据\每只股票一个文件" --limit 10 --dry-run
+
+# 第六阶段：查看内置因子并运行单因子研究报告
+cd server && npm run factor:list
+cd server && npm run factor:run -- --factor momentum_20 --start 2026-05-01 --end 2026-06-30 --horizon 5 --layers 5
+cd server && npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --validationStart 2026-06-11 --horizon 5 --layers 5
+cd server && npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --validationStart 2026-06-11 --weighting ic --horizon 5 --layers 5
+cd server && npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --weighting manual --weights momentum_20:2,reversal_5:-1 --horizon 5 --layers 5
 
 # 预览生产构建
 npm run preview

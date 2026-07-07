@@ -29,6 +29,8 @@ const envSchema = z.object({
   HISTORY_STORE_DUAL_WRITE: z.enum(['true', 'false']).default('true'),
   RESEARCH_SNAPSHOT_ROOT: z.string().default('./data/research-snapshots'),
   RESEARCH_QUERY_MAX_ROWS: z.string().default('10000'),
+  BACKUP_ROOT: z.string().default('./data/backups'),
+  FACTOR_RESEARCH_ROOT: z.string().default('./data/factor-research'),
 
   PORT: z.string().default('3001'),
 });

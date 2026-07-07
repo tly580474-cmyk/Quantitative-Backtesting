@@ -11,6 +11,8 @@ server/.cache/market-technical-rows.json
 server/.cache/hot-sectors.json
 server/.cache/history-import/
 server/data/research-snapshots/
+server/data/backups/
+server/data/factor-research/
 .claude/
 *.tsbuildinfo
 新建 文本文档.txt

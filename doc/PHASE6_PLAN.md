@@ -1,5 +1,26 @@
 # 量化回测第六阶段：因子研究与多因子评价平台
 
+## 0. 当前决策
+
+第六阶段的最终目标保持为“完成可复现的因子研究与多因子评价平台”，但实施顺序先调整为
+数据底座优先：
+
+1. 先解决 DuckDB/Parquet 研究快照与 MySQL 权威库的数据同步问题，也就是快照追平；
+2. 先解决 MySQL 与当前研究快照的一致备份、校验和恢复演练问题；
+3. 运维界面暂时忽略，不作为第六阶段前半段交付物；
+4. 在上述底座稳定后，再继续因子研究、报告和多因子合成能力。
+
+截至 2026-07-07，5.5 阶段已经完成一次真实追平与备份校验：
+
+- 当前研究快照：`b8a23bce-2f65-46c5-9614-4edc6f359df5-20260707040738`
+- 数据追平至：`2026-07-07`
+- 快照行数：17,047,012
+- 最新备份：`server/data/backups/backup-20260707041121`
+- `snapshot:verify`、`snapshot:benchmark`、`backup:verify`、`backup:restore-check` 均已通过。
+
+因此第六阶段不再把“运维界面”作为近期重点，而是把“自动追平、可验证备份、恢复演练、
+研究任务引用固定快照”作为 P0 验收线。
+
 ## 1. 阶段定位
 
 第六阶段承接 5.5 阶段的全量历史行情库、Parquet 快照和 DuckDB 研究查询能力，
@@ -263,49 +284,61 @@ factor_reports/
 
 ## 9. 实施顺序与工作量
 
-### M0：口径冻结与样本基准（2～3 人日）
+### M0：数据底座冻结：快照追平与备份恢复（2～4 人日）
+
+- 固化 MySQL 增量完成后重建受影响年份分区的快照追平流程；
+- 每次追平后强制执行 `snapshot:verify`，必要时执行 `snapshot:benchmark`；
+- 固化 `backup:create`、`backup:verify` 和 `backup:restore-check`，备份必须同时包含 MySQL dump 与当前研究快照；
+- 补一轮恢复演练：临时库导入 dump、临时快照目录校验、行数和最大交易日对齐；
+- 因子研究任务启动前必须读取并记录当前 snapshot id，不允许扫未发布数据；
+- 记录失败处理：快照发布失败不得切换 current，备份校验失败不得进入研究任务。
+
+### M1：口径冻结与样本基准（2～3 人日）
 
 - 冻结因子协议、收益标签、股票池过滤和防泄漏规则；
 - 建立 100 只证券、1 年数据的固定研究样本；
 - 记录 DuckDB 截面计算、join 和分层聚合基线；
 - 输出首批内置因子清单和人工核对样例。
 
-### M1：因子定义与计算 MVP（4～6 人日）
+### M2：因子定义与计算 MVP（4～6 人日）
 
 - 新增因子元数据表、版本表和 API；
 - 实现白名单因子 DSL、校验器和内置因子；
 - 实现 DuckDB 因子计算任务和 Parquet 产物写入；
 - 完成样本数据端到端计算。
 
-### M2：预处理与单因子评价（5～7 人日）
+### M3：预处理与单因子评价（5～7 人日）
 
 - 实现未来收益标签、错期合并和覆盖率统计；
 - 实现去极值、标准化、行业/市值中性化；
 - 实现 IC、Rank IC、ICIR、分层收益、换手和成本扣减；
 - 生成单因子报告摘要和图表数据。
 
-### M3：前端研究工作台（4～6 人日）
+### M4：前端研究工作台（3～5 人日）
 
 - 因子库、因子编辑器和版本发布；
 - 研究任务配置、运行监控和失败重试；
 - 单因子报告页面、IC 曲线、分层收益和衰减图；
 - 报告导出和任务历史。
 
-### M4：多因子合成与样本外验证（5～7 人日）
+运维界面暂缓；只保留面向研究人员的因子工作台和报告查看能力。
+
+### M5：多因子合成与样本外验证（5～7 人日）
 
 - 因子相关性矩阵；
 - 等权、IC 加权、RankIC 加权和手动合成；
 - 训练/验证区间切分和样本外复核；
 - 合成因子报告与回测候选导出。
 
-### M5：性能、治理与正式验收（3～5 人日）
+### M6：性能、治理与正式验收（3～5 人日）
 
 - 全市场 3 年、5 年、10 年研究基准；
 - 并发限制、任务取消、临时文件清理和产物复用；
 - 样本偏差、覆盖率和数据新鲜度风险提示；
 - 文档、运维手册、备份恢复和回归测试。
 
-预计总工作量：23～34 人日。建议先交付 M0～M3，形成可用单因子研究闭环，再进入多因子合成。
+预计总工作量：25～38 人日。建议先交付 M0～M4，形成“数据可追平、可恢复、单因子可研究”
+的闭环，再进入多因子合成。
 
 ## 10. 测试计划
 
@@ -349,6 +382,8 @@ factor_reports/
 - [ ] 单因子报告展示覆盖率、样本不足和偏差风险；
 - [ ] 多因子相关性和至少两种合成方式可用；
 - [ ] 研究结果固定引用数据快照、因子版本、股票池版本和评价配置；
+- [ ] MySQL 权威库与 DuckDB/Parquet 研究快照可重复追平，并能阻断滞后快照进入研究任务；
+- [x] MySQL dump 与当前研究快照可以创建一致备份，并完成至少一次临时恢复演练；
 - [ ] 普通 API 不返回全量因子矩阵，前端报告通过分页或聚合读取；
 - [ ] 全市场研究任务不会阻塞普通页面和 MySQL 在线查询；
 - [ ] 前端测试、生产构建、服务端类型检查和因子研究测试全部通过；
@@ -377,3 +412,42 @@ factor_reports/
 5. 实盘前仿真、只读账户接入和交易前风控。
 
 不建议在因子评价、样本外验证和组合级风险控制稳定前直接进入自动交易。
+
+## 14. 实施进度
+
+截至 2026-07-07：
+
+- [x] 5.5 阶段进入条件中的快照追平与备份校验已完成；
+- [x] 服务端已建立内置因子白名单、因子定义协议和运行配置校验；
+- [x] 已支持从当前 Parquet 研究快照运行单因子研究 CLI；
+- [x] 已新增 `snapshot:freshness`，可对比 MySQL 权威库与当前研究快照是否追平；
+- [x] 因子研究 API 启动前会阻断未追平或不一致的研究快照；
+- [x] 已新增 `backup:restore-check`，用于将备份 dump 导入临时库并校验行数与最大交易日；
+- [x] 已在 DuckDB 中完成窗口因子、未来收益错期、每日 IC、Rank IC 和分层收益聚合；
+- [x] 已生成版本化 JSON 报告产物，默认写入 `FACTOR_RESEARCH_ROOT`；
+- [x] 已用真实快照跑通 `momentum_20` 在 `2026-05-01 ~ 2026-06-30` 的研究报告；
+- [x] MySQL 因子元数据表、任务历史和报告索引已接入；
+- [x] 已提供 `GET /api/factors`、`GET /api/factor-runs` 和 `POST /api/factor-runs`；
+- [x] 已通过 API 保存 `reversal_5` 在 `2026-06-01 ~ 2026-06-30` 的 completed run；
+- [x] 前端因子研究工作台已接入，并完成桌面与移动端基础验收；
+- [x] 多因子后端 MVP 已支持相关性矩阵、等权、IC 加权、RankIC 加权、手动权重、合成 IC、分层收益和训练/验证区间复核；
+- [ ] 前端相关性矩阵视图尚未完成。
+
+当前可用命令：
+
+```bash
+cd server
+npm run snapshot:freshness
+npm run backup:restore-check -- --path ./data/backups/<backup-id> --database quant_backtest_restore_check --confirm-drop quant_backtest_restore_check --cleanup true
+npm run factor:list
+npm run factor:run -- --factor momentum_20 --start 2026-05-01 --end 2026-06-30 --horizon 5 --layers 5
+npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --validationStart 2026-06-11 --horizon 5 --layers 5
+npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --validationStart 2026-06-11 --weighting ic --horizon 5 --layers 5
+npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --validationStart 2026-06-11 --weighting rankIc --horizon 5 --layers 5
+npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --weighting manual --weights momentum_20:2,reversal_5:-1 --horizon 5 --layers 5
+```
+
+当前多因子 MVP 边界：
+
+- 已完成：因子相关性矩阵、等权合成、IC 加权、RankIC 加权、手动权重、合成因子 IC/Rank IC、分层收益、训练/验证区间复核和 JSON 报告产物；
+- 尚未完成：前端矩阵视图，以及更完整的任务取消、重试和产物分页治理。

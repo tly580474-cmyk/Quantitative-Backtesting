@@ -15,6 +15,7 @@ import { registerInstrumentRoutes } from './routes/instruments.js';
 import { registerMarketDataRoutes } from './routes/marketData.js';
 import { registerSyncJobRoutes } from './routes/syncJobs.js';
 import { registerDataQualityRoutes } from './routes/dataQuality.js';
+import { registerFactorResearchRoutes } from './routes/factorResearch.js';
 import { MockStrategyGenerationProvider } from './services/strategyGeneration/mockProvider.js';
 import { OpenAIStrategyGenerationProvider } from './services/strategyGeneration/openaiProvider.js';
 import type { StrategyGenerationProvider } from './services/strategyGeneration/provider.js';
@@ -161,6 +162,11 @@ async function main(): Promise<void> {
   });
   registerSyncJobRoutes(app, dbOnline);
   registerDataQualityRoutes(app, dbOnline);
+  registerFactorResearchRoutes(app, dbOnline, {
+    snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
+    artifactRoot: config.FACTOR_RESEARCH_ROOT,
+    pool,
+  });
 
   // Graceful shutdown
   const shutdown = async () => {

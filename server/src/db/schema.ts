@@ -424,3 +424,66 @@ export const dataImportFiles = mysqlTable('data_import_files', {
   statusIdx: index('idx_dif_batch_status').on(table.batchId, table.status),
   checksumIdx: index('idx_dif_checksum').on(table.checksum),
 }));
+
+// ─── Phase 6: factor research metadata ───────────────────────────
+export const factorDefinitions = mysqlTable('factor_definitions', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: varchar('description', { length: 1000 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('active'),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+}, (table) => ({
+  statusIdx: index('idx_fd_status').on(table.status),
+  updatedAtIdx: index('idx_fd_updated_at').on(table.updatedAt),
+}));
+
+export const factorVersions = mysqlTable('factor_versions', {
+  id: varchar('id', { length: 96 }).primaryKey(),
+  factorId: varchar('factor_id', { length: 64 }).notNull(),
+  version: int('version').notNull(),
+  expression: json('expression').notNull(),
+  direction: varchar('direction', { length: 24 }).notNull(),
+  dependencies: json('dependencies').notNull(),
+  warmupDays: int('warmup_days').notNull().default(0),
+  checksum: varchar('checksum', { length: 64 }).notNull(),
+  publishedAt: varchar('published_at', { length: 24 }).notNull(),
+}, (table) => ({
+  factorVersionUnique: uniqueIndex('idx_fv_factor_version').on(table.factorId, table.version),
+  checksumIdx: index('idx_fv_checksum').on(table.checksum),
+}));
+
+export const factorRuns = mysqlTable('factor_runs', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  factorVersionId: varchar('factor_version_id', { length: 96 }).notNull(),
+  snapshotId: varchar('snapshot_id', { length: 128 }).notNull(),
+  universeId: varchar('universe_id', { length: 64 }).notNull().default('builtin-all-a'),
+  status: varchar('status', { length: 16 }).notNull(),
+  dateStart: varchar('date_start', { length: 10 }).notNull(),
+  dateEnd: varchar('date_end', { length: 10 }).notNull(),
+  preprocessingConfig: json('preprocessing_config').notNull(),
+  labelConfig: json('label_config').notNull(),
+  runConfig: json('run_config').notNull(),
+  totalDates: int('total_dates').notNull().default(0),
+  completedDates: int('completed_dates').notNull().default(0),
+  artifactUri: varchar('artifact_uri', { length: 1024 }),
+  errorMessage: varchar('error_message', { length: 1000 }),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  startedAt: varchar('started_at', { length: 24 }),
+  finishedAt: varchar('finished_at', { length: 24 }),
+}, (table) => ({
+  factorStatusIdx: index('idx_fr_factor_status').on(table.factorVersionId, table.status),
+  snapshotIdx: index('idx_fr_snapshot').on(table.snapshotId),
+  createdAtIdx: index('idx_fr_created_at').on(table.createdAt),
+}));
+
+export const factorReports = mysqlTable('factor_reports', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  runId: varchar('run_id', { length: 36 }).notNull(),
+  summaryMetrics: json('summary_metrics').notNull(),
+  reportUri: varchar('report_uri', { length: 1024 }).notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  runIdx: index('idx_frep_run').on(table.runId),
+  createdAtIdx: index('idx_frep_created_at').on(table.createdAt),
+}));

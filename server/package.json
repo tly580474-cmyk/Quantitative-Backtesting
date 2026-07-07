@@ -14,7 +14,14 @@
     "snapshot:build": "tsx src/research/snapshotCli.ts",
     "snapshot:publish": "tsx src/research/publishCli.ts",
     "snapshot:verify": "tsx src/research/verifyCli.ts",
+    "snapshot:freshness": "tsx src/research/freshnessCli.ts",
     "snapshot:benchmark": "tsx src/research/benchmarkCli.ts",
+    "backup:create": "tsx src/backup/backupCli.ts create",
+    "backup:verify": "tsx src/backup/backupCli.ts verify",
+    "backup:restore-check": "tsx src/backup/backupCli.ts restore-check",
+    "factor:list": "tsx src/factorResearch/factorCli.ts list",
+    "factor:run": "tsx src/factorResearch/factorCli.ts run",
+    "factor:composite": "tsx src/factorResearch/factorCli.ts composite",
     "test": "vitest run src"
   },
   "dependencies": {
