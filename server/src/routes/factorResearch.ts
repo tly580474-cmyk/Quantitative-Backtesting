@@ -5,11 +5,15 @@ import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
 import { runFactorResearch } from '../factorResearch/engine/factorRunner.js';
 import { runCompositeFactorResearch } from '../factorResearch/engine/compositeRunner.js';
 import {
+  cancelFactorRun,
+  getFactorRunDailySeries,
+  getFactorRunById,
   getFactorRunReport,
   listFactorCatalog,
   listRecentFactorRuns,
   persistCompletedCompositeFactorRun,
   persistCompletedFactorRun,
+  persistFailedFactorRun,
   syncBuiltinFactorCatalog,
 } from '../factorResearch/repositories/factorRepository.js';
 import {
@@ -58,6 +62,9 @@ export function registerFactorResearchRoutes(
     app.get('/api/factors', stub);
     app.get('/api/factor-runs', stub);
     app.get('/api/factor-runs/:id/report', stub);
+    app.get('/api/factor-runs/:id/report/daily', stub);
+    app.post('/api/factor-runs/:id/cancel', stub);
+    app.post('/api/factor-runs/:id/retry', stub);
     app.post('/api/factor-runs', stub);
     app.post('/api/factor-composites', stub);
     return;
@@ -88,9 +95,99 @@ export function registerFactorResearchRoutes(
     }
   });
 
+  app.get<{
+    Params: { id: string };
+    Querystring: { page?: string; pageSize?: string };
+  }>('/api/factor-runs/:id/report/daily', async (req, reply) => {
+    const page = Math.max(1, parseInt(req.query.page ?? '1', 10) || 1);
+    const pageSize = Math.min(500, Math.max(1, parseInt(req.query.pageSize ?? '100', 10) || 100));
+    try {
+      const series = await getFactorRunDailySeries(req.params.id, config.artifactRoot, page, pageSize);
+      if (!series) {
+        return reply.status(404).send(apiError(ErrorCodes.RESULT_NOT_FOUND, '因子报告不存在'));
+      }
+      return reply.send(series);
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(503).send({
+        message: error instanceof Error ? error.message : '因子报告序列读取失败',
+      });
+    }
+  });
+
   app.get('/api/factor-research/snapshot-freshness', async (_req, reply) => (
     reply.send(await getResearchSnapshotFreshness(config.pool, config.snapshotRoot))
   ));
+
+  app.post<{ Params: { id: string } }>('/api/factor-runs/:id/cancel', async (req, reply) => {
+    try {
+      const result = await cancelFactorRun(req.params.id);
+      if (!result) {
+        return reply.status(404).send(apiError(ErrorCodes.RESULT_NOT_FOUND, '因子任务不存在'));
+      }
+      if (!result.updated) {
+        return reply.status(409).send({
+          ...apiError(ErrorCodes.VALIDATION_ERROR, result.reason ?? '当前任务不可取消'),
+          run: result.run,
+        });
+      }
+      return reply.send({ run: result.run });
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(503).send({
+        message: error instanceof Error ? error.message : '因子任务取消失败',
+      });
+    }
+  });
+
+  app.post<{ Params: { id: string } }>('/api/factor-runs/:id/retry', async (req, reply) => {
+    const original = await getFactorRunById(req.params.id);
+    if (!original) {
+      return reply.status(404).send(apiError(ErrorCodes.RESULT_NOT_FOUND, '因子任务不存在'));
+    }
+    if (!['failed', 'canceled', 'cancelled'].includes(original.status)) {
+      return reply.status(409).send(
+        apiError(ErrorCodes.VALIDATION_ERROR, `当前状态 ${original.status} 不支持重试`),
+      );
+    }
+
+    const retryResult = parseStoredRunConfig(original.runConfig);
+    if (!retryResult.ok) {
+      return reply.status(400).send(
+        apiError(ErrorCodes.VALIDATION_ERROR, retryResult.message, retryResult.issues),
+      );
+    }
+
+    try {
+      await syncBuiltinFactorCatalog();
+      await assertResearchSnapshotFresh(config.pool, config.snapshotRoot);
+      if (retryResult.kind === 'composite') {
+        const report = await runCompositeFactorResearch({
+          snapshotRoot: config.snapshotRoot,
+          artifactRoot: config.artifactRoot,
+          config: retryResult.config,
+          writeReport: true,
+        });
+        const persisted = await persistCompletedCompositeFactorRun(report, report.config);
+        return reply.status(201).send({ ...persisted, retriedFromRunId: original.id, report });
+      }
+      const report = await runFactorResearch({
+        snapshotRoot: config.snapshotRoot,
+        artifactRoot: config.artifactRoot,
+        config: retryResult.config,
+        writeReport: true,
+      });
+      const persisted = await persistCompletedFactorRun(report, report.config);
+      return reply.status(201).send({ ...persisted, retriedFromRunId: original.id, report });
+    } catch (error) {
+      req.log.error(error);
+      const failed = await persistFailedFactorRun(retryResult.config, error, original.snapshotId);
+      return reply.status(503).send({
+        message: error instanceof Error ? error.message : '因子任务重试失败',
+        failedRunId: failed.runId,
+      });
+    }
+  });
 
   app.post<{ Body: z.infer<typeof factorRunBodySchema> }>('/api/factor-runs', async (req, reply) => {
     const parsed = factorRunBodySchema.safeParse(req.body ?? {});
@@ -121,8 +218,10 @@ export function registerFactorResearchRoutes(
       return reply.status(201).send({ ...persisted, report });
     } catch (error) {
       req.log.error(error);
+      const failed = await persistFailedFactorRun(parsed.data, error);
       return reply.status(503).send({
         message: error instanceof Error ? error.message : '因子研究运行失败',
+        failedRunId: failed.runId,
       });
     }
   });
@@ -158,9 +257,40 @@ export function registerFactorResearchRoutes(
       return reply.status(201).send({ ...persisted, report });
     } catch (error) {
       req.log.error(error);
+      const failed = await persistFailedFactorRun(parsed.data, error);
       return reply.status(503).send({
         message: error instanceof Error ? error.message : '多因子研究运行失败',
+        failedRunId: failed.runId,
       });
     }
   });
+}
+
+function parseStoredRunConfig(
+  value: unknown,
+): (
+  | { ok: true; kind: 'single'; config: z.infer<typeof factorRunBodySchema> }
+  | { ok: true; kind: 'composite'; config: z.infer<typeof compositeRunBodySchema> }
+  | { ok: false; message: string; issues?: unknown }
+) {
+  if (value && typeof value === 'object' && Array.isArray((value as { factorIds?: unknown }).factorIds)) {
+    const parsed = compositeRunBodySchema.safeParse(value);
+    if (!parsed.success || parsed.data.startDate > parsed.data.endDate) {
+      return {
+        ok: false,
+        message: '历史多因子任务配置无效，无法重试',
+        issues: parsed.success ? [] : parsed.error.issues,
+      };
+    }
+    return { ok: true, kind: 'composite', config: parsed.data };
+  }
+  const parsed = factorRunBodySchema.safeParse(value);
+  if (!parsed.success || parsed.data.startDate > parsed.data.endDate) {
+    return {
+      ok: false,
+      message: '历史因子任务配置无效，无法重试',
+      issues: parsed.success ? [] : parsed.error.issues,
+    };
+  }
+  return { ok: true, kind: 'single', config: parsed.data };
 }

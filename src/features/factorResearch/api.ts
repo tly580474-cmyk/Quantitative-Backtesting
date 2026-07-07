@@ -23,7 +23,7 @@ export interface FactorRunSummary {
   factorVersionId: string;
   snapshotId: string;
   universeId: string;
-  status: 'completed' | 'failed' | 'running' | 'pending';
+  status: 'completed' | 'failed' | 'running' | 'pending' | 'canceled' | 'cancelled';
   dateStart: string;
   dateEnd: string;
   preprocessingConfig: Record<string, unknown>;
@@ -136,12 +136,22 @@ export interface FactorRunResponse {
   runId: string;
   reportId: string;
   report: FactorReport;
+  failedRunId?: string;
 }
 
 export interface CompositeFactorRunResponse {
   runId: string;
   reportId: string;
   report: CompositeFactorReport;
+  failedRunId?: string;
+}
+
+export interface FactorRunRetryResponse {
+  runId: string;
+  reportId: string;
+  retriedFromRunId: string;
+  report: FactorReport | CompositeFactorReport;
+  failedRunId?: string;
 }
 
 export interface FactorRunReportDetail {
@@ -153,7 +163,17 @@ export interface FactorRunReportDetail {
     reportUri: string;
     createdAt: string;
   };
-  report: FactorReport | CompositeFactorReport;
+  report: Omit<FactorReport, 'daily'> | Omit<CompositeFactorReport, 'daily'>;
+  series: {
+    daily: { total: number };
+  };
+}
+
+export interface FactorRunDailySeries {
+  items: DailyFactorMetric[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export function fetchFactors() {
@@ -182,4 +202,25 @@ export function runCompositeFactorResearch(input: CompositeFactorRunRequest) {
 
 export function fetchFactorRunReport(runId: string) {
   return apiFetch<FactorRunReportDetail>(`/api/factor-runs/${runId}/report`, { timeoutMs: 60000 });
+}
+
+export function cancelFactorRun(runId: string) {
+  return apiFetch<{ run: FactorRunSummary }>(`/api/factor-runs/${runId}/cancel`, {
+    method: 'POST',
+    timeoutMs: 60000,
+  });
+}
+
+export function retryFactorRun(runId: string) {
+  return apiFetch<FactorRunRetryResponse>(`/api/factor-runs/${runId}/retry`, {
+    method: 'POST',
+    timeoutMs: 120000,
+  });
+}
+
+export function fetchFactorRunDailySeries(runId: string, page = 1, pageSize = 100) {
+  return apiFetch<FactorRunDailySeries>(
+    `/api/factor-runs/${runId}/report/daily?page=${page}&pageSize=${pageSize}`,
+    { timeoutMs: 60000 },
+  );
 }

@@ -25,9 +25,12 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
+  cancelFactorRun,
   fetchFactorRuns,
+  fetchFactorRunDailySeries,
   fetchFactorRunReport,
   fetchFactors,
+  retryFactorRun,
   runCompositeFactorResearch,
   runFactorResearch,
   type CompositeFactorReport,
@@ -85,6 +88,21 @@ function directionLabel(direction: FactorCatalogItem['definition']['direction'])
   return <Tag>研究观察</Tag>;
 }
 
+function statusColor(status: FactorRunSummary['status']) {
+  if (status === 'completed') return 'success';
+  if (status === 'failed') return 'error';
+  if (status === 'canceled' || status === 'cancelled') return 'default';
+  return 'processing';
+}
+
+function statusText(status: FactorRunSummary['status']) {
+  if (status === 'completed') return '完成';
+  if (status === 'failed') return '失败';
+  if (status === 'running') return '运行中';
+  if (status === 'pending') return '等待中';
+  return '已取消';
+}
+
 export default function FactorResearchPage() {
   const { message } = App.useApp();
   const [form] = Form.useForm<FormValues>();
@@ -94,9 +112,15 @@ export default function FactorResearchPage() {
   const [selectedFactorId, setSelectedFactorId] = useState('momentum_20');
   const [report, setReport] = useState<FactorReport | null>(null);
   const [compositeReport, setCompositeReport] = useState<CompositeFactorReport | null>(null);
+  const [reportRunId, setReportRunId] = useState<string | null>(null);
+  const [dailyPage, setDailyPage] = useState(1);
+  const [dailyPageSize, setDailyPageSize] = useState(10);
+  const [dailyTotal, setDailyTotal] = useState(0);
+  const [dailyLoading, setDailyLoading] = useState(false);
   const [loadingFactors, setLoadingFactors] = useState(false);
   const [loadingRuns, setLoadingRuns] = useState(false);
   const [running, setRunning] = useState(false);
+  const [actionRunId, setActionRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const selectedFactor = useMemo(
@@ -172,6 +196,10 @@ export default function FactorResearchPage() {
       const result = await runFactorResearch(payload);
       setReport(result.report);
       setCompositeReport(null);
+      setReportRunId(result.runId);
+      setDailyPage(1);
+      setDailyPageSize(10);
+      setDailyTotal(result.report.daily.length);
       message.success(`因子报告已保存：${result.runId.slice(0, 8)}`);
       await loadRuns();
     } catch (err) {
@@ -200,6 +228,10 @@ export default function FactorResearchPage() {
       const result = await runCompositeFactorResearch(payload);
       setCompositeReport(result.report);
       setReport(null);
+      setReportRunId(result.runId);
+      setDailyPage(1);
+      setDailyPageSize(10);
+      setDailyTotal(result.report.daily.length);
       message.success(`多因子报告已保存：${result.runId.slice(0, 8)}`);
       await loadRuns();
     } catch (err) {
@@ -213,19 +245,87 @@ export default function FactorResearchPage() {
     setRunning(true);
     setError(null);
     try {
-      const detail = await fetchFactorRunReport(runId);
+      const [detail, dailySeries] = await Promise.all([
+        fetchFactorRunReport(runId),
+        fetchFactorRunDailySeries(runId, 1, dailyPageSize),
+      ]);
+      const reportWithDaily = {
+        ...detail.report,
+        daily: dailySeries.items,
+      };
       if ('factors' in detail.report) {
-        setCompositeReport(detail.report);
+        setCompositeReport(reportWithDaily as CompositeFactorReport);
         setReport(null);
       } else {
-        setReport(detail.report);
+        setReport(reportWithDaily as FactorReport);
         setCompositeReport(null);
       }
-      message.success('报告已打开');
+      setReportRunId(runId);
+      setDailyPage(dailySeries.page);
+      setDailyPageSize(dailySeries.pageSize);
+      setDailyTotal(dailySeries.total);
+      message.success(`报告已打开，已加载 ${dailySeries.items.length}/${dailySeries.total} 条 IC 序列`);
     } catch (err) {
       setError(err instanceof Error ? err.message : '报告读取失败');
     } finally {
       setRunning(false);
+    }
+  };
+
+  const handleDailyPageChange = async (page: number, pageSize: number) => {
+    if (!reportRunId || !report) return;
+    setDailyLoading(true);
+    setError(null);
+    try {
+      const series = await fetchFactorRunDailySeries(reportRunId, page, pageSize);
+      setReport((current) => (current ? { ...current, daily: series.items } : current));
+      setDailyPage(series.page);
+      setDailyPageSize(series.pageSize);
+      setDailyTotal(series.total);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'IC 序列分页读取失败');
+    } finally {
+      setDailyLoading(false);
+    }
+  };
+
+  const handleCancelRun = async (runId: string) => {
+    setActionRunId(runId);
+    setError(null);
+    try {
+      await cancelFactorRun(runId);
+      message.success('任务已取消');
+      await loadRuns();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '任务取消失败');
+    } finally {
+      setActionRunId(null);
+    }
+  };
+
+  const handleRetryRun = async (runId: string) => {
+    setActionRunId(runId);
+    setError(null);
+    try {
+      const result = await retryFactorRun(runId);
+      if ('factors' in result.report) {
+        setCompositeReport(result.report);
+        setReport(null);
+      } else {
+        setReport(result.report);
+        setCompositeReport(null);
+      }
+      setReportRunId(result.runId);
+      setDailyPage(1);
+      setDailyPageSize(10);
+      setDailyTotal(result.report.daily.length);
+      message.success(`重试成功：${result.runId.slice(0, 8)}`);
+      await loadRuns();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '任务重试失败');
+      await loadRuns();
+    } finally {
+      setActionRunId(null);
     }
   };
 
@@ -288,7 +388,7 @@ export default function FactorResearchPage() {
       title: '状态',
       dataIndex: 'status',
       width: 90,
-      render: (value: string) => <Tag color={value === 'completed' ? 'success' : 'warning'}>{value}</Tag>,
+      render: (value: FactorRunSummary['status']) => <Tag color={statusColor(value)}>{statusText(value)}</Tag>,
     },
     {
       title: '交易日',
@@ -304,11 +404,36 @@ export default function FactorResearchPage() {
     },
     {
       title: '操作',
-      width: 86,
+      width: 150,
       render: (_, row) => (
-        <Button size="small" onClick={() => { void handleOpenRunReport(row.id); }}>
-          查看
-        </Button>
+        <Space size={6}>
+          <Button
+            size="small"
+            disabled={row.status !== 'completed'}
+            onClick={() => { void handleOpenRunReport(row.id); }}
+          >
+            查看
+          </Button>
+          {['failed', 'canceled', 'cancelled'].includes(row.status) && (
+            <Button
+              size="small"
+              loading={actionRunId === row.id}
+              onClick={() => { void handleRetryRun(row.id); }}
+            >
+              重试
+            </Button>
+          )}
+          {['pending', 'running'].includes(row.status) && (
+            <Button
+              size="small"
+              danger
+              loading={actionRunId === row.id}
+              onClick={() => { void handleCancelRun(row.id); }}
+            >
+              取消
+            </Button>
+          )}
+        </Space>
       ),
     },
   ];
@@ -472,7 +597,16 @@ export default function FactorResearchPage() {
           {compositeReport ? (
             <CompositeReportView report={compositeReport} />
           ) : report ? (
-            <FactorReportView report={report} />
+            <FactorReportView
+              report={report}
+              dailyPagination={{
+                current: dailyPage,
+                pageSize: dailyPageSize,
+                total: dailyTotal,
+                loading: dailyLoading,
+                onChange: handleDailyPageChange,
+              }}
+            />
           ) : (
             <Empty description="暂无报告" />
           )}
@@ -552,7 +686,19 @@ function parseManualWeights(value: string | undefined): Record<string, number> |
   }));
 }
 
-function FactorReportView({ report }: { report: FactorReport }) {
+function FactorReportView({
+  report,
+  dailyPagination,
+}: {
+  report: FactorReport;
+  dailyPagination?: {
+    current: number;
+    pageSize: number;
+    total: number;
+    loading: boolean;
+    onChange: (page: number, pageSize: number) => void;
+  };
+}) {
   return (
     <div className="factor-report">
       <div className="factor-kpi-strip">
@@ -575,6 +721,7 @@ function FactorReportView({ report }: { report: FactorReport }) {
       <Table
         rowKey="tradeDate"
         size="small"
+        loading={dailyPagination?.loading}
         columns={[
           { title: '日期', dataIndex: 'tradeDate', width: 110 },
           { title: '样本', dataIndex: 'sampleCount', width: 80 },
@@ -582,7 +729,15 @@ function FactorReportView({ report }: { report: FactorReport }) {
           { title: 'Rank IC', dataIndex: 'rankIc', render: (value) => decimal(value) },
         ]}
         dataSource={report.daily}
-        pagination={{ pageSize: 5, size: 'small' }}
+        pagination={dailyPagination ? {
+          current: dailyPagination.current,
+          pageSize: dailyPagination.pageSize,
+          total: dailyPagination.total,
+          size: 'small',
+          showSizeChanger: true,
+          pageSizeOptions: [10, 20, 50, 100],
+          onChange: dailyPagination.onChange,
+        } : { pageSize: 5, size: 'small' }}
       />
     </div>
   );
