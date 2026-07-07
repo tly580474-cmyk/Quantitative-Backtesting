@@ -49,6 +49,20 @@ export interface FactorRunRequest {
   minDailyAmount?: number;
 }
 
+export interface CompositeFactorRunRequest {
+  factorIds: string[];
+  startDate: string;
+  endDate: string;
+  validationStartDate?: string;
+  horizonDays: number;
+  layers: number;
+  weighting: 'equal' | 'ic' | 'rankIc' | 'manual';
+  manualWeights?: Record<string, number>;
+  markets?: string[];
+  symbols?: string[];
+  minDailyAmount?: number;
+}
+
 export interface DailyFactorMetric {
   tradeDate: string;
   sampleCount: number;
@@ -82,10 +96,64 @@ export interface FactorReport {
   artifactPath?: string;
 }
 
+export interface CompositeFactorWeight {
+  factorId: string;
+  weight: number;
+  source: 'equal' | 'ic' | 'rankIc' | 'manual' | 'fallback-equal';
+  trainingIc: number | null;
+  trainingRankIc: number | null;
+}
+
+export interface FactorCorrelationMetric {
+  factorA: string;
+  factorB: string;
+  correlation: number | null;
+  sampleCount: number;
+}
+
+export interface CompositeFactorReport {
+  factors: FactorDefinition[];
+  snapshotId: string;
+  sourceVersion: string;
+  config: CompositeFactorRunRequest;
+  summary: FactorReport['summary'] & {
+    factorCount: number;
+    averageAbsCorrelation: number | null;
+  };
+  weights: CompositeFactorWeight[];
+  sampleSplit?: {
+    train: FactorReport['summary'];
+    validation: FactorReport['summary'];
+  };
+  correlations: FactorCorrelationMetric[];
+  daily: DailyFactorMetric[];
+  layers: LayerMetric[];
+  createdAt: string;
+  artifactPath?: string;
+}
+
 export interface FactorRunResponse {
   runId: string;
   reportId: string;
   report: FactorReport;
+}
+
+export interface CompositeFactorRunResponse {
+  runId: string;
+  reportId: string;
+  report: CompositeFactorReport;
+}
+
+export interface FactorRunReportDetail {
+  run: FactorRunSummary;
+  reportRecord: {
+    id: string;
+    runId: string;
+    summaryMetrics: Record<string, unknown>;
+    reportUri: string;
+    createdAt: string;
+  };
+  report: FactorReport | CompositeFactorReport;
 }
 
 export function fetchFactors() {
@@ -102,4 +170,16 @@ export function runFactorResearch(input: FactorRunRequest) {
     body: JSON.stringify(input),
     timeoutMs: 120000,
   });
+}
+
+export function runCompositeFactorResearch(input: CompositeFactorRunRequest) {
+  return apiFetch<CompositeFactorRunResponse>('/api/factor-composites', {
+    method: 'POST',
+    body: JSON.stringify(input),
+    timeoutMs: 120000,
+  });
+}
+
+export function fetchFactorRunReport(runId: string) {
+  return apiFetch<FactorRunReportDetail>(`/api/factor-runs/${runId}/report`, { timeoutMs: 60000 });
 }

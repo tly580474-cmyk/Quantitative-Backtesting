@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
   Alert,
   App,
@@ -6,11 +6,13 @@ import {
   DatePicker,
   Empty,
   Form,
+  Input,
   InputNumber,
   Select,
   Space,
   Table,
   Tag,
+  Tabs,
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -24,9 +26,15 @@ import {
 import dayjs from 'dayjs';
 import {
   fetchFactorRuns,
+  fetchFactorRunReport,
   fetchFactors,
+  runCompositeFactorResearch,
   runFactorResearch,
+  type CompositeFactorReport,
+  type CompositeFactorRunRequest,
+  type CompositeFactorWeight,
   type DailyFactorMetric,
+  type FactorCorrelationMetric,
   type FactorCatalogItem,
   type FactorReport,
   type FactorRunRequest,
@@ -51,6 +59,18 @@ type FormValues = {
   minDailyAmount?: number;
 };
 
+type CompositeFormValues = {
+  factorIds: string[];
+  range: [dayjs.Dayjs, dayjs.Dayjs];
+  validationStartDate?: dayjs.Dayjs;
+  horizonDays: number;
+  layers: number;
+  weighting: CompositeFactorRunRequest['weighting'];
+  manualWeights?: string;
+  markets?: string[];
+  minDailyAmount?: number;
+};
+
 function percent(value: number | null | undefined, digits = 2): string {
   return value == null || !Number.isFinite(value) ? '—' : `${(value * 100).toFixed(digits)}%`;
 }
@@ -68,10 +88,12 @@ function directionLabel(direction: FactorCatalogItem['definition']['direction'])
 export default function FactorResearchPage() {
   const { message } = App.useApp();
   const [form] = Form.useForm<FormValues>();
+  const [compositeForm] = Form.useForm<CompositeFormValues>();
   const [factors, setFactors] = useState<FactorCatalogItem[]>([]);
   const [runs, setRuns] = useState<FactorRunSummary[]>([]);
   const [selectedFactorId, setSelectedFactorId] = useState('momentum_20');
   const [report, setReport] = useState<FactorReport | null>(null);
+  const [compositeReport, setCompositeReport] = useState<CompositeFactorReport | null>(null);
   const [loadingFactors, setLoadingFactors] = useState(false);
   const [loadingRuns, setLoadingRuns] = useState(false);
   const [running, setRunning] = useState(false);
@@ -121,6 +143,15 @@ export default function FactorResearchPage() {
       layers: 5,
       markets: ['SH', 'SZ'],
     });
+    compositeForm.setFieldsValue({
+      factorIds: ['momentum_20', 'reversal_5'],
+      range: [dayjs('2026-06-01'), dayjs('2026-06-20')],
+      validationStartDate: dayjs('2026-06-11'),
+      horizonDays: 5,
+      layers: 5,
+      weighting: 'equal',
+      markets: ['SH', 'SZ'],
+    });
     void loadFactors();
     void loadRuns();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -140,10 +171,59 @@ export default function FactorResearchPage() {
     try {
       const result = await runFactorResearch(payload);
       setReport(result.report);
+      setCompositeReport(null);
       message.success(`因子报告已保存：${result.runId.slice(0, 8)}`);
       await loadRuns();
     } catch (err) {
       setError(err instanceof Error ? err.message : '因子研究运行失败');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const handleCompositeRun = async (values: CompositeFormValues) => {
+    const payload: CompositeFactorRunRequest = {
+      factorIds: values.factorIds,
+      startDate: values.range[0].format('YYYY-MM-DD'),
+      endDate: values.range[1].format('YYYY-MM-DD'),
+      validationStartDate: values.validationStartDate?.format('YYYY-MM-DD'),
+      horizonDays: values.horizonDays,
+      layers: values.layers,
+      weighting: values.weighting,
+      manualWeights: values.weighting === 'manual' ? parseManualWeights(values.manualWeights) : undefined,
+      markets: values.markets,
+      minDailyAmount: values.minDailyAmount,
+    };
+    setRunning(true);
+    setError(null);
+    try {
+      const result = await runCompositeFactorResearch(payload);
+      setCompositeReport(result.report);
+      setReport(null);
+      message.success(`多因子报告已保存：${result.runId.slice(0, 8)}`);
+      await loadRuns();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '多因子研究运行失败');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const handleOpenRunReport = async (runId: string) => {
+    setRunning(true);
+    setError(null);
+    try {
+      const detail = await fetchFactorRunReport(runId);
+      if ('factors' in detail.report) {
+        setCompositeReport(detail.report);
+        setReport(null);
+      } else {
+        setReport(detail.report);
+        setCompositeReport(null);
+      }
+      message.success('报告已打开');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '报告读取失败');
     } finally {
       setRunning(false);
     }
@@ -222,6 +302,15 @@ export default function FactorResearchPage() {
       responsive: ['md'],
       render: (value: string) => new Date(value).toLocaleString('zh-CN'),
     },
+    {
+      title: '操作',
+      width: 86,
+      render: (_, row) => (
+        <Button size="small" onClick={() => { void handleOpenRunReport(row.id); }}>
+          查看
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -280,46 +369,91 @@ export default function FactorResearchPage() {
             <span><CalculatorOutlined /> 运行配置</span>
             {selectedFactor && <Tag color="blue">{selectedFactor.versionId}</Tag>}
           </div>
-          <Form
-            form={form}
-            layout="vertical"
-            onFinish={handleRun}
-            className="factor-run-form"
-          >
-            <Form.Item name="factorId" label="因子" rules={[{ required: true }]}>
-              <Select
-                options={factors.map((item) => ({
-                  value: item.definition.id,
-                  label: `${item.definition.name} (${item.definition.id})`,
-                }))}
-                onChange={setSelectedFactorId}
-              />
-            </Form.Item>
-            <Form.Item name="range" label="研究区间" rules={[{ required: true }]}>
-              <RangePicker allowClear={false} />
-            </Form.Item>
-            <div className="factor-form-grid">
-              <Form.Item name="horizonDays" label="持有期" rules={[{ required: true }]}>
-                <InputNumber min={1} max={60} suffix="日" />
-              </Form.Item>
-              <Form.Item name="layers" label="分层数" rules={[{ required: true }]}>
-                <InputNumber min={2} max={20} />
-              </Form.Item>
-            </div>
-            <Form.Item name="markets" label="市场">
-              <Select
-                mode="multiple"
-                options={[
-                  { value: 'SH', label: '沪市' },
-                  { value: 'SZ', label: '深市' },
-                  { value: 'BJ', label: '北交所' },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item name="minDailyAmount" label="成交额下限">
-              <InputNumber min={0} step={10000000} suffix="元" />
-            </Form.Item>
-          </Form>
+          <Tabs
+            size="small"
+            items={[
+              {
+                key: 'single',
+                label: '单因子',
+                children: (
+                  <Form
+                    form={form}
+                    layout="vertical"
+                    onFinish={handleRun}
+                    className="factor-run-form"
+                  >
+                    <Form.Item name="factorId" label="因子" rules={[{ required: true }]}>
+                      <Select
+                        options={factorOptions(factors)}
+                        onChange={setSelectedFactorId}
+                      />
+                    </Form.Item>
+                    <SharedRunFields />
+                  </Form>
+                ),
+              },
+              {
+                key: 'composite',
+                label: '多因子合成',
+                children: (
+                  <Form
+                    form={compositeForm}
+                    layout="vertical"
+                    onFinish={handleCompositeRun}
+                    className="factor-run-form"
+                  >
+                    <Form.Item name="factorIds" label="因子组合" rules={[{ required: true }]}>
+                      <Select mode="multiple" options={factorOptions(factors)} />
+                    </Form.Item>
+                    <Form.Item name="range" label="研究区间" rules={[{ required: true }]}>
+                      <RangePicker allowClear={false} />
+                    </Form.Item>
+                    <Form.Item name="validationStartDate" label="验证区间起点">
+                      <DatePicker />
+                    </Form.Item>
+                    <div className="factor-form-grid">
+                      <Form.Item name="horizonDays" label="持有期" rules={[{ required: true }]}>
+                        <InputNumber min={1} max={60} suffix="日" />
+                      </Form.Item>
+                      <Form.Item name="layers" label="分层数" rules={[{ required: true }]}>
+                        <InputNumber min={2} max={20} />
+                      </Form.Item>
+                    </div>
+                    <Form.Item name="weighting" label="权重方式" rules={[{ required: true }]}>
+                      <Select
+                        options={[
+                          { value: 'equal', label: '等权' },
+                          { value: 'ic', label: 'IC 加权' },
+                          { value: 'rankIc', label: 'RankIC 加权' },
+                          { value: 'manual', label: '手动权重' },
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item shouldUpdate={(prev, current) => prev.weighting !== current.weighting} noStyle>
+                      {({ getFieldValue }) => getFieldValue('weighting') === 'manual' && (
+                        <Form.Item
+                          name="manualWeights"
+                          label="手动权重"
+                          rules={[{ required: true, message: '请输入 factor:weight 列表' }]}
+                        >
+                          <Input placeholder="momentum_20:2,reversal_5:-1" />
+                        </Form.Item>
+                      )}
+                    </Form.Item>
+                    <Form.Item name="markets" label="市场">
+                      <MarketSelect />
+                    </Form.Item>
+                    <Form.Item name="minDailyAmount" label="成交额下限">
+                      <InputNumber min={0} step={10000000} suffix="元" />
+                    </Form.Item>
+                    <Button type="primary" htmlType="submit" loading={running} icon={<CalculatorOutlined />}>
+                      运行多因子
+                    </Button>
+                  </Form>
+                ),
+              },
+            ]}
+          />
           {selectedFactor && (
             <div className="factor-definition-note">
               <Text strong>{selectedFactor.definition.name}</Text>
@@ -331,9 +465,17 @@ export default function FactorResearchPage() {
         <section className="factor-panel factor-report-panel">
           <div className="factor-panel-head">
             <span><LineChartOutlined /> 最近报告</span>
-            {report && <Tag color="success">{report.summary.tradingDays} 日</Tag>}
+            {(report || compositeReport) && (
+              <Tag color="success">{(report ?? compositeReport)?.summary.tradingDays} 日</Tag>
+            )}
           </div>
-          {report ? <FactorReportView report={report} /> : <Empty description="暂无报告" />}
+          {compositeReport ? (
+            <CompositeReportView report={compositeReport} />
+          ) : report ? (
+            <FactorReportView report={report} />
+          ) : (
+            <Empty description="暂无报告" />
+          )}
         </section>
 
         <section className="factor-panel factor-history-panel">
@@ -353,6 +495,61 @@ export default function FactorResearchPage() {
       </div>
     </div>
   );
+}
+
+function factorOptions(factors: FactorCatalogItem[]) {
+  return factors.map((item) => ({
+    value: item.definition.id,
+    label: `${item.definition.name} (${item.definition.id})`,
+  }));
+}
+
+function MarketSelect() {
+  return (
+    <Select
+      mode="multiple"
+      options={[
+        { value: 'SH', label: '沪市' },
+        { value: 'SZ', label: '深市' },
+        { value: 'BJ', label: '北交所' },
+      ]}
+    />
+  );
+}
+
+function SharedRunFields() {
+  return (
+    <>
+      <Form.Item name="range" label="研究区间" rules={[{ required: true }]}>
+        <RangePicker allowClear={false} />
+      </Form.Item>
+      <div className="factor-form-grid">
+        <Form.Item name="horizonDays" label="持有期" rules={[{ required: true }]}>
+          <InputNumber min={1} max={60} suffix="日" />
+        </Form.Item>
+        <Form.Item name="layers" label="分层数" rules={[{ required: true }]}>
+          <InputNumber min={2} max={20} />
+        </Form.Item>
+      </div>
+      <Form.Item name="markets" label="市场">
+        <MarketSelect />
+      </Form.Item>
+      <Form.Item name="minDailyAmount" label="成交额下限">
+        <InputNumber min={0} step={10000000} suffix="元" />
+      </Form.Item>
+    </>
+  );
+}
+
+function parseManualWeights(value: string | undefined): Record<string, number> | undefined {
+  if (!value?.trim()) return undefined;
+  return Object.fromEntries(value.split(',').map((item) => {
+    const [factorId, rawWeight] = item.split(':');
+    if (!factorId || rawWeight === undefined) throw new Error('手动权重格式应为 factor:weight,factor:weight');
+    const weight = Number(rawWeight);
+    if (!Number.isFinite(weight)) throw new Error(`手动权重不是有效数字：${item}`);
+    return [factorId.trim(), weight];
+  }));
 }
 
 function FactorReportView({ report }: { report: FactorReport }) {
@@ -389,6 +586,115 @@ function FactorReportView({ report }: { report: FactorReport }) {
       />
     </div>
   );
+}
+
+function CompositeReportView({ report }: { report: CompositeFactorReport }) {
+  return (
+    <div className="factor-report">
+      <div className="factor-kpi-strip">
+        <MetricBox label="因子数" value={String(report.summary.factorCount)} />
+        <MetricBox label="平均 IC" value={decimal(report.summary.averageIc)} />
+        <MetricBox label="平均相关" value={decimal(report.summary.averageAbsCorrelation)} />
+        <MetricBox label="验证 IC" value={decimal(report.sampleSplit?.validation.averageIc)} />
+        <MetricBox label="验证多空" value={percent(report.sampleSplit?.validation.longShortSpread)} />
+      </div>
+      <div className="factor-chart-grid">
+        <div className="factor-chart-box">
+          <div className="factor-chart-title">权重</div>
+          <WeightTable data={report.weights} />
+        </div>
+        <div className="factor-chart-box">
+          <div className="factor-chart-title">训练 / 验证</div>
+          <SplitSummary report={report} />
+        </div>
+      </div>
+      <div className="factor-chart-box">
+        <div className="factor-chart-title">相关性矩阵</div>
+        <CorrelationMatrix factors={report.factors.map((item) => item.id)} data={report.correlations} />
+      </div>
+      <div className="factor-chart-grid">
+        <div className="factor-chart-box">
+          <div className="factor-chart-title">合成 IC 序列</div>
+          <IcSparkline data={report.daily} />
+        </div>
+        <div className="factor-chart-box">
+          <div className="factor-chart-title">合成分层收益</div>
+          <LayerBars data={report.layers} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WeightTable({ data }: { data: CompositeFactorWeight[] }) {
+  return (
+    <Table
+      rowKey="factorId"
+      size="small"
+      pagination={false}
+      columns={[
+        { title: '因子', dataIndex: 'factorId' },
+        { title: '权重', dataIndex: 'weight', render: (value) => decimal(value, 3) },
+        { title: '来源', dataIndex: 'source', render: (value) => <Tag>{value}</Tag> },
+        { title: '训练 IC', dataIndex: 'trainingIc', render: (value) => decimal(value) },
+      ]}
+      dataSource={data}
+    />
+  );
+}
+
+function SplitSummary({ report }: { report: CompositeFactorReport }) {
+  if (!report.sampleSplit) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未设置验证区间" />;
+  return (
+    <div className="factor-split-summary">
+      <MetricBox label="训练 IC" value={decimal(report.sampleSplit.train.averageIc)} />
+      <MetricBox label="训练多空" value={percent(report.sampleSplit.train.longShortSpread)} />
+      <MetricBox label="验证 IC" value={decimal(report.sampleSplit.validation.averageIc)} />
+      <MetricBox label="验证多空" value={percent(report.sampleSplit.validation.longShortSpread)} />
+    </div>
+  );
+}
+
+function CorrelationMatrix({
+  factors,
+  data,
+}: {
+  factors: string[];
+  data: FactorCorrelationMetric[];
+}) {
+  const lookup = new Map<string, number | null>();
+  data.forEach((item) => {
+    lookup.set(`${item.factorA}|${item.factorB}`, item.correlation);
+    lookup.set(`${item.factorB}|${item.factorA}`, item.correlation);
+  });
+  return (
+    <div className="factor-correlation-matrix" style={{ '--factor-count': factors.length } as CSSProperties}>
+      <span />
+      {factors.map((factor) => <b key={factor}>{factor}</b>)}
+      {factors.map((row) => (
+        <Fragment key={row}>
+          <b key={`${row}-label`}>{row}</b>
+          {factors.map((column) => {
+            const value = lookup.get(`${row}|${column}`) ?? null;
+            return (
+              <i key={`${row}-${column}`} className={correlationClass(value)}>
+                {decimal(value, 2)}
+              </i>
+            );
+          })}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+function correlationClass(value: number | null) {
+  if (value == null) return '';
+  if (value >= 0.6) return 'is-high-positive';
+  if (value <= -0.6) return 'is-high-negative';
+  if (value >= 0.2) return 'is-positive';
+  if (value <= -0.2) return 'is-negative';
+  return '';
 }
 
 function MetricBox({ label, value }: { label: string; value: string }) {

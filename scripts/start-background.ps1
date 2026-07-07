@@ -5,6 +5,8 @@ $serverRoot = Join-Path $root 'server'
 $logRoot = Join-Path $root 'logs'
 $backendUrl = 'http://127.0.0.1:3001/api/health'
 $frontendUrl = 'http://127.0.0.1:5432/'
+$env:VITE_DATA_SOURCE = 'api'
+$env:VITE_API_URL = 'http://127.0.0.1:3001'
 
 New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 
@@ -52,16 +54,14 @@ if (-not (Test-HttpReady $backendUrl)) {
     Start-HiddenCommand $serverRoot 'npm.cmd run start' 'backend.log'
 }
 
-if (-not (Test-Path -LiteralPath (Join-Path $root 'dist\index.html'))) {
-    Push-Location $root
-    try {
-        & npm.cmd run build
-        if ($LASTEXITCODE -ne 0) {
-            throw "Frontend build failed with exit code $LASTEXITCODE."
-        }
-    } finally {
-        Pop-Location
+Push-Location $root
+try {
+    & npm.cmd run build
+    if ($LASTEXITCODE -ne 0) {
+        throw "Frontend build failed with exit code $LASTEXITCODE."
     }
+} finally {
+    Pop-Location
 }
 
 if (-not (Test-HttpReady $frontendUrl)) {

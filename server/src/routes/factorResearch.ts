@@ -5,8 +5,10 @@ import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
 import { runFactorResearch } from '../factorResearch/engine/factorRunner.js';
 import { runCompositeFactorResearch } from '../factorResearch/engine/compositeRunner.js';
 import {
+  getFactorRunReport,
   listFactorCatalog,
   listRecentFactorRuns,
+  persistCompletedCompositeFactorRun,
   persistCompletedFactorRun,
   syncBuiltinFactorCatalog,
 } from '../factorResearch/repositories/factorRepository.js';
@@ -55,6 +57,7 @@ export function registerFactorResearchRoutes(
     const stub = async () => { throw { statusCode: 503, ...dbUnavailable() }; };
     app.get('/api/factors', stub);
     app.get('/api/factor-runs', stub);
+    app.get('/api/factor-runs/:id/report', stub);
     app.post('/api/factor-runs', stub);
     app.post('/api/factor-composites', stub);
     return;
@@ -68,6 +71,21 @@ export function registerFactorResearchRoutes(
   app.get<{ Querystring: { limit?: string } }>('/api/factor-runs', async (req, reply) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? '20', 10) || 20));
     return reply.send({ items: await listRecentFactorRuns(limit) });
+  });
+
+  app.get<{ Params: { id: string } }>('/api/factor-runs/:id/report', async (req, reply) => {
+    try {
+      const detail = await getFactorRunReport(req.params.id, config.artifactRoot);
+      if (!detail) {
+        return reply.status(404).send(apiError(ErrorCodes.RESULT_NOT_FOUND, '因子报告不存在'));
+      }
+      return reply.send(detail);
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(503).send({
+        message: error instanceof Error ? error.message : '因子报告读取失败',
+      });
+    }
   });
 
   app.get('/api/factor-research/snapshot-freshness', async (_req, reply) => (
@@ -136,7 +154,8 @@ export function registerFactorResearchRoutes(
         },
         writeReport: true,
       });
-      return reply.status(201).send({ report });
+      const persisted = await persistCompletedCompositeFactorRun(report, report.config);
+      return reply.status(201).send({ ...persisted, report });
     } catch (error) {
       req.log.error(error);
       return reply.status(503).send({

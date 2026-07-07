@@ -1,8 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { relative, resolve } from 'node:path';
 import { eq, desc } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import { listBuiltinFactors } from '../definitions/validator.js';
-import type { FactorDefinition, FactorResearchReport, FactorRunConfig } from '../definitions/schema.js';
+import type {
+  CompositeFactorResearchReport,
+  CompositeFactorRunConfig,
+  FactorDefinition,
+  FactorResearchReport,
+  FactorRunConfig,
+} from '../definitions/schema.js';
 
 export interface FactorCatalogItem {
   definition: FactorDefinition;
@@ -158,6 +166,72 @@ export async function persistCompletedFactorRun(
   return { runId, reportId };
 }
 
+export async function persistCompletedCompositeFactorRun(
+  report: CompositeFactorResearchReport & { artifactPath?: string },
+  config: CompositeFactorRunConfig,
+): Promise<PersistedFactorRun> {
+  const db = getDb();
+  const runId = randomUUID();
+  const reportId = randomUUID();
+  const now = new Date().toISOString();
+  await db.insert(schema.factorRuns).values({
+    id: runId,
+    factorVersionId: compositeVersionId(config.factorIds),
+    snapshotId: report.snapshotId,
+    universeId: universeIdFromConfig(config),
+    status: 'completed',
+    dateStart: config.startDate,
+    dateEnd: config.endDate,
+    preprocessingConfig: DEFAULT_PREPROCESSING_CONFIG,
+    labelConfig: { horizonDays: config.horizonDays },
+    runConfig: config,
+    totalDates: report.summary.tradingDays,
+    completedDates: report.summary.tradingDays,
+    artifactUri: report.artifactPath ?? '',
+    errorMessage: null,
+    createdAt: now,
+    startedAt: now,
+    finishedAt: now,
+  });
+  await db.insert(schema.factorReports).values({
+    id: reportId,
+    runId,
+    summaryMetrics: report.summary,
+    reportUri: report.artifactPath ?? '',
+    createdAt: now,
+  });
+  return { runId, reportId };
+}
+
+export async function getFactorRunReport(
+  runId: string,
+  artifactRoot: string,
+): Promise<{
+  run: typeof schema.factorRuns.$inferSelect;
+  reportRecord: typeof schema.factorReports.$inferSelect;
+  report: unknown;
+} | null> {
+  const db = getDb();
+  const [run] = await db.select()
+    .from(schema.factorRuns)
+    .where(eq(schema.factorRuns.id, runId))
+    .limit(1);
+  if (!run) return null;
+  const [reportRecord] = await db.select()
+    .from(schema.factorReports)
+    .where(eq(schema.factorReports.runId, runId))
+    .limit(1);
+  if (!reportRecord?.reportUri) return null;
+  const reportPath = resolve(reportRecord.reportUri);
+  const root = resolve(artifactRoot);
+  const relativePath = relative(root, reportPath);
+  if (relativePath.startsWith('..') || relativePath.includes(':')) {
+    throw new Error('报告产物路径不在因子研究产物目录内');
+  }
+  const report = JSON.parse(await readFile(reportPath, 'utf8')) as unknown;
+  return { run, reportRecord, report };
+}
+
 function checksumFactor(factor: FactorDefinition): string {
   return createHash('sha256').update(JSON.stringify({
     id: factor.id,
@@ -172,7 +246,12 @@ function factorVersionId(factorId: string): string {
   return `${factorId}:v${BUILTIN_VERSION}`;
 }
 
-function universeIdFromConfig(config: FactorRunConfig): string {
+function compositeVersionId(factorIds: string[]): string {
+  const checksum = createHash('sha1').update(factorIds.join('|')).digest('hex').slice(0, 16);
+  return `composite:${checksum}`;
+}
+
+function universeIdFromConfig(config: FactorRunConfig | CompositeFactorRunConfig): string {
   if (config.symbols?.length) return `symbols:${config.symbols.join(',')}`;
   if (config.markets?.length) return `markets:${config.markets.join(',')}`;
   return 'builtin-all-a';

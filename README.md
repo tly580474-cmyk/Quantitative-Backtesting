@@ -201,18 +201,18 @@ PORT=3001
 ```dotenv
 MARKET_DATA_ENABLED=true
 MARKET_DATA_PROVIDER=tencent
-MARKET_DATA_SYNC_TIME=15:10
+MARKET_DATA_SYNC_TIME=20:00
 MARKET_DATA_INTRADAY_INTERVAL_MINUTES=30
 MARKET_INDEX_AUTO_UPDATE_ENABLED=true
-MARKET_CN_INDEX_UPDATE_TIME=15:10
-MARKET_US_INDEX_UPDATE_TIME=15:10
+MARKET_CN_INDEX_UPDATE_TIME=20:00
+MARKET_US_INDEX_UPDATE_TIME=05:00
 ```
 
 服务会在 A 股交易时段批量覆盖当天的临时日线，并在收盘任务中定稿。增量任务只
 处理状态为 `active` 的股票，不请求已退市证券；腾讯批量行情负责当日更新，缺失
 多个交易日时再按证券补拉 K 线。
 
-所有调度时间均按 `Asia/Shanghai` 解释。服务在 15:10 之后启动时会补偿执行当天
+所有调度时间均按 `Asia/Shanghai` 解释。服务在 20:00 之后启动时会补偿执行当天
 尚未完成的任务，成功后当天不重复；失败任务按分钟重试。交易日历缺失时，服务
 会先从腾讯指数日线确认沪、深、北三市是否开市。
 
