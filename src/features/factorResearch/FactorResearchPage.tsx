@@ -31,8 +31,10 @@ import {
   fetchFactorRunReport,
   fetchFactors,
   retryFactorRun,
+  fetchResearchSnapshotFreshness,
   runCompositeFactorResearch,
   runFactorResearch,
+  updateResearchSnapshot,
   type CompositeFactorReport,
   type CompositeFactorRunRequest,
   type CompositeFactorWeight,
@@ -43,6 +45,7 @@ import {
   type FactorRunRequest,
   type FactorRunSummary,
   type LayerMetric,
+  type ResearchSnapshotFreshness,
 } from './api';
 
 const { RangePicker } = DatePicker;
@@ -121,6 +124,9 @@ export default function FactorResearchPage() {
   const [loadingRuns, setLoadingRuns] = useState(false);
   const [running, setRunning] = useState(false);
   const [actionRunId, setActionRunId] = useState<string | null>(null);
+  const [snapshotFreshness, setSnapshotFreshness] = useState<ResearchSnapshotFreshness | null>(null);
+  const [loadingSnapshot, setLoadingSnapshot] = useState(false);
+  const [updatingSnapshot, setUpdatingSnapshot] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const selectedFactor = useMemo(
@@ -159,6 +165,18 @@ export default function FactorResearchPage() {
     }
   };
 
+  const loadSnapshotFreshness = async () => {
+    setLoadingSnapshot(true);
+    try {
+      setSnapshotFreshness(await fetchResearchSnapshotFreshness());
+    } catch (err) {
+      setSnapshotFreshness(null);
+      message.warning(err instanceof Error ? err.message : '研究快照状态暂时不可用');
+    } finally {
+      setLoadingSnapshot(false);
+    }
+  };
+
   useEffect(() => {
     form.setFieldsValue({
       factorId: 'momentum_20',
@@ -178,7 +196,24 @@ export default function FactorResearchPage() {
     });
     void loadFactors();
     void loadRuns();
+    void loadSnapshotFreshness();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleUpdateSnapshot = async () => {
+    setUpdatingSnapshot(true);
+    setError(null);
+    try {
+      const result = await updateResearchSnapshot();
+      setSnapshotFreshness(result.after);
+      message.success(`快照已更新：${result.verification.rowCount.toLocaleString('zh-CN')} 行`);
+      await Promise.all([loadFactors(), loadRuns()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '研究快照更新失败');
+      await loadSnapshotFreshness();
+    } finally {
+      setUpdatingSnapshot(false);
+    }
+  };
 
   const handleRun = async (values: FormValues) => {
     const payload: FactorRunRequest = {
@@ -449,7 +484,7 @@ export default function FactorResearchPage() {
           <Title level={2}>因子研究</Title>
         </div>
         <Space wrap>
-          <Button icon={<ReloadOutlined />} onClick={() => { void loadFactors(); void loadRuns(); }}>
+          <Button icon={<ReloadOutlined />} onClick={() => { void loadFactors(); void loadRuns(); void loadSnapshotFreshness(); }}>
             刷新
           </Button>
           <Button
@@ -471,6 +506,14 @@ export default function FactorResearchPage() {
           message={error}
         />
       )}
+
+      <SnapshotFreshnessBanner
+        freshness={snapshotFreshness}
+        loading={loadingSnapshot}
+        updating={updatingSnapshot}
+        onRefresh={() => { void loadSnapshotFreshness(); }}
+        onUpdate={() => { void handleUpdateSnapshot(); }}
+      />
 
       <div className="factor-workbench">
         <section className="factor-panel factor-library-panel">
@@ -649,6 +692,71 @@ function MarketSelect() {
       ]}
     />
   );
+}
+
+function SnapshotFreshnessBanner({
+  freshness,
+  loading,
+  updating,
+  onRefresh,
+  onUpdate,
+}: {
+  freshness: ResearchSnapshotFreshness | null;
+  loading: boolean;
+  updating: boolean;
+  onRefresh: () => void;
+  onUpdate: () => void;
+}) {
+  if (!freshness && !loading) return null;
+  const status = freshness?.status ?? 'unavailable';
+  const stale = status === 'stale' || status === 'unavailable';
+  const tagColor = status === 'current'
+    ? 'success'
+    : status === 'inconsistent' ? 'error' : 'warning';
+  const missingDates = freshness?.missingDates ?? [];
+  return (
+    <div className="snapshot-freshness-banner">
+      <div>
+        <Space size={8} wrap>
+          <DatabaseOutlined />
+          <Text strong>研究快照</Text>
+          <Tag color={tagColor}>{snapshotStatusText(status)}</Tag>
+          {loading && <Tag>读取中</Tag>}
+        </Space>
+        <div className="snapshot-freshness-meta">
+          <Text type="secondary">
+            快照：{freshness?.snapshot.maxDate ?? 'N/A'} / {freshness?.snapshot.rowCount?.toLocaleString('zh-CN') ?? 'N/A'}
+          </Text>
+          <Text type="secondary">
+            MySQL：{freshness?.mysql.maxDate ?? 'N/A'} / {freshness?.mysql.rowCount.toLocaleString('zh-CN') ?? 'N/A'}
+          </Text>
+          {missingDates.length > 0 && (
+            <Text type="secondary">
+              缺失日期：{missingDates.slice(0, 8).join(', ')}{missingDates.length > 8 ? ` 等 ${missingDates.length} 日` : ''}
+            </Text>
+          )}
+          {freshness?.message && <Text type="secondary">{freshness.message}</Text>}
+        </div>
+      </div>
+      <Space wrap>
+        <Button icon={<ReloadOutlined />} loading={loading} onClick={onRefresh}>
+          刷新状态
+        </Button>
+        {stale && (
+          <Button type="primary" icon={<DatabaseOutlined />} loading={updating} onClick={onUpdate}>
+            更新快照
+          </Button>
+        )}
+      </Space>
+    </div>
+  );
+}
+
+function snapshotStatusText(status: ResearchSnapshotFreshness['status']) {
+  if (status === 'current') return '已追平';
+  if (status === 'stale') return '待更新';
+  if (status === 'inconsistent') return '需复核';
+  return '不可用';
 }
 
 function SharedRunFields() {

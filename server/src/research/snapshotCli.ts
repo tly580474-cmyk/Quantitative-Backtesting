@@ -12,6 +12,7 @@ async function main(): Promise<void> {
       root: args.root ?? config.RESEARCH_SNAPSHOT_ROOT,
       snapshotId: args.snapshotId,
       years: args.years,
+      full: args.full,
       onProgress: (message) => console.log(`[snapshot] ${message}`),
     });
     console.log(JSON.stringify(manifest, null, 2));
@@ -24,6 +25,7 @@ function parseArgs(args: string[]): {
   root?: string;
   snapshotId?: string;
   years?: number[];
+  full?: boolean;
 } {
   const valueAfter = (name: string) => {
     const index = args.indexOf(name);
@@ -33,6 +35,7 @@ function parseArgs(args: string[]): {
   return {
     root: valueAfter('--root'),
     snapshotId: valueAfter('--snapshot-id'),
+    full: args.includes('--full'),
     years: yearsValue
       ? yearsValue.split(',').map(Number).filter((year) => Number.isInteger(year))
       : undefined,

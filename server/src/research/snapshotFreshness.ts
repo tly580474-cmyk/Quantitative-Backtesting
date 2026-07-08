@@ -17,6 +17,7 @@ export interface SnapshotFreshnessReport {
     maxDate: string | null;
   };
   mysql: SnapshotSourceState;
+  missingDates?: string[];
   message: string;
 }
 
@@ -40,7 +41,21 @@ export async function getResearchSnapshotFreshness(
     maxDate: rows[0]?.maxDate ?? null,
   };
   const current = await readCurrentSnapshot(snapshotRoot);
-  return compareSnapshotFreshness(current?.manifest ?? null, source);
+  const report = compareSnapshotFreshness(current?.manifest ?? null, source);
+  if (current?.manifest && report.status === 'stale' && source.maxDate && current.manifest.maxDate < source.maxDate) {
+    const [dateRows] = await pool.query<Array<RowDataPacket & { tradeDate: string }>>(`
+      SELECT DATE_FORMAT(trade_date, '%Y-%m-%d') AS tradeDate
+      FROM daily_bars_v2
+      WHERE trade_date > ?
+      GROUP BY trade_date
+      ORDER BY trade_date
+    `, [current.manifest.maxDate]);
+    report.missingDates = dateRows.map((row) => row.tradeDate);
+    if (report.missingDates.length > 0) {
+      report.message = `研究快照缺少 ${report.missingDates.join(', ')}，请更新快照`;
+    }
+  }
+  return report;
 }
 
 export function compareSnapshotFreshness(

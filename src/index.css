@@ -947,6 +947,26 @@ body {
   margin-bottom: 12px;
 }
 
+.snapshot-freshness-banner {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.snapshot-freshness-meta {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 13px;
+}
+
 .factor-workbench {
   display: grid;
   grid-template-columns: minmax(520px, 1.1fr) minmax(360px, .9fr);

@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
+import type { Pool } from 'mysql2/promise';
 import { z } from 'zod';
+import type { EnvConfig } from '../config.js';
 import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
 import {
   getDailyCandles,
@@ -40,6 +42,9 @@ import {
   getCurrentResearchSnapshot,
   queryResearchSnapshot,
 } from '../research/duckdbResearchService.js';
+import { buildResearchSnapshot } from '../research/snapshotBuilder.js';
+import { getResearchSnapshotFreshness } from '../research/snapshotFreshness.js';
+import { verifyCurrentResearchSnapshot } from '../research/snapshotVerifier.js';
 
 const candlesQuerySchema = z.object({
   startDate: z.string().optional(),
@@ -96,6 +101,8 @@ export function registerMarketDataRoutes(
     historyReadMode: HistoryReadMode;
     snapshotRoot: string;
     researchQueryMaxRows: number;
+    pool?: Pool;
+    config?: EnvConfig;
   } = {
     historyReadMode: 'prefer-v2',
     snapshotRoot: './data/research-snapshots',
@@ -108,6 +115,7 @@ export function registerMarketDataRoutes(
     agentConfig.model,
     agentConfig.timeoutMs,
   );
+  let snapshotUpdateInFlight: Promise<unknown> | null = null;
 
   // These endpoints fetch public market data on demand and intentionally do not depend on MySQL.
   app.get('/api/market-data/stocks/search', async (req, reply) => {
@@ -294,6 +302,37 @@ export function registerMarketDataRoutes(
   app.get('/api/research-snapshots/current', async (_req, reply) => {
     const snapshot = await getCurrentResearchSnapshot(storageConfig.snapshotRoot);
     return reply.send(snapshot ?? { status: 'unavailable' });
+  });
+
+  app.get('/api/research-snapshots/freshness', async (_req, reply) => {
+    if (!dbOnline || !storageConfig.pool || !storageConfig.config) {
+      return reply.status(503).send(dbUnavailable());
+    }
+    return reply.send(await getResearchSnapshotFreshness(storageConfig.pool, storageConfig.snapshotRoot));
+  });
+
+  app.post('/api/research-snapshots/update', async (req, reply) => {
+    if (!dbOnline || !storageConfig.pool) {
+      return reply.status(503).send(dbUnavailable());
+    }
+    if (snapshotUpdateInFlight) {
+      return reply.status(409).send({ message: '研究快照正在更新，请稍后刷新状态' });
+    }
+    snapshotUpdateInFlight = (async () => {
+      const before = await getResearchSnapshotFreshness(storageConfig.pool!, storageConfig.snapshotRoot);
+      const manifest = await buildResearchSnapshot(storageConfig.pool!, storageConfig.config!, {
+        root: storageConfig.snapshotRoot,
+        onProgress: (message) => req.log.info(`[snapshot] ${message}`),
+      });
+      const verification = await verifyCurrentResearchSnapshot(storageConfig.snapshotRoot);
+      const after = await getResearchSnapshotFreshness(storageConfig.pool!, storageConfig.snapshotRoot);
+      return { before, manifest, verification, after };
+    })();
+    try {
+      return reply.send(await snapshotUpdateInFlight);
+    } finally {
+      snapshotUpdateInFlight = null;
+    }
   });
 
   app.get('/api/research-snapshots/scan', async (req, reply) => {

@@ -87,11 +87,30 @@ interface SourceVersionRow extends RowDataPacket {
   sourcePublishedAt: string | null;
 }
 
+interface SourceYearSummary extends RowDataPacket {
+  year: number;
+  rowsCount: number | string;
+  minDate: string;
+  maxDate: string;
+}
+
+interface SourceDateSummary extends RowDataPacket {
+  tradeDate: string;
+  year: number;
+  rowsCount: number | string;
+}
+
 export interface BuildResearchSnapshotOptions {
   root: string;
   years?: number[];
   snapshotId?: string;
+  full?: boolean;
   onProgress?: (message: string) => void;
+}
+
+interface RebuildPlan {
+  rebuildYears: number[];
+  appendDates: SourceDateSummary[];
 }
 
 export async function buildResearchSnapshot(
@@ -127,33 +146,61 @@ export async function buildResearchSnapshot(
     ?? `${sourceVersion}-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`;
   const staging = join(root, `.building-${snapshotId}-${randomUUID().slice(0, 8)}`);
   const allYears = range(summary.minYear, summary.maxYear);
-  const rebuildYears = options.years?.length
-    ? [...new Set(options.years)].sort()
-    : allYears;
-  const current = options.years?.length ? await readCurrentSnapshot(root) : null;
-  if (options.years?.length && !current) {
+  const current = await readCurrentSnapshot(root);
+  if (options.years?.length && !current && !options.full) {
     throw new Error('增量重建需要一个已发布的完整研究快照');
   }
+  const plan = await resolveRebuildPlan(pool, allYears, current?.manifest ?? null, Number(summary.rowsCount), options);
+  const rebuildYears = plan.rebuildYears;
+  if (!options.full && current && rebuildYears.length === 0 && plan.appendDates.length === 0) {
+    onProgress('当前研究快照已与 MySQL 年度摘要一致，无需生成新快照');
+    return current.manifest;
+  }
+  onProgress(
+    rebuildYears.length === allYears.length
+      ? '将重建全部年度分区'
+      : [
+        rebuildYears.length ? `将重建 ${rebuildYears.join(', ')} 年分区` : null,
+        plan.appendDates.length ? `将追加 ${plan.appendDates.map((item) => item.tradeDate).join(', ')} 日级分区` : null,
+        '其余分区使用硬链接复用',
+      ].filter(Boolean).join('，'),
+  );
 
   await mkdir(staging, { recursive: true });
   let readyToPublish = false;
   try {
     const partitions: ResearchSnapshotPartition[] = [];
     for (const year of allYears) {
-      const existingPartition = current?.manifest.partitions.find(
+      const existingPartitions = current?.manifest.partitions.filter(
         (partition) => partition.year === year,
-      );
-      if (!rebuildYears.includes(year) && existingPartition) {
-        const sourcePath = join(
-          root,
-          current!.manifest.snapshotId,
-          existingPartition.relativePath,
-        );
-        const targetPath = join(staging, existingPartition.relativePath);
-        await mkdir(dirname(targetPath), { recursive: true });
-        await copyFile(sourcePath, targetPath);
-        partitions.push(await inspectPartition(targetPath, staging, year));
-        onProgress(`${year} 年复用已校验分区`);
+      ) ?? [];
+      if (!rebuildYears.includes(year) && existingPartitions.length > 0) {
+        for (const existingPartition of existingPartitions) {
+          const sourcePath = join(
+            root,
+            current!.manifest.snapshotId,
+            existingPartition.relativePath,
+          );
+          const targetPath = join(staging, existingPartition.relativePath);
+          await mkdir(dirname(targetPath), { recursive: true });
+          await linkOrCopyFile(sourcePath, targetPath);
+          partitions.push(existingPartition);
+        }
+        onProgress(`${year} 年硬链接复用 ${existingPartitions.length} 个已校验分区`);
+        for (const date of plan.appendDates.filter((item) => item.year === year)) {
+          onProgress(`导出 ${date.tradeDate} MySQL 数据`);
+          const partitionDir = join(staging, 'bars', `year=${year}`);
+          await mkdir(partitionDir, { recursive: true });
+          const tsvPath = join(staging, `date-${date.tradeDate}.tsv`);
+          const parquetPath = join(partitionDir, `date=${date.tradeDate}.parquet`);
+          await streamDateToTsv(config, date.tradeDate, tsvPath);
+          onProgress(`压缩 ${date.tradeDate} Parquet`);
+          await convertTsvToParquet(tsvPath, parquetPath);
+          await rm(tsvPath, { force: true });
+          const partition = await inspectPartition(parquetPath, staging, year);
+          partitions.push(partition);
+          onProgress(`${date.tradeDate} 完成：${partition.rows.toLocaleString()} 行`);
+        }
         continue;
       }
       onProgress(`导出 ${year} 年 MySQL 数据`);
@@ -161,7 +208,7 @@ export async function buildResearchSnapshot(
       await mkdir(partitionDir, { recursive: true });
       const tsvPath = join(staging, `year-${year}.tsv`);
       const parquetPath = join(partitionDir, 'data.parquet');
-      await streamYearToTsv(config, year, tsvPath);
+      await streamRangeToTsv(config, `${year}-01-01`, `${year + 1}-01-01`, tsvPath);
       onProgress(`压缩 ${year} 年 Parquet`);
       await convertTsvToParquet(tsvPath, parquetPath);
       await rm(tsvPath, { force: true });
@@ -202,6 +249,69 @@ export async function buildResearchSnapshot(
   }
 }
 
+async function resolveRebuildPlan(
+  pool: Pool,
+  allYears: number[],
+  current: ResearchSnapshotManifest | null,
+  sourceRowCount: number,
+  options: BuildResearchSnapshotOptions,
+): Promise<RebuildPlan> {
+  if (options.full || !current) return { rebuildYears: allYears, appendDates: [] };
+  if (options.years?.length) {
+    return { rebuildYears: [...new Set(options.years)].sort(), appendDates: [] };
+  }
+
+  if (current.maxDate && sourceRowCount >= current.rowCount) {
+    const appendDates = await readSourceDatesAfter(pool, current.maxDate);
+    const appendedRows = appendDates.reduce((sum, item) => sum + Number(item.rowsCount), 0);
+    if (appendDates.length > 0 && current.rowCount + appendedRows === sourceRowCount) {
+      return { rebuildYears: [], appendDates };
+    }
+  }
+
+  const [sourceRows] = await pool.query<SourceYearSummary[]>(`
+    SELECT YEAR(trade_date) AS year,
+           COUNT(*) AS rowsCount,
+           DATE_FORMAT(MIN(trade_date), '%Y-%m-%d') AS minDate,
+           DATE_FORMAT(MAX(trade_date), '%Y-%m-%d') AS maxDate
+    FROM daily_bars_v2
+    GROUP BY YEAR(trade_date)
+    ORDER BY year
+  `);
+  const sourceByYear = new Map(
+    sourceRows.map((row) => [Number(row.year), {
+      rows: Number(row.rowsCount),
+      minDate: row.minDate,
+      maxDate: row.maxDate,
+    }]),
+  );
+  return {
+    rebuildYears: allYears.filter((year) => {
+      const source = sourceByYear.get(year);
+      const partitions = current.partitions.filter((item) => item.year === year);
+      if (!source || partitions.length === 0) return true;
+      const rows = partitions.reduce((sum, item) => sum + item.rows, 0);
+      const minDate = partitions[0]?.minDate;
+      const maxDate = partitions.at(-1)?.maxDate;
+      return rows !== source.rows || minDate !== source.minDate || maxDate !== source.maxDate;
+    }),
+    appendDates: [],
+  };
+}
+
+async function readSourceDatesAfter(pool: Pool, afterDate: string): Promise<SourceDateSummary[]> {
+  const [rows] = await pool.query<SourceDateSummary[]>(`
+    SELECT DATE_FORMAT(trade_date, '%Y-%m-%d') AS tradeDate,
+           YEAR(trade_date) AS year,
+           COUNT(*) AS rowsCount
+    FROM daily_bars_v2
+    WHERE trade_date > ?
+    GROUP BY trade_date
+    ORDER BY trade_date
+  `, [afterDate]);
+  return rows;
+}
+
 export async function publishStagedResearchSnapshot(
   rootInput: string,
   stagingInput: string,
@@ -236,9 +346,18 @@ export async function publishStagedResearchSnapshot(
   }
 }
 
-async function streamYearToTsv(
+async function streamDateToTsv(
   config: EnvConfig,
-  year: number,
+  tradeDate: string,
+  outputPath: string,
+): Promise<void> {
+  await streamRangeToTsv(config, tradeDate, nextDate(tradeDate), outputPath);
+}
+
+async function streamRangeToTsv(
+  config: EnvConfig,
+  startDate: string,
+  endDateExclusive: string,
   outputPath: string,
 ): Promise<void> {
   const connection = mysql.createConnection({
@@ -279,7 +398,7 @@ async function streamYearToTsv(
     WHERE bar.trade_date >= ?
       AND bar.trade_date < ?
     ORDER BY bar.trade_date, bar.instrument_key
-  `, [`${year}-01-01`, `${year + 1}-01-01`]);
+  `, [startDate, endDateExclusive]);
   let wroteHeader = false;
   const encoder = new Transform({
     writableObjectMode: true,
@@ -302,6 +421,12 @@ async function streamYearToTsv(
   } finally {
     connection.end();
   }
+}
+
+function nextDate(tradeDate: string): string {
+  const date = new Date(`${tradeDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
 }
 
 async function convertTsvToParquet(tsvPath: string, parquetPath: string): Promise<void> {
@@ -396,11 +521,20 @@ async function materializeImmutableDirectory(source: string, target: string): Pr
     }
     if (!entry.isFile()) continue;
     try {
-      await link(sourcePath, targetPath);
+      await linkOrCopyFile(sourcePath, targetPath);
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'EXDEV' && code !== 'EPERM' && code !== 'EACCES') throw error;
-      await copyFile(sourcePath, targetPath);
+      await rm(targetPath, { force: true });
+      throw error;
     }
+  }
+}
+
+async function linkOrCopyFile(sourcePath: string, targetPath: string): Promise<void> {
+  try {
+    await link(sourcePath, targetPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'EXDEV' && code !== 'EPERM' && code !== 'EACCES') throw error;
+    await copyFile(sourcePath, targetPath);
   }
 }

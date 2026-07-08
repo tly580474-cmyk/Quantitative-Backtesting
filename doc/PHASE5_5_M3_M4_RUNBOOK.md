@@ -57,17 +57,27 @@ RESEARCH_QUERY_MAX_ROWS=10000
 
 ```bash
 cd server
+npm run snapshot:build -- --full
+```
+
+日常追平快照：
+
+```bash
 npm run snapshot:build
 ```
 
-只重建受影响年份，并复用当前快照的其他分区：
+默认模式会读取当前已发布快照，并先精确检查 MySQL 是否只新增了快照最大日期之后的交易日。
+若只是新增交易日，生成器只追加这些日期的日级 Parquet 分区；其余历史分区使用硬链接复用，
+避免每天重复写入 2000 年以来的历史文件。若检测到历史日期被修正，才按受影响年份重建。
+
+也可以显式指定受影响年份：
 
 ```bash
 npm run snapshot:build -- --years 2025,2026
 ```
 
-生成器先写入 `.building-*` 暂存目录。全部年度行数与 MySQL 一致后，复制到新的不可变
-版本目录，最后原子替换 `current.json`。发布失败不会切换当前版本。
+生成器先写入 `.building-*` 暂存目录。全部年度行数与 MySQL 一致后，将重建分区与复用分区
+物化到新的不可变版本目录，最后原子替换 `current.json`。发布失败不会切换当前版本。
 
 Windows 上若生成已完成但发布步骤被文件句柄阻断，可在进程退出后恢复发布：
 
@@ -95,15 +105,18 @@ npm run snapshot:verify
 npm run snapshot:benchmark
 ```
 
-当 MySQL 已完成最新交易日增量而研究快照落后时，只重建受影响年份即可追平：
+当 MySQL 已完成最新交易日增量而研究快照落后时，默认构建会优先只追加缺失交易日：
 
 ```bash
 npm run snapshot:freshness
-npm run snapshot:build -- --years 2026
+npm run snapshot:build
 npm run snapshot:verify
 npm run snapshot:freshness
 npm run snapshot:benchmark
 ```
+
+也可以在前端「因子研究」页查看快照状态；当状态为待更新或不可用时，点击「更新快照」会触发
+同一套日级追加优先的构建流程，并在后端完成快照校验后刷新页面状态。
 
 `snapshot:freshness` 会对比 MySQL `daily_bars_v2` 的行数和最大交易日与当前研究快照
 manifest。状态不是 `current` 时，第六阶段研究任务不得启动。

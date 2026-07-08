@@ -176,6 +176,37 @@ export interface FactorRunDailySeries {
   pageSize: number;
 }
 
+export interface ResearchSnapshotFreshness {
+  status: 'current' | 'stale' | 'inconsistent' | 'unavailable';
+  snapshot: {
+    snapshotId: string | null;
+    rowCount: number | null;
+    maxDate: string | null;
+  };
+  mysql: {
+    rowCount: number;
+    maxDate: string | null;
+  };
+  missingDates?: string[];
+  message: string;
+}
+
+export interface ResearchSnapshotUpdateResponse {
+  before: ResearchSnapshotFreshness;
+  manifest: {
+    snapshotId: string;
+    rowCount: number;
+    maxDate: string;
+    partitions: Array<{ relativePath: string; rows: number; minDate: string; maxDate: string }>;
+  };
+  verification: {
+    status: 'validated';
+    snapshotId: string;
+    rowCount: number;
+  };
+  after: ResearchSnapshotFreshness;
+}
+
 export function fetchFactors() {
   return apiFetch<{ items: FactorCatalogItem[] }>('/api/factors', { timeoutMs: 60000 });
 }
@@ -223,4 +254,16 @@ export function fetchFactorRunDailySeries(runId: string, page = 1, pageSize = 10
     `/api/factor-runs/${runId}/report/daily?page=${page}&pageSize=${pageSize}`,
     { timeoutMs: 60000 },
   );
+}
+
+export function fetchResearchSnapshotFreshness() {
+  return apiFetch<ResearchSnapshotFreshness>('/api/research-snapshots/freshness', { timeoutMs: 60000 });
+}
+
+export function updateResearchSnapshot() {
+  return apiFetch<ResearchSnapshotUpdateResponse>('/api/research-snapshots/update', {
+    method: 'POST',
+    body: JSON.stringify({}),
+    timeoutMs: 300000,
+  });
 }

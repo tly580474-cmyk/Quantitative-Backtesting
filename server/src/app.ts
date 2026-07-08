@@ -159,6 +159,8 @@ async function main(): Promise<void> {
       1,
       parseInt(config.RESEARCH_QUERY_MAX_ROWS, 10) || 10000,
     ),
+    pool,
+    config,
   });
   registerSyncJobRoutes(app, dbOnline);
   registerDataQualityRoutes(app, dbOnline);
