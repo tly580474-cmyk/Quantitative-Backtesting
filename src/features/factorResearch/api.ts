@@ -176,6 +176,12 @@ export interface FactorRunDailySeries {
   pageSize: number;
 }
 
+export interface FactorReportInterpretation {
+  model: string;
+  generatedAt: string;
+  interpretation: string;
+}
+
 export interface ResearchSnapshotFreshness {
   status: 'current' | 'stale' | 'inconsistent' | 'unavailable';
   snapshot: {
@@ -254,6 +260,14 @@ export function fetchFactorRunDailySeries(runId: string, page = 1, pageSize = 10
     `/api/factor-runs/${runId}/report/daily?page=${page}&pageSize=${pageSize}`,
     { timeoutMs: 60000 },
   );
+}
+
+export function interpretFactorRunReport(runId: string) {
+  return apiFetch<FactorReportInterpretation>(`/api/factor-runs/${runId}/interpret`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+    timeoutMs: 120000,
+  });
 }
 
 export function fetchResearchSnapshotFreshness() {

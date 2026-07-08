@@ -168,6 +168,14 @@ async function main(): Promise<void> {
     snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
     artifactRoot: config.FACTOR_RESEARCH_ROOT,
     pool,
+    ai: {
+      enabled: aiEnabled,
+      configured: aiConfigured,
+      apiKey: aiConfigured ? config.OPENAI_API_KEY : '',
+      baseURL: config.OPENAI_BASE_URL,
+      model: config.OPENAI_MODEL,
+      timeoutMs: parseInt(config.OPENAI_TIMEOUT_MS, 10),
+    },
   });
 
   // Graceful shutdown

@@ -24,12 +24,15 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   cancelFactorRun,
   fetchFactorRuns,
   fetchFactorRunDailySeries,
   fetchFactorRunReport,
   fetchFactors,
+  interpretFactorRunReport,
   retryFactorRun,
   fetchResearchSnapshotFreshness,
   runCompositeFactorResearch,
@@ -44,6 +47,7 @@ import {
   type FactorReport,
   type FactorRunRequest,
   type FactorRunSummary,
+  type FactorReportInterpretation,
   type LayerMetric,
   type ResearchSnapshotFreshness,
 } from './api';
@@ -127,6 +131,8 @@ export default function FactorResearchPage() {
   const [snapshotFreshness, setSnapshotFreshness] = useState<ResearchSnapshotFreshness | null>(null);
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const [updatingSnapshot, setUpdatingSnapshot] = useState(false);
+  const [interpretation, setInterpretation] = useState<FactorReportInterpretation | null>(null);
+  const [interpreting, setInterpreting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const selectedFactor = useMemo(
@@ -232,6 +238,7 @@ export default function FactorResearchPage() {
       setReport(result.report);
       setCompositeReport(null);
       setReportRunId(result.runId);
+      setInterpretation(null);
       setDailyPage(1);
       setDailyPageSize(10);
       setDailyTotal(result.report.daily.length);
@@ -264,6 +271,7 @@ export default function FactorResearchPage() {
       setCompositeReport(result.report);
       setReport(null);
       setReportRunId(result.runId);
+      setInterpretation(null);
       setDailyPage(1);
       setDailyPageSize(10);
       setDailyTotal(result.report.daily.length);
@@ -296,6 +304,7 @@ export default function FactorResearchPage() {
         setCompositeReport(null);
       }
       setReportRunId(runId);
+      setInterpretation(null);
       setDailyPage(dailySeries.page);
       setDailyPageSize(dailySeries.pageSize);
       setDailyTotal(dailySeries.total);
@@ -351,6 +360,7 @@ export default function FactorResearchPage() {
         setCompositeReport(null);
       }
       setReportRunId(result.runId);
+      setInterpretation(null);
       setDailyPage(1);
       setDailyPageSize(10);
       setDailyTotal(result.report.daily.length);
@@ -361,6 +371,24 @@ export default function FactorResearchPage() {
       await loadRuns();
     } finally {
       setActionRunId(null);
+    }
+  };
+
+  const handleInterpretReport = async () => {
+    if (!reportRunId) {
+      message.warning('请先查看一个已完成报告');
+      return;
+    }
+    setInterpreting(true);
+    setError(null);
+    try {
+      const result = await interpretFactorRunReport(reportRunId);
+      setInterpretation(result);
+      message.success('智能体解读已生成');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '智能体解读失败');
+    } finally {
+      setInterpreting(false);
     }
   };
 
@@ -668,6 +696,13 @@ export default function FactorResearchPage() {
             dataSource={runs}
             pagination={{ pageSize: 6, size: 'small' }}
           />
+          <ReportInterpretationPanel
+            runId={reportRunId}
+            interpretation={interpretation}
+            loading={interpreting}
+            disabled={!reportRunId || (!report && !compositeReport)}
+            onInterpret={() => { void handleInterpretReport(); }}
+          />
         </section>
       </div>
     </div>
@@ -691,6 +726,58 @@ function MarketSelect() {
         { value: 'BJ', label: '北交所' },
       ]}
     />
+  );
+}
+
+function ReportInterpretationPanel({
+  runId,
+  interpretation,
+  loading,
+  disabled,
+  onInterpret,
+}: {
+  runId: string | null;
+  interpretation: FactorReportInterpretation | null;
+  loading: boolean;
+  disabled: boolean;
+  onInterpret: () => void;
+}) {
+  return (
+    <div className="factor-agent-panel">
+      <div className="factor-agent-head">
+        <div>
+          <Text strong>智能体解读报告</Text>
+          <Text type="secondary">
+            {runId ? `当前报告：${runId.slice(0, 8)}` : '先在运行历史中查看一个完成报告'}
+          </Text>
+        </div>
+        <Button
+          type="primary"
+          icon={<LineChartOutlined />}
+          loading={loading}
+          disabled={disabled}
+          onClick={onInterpret}
+        >
+          智能解读报告
+        </Button>
+      </div>
+      {interpretation ? (
+        <div className="factor-agent-result markdown-preview">
+          <div className="factor-agent-meta">
+            <Tag color="blue">{interpretation.model}</Tag>
+            <Text type="secondary">{new Date(interpretation.generatedAt).toLocaleString('zh-CN')}</Text>
+          </div>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {interpretation.interpretation}
+          </ReactMarkdown>
+        </div>
+      ) : (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={disabled ? '打开一个已完成报告后可生成智能解读' : '智能体会总结有效性、稳定性、风险和下一步研究建议'}
+        />
+      )}
+    </div>
   );
 }
 

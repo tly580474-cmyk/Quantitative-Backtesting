@@ -20,11 +20,20 @@ import {
   assertResearchSnapshotFresh,
   getResearchSnapshotFreshness,
 } from '../research/snapshotFreshness.js';
+import { interpretFactorReport } from '../factorResearch/reportInterpreter.js';
 
 interface FactorResearchRouteConfig {
   snapshotRoot: string;
   artifactRoot: string;
   pool: Pool;
+  ai: {
+    enabled: boolean;
+    configured: boolean;
+    apiKey: string;
+    baseURL: string;
+    model: string;
+    timeoutMs: number;
+  };
 }
 
 const factorRunBodySchema = z.object({
@@ -63,6 +72,7 @@ export function registerFactorResearchRoutes(
     app.get('/api/factor-runs', stub);
     app.get('/api/factor-runs/:id/report', stub);
     app.get('/api/factor-runs/:id/report/daily', stub);
+    app.post('/api/factor-runs/:id/interpret', stub);
     app.post('/api/factor-runs/:id/cancel', stub);
     app.post('/api/factor-runs/:id/retry', stub);
     app.post('/api/factor-runs', stub);
@@ -118,6 +128,51 @@ export function registerFactorResearchRoutes(
   app.get('/api/factor-research/snapshot-freshness', async (_req, reply) => (
     reply.send(await getResearchSnapshotFreshness(config.pool, config.snapshotRoot))
   ));
+
+  app.post<{ Params: { id: string } }>('/api/factor-runs/:id/interpret', async (req, reply) => {
+    if (!config.ai.enabled) {
+      return reply.status(503).send({ error: 'AI_NOT_ENABLED', message: 'AI 解读功能未启用' });
+    }
+    if (!config.ai.configured) {
+      return reply.status(503).send({ error: 'AI_NOT_CONFIGURED', message: '请先配置大模型密钥' });
+    }
+    try {
+      const [detail, dailySeries] = await Promise.all([
+        getFactorRunReport(req.params.id, config.artifactRoot),
+        getFactorRunDailySeries(req.params.id, config.artifactRoot, 1, 500),
+      ]);
+      if (!detail) {
+        return reply.status(404).send(apiError(ErrorCodes.RESULT_NOT_FOUND, '因子报告不存在'));
+      }
+      if (detail.run.status !== 'completed') {
+        return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR, '仅支持解读已完成的因子报告'));
+      }
+      const result = await interpretFactorReport({
+        apiKey: config.ai.apiKey,
+        baseURL: config.ai.baseURL,
+        model: config.ai.model,
+        timeoutMs: config.ai.timeoutMs,
+      }, {
+        run: {
+          id: detail.run.id,
+          factorVersionId: detail.run.factorVersionId,
+          snapshotId: detail.run.snapshotId,
+          dateStart: detail.run.dateStart,
+          dateEnd: detail.run.dateEnd,
+          totalDates: detail.run.totalDates,
+          completedDates: detail.run.completedDates,
+        },
+        report: detail.report,
+        daily: dailySeries?.items ?? [],
+      });
+      return reply.send(result);
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({
+        message: error instanceof Error ? error.message : '因子报告智能解读失败',
+      });
+    }
+  });
 
   app.post<{ Params: { id: string } }>('/api/factor-runs/:id/cancel', async (req, reply) => {
     try {
