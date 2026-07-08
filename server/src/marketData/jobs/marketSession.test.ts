@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { getChinaMarketSession, shouldRunIntradaySlot } from './marketSession.js';
+import {
+  assertStockDailyUpdateAfterClose,
+  getChinaMarketSession,
+  shouldRunIntradaySlot,
+} from './marketSession.js';
 
 function utc(value: string): Date {
   return new Date(`${value}Z`);
@@ -20,6 +24,7 @@ describe('China market session', () => {
     const session = getChinaMarketSession(utc('2026-07-06T07:05:00'));
     expect(session.phase).toBe('final');
     expect(session.isDailyBarFinal).toBe(true);
+    expect(() => assertStockDailyUpdateAfterClose(session)).not.toThrow();
   });
 
   it('does not open an intraday slot on weekends', () => {
@@ -41,5 +46,13 @@ describe('China market session', () => {
       getChinaMarketSession(utc('2026-07-06T05:45:00')),
       30,
     )).toBe(false);
+  });
+
+  it('rejects stock daily updates before the post-close final phase', () => {
+    const session = getChinaMarketSession(utc('2026-07-06T06:59:00'));
+    expect(session.phase).toBe('afternoon');
+    expect(() => assertStockDailyUpdateAfterClose(session)).toThrow(
+      '个股行情增量更新仅允许盘后执行',
+    );
   });
 });

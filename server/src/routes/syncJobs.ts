@@ -7,12 +7,16 @@ import {
 import { executeSyncJob, cancelSyncJob } from '../marketData/jobs/syncExecutor.js';
 import { getActiveProvider, getProvider } from '../marketData/providers/providerRegistry.js';
 import type { SyncJob } from '../marketData/types.js';
-import { getChinaMarketSession } from '../marketData/jobs/marketSession.js';
+import {
+  assertStockDailyUpdateAfterClose,
+  getChinaMarketSession,
+} from '../marketData/jobs/marketSession.js';
 
 // ─── Zod Schemas ───────────────────────────────────────────────────────
 
 const listJobsQuerySchema = z.object({
   status: z.string().optional(),
+  jobType: z.enum(['instruments', 'calendar', 'history', 'incremental']).optional(),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(500).default(50),
 });
@@ -240,6 +244,16 @@ export function registerSyncJobRoutes(app: FastifyInstance, dbOnline: boolean): 
 
       const now = new Date().toISOString();
       const session = getChinaMarketSession();
+      try {
+        assertStockDailyUpdateAfterClose(session);
+      } catch (error) {
+        return reply.status(400).send(
+          apiError(
+            ErrorCodes.VALIDATION_ERROR,
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
+      }
       const job = {
         id: crypto.randomUUID(),
         jobType: 'incremental' as const,
@@ -271,9 +285,10 @@ export function registerSyncJobRoutes(app: FastifyInstance, dbOnline: boolean): 
       );
     }
 
-    const { status, offset, limit } = parsed.data;
+    const { status, jobType, offset, limit } = parsed.data;
     const filters: Record<string, string> = {};
     if (status) filters.status = status;
+    if (jobType) filters.jobType = jobType;
 
     const result = await listSyncJobs({ ...filters, offset, limit });
     return reply.send({ items: result.data, total: result.total });

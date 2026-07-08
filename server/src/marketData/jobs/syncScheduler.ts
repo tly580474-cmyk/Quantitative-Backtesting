@@ -19,7 +19,7 @@ import {
   createSyncJob,
   listSyncJobs,
 } from '../repositories/syncJobRepository.js';
-import { getChinaMarketSession, shouldRunIntradaySlot } from './marketSession.js';
+import { getChinaMarketSession } from './marketSession.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -217,19 +217,13 @@ async function schedulerTick(): Promise<void> {
 
   const now = new Date();
   const session = getChinaMarketSession(now);
-  const currentTime = `${String(Math.floor(session.minuteOfDay / 60)).padStart(2, '0')}:${String(session.minuteOfDay % 60).padStart(2, '0')}`;
   const closeSlotKey = `${session.tradeDate}:close`;
   const isCloseRun = state.lastTriggeredSlot !== closeSlotKey
+    && session.isDailyBarFinal
     && isScheduledCloseDue(session.minuteOfDay, config.dailySyncTime);
-  const isIntradayRun = shouldRunIntradaySlot(
-    session,
-    config.intradayIntervalMinutes,
-  );
-  if (!isCloseRun && !isIntradayRun) return;
-  const trigger = isCloseRun ? 'close' : 'intraday';
-  const slotKey = isCloseRun
-    ? closeSlotKey
-    : `${session.tradeDate}:${trigger}:${currentTime}`;
+  if (!isCloseRun) return;
+  const trigger = 'close';
+  const slotKey = closeSlotKey;
   if (state.lastTriggeredSlot === slotKey) return;
 
   // Check if today is a trading day for any of the configured markets
@@ -255,7 +249,7 @@ async function schedulerTick(): Promise<void> {
     const jobId = await runDailyIncrementalSync(config, {
       markets: config.markets,
       trigger,
-      finalizeDailyBar: isCloseRun || session.isDailyBarFinal,
+      finalizeDailyBar: true,
     });
     state.lastTriggeredSlot = slotKey;
     console.log(`[syncScheduler] Started daily incremental sync: ${jobId}`);

@@ -628,6 +628,46 @@ body {
   white-space: nowrap;
 }
 
+.data-library-stock-sync {
+  min-height: 82px;
+  margin-top: 14px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: #f8fafc;
+  border: 1px solid #e5eaf0;
+  border-radius: 8px;
+}
+
+.data-library-stock-sync-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.data-library-stock-sync-head {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.data-library-stock-sync .ant-progress {
+  margin: 6px 0 4px;
+}
+
+.data-library-stock-sync-meta {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
 .data-library-industry-bar {
   min-height: 58px;
   padding: 10px 0;
@@ -726,6 +766,18 @@ body {
     align-items: flex-start;
     flex-direction: column;
     gap: 8px;
+  }
+
+  .data-library-stock-sync,
+  .data-library-stock-sync-head,
+  .data-library-stock-sync-meta {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .data-library-stock-sync .ant-btn {
+    width: 100%;
+    min-height: 44px;
   }
 
   .data-library-industry-bar {

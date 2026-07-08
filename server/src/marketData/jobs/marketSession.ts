@@ -59,3 +59,20 @@ export function shouldRunIntradaySlot(
   const sessionStart = session.phase === 'morning' ? MORNING_OPEN : AFTERNOON_OPEN;
   return (session.minuteOfDay - sessionStart) % interval === 0;
 }
+
+export function assertStockDailyUpdateAfterClose(
+  session = getChinaMarketSession(),
+): void {
+  if (!session.isDailyBarFinal) {
+    throw new Error(
+      `个股行情增量更新仅允许盘后执行，当前 ${session.tradeDate} ` +
+      `${formatMinuteOfDay(session.minuteOfDay)} 仍处于 ${session.phase} 阶段`,
+    );
+  }
+}
+
+function formatMinuteOfDay(minuteOfDay: number): string {
+  return `${String(Math.floor(minuteOfDay / 60)).padStart(2, '0')}:${
+    String(minuteOfDay % 60).padStart(2, '0')
+  }`;
+}

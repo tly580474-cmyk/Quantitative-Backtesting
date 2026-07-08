@@ -32,7 +32,10 @@ import {
   updateSyncJobItemsStatus,
 } from '../repositories/syncJobRepository.js';
 import { createQualityIssue } from '../repositories/dataQualityRepository.js';
-import { getChinaMarketSession } from './marketSession.js';
+import {
+  assertStockDailyUpdateAfterClose,
+  getChinaMarketSession,
+} from './marketSession.js';
 import { hasCorporateActionSignal } from './adjustmentRefresh.js';
 import {
   refreshAdjustmentAfterCorporateAction,
@@ -372,6 +375,7 @@ async function executeIncrementalSync(
   const { market, markets, symbols } = job.requestSnapshot;
   const targets = await resolveIncrementalTargets(market, markets, symbols);
   const session = getChinaMarketSession();
+  assertStockDailyUpdateAfterClose(session);
   const today = session.tradeDate;
   const finalizeDailyBar = job.requestSnapshot.finalizeDailyBar
     ?? session.isDailyBarFinal;
