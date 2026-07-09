@@ -14,6 +14,7 @@ server/data/research-snapshots/
 server/data/backups/
 server/data/factor-research/
 .claude/
+.workbuddy/
 *.tsbuildinfo
 新建 文本文档.txt
 000852perf (1).xlsx

@@ -78,9 +78,14 @@ function localModulePath(relativeUrl: string, fallbackFromServerRoot: string): s
   }
 }
 const CACHE_FILE = localModulePath('../../.cache/hot-sectors.json', '.cache/hot-sectors.json');
+const CONSTITUENT_CACHE_FILE = localModulePath('../../.cache/sector-constituents.json', '.cache/sector-constituents.json');
 const ENDPOINTS = [
   'https://push2.eastmoney.com/api/qt/clist/get',
   'https://82.push2.eastmoney.com/api/qt/clist/get',
+  'https://7.push2.eastmoney.com/api/qt/clist/get',
+  'https://48.push2.eastmoney.com/api/qt/clist/get',
+  'https://push2delay.eastmoney.com/api/qt/clist/get',
+  'https://push2his.eastmoney.com/api/qt/clist/get',
 ];
 
 let memoryCache: { data: HotSectorSnapshot; cachedAt: number } | null = null;
@@ -307,6 +312,14 @@ export async function fetchSectorConstituents(
   const cached = constituentCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < CONSTITUENT_CACHE_MS) return cached.data;
 
+  // 内存未命中时，用磁盘兜底缓存（旧快照）作为降级数据源
+  const disk = await loadConstituentDiskCache();
+  const diskHit = disk.get(cacheKey);
+  if (diskHit && Date.now() - diskHit.cachedAt < CONSTITUENT_CACHE_MS) {
+    constituentCache.set(cacheKey, diskHit);
+    return diskHit.data;
+  }
+
   const params = new URLSearchParams({
     fid: 'f3',
     po: '1',
@@ -342,11 +355,61 @@ export async function fetchSectorConstituents(
         updatedAt: new Date().toISOString(),
         source: '东方财富板块成分股',
       };
-      constituentCache.set(cacheKey, { data, cachedAt: Date.now() });
+      const now = Date.now();
+      constituentCache.set(cacheKey, { data, cachedAt: now });
+      disk.set(cacheKey, { data, cachedAt: now });
+      void persistConstituentDiskCache();
       return data;
     } catch (error) {
       lastError = error;
     }
   }
+
+  // 实时请求全部失败 -> 降级返回磁盘旧数据，避免直接报错
+  if (diskHit?.data) {
+    constituentCache.set(cacheKey, diskHit);
+    return { ...diskHit.data, source: `${diskHit.data.source}（离线缓存）` };
+  }
   throw lastError instanceof Error ? lastError : new Error('板块成分股数据源暂不可用');
+}
+
+type ConstituentDiskEntry = { data: SectorConstituentSnapshot; cachedAt: number };
+
+let constituentDiskCache: Map<string, ConstituentDiskEntry> | null = null;
+let constituentDiskWriteInFlight: Promise<void> | null = null;
+
+async function loadConstituentDiskCache(): Promise<Map<string, ConstituentDiskEntry>> {
+  if (constituentDiskCache) return constituentDiskCache;
+  const map = new Map<string, ConstituentDiskEntry>();
+  try {
+    const parsed = JSON.parse(await readFile(CONSTITUENT_CACHE_FILE, 'utf8')) as Record<string, ConstituentDiskEntry>;
+    for (const [code, entry] of Object.entries(parsed)) {
+      if (entry?.data?.items?.length && Number.isFinite(entry.cachedAt)) {
+        map.set(code.toUpperCase(), { data: entry.data, cachedAt: Number(entry.cachedAt) });
+      }
+    }
+  } catch {
+    // 首次运行或缓存文件损坏时回退到空缓存
+  }
+  constituentDiskCache = map;
+  return map;
+}
+
+async function persistConstituentDiskCache(): Promise<void> {
+  if (constituentDiskWriteInFlight) return;
+  const map = constituentDiskCache;
+  if (!map) return;
+  const snapshot: Record<string, ConstituentDiskEntry> = {};
+  for (const [code, entry] of map) snapshot[code] = entry;
+  constituentDiskWriteInFlight = (async () => {
+    try {
+      await mkdir(resolve(CONSTITUENT_CACHE_FILE, '..'), { recursive: true });
+      await writeFile(CONSTITUENT_CACHE_FILE, JSON.stringify(snapshot), 'utf8');
+    } catch {
+      // 缓存写盘失败不应影响接口返回
+    }
+  })().finally(() => {
+    constituentDiskWriteInFlight = null;
+  });
+  return constituentDiskWriteInFlight;
 }

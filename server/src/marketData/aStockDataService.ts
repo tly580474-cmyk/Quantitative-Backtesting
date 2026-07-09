@@ -170,6 +170,9 @@ function localModulePath(relativeUrl: string, fallbackFromServerRoot: string): s
   }
 }
 const AKSHARE_MARKET_SNAPSHOT_SCRIPT = localModulePath('./akshareMarketSnapshot.py', 'src/marketData/akshareMarketSnapshot.py');
+const AKSHARE_TURNOVER_SCRIPT = localModulePath('./akshareTurnoverRate.py', 'src/marketData/akshareTurnoverRate.py');
+const SINA_TURNOVER_CACHE_FILE = localModulePath('../../.cache/sina-turnover.json', '.cache/sina-turnover.json');
+const SINA_TURNOVER_CACHE_MS = 24 * 60 * 60 * 1000; // 1 天
 const MARKET_SENTIMENT_CACHE_FILE = localModulePath('../../.cache/market-sentiment.json', '.cache/market-sentiment.json');
 const MARKET_SENTIMENT_UNIVERSE_FILE = localModulePath('../../.cache/market-universe.json', '.cache/market-universe.json');
 const MARKET_TECHNICAL_CACHE_FILE = localModulePath('../../.cache/market-technical-rows.json', '.cache/market-technical-rows.json');
@@ -452,6 +455,110 @@ async function fetchAkshareAStockRows(): Promise<Array<Record<string, unknown>>>
       }
     });
   });
+}
+
+interface SinaTurnoverCacheEntry {
+  cachedAt: number;
+  items: Array<{ date: string; turnoverRatePct: number | null }>;
+}
+
+async function loadSinaTurnoverDiskCache(): Promise<Record<string, SinaTurnoverCacheEntry> | null> {
+  try {
+    const text = await readFile(SINA_TURNOVER_CACHE_FILE, 'utf8');
+    return JSON.parse(text) as Record<string, SinaTurnoverCacheEntry>;
+  } catch {
+    return null;
+  }
+}
+
+async function persistSinaTurnoverDiskCache(map: Record<string, SinaTurnoverCacheEntry>): Promise<void> {
+  try {
+    await mkdir(resolve(SINA_TURNOVER_CACHE_FILE, '..'), { recursive: true });
+    await writeFile(SINA_TURNOVER_CACHE_FILE, JSON.stringify(map), 'utf8');
+  } catch {
+    // 写盘失败不影响主流程，下次请求会重新拉取。
+  }
+}
+
+/**
+ * 通过新浪（akshare）历史日频接口补全个股历史每日换手率。
+ * 仅在东财 K 线降级时使用，按代码缓存最近 5 年序列，避免每次悬停都触发 Python 子进程。
+ * 若 akshare 未安装或接口不可用，抛出错误由调用方静默吞掉，退回到腾讯行情快照兜底。
+ */
+async function fetchSinaTurnoverSeries(
+  security: { code: string; market: 'SH' | 'SZ' | 'BJ'; prefixed: string },
+): Promise<Map<string, number>> {
+  const cacheKey = security.code;
+  const now = Date.now();
+
+  // 第一级：磁盘缓存（1 天内直接复用）
+  const disk = await loadSinaTurnoverDiskCache();
+  const cached = disk?.[cacheKey];
+  if (cached && now - cached.cachedAt < SINA_TURNOVER_CACHE_MS) {
+    const map = new Map<string, number>();
+    for (const it of cached.items) if (it.turnoverRatePct != null) map.set(it.date, it.turnoverRatePct);
+    return map;
+  }
+
+  // 近 5 年窗口，覆盖绝大多数 K 线视图；缓存后由调用方按日期切片。
+  const end = new Date();
+  const start = new Date();
+  start.setFullYear(start.getFullYear() - 5);
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+
+  const result = await new Promise<Map<string, number>>((resolve, reject) => {
+    const child = spawn('python', [AKSHARE_TURNOVER_SCRIPT, security.prefixed, fmt(start), fmt(end)], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    let stdout = '';
+    let stderr = '';
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error('Akshare 换手率数据源超时'));
+    }, 120000);
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+    child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+    child.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) {
+        try {
+          const payload = JSON.parse(stderr.trim()) as { error?: string };
+          reject(new Error(payload.error || `Akshare 进程退出：${code}`));
+        } catch {
+          reject(new Error(`Akshare 进程退出：${code}`));
+        }
+        return;
+      }
+      try {
+        const payload = JSON.parse(stdout) as { items?: Array<{ date: string; turnover_rate: number | null }> };
+        const map = new Map<string, number>();
+        for (const it of payload.items ?? []) {
+          if (it.turnover_rate != null && Number.isFinite(it.turnover_rate)) map.set(it.date, it.turnover_rate);
+        }
+        resolve(map);
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error('Akshare 输出解析失败'));
+      }
+    });
+  });
+
+  // 落盘缓存（合并已有条目，避免并发覆盖）
+  const merged = (await loadSinaTurnoverDiskCache()) ?? {};
+  merged[cacheKey] = {
+    cachedAt: now,
+    items: Array.from(result.entries()).map(([date, turnoverRatePct]) => ({ date, turnoverRatePct })),
+  };
+  await persistSinaTurnoverDiskCache(merged);
+
+  return result;
 }
 
 function rowToUniverseItem(row: Record<string, unknown>): MarketUniverseItem | null {
@@ -1168,7 +1275,7 @@ export async function fetchStockKline(input: string, period: 'day' | 'week' | 'y
   const payload = await response.json() as { data?: Record<string, Record<string, unknown[][]>> };
   const node = payload.data?.[prefixed] ?? {};
   const rows = node[`qfq${upstreamPeriod}`] ?? node[upstreamPeriod] ?? [];
-  const points = rows.flatMap((row) => {
+  const points: KlinePoint[] = rows.flatMap((row) => {
     if (row.length < 6) return [];
     const [date, open, close, high, low, volume] = row;
     const values = [open, close, high, low, volume].map(Number);
@@ -1176,6 +1283,40 @@ export async function fetchStockKline(input: string, period: 'day' | 'week' | 'y
       ? [{ date, open: values[0], close: values[1], high: values[2], low: values[3], volume: values[4] }]
       : [];
   });
+
+  // 降级链：东财 K 线（含 f61）→ 新浪（akshare，补全历史每日换手率）→ 腾讯行情快照（仅补最新一天实时值）
+  // 腾讯 K 线本身只返回 OHLCV，无换手率；故在东财降级后优先用新浪补全全部交易日，
+  // 最后才用腾讯行情快照兜底“最新一天”的实时换手率。
+  if (period === 'day' && inferType(security.code, security.market) === 'stock' && points.length > 0) {
+    // 第二级：新浪（akshare）补全历史每日换手率
+    try {
+      const sinaMap = await fetchSinaTurnoverSeries(security);
+      if (sinaMap.size > 0) {
+        for (const point of points) {
+          if (point.turnoverRatePct == null) {
+            const tr = sinaMap.get(point.date);
+            if (tr != null) point.turnoverRatePct = tr;
+          }
+        }
+      }
+    } catch {
+      // 新浪源不可用（如未安装 akshare）时静默跳过，继续走腾讯行情快照兜底。
+    }
+
+    // 第三级：腾讯行情快照仅补最新一天的实时换手率（新浪未覆盖当天时使用）
+    const latest = points[points.length - 1];
+    if (latest.turnoverRatePct == null) {
+      try {
+        const quote = await fetchStockQuote(input, false);
+        if (quote.turnoverPct != null) {
+          points[points.length - 1] = { ...latest, turnoverRatePct: quote.turnoverPct };
+        }
+      } catch {
+        // 行情快照也不可用时保留无换手率的点，不影响价格图表展示。
+      }
+    }
+  }
+
   if (period !== 'year') return points;
 
   const grouped = new Map<string, KlinePoint>();
