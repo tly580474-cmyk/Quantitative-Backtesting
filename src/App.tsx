@@ -1,7 +1,18 @@
-import { useState, useCallback, lazy, Suspense, useMemo } from 'react';
+import { useState, useCallback, lazy, Suspense, useMemo, useEffect } from 'react';
 import { HashRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
-import { ConfigProvider, App as AntApp, Button, Modal, Segmented, Space, Tabs } from 'antd';
-import { BarChartOutlined } from '@ant-design/icons';
+import { ConfigProvider, App as AntApp, Button, Modal, Segmented, Space } from 'antd';
+import type { MenuProps } from 'antd';
+import {
+  AreaChartOutlined,
+  BarChartOutlined,
+  ControlOutlined,
+  DatabaseOutlined,
+  DotChartOutlined,
+  ExperimentOutlined,
+  FundProjectionScreenOutlined,
+  LineChartOutlined,
+  SettingOutlined,
+} from '@ant-design/icons';
 import zhCN from 'antd/locale/zh_CN';
 import AppLayout from './components/AppLayout';
 import FileUploader from './components/FileUploader';
@@ -9,6 +20,7 @@ import StockInfoBar from './components/StockInfoBar';
 import ImportResultPanel from './components/ImportResultPanel';
 import IndicatorPanel from './components/IndicatorPanel';
 import PageSkeleton from './components/PageSkeleton';
+import { WorkbenchDrawer, WorkbenchPanel } from './components/WorkbenchPanel';
 import RangeChangePanel from './features/chart/RangeChangePanel';
 import SaveDatasetModal from './features/dataLibrary/SaveDatasetModal';
 import { useImport } from './features/import/useImport';
@@ -26,73 +38,185 @@ const StrategyStudioPage = lazy(() => import('./features/strategyStudio/Strategy
 const MarketDataPage = lazy(() => import('./features/marketData/MarketDataPage'));
 const FactorResearchPage = lazy(() => import('./features/factorResearch/FactorResearchPage'));
 
-const TAB_ITEMS = [
-  { key: '/market-data', label: '市场数据' },
-  { key: '/analysis', label: '行情分析' },
-  { key: '/data', label: '数据管理' },
-  { key: '/backtest', label: '策略回测' },
-  { key: '/results', label: '回测结果' },
-  { key: '/factors', label: '因子研究' },
-  { key: '/studio', label: '策略工作室' },
+const NAV_ITEMS: MenuProps['items'] = [
+  {
+    type: 'group',
+    label: '数据中心',
+    children: [
+      { key: '/market-data', icon: <DatabaseOutlined />, label: '市场数据' },
+      { key: '/data', icon: <ControlOutlined />, label: '数据管理' },
+    ],
+  },
+  {
+    type: 'group',
+    label: '研究分析',
+    children: [
+      { key: '/analysis', icon: <LineChartOutlined />, label: '行情分析' },
+      { key: '/factors', icon: <DotChartOutlined />, label: '因子研究' },
+    ],
+  },
+  {
+    type: 'group',
+    label: '策略研发',
+    children: [
+      { key: '/studio', icon: <FundProjectionScreenOutlined />, label: '策略工作室' },
+    ],
+  },
+  {
+    type: 'group',
+    label: '回测实验',
+    children: [
+      { key: '/backtest', icon: <ExperimentOutlined />, label: '策略回测' },
+    ],
+  },
+  {
+    type: 'group',
+    label: '结果复盘',
+    children: [
+      { key: '/results', icon: <AreaChartOutlined />, label: '回测结果' },
+    ],
+  },
 ];
+
+const PAGE_LABELS: Record<string, string> = {
+  '/market-data': '市场数据',
+  '/analysis': '行情分析',
+  '/data': '数据管理',
+  '/backtest': '策略回测',
+  '/results': '回测结果',
+  '/factors': '因子研究',
+  '/studio': '策略工作室',
+};
 
 function DataLibraryRoute() {
   const navigate = useNavigate();
   return <DataLibrary onOpen={() => navigate('/analysis')} />;
 }
 
+function useCompactViewport() {
+  const [matches, setMatches] = useState(() => (
+    typeof window !== 'undefined'
+      ? window.matchMedia('(max-width: 991px)').matches
+      : false
+  ));
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 991px)');
+    const handleChange = () => setMatches(media.matches);
+    handleChange();
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, []);
+
+  return matches;
+}
+
 function MarketAnalysisRoute() {
   const [rangeSelectionEnabled, setRangeSelectionEnabled] = useState(false);
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [showChipProfile, setShowChipProfile] = useState(false);
+  const [indicatorInspectorOpen, setIndicatorInspectorOpen] = useState(true);
+  const [indicatorDrawerOpen, setIndicatorDrawerOpen] = useState(false);
+  const isCompactViewport = useCompactViewport();
   const sourceCandles = useCandleStore((state) => state.candles);
   const displayCandles = useMemo(
     () => aggregateCandles(sourceCandles, period),
     [period, sourceCandles],
   );
 
+  const handleIndicatorPanelToggle = useCallback(() => {
+    if (isCompactViewport) {
+      setIndicatorDrawerOpen(true);
+      return;
+    }
+    setIndicatorInspectorOpen((value) => !value);
+  }, [isCompactViewport]);
+
+  const indicatorPanel = (
+    <WorkbenchPanel
+      title="指标配置"
+      subtitle="技术指标与参数"
+      className="market-analysis-inspector-panel"
+      closeLabel="收起指标配置"
+      onClose={!isCompactViewport ? () => setIndicatorInspectorOpen(false) : undefined}
+    >
+      <IndicatorPanel />
+    </WorkbenchPanel>
+  );
+
+  const analysisControls = (
+    <Space className="market-analysis-toolbar-controls" size={8} wrap>
+      <Button
+        type={!isCompactViewport && indicatorInspectorOpen ? 'primary' : 'default'}
+        size="small"
+        icon={<SettingOutlined />}
+        aria-pressed={!isCompactViewport && indicatorInspectorOpen}
+        onClick={handleIndicatorPanelToggle}
+      >
+        指标
+      </Button>
+      <Button
+        className="market-chip-toggle"
+        type={showChipProfile && period === 'day' ? 'primary' : 'default'}
+        size="small"
+        icon={<BarChartOutlined />}
+        aria-pressed={showChipProfile && period === 'day'}
+        disabled={period !== 'day' || sourceCandles.length === 0}
+        title={period === 'day' ? '在主图右侧显示筹码峰' : '筹码峰仅支持日 K'}
+        onClick={() => setShowChipProfile((value) => !value)}
+      >
+        筹码峰
+      </Button>
+      <Segmented<ChartPeriod>
+        aria-label="K线周期"
+        size="small"
+        value={period}
+        options={[
+          { label: '日K', value: 'day' },
+          { label: '周K', value: 'week' },
+          { label: '月K', value: 'month' },
+        ]}
+        onChange={setPeriod}
+      />
+    </Space>
+  );
+
   return (
     <div className="market-analysis-page">
+      {displayCandles.length === 0 && (
+        <div className="market-analysis-toolbar is-empty">
+          <div className="market-analysis-toolbar-extra">{analysisControls}</div>
+        </div>
+      )}
       <RangeChangePanel
         enabled={rangeSelectionEnabled}
         onEnabledChange={setRangeSelectionEnabled}
         candles={displayCandles}
-        extra={(
-          <Space className="market-analysis-toolbar-controls" size={8} wrap>
-            <Button
-              className="market-chip-toggle"
-              type={showChipProfile && period === 'day' ? 'primary' : 'default'}
-              size="small"
-              icon={<BarChartOutlined />}
-              aria-pressed={showChipProfile && period === 'day'}
-              disabled={period !== 'day' || sourceCandles.length === 0}
-              title={period === 'day' ? '在主图右侧显示筹码峰' : '筹码峰仅支持日 K'}
-              onClick={() => setShowChipProfile((value) => !value)}
-            >
-              筹码峰
-            </Button>
-            <Segmented<ChartPeriod>
-              aria-label="K线周期"
-              size="small"
-              value={period}
-              options={[
-                { label: '日K', value: 'day' },
-                { label: '周K', value: 'week' },
-                { label: '月K', value: 'month' },
-              ]}
-              onChange={setPeriod}
-            />
-          </Space>
-        )}
+        extra={analysisControls}
       />
-      <div className="market-analysis-chart">
-        <ChartContainer
-          key={`${rangeSelectionEnabled ? 'range-on' : 'range-off'}-${period}`}
-          showRangeLines={rangeSelectionEnabled}
-          period={period}
-          showChipProfile={showChipProfile && period === 'day'}
-        />
+      <div className={indicatorInspectorOpen ? 'market-analysis-workspace has-inspector' : 'market-analysis-workspace'}>
+        <div className="market-analysis-chart">
+          <ChartContainer
+            key={`${rangeSelectionEnabled ? 'range-on' : 'range-off'}-${period}`}
+            showRangeLines={rangeSelectionEnabled}
+            period={period}
+            showChipProfile={showChipProfile && period === 'day'}
+          />
+        </div>
+        {indicatorInspectorOpen && (
+          <aside className="market-analysis-inspector">
+            {indicatorPanel}
+          </aside>
+        )}
       </div>
+      <WorkbenchDrawer
+        className="market-analysis-indicator-drawer"
+        title="指标配置"
+        open={indicatorDrawerOpen}
+        onClose={() => setIndicatorDrawerOpen(false)}
+      >
+        <IndicatorPanel />
+      </WorkbenchDrawer>
     </div>
   );
 }
@@ -191,16 +315,6 @@ function AppContent() {
     </>
   );
 
-  const tabBar = (
-    <Tabs
-      activeKey={activeKey}
-      onChange={(key) => navigate(key)}
-      items={TAB_ITEMS}
-    />
-  );
-
-  const leftPanel = activeKey === '/analysis' ? <IndicatorPanel /> : undefined;
-
   return (
     <ConfigProvider
       locale={zhCN}
@@ -213,9 +327,11 @@ function AppContent() {
     >
       <AntApp>
         <AppLayout
+          activeKey={activeKey}
+          activeTitle={PAGE_LABELS[activeKey] ?? '市场数据'}
+          navigationItems={NAV_ITEMS}
+          onNavigate={(key) => navigate(key)}
           topBar={topBar}
-          tabBar={tabBar}
-          leftPanel={leftPanel}
           center={
             <Suspense fallback={<PageSkeleton />}>
               <Routes>

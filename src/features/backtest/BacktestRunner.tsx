@@ -6,11 +6,15 @@ import {
   Progress,
   Alert,
   Tag,
-  Drawer,
   Grid,
   App as AntdApp,
 } from 'antd';
-import { PlayCircleOutlined, StopOutlined, SettingOutlined } from '@ant-design/icons';
+import {
+  PlayCircleOutlined,
+  StopOutlined,
+  SettingOutlined,
+} from '@ant-design/icons';
+import { WorkbenchDrawer, WorkbenchPanel } from '@/components/WorkbenchPanel';
 import StrategyConfigPanel from './StrategyConfigPanel';
 import BacktestConfigPanel from './BacktestConfigPanel';
 import ChartContainer from '@/features/chart/ChartContainer';
@@ -39,6 +43,7 @@ export default function BacktestRunner() {
   const [datasets, setDatasets] = useState<MarketDataset[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [loadingDatasets, setLoadingDatasets] = useState(false);
+  const [settingsDockOpen, setSettingsDockOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const screens = Grid.useBreakpoint();
   const useSettingsDrawer = !screens.lg;
@@ -165,6 +170,13 @@ export default function BacktestRunner() {
   const progressPercent = progress
     ? Math.round((progress.current / progress.total) * 100)
     : 0;
+  const handleSettingsToggle = () => {
+    if (useSettingsDrawer) {
+      setSettingsOpen(true);
+      return;
+    }
+    setSettingsDockOpen((value) => !value);
+  };
 
   return (
     <div className="backtest-page">
@@ -192,15 +204,14 @@ export default function BacktestRunner() {
         >
           运行回测
         </Button>
-        {useSettingsDrawer && (
-          <Button
-            icon={<SettingOutlined />}
-            onClick={() => setSettingsOpen(true)}
-            aria-label="打开策略和回测参数"
-          >
-            参数
-          </Button>
-        )}
+        <Button
+          type={!useSettingsDrawer && settingsDockOpen ? 'primary' : 'default'}
+          icon={<SettingOutlined />}
+          onClick={handleSettingsToggle}
+          aria-pressed={!useSettingsDrawer && settingsDockOpen}
+        >
+          参数
+        </Button>
         {isRunning && (
           <Button danger icon={<StopOutlined />} onClick={cancel}>
             取消
@@ -240,10 +251,17 @@ export default function BacktestRunner() {
       )}
 
       {/* Main content */}
-      <div className="backtest-workspace">
-        {!useSettingsDrawer && (
+      <div className={settingsDockOpen ? 'backtest-workspace has-settings' : 'backtest-workspace'}>
+        {!useSettingsDrawer && settingsDockOpen && (
           <aside className="backtest-settings-panel" aria-label="策略和回测参数">
-            <BacktestSettings maximumTradingDays={candles.length} />
+            <WorkbenchPanel
+              title="参数配置"
+              subtitle="策略、资金与交易规则"
+              closeLabel="收起策略和回测参数"
+              onClose={() => setSettingsDockOpen(false)}
+            >
+              <BacktestSettings maximumTradingDays={candles.length} />
+            </WorkbenchPanel>
           </aside>
         )}
 
@@ -262,17 +280,14 @@ export default function BacktestRunner() {
         </main>
       </div>
 
-      <Drawer
+      <WorkbenchDrawer
         title="策略和回测参数"
-        placement="left"
         open={useSettingsDrawer && settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        size="min(88vw, 360px)"
         styles={{ body: { padding: 8 } }}
-        destroyOnHidden
       >
         <BacktestSettings maximumTradingDays={candles.length} />
-      </Drawer>
+      </WorkbenchDrawer>
     </div>
   );
 }

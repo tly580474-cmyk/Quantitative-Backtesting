@@ -25,8 +25,8 @@ export default function IndicatorPanel() {
   });
 
   return (
-    <div>
-      <Title level={5} style={{ marginTop: 0 }}>
+    <div className="indicator-panel">
+      <Title className="indicator-panel-title" level={5}>
         技术指标
       </Title>
 
@@ -66,6 +66,7 @@ export default function IndicatorPanel() {
                 <Space size={4}>
                   {active.definition.params.length > 0 && (
                     <Button
+                      aria-label={`编辑${active.definition.name}参数`}
                       type="text"
                       size="small"
                       icon={<SettingOutlined />}
@@ -73,12 +74,14 @@ export default function IndicatorPanel() {
                     />
                   )}
                   <Button
+                    aria-label={`重置${active.definition.name}参数`}
                     type="text"
                     size="small"
                     icon={<UndoOutlined />}
                     onClick={() => resetParams(active.id)}
                   />
                   <Button
+                    aria-label={`删除${active.definition.name}`}
                     type="text"
                     size="small"
                     danger

@@ -14,7 +14,6 @@ import {
   Select,
   Skeleton,
   Space,
-  Tabs,
   Tag,
   Typography,
 } from 'antd';
@@ -31,6 +30,7 @@ import {
 import { apiFetch } from '@/api/client';
 import { DATA_SOURCE } from '@/api/config';
 import { getRepository } from '@/api/useRepository';
+import { WorkbenchPanel } from '@/components/WorkbenchPanel';
 import { exportDatabaseToExcel } from '@/db/databaseExport';
 import type { MarketDataset } from '@/models';
 import { useCandleStore } from '@/stores/useCandleStore';
@@ -603,29 +603,31 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
             description={search ? '没有匹配的数据集' : `暂无${assetType === 'index' ? '指数' : '个股'}行情数据`}
           />
         ) : (
-          <List
-            className="data-library-list"
-            rowKey="id"
-            dataSource={items}
-            pagination={items.length > 20 ? {
-              pageSize: 20,
-              showSizeChanger: true,
-              pageSizeOptions: [20, 50, 100],
-              showTotal: (total) => `共 ${total} 个数据集`,
-            } : false}
-            renderItem={(dataset) => (
-              <List.Item
-                actions={[
+          <div className="data-library-list" role="list" aria-label={`${assetType === 'index' ? '指数' : '个股'}行情数据集`}>
+            {items.map((dataset) => (
+              <div key={dataset.id} className="data-library-row" role="listitem">
+                <div className="data-library-row-main">
+                  <div className="data-library-row-title">
+                    <Text strong ellipsis>{dataset.name}</Text>
+                    <Tag color={assetType === 'index' ? 'geekblue' : 'cyan'}>{dataset.symbol}</Tag>
+                  </div>
+                  <div className="data-library-row-meta">
+                    <Text type="secondary">{dataset.startTime} ~ {dataset.endTime}</Text>
+                    <Tag>{dataset.count.toLocaleString()} 条</Tag>
+                    {dataset.sourceFileName && (
+                      <Text type="secondary">来源：{dataset.sourceFileName}</Text>
+                    )}
+                  </div>
+                </div>
+                <div className="data-library-row-actions">
                   <Button
-                    key="open"
-                    type="link"
+                    type="text"
                     icon={<FolderOpenOutlined />}
                     onClick={() => handleOpen(dataset)}
                   >
                     打开
-                  </Button>,
+                  </Button>
                   <Popconfirm
-                    key="delete"
                     title="确定删除此数据集？"
                     description="数据集及其全部 K 线将被永久删除。"
                     okText="删除"
@@ -633,28 +635,14 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
                     okButtonProps={{ danger: true }}
                     onConfirm={() => handleDelete(dataset.id)}
                   >
-                    <Button type="link" danger icon={<DeleteOutlined />}>
+                    <Button type="text" danger icon={<DeleteOutlined />}>
                       删除
                     </Button>
-                  </Popconfirm>,
-                ]}
-              >
-                <List.Item.Meta
-                  title={<Text strong>{dataset.name}</Text>}
-                  description={
-                    <Space size={[8, 4]} wrap>
-                      <Tag color={assetType === 'index' ? 'geekblue' : 'cyan'}>{dataset.symbol}</Tag>
-                      <Text type="secondary">{dataset.startTime} ~ {dataset.endTime}</Text>
-                      <Tag>{dataset.count.toLocaleString()} 条</Tag>
-                      {dataset.sourceFileName && (
-                        <Text type="secondary">来源：{dataset.sourceFileName}</Text>
-                      )}
-                    </Space>
-                  }
-                />
-              </List.Item>
-            )}
-          />
+                  </Popconfirm>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </>
     );
@@ -770,57 +758,47 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
         />
       ) : (
         <>
-          <List
-            className="data-library-list data-library-stock-list"
-            rowKey="id"
-            loading={stockLoading}
-            dataSource={stockItems}
-            renderItem={(instrument) => (
-              <List.Item
-                actions={[
+          <div className={stockLoading ? 'data-library-list data-library-stock-list is-loading' : 'data-library-list data-library-stock-list'} role="list" aria-label="个股行情证券列表">
+            {stockItems.map((instrument) => (
+              <div key={instrument.id} className="data-library-row" role="listitem">
+                <div className="data-library-row-main">
+                  <div className="data-library-row-title">
+                    <Text strong ellipsis>{instrument.name}</Text>
+                    <Text code>{instrument.symbol}</Text>
+                    <Tag>{instrument.market}</Tag>
+                    {instrument.status !== 'active' && (
+                      <Tag color={instrument.status === 'delisted' ? 'default' : 'gold'}>
+                        {instrument.status === 'delisted' ? '已退市' : '停牌'}
+                      </Tag>
+                    )}
+                    {instrument.qualityStatus === 'blocked' && <Tag color="red">质量阻断</Tag>}
+                  </div>
+                  <div className="data-library-row-meta">
+                    {instrument.industry && <Tag color="geekblue">{instrument.industry}</Tag>}
+                    {instrument.startDate && instrument.endDate ? (
+                      <Text type="secondary">
+                        {instrument.startDate} ~ {instrument.endDate}
+                      </Text>
+                    ) : (
+                      <Text type="secondary">暂无行情范围</Text>
+                    )}
+                    <Tag>{instrument.recordCount.toLocaleString()} 条</Tag>
+                  </div>
+                </div>
+                <div className="data-library-row-actions">
                   <Button
-                    key="open"
-                    type="link"
+                    type="text"
                     icon={<FolderOpenOutlined />}
                     loading={openingInstrumentId === instrument.id}
                     disabled={instrument.recordCount <= 0 || openingInstrumentId != null}
                     onClick={() => handleOpenInstrument(instrument)}
                   >
                     打开
-                  </Button>,
-                ]}
-              >
-                <List.Item.Meta
-                  title={(
-                    <Space size={8} wrap>
-                      <Text strong>{instrument.name}</Text>
-                      <Text code>{instrument.symbol}</Text>
-                      <Tag>{instrument.market}</Tag>
-                      {instrument.status !== 'active' && (
-                        <Tag color={instrument.status === 'delisted' ? 'default' : 'gold'}>
-                          {instrument.status === 'delisted' ? '已退市' : '停牌'}
-                        </Tag>
-                      )}
-                      {instrument.qualityStatus === 'blocked' && <Tag color="red">质量阻断</Tag>}
-                    </Space>
-                  )}
-                  description={(
-                    <Space size={[10, 4]} wrap>
-                      {instrument.industry && <Tag color="geekblue">{instrument.industry}</Tag>}
-                      {instrument.startDate && instrument.endDate ? (
-                        <Text type="secondary">
-                          {instrument.startDate} ~ {instrument.endDate}
-                        </Text>
-                      ) : (
-                        <Text type="secondary">暂无行情范围</Text>
-                      )}
-                      <Tag>{instrument.recordCount.toLocaleString()} 条</Tag>
-                    </Space>
-                  )}
-                />
-              </List.Item>
-            )}
-          />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
           <Pagination
             className="data-library-stock-pagination"
             current={stockPage}
@@ -861,39 +839,55 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
         </div>
       </header>
 
-      <Tabs
-        className="data-library-tabs"
-        activeKey={activeType}
-        onChange={(key) => setActiveType(key as DatasetAssetType)}
-        items={[
-          {
-            key: 'index',
-            label: (
-              <Space size={6}>
-                <LineChartOutlined />
-                <span>指数行情</span>
-                <Tag variant="filled">{totals.index}</Tag>
-              </Space>
-            ),
-            children: renderDatasetList('index'),
-          },
-          {
-            key: 'stock',
-            label: (
-              <Space size={6}>
-                <StockOutlined />
-                <span>个股行情</span>
-                <Tag variant="filled">
-                  {DATA_SOURCE === 'api' ? stockTotal : totals.stock}
-                </Tag>
-              </Space>
-            ),
-            children: DATA_SOURCE === 'api'
-              ? renderHistoryStockList()
-              : renderDatasetList('stock'),
-          },
-        ]}
-      />
+      <div className="data-library-workbench">
+        <aside className="data-library-sidebar">
+          <WorkbenchPanel title="数据域" subtitle="行情类型与资产规模">
+            <div className="data-library-domain-list" role="tablist" aria-label="行情数据域">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeType === 'index'}
+                className={activeType === 'index' ? 'data-library-domain is-active' : 'data-library-domain'}
+                onClick={() => setActiveType('index')}
+              >
+                <span><LineChartOutlined /> 指数行情</span>
+                <strong>{totals.index.toLocaleString()}</strong>
+                <small>基准、指数策略与市场对比</small>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeType === 'stock'}
+                className={activeType === 'stock' ? 'data-library-domain is-active' : 'data-library-domain'}
+                onClick={() => setActiveType('stock')}
+              >
+                <span><StockOutlined /> 个股行情</span>
+                <strong>{(DATA_SOURCE === 'api' ? stockTotal : totals.stock).toLocaleString()}</strong>
+                <small>个股研究、选股与策略回测</small>
+              </button>
+            </div>
+            <div className="data-library-kpi-grid">
+              <div>
+                <span>本地指数</span>
+                <strong>{totals.index.toLocaleString()}</strong>
+              </div>
+              <div>
+                <span>{DATA_SOURCE === 'api' ? '服务端个股' : '本地个股'}</span>
+                <strong>{(DATA_SOURCE === 'api' ? stockTotal : totals.stock).toLocaleString()}</strong>
+              </div>
+            </div>
+          </WorkbenchPanel>
+        </aside>
+        <main className="data-library-content-panel">
+          <section className="data-library-surface">
+            {activeType === 'index'
+              ? renderDatasetList('index')
+              : DATA_SOURCE === 'api'
+                ? renderHistoryStockList()
+                : renderDatasetList('stock')}
+          </section>
+        </main>
+      </div>
     </div>
   );
 }

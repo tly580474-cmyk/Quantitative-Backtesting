@@ -31,7 +31,7 @@ export default function ResultsOverview({ metrics, name, color }: Props) {
           <Statistic
             title="累计收益率"
             value={pct(metrics.totalReturn)}
-            valueStyle={{ color: metrics.totalReturn >= 0 ? '#3f8600' : '#cf1322' }}
+            styles={{ content: { color: metrics.totalReturn >= 0 ? '#3f8600' : '#cf1322' } }}
           />
         </Col>
         <Col span={8}>
@@ -54,7 +54,7 @@ export default function ResultsOverview({ metrics, name, color }: Props) {
             <Statistic
               title="最大回撤"
               value={pct(metrics.maxDrawdown)}
-              valueStyle={{ color: '#cf1322' }}
+              styles={{ content: { color: '#cf1322' } }}
             />
           </Tooltip>
         </Col>

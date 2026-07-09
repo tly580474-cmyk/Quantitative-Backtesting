@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Card, Button, Space, Input, Select, InputNumber,
   Typography, Divider, Empty, Tag, Tooltip, Popconfirm,
-  message, Drawer, List, Collapse, Badge, Table, Progress, Alert, Dropdown, Modal,
+  message, Drawer, List, Collapse, Badge, Table, Progress, Alert, Dropdown, Modal, Grid,
 } from 'antd';
 import {
   PlusOutlined, SaveOutlined, UndoOutlined, RedoOutlined,
@@ -1071,7 +1071,13 @@ export default function StrategyStudioPage() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [libraryDrawerOpen, setLibraryDrawerOpen] = useState(false);
+  const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const screens = Grid.useBreakpoint();
+  const usePanelDrawer = !screens.lg;
 
   const candles = useCandleStore((s) => s.candles);
   const preview = useStrategyPreview();
@@ -1172,6 +1178,22 @@ export default function StrategyStudioPage() {
     });
   }, [document, selectNode]);
 
+  const handleLibraryToggle = useCallback(() => {
+    if (usePanelDrawer) {
+      setLibraryDrawerOpen(true);
+      return;
+    }
+    setLibraryOpen((value) => !value);
+  }, [usePanelDrawer]);
+
+  const handleInspectorToggle = useCallback(() => {
+    if (usePanelDrawer) {
+      setInspectorDrawerOpen(true);
+      return;
+    }
+    setInspectorOpen((value) => !value);
+  }, [usePanelDrawer]);
+
   if (!document) {
     return (
       <div style={{ padding: 24, textAlign: 'center' }}>
@@ -1191,6 +1213,35 @@ export default function StrategyStudioPage() {
       </div>
     );
   }
+
+  const libraryContent = (
+    <Space direction="vertical" style={{ width: '100%' }} size="small">
+      <IndicatorManager
+        indicators={document.indicators}
+        onChange={(inds) => updateDocument((d) => { d.indicators = inds; })}
+      />
+      <ParameterManager
+        parameters={document.parameters}
+        onChange={(params) => updateDocument((d) => { d.parameters = params; })}
+      />
+      <RiskManager
+        risk={document.risk}
+        onChange={(risk) => updateDocument((d) => { d.risk = risk; })}
+      />
+    </Space>
+  );
+
+  const inspectorContent = (
+    <StrategyInspector
+      document={document}
+      selectedNodeId={selectedNodeId}
+      validationResult={validationResult}
+      previewStatus={preview.status}
+      previewSignals={preview.signals}
+      onConditionChange={handleConditionChange}
+      onSelectError={handleIssueSelect}
+    />
+  );
 
   return (
     <div className="strategy-studio">
@@ -1225,6 +1276,24 @@ export default function StrategyStudioPage() {
         </div>
 
         <div className="strategy-studio-actions">
+          <Space.Compact className="strategy-studio-panel-toggles">
+            <Button
+              type={!usePanelDrawer && libraryOpen ? 'primary' : 'default'}
+              icon={<CopyOutlined />}
+              aria-pressed={!usePanelDrawer && libraryOpen}
+              onClick={handleLibraryToggle}
+            >
+              素材
+            </Button>
+            <Button
+              type={!usePanelDrawer && inspectorOpen ? 'primary' : 'default'}
+              icon={<EditOutlined />}
+              aria-pressed={!usePanelDrawer && inspectorOpen}
+              onClick={handleInspectorToggle}
+            >
+              属性
+            </Button>
+          </Space.Compact>
           <Space.Compact>
             <Tooltip title="撤销">
               <Button
@@ -1299,27 +1368,28 @@ export default function StrategyStudioPage() {
         />
       </header>
 
-      <div className="strategy-studio-workspace">
+      <div className={[
+        'strategy-studio-workspace',
+        !usePanelDrawer && libraryOpen ? 'has-library' : '',
+        !usePanelDrawer && inspectorOpen ? 'has-inspector' : '',
+      ].filter(Boolean).join(' ')}
+      >
+        {!usePanelDrawer && libraryOpen && (
         <aside className="strategy-studio-library" aria-label="策略构建素材">
           <div className="strategy-panel-heading">
             <span>构建素材</span>
             <Text type="secondary">指标、参数与风控</Text>
+            <Button
+              aria-label="收起构建素材"
+              type="text"
+              size="small"
+              icon={<CloseCircleOutlined />}
+              onClick={() => setLibraryOpen(false)}
+            />
           </div>
-          <Space direction="vertical" style={{ width: '100%' }} size="small">
-            <IndicatorManager
-              indicators={document.indicators}
-              onChange={(inds) => updateDocument((d) => { d.indicators = inds; })}
-            />
-            <ParameterManager
-              parameters={document.parameters}
-              onChange={(params) => updateDocument((d) => { d.parameters = params; })}
-            />
-            <RiskManager
-              risk={document.risk}
-              onChange={(risk) => updateDocument((d) => { d.risk = risk; })}
-            />
-          </Space>
+          {libraryContent}
         </aside>
+        )}
 
         <main className="strategy-studio-canvas">
           <div className="strategy-panel-heading">
@@ -1379,25 +1449,50 @@ export default function StrategyStudioPage() {
           />
         </main>
 
+        {!usePanelDrawer && inspectorOpen && (
         <aside className="strategy-studio-inspector" aria-label="属性与校验面板">
           <div className="strategy-panel-heading">
             <span>属性与反馈</span>
             <Text type="secondary">选择规则后编辑</Text>
+            <Button
+              aria-label="收起属性与校验面板"
+              type="text"
+              size="small"
+              icon={<CloseCircleOutlined />}
+              onClick={() => setInspectorOpen(false)}
+            />
           </div>
-          <StrategyInspector
-            document={document}
-            selectedNodeId={selectedNodeId}
-            validationResult={validationResult}
-            previewStatus={preview.status}
-            previewSignals={preview.signals}
-            onConditionChange={handleConditionChange}
-            onSelectError={handleIssueSelect}
-          />
+          {inspectorContent}
         </aside>
+        )}
       </div>
 
       {/* ---- Drawers ---- */}
       <StrategyListDrawer open={listOpen} onClose={() => setListOpen(false)} />
+
+      <Drawer
+        title="构建素材"
+        placement="right"
+        open={usePanelDrawer && libraryDrawerOpen}
+        onClose={() => setLibraryDrawerOpen(false)}
+        size="default"
+        styles={{ body: { padding: 10, background: '#f8fafc' } }}
+        destroyOnHidden
+      >
+        {libraryContent}
+      </Drawer>
+
+      <Drawer
+        title="属性与反馈"
+        placement="right"
+        open={usePanelDrawer && inspectorDrawerOpen}
+        onClose={() => setInspectorDrawerOpen(false)}
+        size="default"
+        styles={{ body: { padding: 10, background: '#f8fafc' } }}
+        destroyOnHidden
+      >
+        {inspectorContent}
+      </Drawer>
 
       <Drawer
         title="策略摘要"
