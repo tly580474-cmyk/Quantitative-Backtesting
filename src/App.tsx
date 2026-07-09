@@ -1,4 +1,4 @@
-import { useState, useCallback, lazy, Suspense, useMemo, useEffect } from 'react';
+import { useState, useCallback, lazy, Suspense, useMemo, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { ConfigProvider, App as AntApp, Button, Modal, Segmented, Space } from 'antd';
 import type { MenuProps } from 'antd';
@@ -112,17 +112,51 @@ function useCompactViewport() {
 }
 
 function MarketAnalysisRoute() {
+  const navigate = useNavigate();
+  const { notification } = AntApp.useApp();
   const [rangeSelectionEnabled, setRangeSelectionEnabled] = useState(false);
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [showChipProfile, setShowChipProfile] = useState(false);
   const [indicatorInspectorOpen, setIndicatorInspectorOpen] = useState(true);
   const [indicatorDrawerOpen, setIndicatorDrawerOpen] = useState(false);
+  const emptyCandlesPromptShownRef = useRef(false);
   const isCompactViewport = useCompactViewport();
   const sourceCandles = useCandleStore((state) => state.candles);
   const displayCandles = useMemo(
     () => aggregateCandles(sourceCandles, period),
     [period, sourceCandles],
   );
+
+  useEffect(() => {
+    if (sourceCandles.length > 0) {
+      emptyCandlesPromptShownRef.current = false;
+      notification.destroy('empty-analysis-candles');
+      return undefined;
+    }
+
+    if (emptyCandlesPromptShownRef.current) return undefined;
+    emptyCandlesPromptShownRef.current = true;
+    notification.info({
+      key: 'empty-analysis-candles',
+      title: '当前没有可展示的 K 线数据',
+      description: '可在数据管理中导入 Excel / CSV，或打开已有数据集后再查看图表。',
+      placement: 'topRight',
+      duration: 8,
+      actions: (
+        <Button
+          type="primary"
+          size="small"
+          onClick={() => {
+            notification.destroy('empty-analysis-candles');
+            navigate('/data');
+          }}
+        >
+          去数据管理
+        </Button>
+      ),
+    });
+    return undefined;
+  }, [navigate, notification, sourceCandles.length]);
 
   const handleIndicatorPanelToggle = useCallback(() => {
     if (isCompactViewport) {
