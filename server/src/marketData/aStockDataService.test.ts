@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchMarketIndexQuotes,
   fetchStockQuote,
+  normalizeSinaTurnoverRatePct,
   parseEastmoneyDailyKlines,
 } from './aStockDataService.js';
 
@@ -115,5 +116,12 @@ describe('A-share stock quote service', () => {
     ]);
 
     expect(points[0].turnoverRatePct).toBeUndefined();
+  });
+
+  it('converts Sina turnover ratios to percentage points', () => {
+    expect(normalizeSinaTurnoverRatePct(0.09)).toBeCloseTo(9, 10);
+    expect(normalizeSinaTurnoverRatePct('0.0041')).toBeCloseTo(0.41, 10);
+    expect(normalizeSinaTurnoverRatePct(null)).toBeNull();
+    expect(normalizeSinaTurnoverRatePct(-0.1)).toBeNull();
   });
 });

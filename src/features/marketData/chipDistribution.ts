@@ -9,9 +9,12 @@ export interface ChipDistribution {
   bins: ChipBin[];
   latestClose: number;
   peakPrice: number;
+  peakWeight: number;
+  secondaryPeaks: ChipBin[];
   averageCost: number;
   profitRatio: number;
   costRange70: [number, number];
+  costRange90: [number, number];
   concentration70: number;
   coverageRatio: number;
 }
@@ -32,7 +35,7 @@ function quantilePrice(bins: ChipBin[], target: number): number {
  */
 export function calculateChipDistribution(
   candles: readonly KlinePoint[],
-  binCount = 120,
+  binCount = 240,
 ): ChipDistribution | null {
   if (candles.length === 0 || binCount < 2) return null;
   const coveredCount = candles.filter((item) =>
@@ -92,14 +95,28 @@ export function calculateChipDistribution(
   const peak = bins.reduce((best, bin) => bin.weight > best.weight ? bin : best, bins[0]);
   const lower70 = quantilePrice(bins, 0.15);
   const upper70 = quantilePrice(bins, 0.85);
+  const lower90 = quantilePrice(bins, 0.05);
+  const upper90 = quantilePrice(bins, 0.95);
+  const secondaryPeaks = bins
+    .filter((bin, index) => {
+      if (bin.weight < peak.weight * 0.38) return false;
+      const prev = bins[index - 1]?.weight ?? -Infinity;
+      const next = bins[index + 1]?.weight ?? -Infinity;
+      return bin.weight >= prev && bin.weight >= next && Math.abs(bin.price - peak.price) > step * 2;
+    })
+    .sort((left, right) => right.weight - left.weight)
+    .slice(0, 3);
 
   return {
     bins,
     latestClose,
     peakPrice: peak.price,
+    peakWeight: peak.weight,
+    secondaryPeaks,
     averageCost: bins.reduce((sum, bin) => sum + bin.price * bin.weight, 0),
     profitRatio: bins.reduce((sum, bin) => bin.price <= latestClose ? sum + bin.weight : sum, 0),
     costRange70: [lower70, upper70],
+    costRange90: [lower90, upper90],
     concentration70: lower70 + upper70 > 0 ? (upper70 - lower70) / (lower70 + upper70) : 0,
     coverageRatio,
   };

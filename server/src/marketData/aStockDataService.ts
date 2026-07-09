@@ -173,6 +173,7 @@ const AKSHARE_MARKET_SNAPSHOT_SCRIPT = localModulePath('./akshareMarketSnapshot.
 const AKSHARE_TURNOVER_SCRIPT = localModulePath('./akshareTurnoverRate.py', 'src/marketData/akshareTurnoverRate.py');
 const SINA_TURNOVER_CACHE_FILE = localModulePath('../../.cache/sina-turnover.json', '.cache/sina-turnover.json');
 const SINA_TURNOVER_CACHE_MS = 24 * 60 * 60 * 1000; // 1 天
+const SINA_TURNOVER_CACHE_VERSION = 2;
 const MARKET_SENTIMENT_CACHE_FILE = localModulePath('../../.cache/market-sentiment.json', '.cache/market-sentiment.json');
 const MARKET_SENTIMENT_UNIVERSE_FILE = localModulePath('../../.cache/market-universe.json', '.cache/market-universe.json');
 const MARKET_TECHNICAL_CACHE_FILE = localModulePath('../../.cache/market-technical-rows.json', '.cache/market-technical-rows.json');
@@ -458,6 +459,7 @@ async function fetchAkshareAStockRows(): Promise<Array<Record<string, unknown>>>
 }
 
 interface SinaTurnoverCacheEntry {
+  version?: number;
   cachedAt: number;
   items: Array<{ date: string; turnoverRatePct: number | null }>;
 }
@@ -480,6 +482,16 @@ async function persistSinaTurnoverDiskCache(map: Record<string, SinaTurnoverCach
   }
 }
 
+export function normalizeSinaTurnoverRatePct(value: unknown): number | null {
+  if (value === '' || value == null) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+
+  // Akshare's Sina daily `turnover` field is a ratio (0.09 means 9%).
+  // The app stores turnoverRatePct in percentage points (9 means 9%).
+  return parsed * 100;
+}
+
 /**
  * 通过新浪（akshare）历史日频接口补全个股历史每日换手率。
  * 仅在东财 K 线降级时使用，按代码缓存最近 5 年序列，避免每次悬停都触发 Python 子进程。
@@ -494,7 +506,7 @@ async function fetchSinaTurnoverSeries(
   // 第一级：磁盘缓存（1 天内直接复用）
   const disk = await loadSinaTurnoverDiskCache();
   const cached = disk?.[cacheKey];
-  if (cached && now - cached.cachedAt < SINA_TURNOVER_CACHE_MS) {
+  if (cached?.version === SINA_TURNOVER_CACHE_VERSION && now - cached.cachedAt < SINA_TURNOVER_CACHE_MS) {
     const map = new Map<string, number>();
     for (const it of cached.items) if (it.turnoverRatePct != null) map.set(it.date, it.turnoverRatePct);
     return map;
@@ -541,7 +553,8 @@ async function fetchSinaTurnoverSeries(
         const payload = JSON.parse(stdout) as { items?: Array<{ date: string; turnover_rate: number | null }> };
         const map = new Map<string, number>();
         for (const it of payload.items ?? []) {
-          if (it.turnover_rate != null && Number.isFinite(it.turnover_rate)) map.set(it.date, it.turnover_rate);
+          const turnoverRatePct = normalizeSinaTurnoverRatePct(it.turnover_rate);
+          if (turnoverRatePct != null) map.set(it.date, turnoverRatePct);
         }
         resolve(map);
       } catch (error) {
@@ -553,6 +566,7 @@ async function fetchSinaTurnoverSeries(
   // 落盘缓存（合并已有条目，避免并发覆盖）
   const merged = (await loadSinaTurnoverDiskCache()) ?? {};
   merged[cacheKey] = {
+    version: SINA_TURNOVER_CACHE_VERSION,
     cachedAt: now,
     items: Array.from(result.entries()).map(([date, turnoverRatePct]) => ({ date, turnoverRatePct })),
   };
