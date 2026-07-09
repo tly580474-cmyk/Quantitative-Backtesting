@@ -5,6 +5,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
 } from '@ant-design/icons';
+import { BrandLogo } from './BrandLogo';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -45,9 +46,7 @@ export default function AppLayout({
         onBreakpoint={setCollapsed}
       >
         <div className="app-brand">
-          <div className="app-brand-mark" aria-hidden="true">
-            Q
-          </div>
+          <BrandLogo className="app-brand-mark" />
           {!collapsed && (
             <div className="app-brand-copy">
               <Text strong>量化回测平台</Text>

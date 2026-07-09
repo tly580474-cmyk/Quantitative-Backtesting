@@ -26,6 +26,7 @@ import {
 import dayjs from 'dayjs';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { WorkbenchPanel } from '@/components/WorkbenchPanel';
 import {
   cancelFactorRun,
   fetchFactorRuns,
@@ -438,7 +439,7 @@ export default function FactorResearchPage() {
     {
       title: '因子',
       dataIndex: ['definition', 'name'],
-      width: 180,
+      width: 174,
       render: (_, row) => (
         <button
           type="button"
@@ -455,24 +456,14 @@ export default function FactorResearchPage() {
     },
     {
       title: '方向',
-      width: 96,
+      width: 92,
       render: (_, row) => directionLabel(row.definition.direction),
     },
     {
       title: '预热',
       dataIndex: ['definition', 'warmupDays'],
-      width: 72,
+      width: 58,
       render: (value: number) => `${value} 日`,
-    },
-    {
-      title: '依赖字段',
-      dataIndex: ['definition', 'dependencies'],
-      responsive: ['md'],
-      render: (items: string[]) => (
-        <Space size={[4, 4]} wrap>
-          {items.map((item) => <Tag key={item}>{item}</Tag>)}
-        </Space>
-      ),
     },
   ];
 
@@ -586,166 +577,170 @@ export default function FactorResearchPage() {
       />
 
       <div className="factor-workbench">
-        <section className="factor-panel factor-library-panel">
-          <div className="factor-panel-head">
-            <span><DatabaseOutlined /> 因子库</span>
-            <Tag>{factors.length} 个</Tag>
-          </div>
-          <Table
-            rowKey={(row) => row.versionId}
-            size="small"
-            loading={loadingFactors}
-            columns={factorColumns}
-            dataSource={factors}
-            pagination={false}
-            scroll={{ y: 360 }}
-          />
-        </section>
+        <aside className="factor-console">
+          <section className="factor-panel factor-library-panel">
+            <WorkbenchPanel title="因子库" subtitle={`${factors.length} 个可用因子`}>
+              <Table
+                className="factor-library-table"
+                rowKey={(row) => row.versionId}
+                size="small"
+                loading={loadingFactors}
+                columns={factorColumns}
+                dataSource={factors}
+                pagination={false}
+                scroll={{ y: 300 }}
+                tableLayout="fixed"
+              />
+            </WorkbenchPanel>
+          </section>
 
-        <section className="factor-panel factor-config-panel">
-          <div className="factor-panel-head">
-            <span><CalculatorOutlined /> 运行配置</span>
-            {selectedFactor && <Tag color="blue">{selectedFactor.versionId}</Tag>}
-          </div>
-          <Tabs
-            size="small"
-            items={[
-              {
-                key: 'single',
-                label: '单因子',
-                children: (
-                  <Form
-                    form={form}
-                    layout="vertical"
-                    onFinish={handleRun}
-                    className="factor-run-form"
-                  >
-                    <Form.Item name="factorId" label="因子" rules={[{ required: true }]}>
-                      <Select
-                        options={factorOptions(factors)}
-                        onChange={setSelectedFactorId}
-                      />
-                    </Form.Item>
-                    <SharedRunFields />
-                  </Form>
-                ),
-              },
-              {
-                key: 'composite',
-                label: '多因子合成',
-                children: (
-                  <Form
-                    form={compositeForm}
-                    layout="vertical"
-                    onFinish={handleCompositeRun}
-                    className="factor-run-form"
-                  >
-                    <Form.Item name="factorIds" label="因子组合" rules={[{ required: true }]}>
-                      <Select mode="multiple" options={factorOptions(factors)} />
-                    </Form.Item>
-                    <Form.Item name="range" label="研究区间" rules={[{ required: true }]}>
-                      <RangePicker allowClear={false} />
-                    </Form.Item>
-                    <Form.Item name="validationStartDate" label="验证区间起点">
-                      <DatePicker />
-                    </Form.Item>
-                    <div className="factor-form-grid">
-                      <Form.Item name="horizonDays" label="持有期" rules={[{ required: true }]}>
-                        <InputNumber min={1} max={60} suffix="日" />
-                      </Form.Item>
-                      <Form.Item name="layers" label="分层数" rules={[{ required: true }]}>
-                        <InputNumber min={2} max={20} />
-                      </Form.Item>
-                    </div>
-                    <Form.Item name="weighting" label="权重方式" rules={[{ required: true }]}>
-                      <Select
-                        options={[
-                          { value: 'equal', label: '等权' },
-                          { value: 'ic', label: 'IC 加权' },
-                          { value: 'rankIc', label: 'RankIC 加权' },
-                          { value: 'manual', label: '手动权重' },
-                        ]}
-                      />
-                    </Form.Item>
-                    <Form.Item shouldUpdate={(prev, current) => prev.weighting !== current.weighting} noStyle>
-                      {({ getFieldValue }) => getFieldValue('weighting') === 'manual' && (
-                        <Form.Item
-                          name="manualWeights"
-                          label="手动权重"
-                          rules={[{ required: true, message: '请输入 factor:weight 列表' }]}
-                        >
-                          <Input placeholder="momentum_20:2,reversal_5:-1" />
+          <section className="factor-panel factor-config-panel">
+            <WorkbenchPanel
+              title="运行配置"
+              subtitle={selectedFactor?.versionId ?? '选择因子后运行研究'}
+            >
+              <Tabs
+                size="small"
+                items={[
+                  {
+                    key: 'single',
+                    label: '单因子',
+                    forceRender: true,
+                    children: (
+                      <Form
+                        form={form}
+                        layout="vertical"
+                        onFinish={handleRun}
+                        className="factor-run-form"
+                      >
+                        <Form.Item name="factorId" label="因子" rules={[{ required: true }]}>
+                          <Select
+                            options={factorOptions(factors)}
+                            onChange={setSelectedFactorId}
+                          />
                         </Form.Item>
-                      )}
-                    </Form.Item>
-                    <Form.Item name="markets" label="市场">
-                      <MarketSelect />
-                    </Form.Item>
-                    <Form.Item name="minDailyAmount" label="成交额下限">
-                      <InputNumber min={0} step={10000000} suffix="元" />
-                    </Form.Item>
-                    <Button type="primary" htmlType="submit" loading={running} icon={<CalculatorOutlined />}>
-                      运行多因子
-                    </Button>
-                  </Form>
-                ),
-              },
-            ]}
-          />
-          {selectedFactor && (
-            <div className="factor-definition-note">
-              <Text strong>{selectedFactor.definition.name}</Text>
-              <Text type="secondary">{selectedFactor.definition.description}</Text>
-            </div>
-          )}
-        </section>
+                        <SharedRunFields />
+                      </Form>
+                    ),
+                  },
+                  {
+                    key: 'composite',
+                    label: '多因子合成',
+                    forceRender: true,
+                    children: (
+                      <Form
+                        form={compositeForm}
+                        layout="vertical"
+                        onFinish={handleCompositeRun}
+                        className="factor-run-form"
+                      >
+                        <Form.Item name="factorIds" label="因子组合" rules={[{ required: true }]}>
+                          <Select mode="multiple" options={factorOptions(factors)} />
+                        </Form.Item>
+                        <Form.Item name="range" label="研究区间" rules={[{ required: true }]}>
+                          <RangePicker allowClear={false} />
+                        </Form.Item>
+                        <Form.Item name="validationStartDate" label="验证区间起点">
+                          <DatePicker />
+                        </Form.Item>
+                        <div className="factor-form-grid">
+                          <Form.Item name="horizonDays" label="持有期" rules={[{ required: true }]}>
+                            <InputNumber min={1} max={60} suffix="日" />
+                          </Form.Item>
+                          <Form.Item name="layers" label="分层数" rules={[{ required: true }]}>
+                            <InputNumber min={2} max={20} />
+                          </Form.Item>
+                        </div>
+                        <Form.Item name="weighting" label="权重方式" rules={[{ required: true }]}>
+                          <Select
+                            options={[
+                              { value: 'equal', label: '等权' },
+                              { value: 'ic', label: 'IC 加权' },
+                              { value: 'rankIc', label: 'RankIC 加权' },
+                              { value: 'manual', label: '手动权重' },
+                            ]}
+                          />
+                        </Form.Item>
+                        <Form.Item shouldUpdate={(prev, current) => prev.weighting !== current.weighting} noStyle>
+                          {({ getFieldValue }) => getFieldValue('weighting') === 'manual' && (
+                            <Form.Item
+                              name="manualWeights"
+                              label="手动权重"
+                              rules={[{ required: true, message: '请输入 factor:weight 列表' }]}
+                            >
+                              <Input placeholder="momentum_20:2,reversal_5:-1" />
+                            </Form.Item>
+                          )}
+                        </Form.Item>
+                        <Form.Item name="markets" label="市场">
+                          <MarketSelect />
+                        </Form.Item>
+                        <Form.Item name="minDailyAmount" label="成交额下限">
+                          <InputNumber min={0} step={10000000} suffix="元" />
+                        </Form.Item>
+                        <Button type="primary" htmlType="submit" loading={running} icon={<CalculatorOutlined />}>
+                          运行多因子
+                        </Button>
+                      </Form>
+                    ),
+                  },
+                ]}
+              />
+              {selectedFactor && (
+                <div className="factor-definition-note">
+                  <Text strong>{selectedFactor.definition.name}</Text>
+                  <Text type="secondary">{selectedFactor.definition.description}</Text>
+                </div>
+              )}
+            </WorkbenchPanel>
+          </section>
+        </aside>
 
-        <section className="factor-panel factor-report-panel">
-          <div className="factor-panel-head">
-            <span><LineChartOutlined /> 最近报告</span>
-            {(report || compositeReport) && (
-              <Tag color="success">{(report ?? compositeReport)?.summary.tradingDays} 日</Tag>
-            )}
-          </div>
-          {compositeReport ? (
-            <CompositeReportView report={compositeReport} />
-          ) : report ? (
-            <FactorReportView
-              report={report}
-              dailyPagination={{
-                current: dailyPage,
-                pageSize: dailyPageSize,
-                total: dailyTotal,
-                loading: dailyLoading,
-                onChange: handleDailyPageChange,
-              }}
-            />
-          ) : (
-            <Empty description="暂无报告" />
-          )}
-        </section>
+        <main className="factor-research-canvas">
+          <section className="factor-panel factor-report-panel">
+            <WorkbenchPanel
+              title="研究报告"
+              subtitle={(report || compositeReport) ? `${(report ?? compositeReport)?.summary.tradingDays} 个交易日` : '运行或打开报告后展示'}
+            >
+              {compositeReport ? (
+                <CompositeReportView report={compositeReport} />
+              ) : report ? (
+                <FactorReportView
+                  report={report}
+                  dailyPagination={{
+                    current: dailyPage,
+                    pageSize: dailyPageSize,
+                    total: dailyTotal,
+                    loading: dailyLoading,
+                    onChange: handleDailyPageChange,
+                  }}
+                />
+              ) : (
+                <Empty description="暂无报告" />
+              )}
+            </WorkbenchPanel>
+          </section>
 
-        <section className="factor-panel factor-history-panel">
-          <div className="factor-panel-head">
-            <span><BarChartOutlined /> 运行历史</span>
-            <Tag>{runs.length} 条</Tag>
-          </div>
-          <Table
-            rowKey="id"
-            size="small"
-            loading={loadingRuns}
-            columns={runColumns}
-            dataSource={runs}
-            pagination={{ pageSize: 6, size: 'small' }}
-          />
-          <ReportInterpretationPanel
-            runId={reportRunId}
-            interpretation={interpretation}
-            loading={interpreting}
-            disabled={!reportRunId || (!report && !compositeReport)}
-            onInterpret={() => { void handleInterpretReport(); }}
-          />
-        </section>
+          <section className="factor-panel factor-history-panel">
+            <WorkbenchPanel title="运行历史" subtitle={`${runs.length} 条任务记录`}>
+              <Table
+                rowKey="id"
+                size="small"
+                loading={loadingRuns}
+                columns={runColumns}
+                dataSource={runs}
+                pagination={{ pageSize: 6, size: 'small' }}
+              />
+              <ReportInterpretationPanel
+                runId={reportRunId}
+                interpretation={interpretation}
+                loading={interpreting}
+                disabled={!reportRunId || (!report && !compositeReport)}
+                onInterpret={() => { void handleInterpretReport(); }}
+              />
+            </WorkbenchPanel>
+          </section>
+        </main>
       </div>
     </div>
   );

@@ -15,7 +15,7 @@ import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
 import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem } from './types';
 import type { ImportResult } from '@/models';
 
-const { Text, Title, Paragraph } = Typography;
+const { Text, Title } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
 const PINNED_WATCHLIST_KEY = 'quant-market-watchlist-pinned-v1';
 const MARKET_SENTIMENT_REFRESH_MS = 5 * 60_000;
@@ -1015,10 +1015,10 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
         </div>
       </div>
     </section>
-    <section className="market-hero">
-      <div><Space><ApiOutlined /><Text type="secondary">A 股全栈数据</Text></Space><Title level={2}>市场数据与个股调研</Title><Paragraph>搜索全市场股票，按需加入自选。行情暂时只支持沪深A股市场，后续计划添加HK和美股市场。</Paragraph></div>
+    <section className="market-command-bar" aria-label="市场数据工具栏">
+      <div className="market-command-copy"><Space size={8}><ApiOutlined /><Text type="secondary">市场数据</Text><Tag color="blue">沪深 A 股</Tag></Space><Title level={3}>行情与调研工作台</Title></div>
       <AutoComplete className="market-search" value={searchText} options={options} onSearch={search} onSelect={(code) => { const item = searchItems.find((x) => x.code === code); if (item) addStock(item); }} notFoundContent={searching ? <Spin size="small" /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入代码、简称或拼音" />}>
-        <Input size="large" prefix={<SearchOutlined />} suffix={<PlusOutlined />} placeholder="搜索 5000+ A 股，如 600519、茅台、mt" aria-label="搜索股票" />
+        <Input size="middle" prefix={<SearchOutlined />} suffix={<PlusOutlined />} placeholder="搜索 5000+ A 股，如 600519、茅台、mt" aria-label="搜索股票" />
       </AutoComplete>
     </section>
     <section className="market-sentiment-section" aria-label="市场情绪与涨跌分布">
