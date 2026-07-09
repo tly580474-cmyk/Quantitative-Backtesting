@@ -16,6 +16,7 @@
     "snapshot:verify": "tsx src/research/verifyCli.ts",
     "snapshot:freshness": "tsx src/research/freshnessCli.ts",
     "snapshot:benchmark": "tsx src/research/benchmarkCli.ts",
+    "duckdb": "tsx src/research/duckdbCli.ts",
     "backup:create": "tsx src/backup/backupCli.ts create",
     "backup:verify": "tsx src/backup/backupCli.ts verify",
     "backup:restore-check": "tsx src/backup/backupCli.ts restore-check",

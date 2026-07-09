@@ -20,6 +20,7 @@ import {
 } from 'antd';
 import {
   DeleteOutlined,
+  DownloadOutlined,
   ExportOutlined,
   FolderOpenOutlined,
   LineChartOutlined,
@@ -517,14 +518,6 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
                 {statusText}
               </Tag>
             </Space>
-            <Button
-              icon={<SyncOutlined spin={running} />}
-              loading={startingStockSync}
-              disabled={running || startingStockSync}
-              onClick={handleStockIncrementalUpdate}
-            >
-              更新个股行情
-            </Button>
           </div>
           <Progress
             percent={percent}
@@ -545,14 +538,24 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
             )}
           </div>
         </div>
-        <Button
-          size="small"
-          icon={<SyncOutlined />}
-          loading={stockSyncLoading}
-          onClick={() => loadLatestStockSyncJob(false)}
-        >
-          刷新进度
-        </Button>
+        <div className="data-library-stock-sync-actions">
+          <Button
+            icon={<DownloadOutlined />}
+            loading={startingStockSync}
+            disabled={running || startingStockSync}
+            onClick={handleStockIncrementalUpdate}
+          >
+            更新个股行情
+          </Button>
+          <Button
+            size="small"
+            icon={<SyncOutlined />}
+            loading={stockSyncLoading}
+            onClick={() => loadLatestStockSyncJob(false)}
+          >
+            刷新进度
+          </Button>
+        </div>
       </div>
     );
   };

@@ -114,8 +114,13 @@ function buildCommonCte(
       FROM source
       WINDOW
         instrument_window AS (PARTITION BY instrumentKey ORDER BY tradeDate),
+        trailing_5 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 4 PRECEDING AND CURRENT ROW),
+        trailing_10 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 9 PRECEDING AND CURRENT ROW),
+        trailing_12 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 11 PRECEDING AND CURRENT ROW),
         trailing_14 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 13 PRECEDING AND CURRENT ROW),
-        trailing_20 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 19 PRECEDING AND CURRENT ROW)
+        trailing_20 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 19 PRECEDING AND CURRENT ROW),
+        trailing_28 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 27 PRECEDING AND CURRENT ROW),
+        trailing_60 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 59 PRECEDING AND CURRENT ROW)
     ),
     analysis_rows AS (
       SELECT tradeDate,

@@ -60,6 +60,14 @@ const DEFAULT_RANGE: [dayjs.Dayjs, dayjs.Dayjs] = [
   dayjs('2026-06-30'),
 ];
 
+const SNAPSHOT_FRESHNESS_CACHE_KEY = 'quant-factor-research-snapshot-freshness-v1';
+
+interface SnapshotFreshnessCache {
+  checkedDate: string;
+  checkedAt: string;
+  freshness: ResearchSnapshotFreshness;
+}
+
 type FormValues = {
   factorId: string;
   range: [dayjs.Dayjs, dayjs.Dayjs];
@@ -108,6 +116,30 @@ function statusText(status: FactorRunSummary['status']) {
   if (status === 'running') return '运行中';
   if (status === 'pending') return '等待中';
   return '已取消';
+}
+
+function readCachedSnapshotFreshness(): ResearchSnapshotFreshness | null {
+  try {
+    const cached = JSON.parse(localStorage.getItem(SNAPSHOT_FRESHNESS_CACHE_KEY) ?? 'null') as SnapshotFreshnessCache | null;
+    if (!cached || cached.checkedDate !== dayjs().format('YYYY-MM-DD')) return null;
+    return cached.freshness;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedSnapshotFreshness(freshness: ResearchSnapshotFreshness): void {
+  try {
+    const now = new Date();
+    const payload: SnapshotFreshnessCache = {
+      checkedDate: dayjs(now).format('YYYY-MM-DD'),
+      checkedAt: now.toISOString(),
+      freshness,
+    };
+    localStorage.setItem(SNAPSHOT_FRESHNESS_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // Ignore storage failures; the live API result is still shown.
+  }
 }
 
 export default function FactorResearchPage() {
@@ -171,10 +203,19 @@ export default function FactorResearchPage() {
     }
   };
 
-  const loadSnapshotFreshness = async () => {
+  const loadSnapshotFreshness = async (force = false) => {
+    if (!force) {
+      const cached = readCachedSnapshotFreshness();
+      if (cached) {
+        setSnapshotFreshness(cached);
+        return;
+      }
+    }
     setLoadingSnapshot(true);
     try {
-      setSnapshotFreshness(await fetchResearchSnapshotFreshness());
+      const freshness = await fetchResearchSnapshotFreshness();
+      setSnapshotFreshness(freshness);
+      writeCachedSnapshotFreshness(freshness);
     } catch (err) {
       setSnapshotFreshness(null);
       message.warning(err instanceof Error ? err.message : '研究快照状态暂时不可用');
@@ -211,11 +252,12 @@ export default function FactorResearchPage() {
     try {
       const result = await updateResearchSnapshot();
       setSnapshotFreshness(result.after);
+      writeCachedSnapshotFreshness(result.after);
       message.success(`快照已更新：${result.verification.rowCount.toLocaleString('zh-CN')} 行`);
       await Promise.all([loadFactors(), loadRuns()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : '研究快照更新失败');
-      await loadSnapshotFreshness();
+      await loadSnapshotFreshness(true);
     } finally {
       setUpdatingSnapshot(false);
     }
@@ -512,7 +554,7 @@ export default function FactorResearchPage() {
           <Title level={2}>因子研究</Title>
         </div>
         <Space wrap>
-          <Button icon={<ReloadOutlined />} onClick={() => { void loadFactors(); void loadRuns(); void loadSnapshotFreshness(); }}>
+          <Button icon={<ReloadOutlined />} onClick={() => { void loadFactors(); void loadRuns(); void loadSnapshotFreshness(true); }}>
             刷新
           </Button>
           <Button
@@ -539,7 +581,7 @@ export default function FactorResearchPage() {
         freshness={snapshotFreshness}
         loading={loadingSnapshot}
         updating={updatingSnapshot}
-        onRefresh={() => { void loadSnapshotFreshness(); }}
+        onRefresh={() => { void loadSnapshotFreshness(true); }}
         onUpdate={() => { void handleUpdateSnapshot(); }}
       />
 

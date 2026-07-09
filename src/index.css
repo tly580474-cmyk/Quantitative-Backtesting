@@ -650,8 +650,19 @@ body {
   min-height: 32px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
+}
+
+.data-library-stock-sync-actions {
+  flex: 0 0 154px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.data-library-stock-sync-actions .ant-btn {
+  width: 100%;
 }
 
 .data-library-stock-sync .ant-progress {
@@ -775,7 +786,12 @@ body {
     flex-direction: column;
   }
 
-  .data-library-stock-sync .ant-btn {
+  .data-library-stock-sync-actions {
+    flex-basis: auto;
+    width: 100%;
+  }
+
+  .data-library-stock-sync-actions .ant-btn {
     width: 100%;
     min-height: 44px;
   }
