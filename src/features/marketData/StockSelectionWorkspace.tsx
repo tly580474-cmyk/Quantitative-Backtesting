@@ -75,6 +75,7 @@ function crossTag(value: 'golden' | 'death' | 'none' | undefined) {
 }
 
 interface StockSelectionWorkspaceProps {
+  mode?: 'all' | 'ranking' | 'screen';
   watchlist: StockSearchItem[];
   selectedCode: string;
   pinnedCodes: string[];
@@ -86,6 +87,7 @@ interface StockSelectionWorkspaceProps {
 }
 
 export default function StockSelectionWorkspace({
+  mode = 'all',
   watchlist,
   selectedCode,
   pinnedCodes,
@@ -113,7 +115,7 @@ export default function StockSelectionWorkspace({
   });
   const [screenSnapshot, setScreenSnapshot] = useState<MarketScreenerSnapshot | null>(storedScreener.snapshot);
   const [screenLoading, setScreenLoading] = useState(false);
-  const [activeSections, setActiveSections] = useState<string[]>([]);
+  const [activeSections, setActiveSections] = useState<string[]>(mode === 'ranking' ? ['ranking'] : []);
 
   useEffect(() => {
     localStorage.setItem(SCORE_STORAGE_KEY, JSON.stringify(scores));
@@ -340,6 +342,6 @@ export default function StockSelectionWorkspace({
         label: <Space><FilterOutlined />市场技术筛选{screenSnapshot && <Tag color="blue">{screenSnapshot.items.length}</Tag>}</Space>,
         children: screenerTab,
       },
-    ]}
+    ].filter((item) => mode === 'all' || item.key === mode)}
   />;
 }

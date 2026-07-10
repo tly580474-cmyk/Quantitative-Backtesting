@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { App, Button, Collapse, Drawer, Empty, Input, Progress, Segmented, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { App, Button, Drawer, Empty, Input, Progress, Segmented, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { FireOutlined, ReloadOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons';
 import { apiFetch } from '../../api/client';
 import type { HotSectorItem, HotSectorSnapshot, SectorConstituent, SectorConstituentSnapshot, StockSearchItem } from './types';
@@ -42,8 +42,7 @@ interface HotSectorPanelProps {
 
 export default function HotSectorPanel({ onSelectStock }: HotSectorPanelProps) {
   const { message } = App.useApp();
-  const [open, setOpen] = useState(false);
-  const [loadedOnce, setLoadedOnce] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [scope, setScope] = useState<'all' | 'industry' | 'concept'>('all');
   const [snapshot, setSnapshot] = useState<HotSectorSnapshot | null>(readSnapshot);
@@ -64,22 +63,22 @@ export default function HotSectorPanel({ onSelectStock }: HotSectorPanelProps) {
       message.warning(error instanceof Error ? error.message : '热门板块刷新失败，继续展示上次结果');
     } finally {
       setLoading(false);
-      setLoadedOnce(true);
     }
   };
 
-  const handleChange = (keys: string | string[]) => {
-    const activeKeys = Array.isArray(keys) ? keys : [keys];
-    const nextOpen = activeKeys.includes('hot-sectors');
-    setOpen(nextOpen);
-    if (nextOpen && !loadedOnce) void load(false);
-  };
+  useEffect(() => {
+    if (!snapshot) void load(false);
+    // The initial snapshot request is intentionally mount-only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const items = useMemo(() => {
     const source = snapshot?.items ?? [];
     return (scope === 'all' ? source : source.filter((item) => item.type === scope)).slice(0, 50);
   }, [scope, snapshot]);
   const leaders = items.slice(0, 3);
+  const industryLeaders = useMemo(() => (snapshot?.items ?? []).filter((item) => item.type === 'industry').slice(0, 5), [snapshot]);
+  const conceptLeaders = useMemo(() => (snapshot?.items ?? []).filter((item) => item.type === 'concept').slice(0, 5), [snapshot]);
   const filteredConstituents = useMemo(() => {
     const query = constituentQuery.trim().toLowerCase();
     const source = constituents?.items ?? [];
@@ -115,6 +114,19 @@ export default function HotSectorPanel({ onSelectStock }: HotSectorPanelProps) {
     });
     setSelectedSector(null);
   };
+
+  const compactRanking = (title: string, rows: HotSectorItem[]) => <div className="hot-sector-ranking">
+    <div className="hot-sector-ranking-head"><strong>{title}</strong><span>涨跌幅</span><span>主力净流入</span></div>
+    <div className="hot-sector-ranking-body">
+      {rows.map((item, index) => <button type="button" key={`${item.type}-${item.code}`} onClick={() => void showConstituents(item)} aria-label={`查看${item.name}板块成分股`}>
+        <b className={index < 3 ? 'is-leading' : ''}>{index + 1}</b>
+        <span><strong>{item.name}</strong><small>{item.leadingStock ? `领涨 ${item.leadingStock}` : item.code}</small></span>
+        <em className={(item.changePct ?? 0) >= 0 ? 'market-up' : 'market-down'}>{signed(item.changePct, '%')}</em>
+        <em className={(item.mainNetInYi ?? 0) >= 0 ? 'market-up' : 'market-down'}>{signed(item.mainNetInYi, ' 亿')}</em>
+      </button>)}
+      {!rows.length && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={loading ? '正在加载板块榜单' : '暂无板块数据'} />}
+    </div>
+  </div>;
 
   const content = <div className="hot-sector-panel">
     <div className="hot-sector-toolbar">
@@ -190,19 +202,17 @@ export default function HotSectorPanel({ onSelectStock }: HotSectorPanelProps) {
   </div>;
 
   return <section className="hot-sector-section" aria-label="当日热门板块">
-    <Collapse
-      className="hot-sector-collapse"
-      activeKey={open ? ['hot-sectors'] : []}
-      onChange={handleChange}
-      items={[{
-        key: 'hot-sectors',
-        label: <Space><FireOutlined />当日热门板块</Space>,
-        extra: open
-          ? <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={(event) => { event.stopPropagation(); void load(true); }}>刷新</Button>
-          : snapshot ? <Tag color="red">TOP {snapshot.items[0]?.name ?? '已有快照'}</Tag> : <Tag>展开后加载</Tag>,
-        children: content,
-      }]}
-    />
+    <div className="hot-sector-dashboard">
+      <div className="hot-sector-dashboard-head">
+        <div><strong><FireOutlined />热门板块 Top10</strong>{snapshot && <Text type="secondary">{new Date(snapshot.updatedAt).toLocaleString('zh-CN')} · {snapshot.source}</Text>}</div>
+        <Space><Button size="small" type="text" icon={<ReloadOutlined />} loading={loading} aria-label="刷新热门板块" onClick={() => void load(true)} /><Button size="small" onClick={() => setExpanded((value) => !value)}>{expanded ? '收起完整榜单' : '查看完整榜单'}</Button></Space>
+      </div>
+      <div className="hot-sector-ranking-grid">
+        {compactRanking('行业涨跌幅 Top5', industryLeaders)}
+        {compactRanking('概念板块 Top5', conceptLeaders)}
+      </div>
+      {expanded && <div className="hot-sector-expanded">{content}</div>}
+    </div>
     <Drawer
       className="sector-constituent-drawer"
       title={<div className="sector-constituent-title"><span>{selectedSector?.name ?? '板块'}成分股</span>{selectedSector && <Tag color={selectedSector.type === 'industry' ? 'blue' : 'purple'}>{selectedSector.type === 'industry' ? '行业' : '概念'}</Tag>}</div>}
@@ -214,7 +224,7 @@ export default function HotSectorPanel({ onSelectStock }: HotSectorPanelProps) {
       <div className="sector-constituent-toolbar">
         <div>
           <Text strong>{selectedSector?.code}</Text>
-          <Text type="secondary">{constituents ? `${constituents.total} 只成分股 · ${new Date(constituents.updatedAt).toLocaleString('zh-CN')} · 点击股票加入自选并查看行情` : '按当日涨跌幅排序'}</Text>
+          <Text type="secondary">{constituents ? `${constituents.total} 只成分股 · ${new Date(constituents.updatedAt).toLocaleString('zh-CN')} · 点击股票查看行情详情` : '按当日涨跌幅排序'}</Text>
         </div>
         <Input
           allowClear
@@ -236,7 +246,7 @@ export default function HotSectorPanel({ onSelectStock }: HotSectorPanelProps) {
         onRow={(row) => ({
           className: 'sector-constituent-row',
           tabIndex: 0,
-          'aria-label': `将${row.name}加入自选并查看实时行情`,
+          'aria-label': `查看${row.name}行情详情`,
           onClick: () => selectConstituent(row),
           onKeyDown: (event) => {
             if (event.key === 'Enter' || event.key === ' ') {

@@ -1,5 +1,5 @@
 import { useState, useCallback, lazy, Suspense, useMemo, useEffect, useRef } from 'react';
-import { HashRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ConfigProvider, App as AntApp, Button, Modal, Segmented, Space } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -12,6 +12,7 @@ import {
   FundProjectionScreenOutlined,
   LineChartOutlined,
   SettingOutlined,
+  StarOutlined,
 } from '@ant-design/icons';
 import zhCN from 'antd/locale/zh_CN';
 import AppLayout from './components/AppLayout';
@@ -44,6 +45,7 @@ const NAV_ITEMS: MenuProps['items'] = [
     label: '数据中心',
     children: [
       { key: '/market-data', icon: <DatabaseOutlined />, label: '市场数据' },
+      { key: '/watchlist', icon: <StarOutlined />, label: '我的自选' },
       { key: '/data', icon: <ControlOutlined />, label: '数据管理' },
     ],
   },
@@ -80,6 +82,7 @@ const NAV_ITEMS: MenuProps['items'] = [
 
 const PAGE_LABELS: Record<string, string> = {
   '/market-data': '市场数据',
+  '/watchlist': '我的自选',
   '/analysis': '行情分析',
   '/data': '数据管理',
   '/backtest': '策略回测',
@@ -263,7 +266,30 @@ function MarketDataRoute() {
     navigate('/analysis');
   }, [navigate]);
 
-  return <MarketDataPage onOpenInAnalysis={handleOpenInAnalysis} />;
+  return <MarketDataPage view="overview" onOpenInAnalysis={handleOpenInAnalysis} onOpenDetail={(stock) => navigate(`/market-detail/${stock.code}`)} />;
+}
+
+function WatchlistRoute() {
+  const navigate = useNavigate();
+  const handleOpenInAnalysis = useCallback((result: ImportResult) => {
+    useCandleStore.getState().setCandles(result.candles);
+    useCandleStore.getState().setImportResult(result);
+    navigate('/analysis');
+  }, [navigate]);
+
+  return <MarketDataPage view="watchlist" onOpenInAnalysis={handleOpenInAnalysis} />;
+}
+
+function MarketDetailRoute() {
+  const navigate = useNavigate();
+  const { code = '' } = useParams();
+  const handleOpenInAnalysis = useCallback((result: ImportResult) => {
+    useCandleStore.getState().setCandles(result.candles);
+    useCandleStore.getState().setImportResult(result);
+    navigate('/analysis');
+  }, [navigate]);
+
+  return <MarketDataPage view="detail" instrumentCode={code} onOpenInAnalysis={handleOpenInAnalysis} />;
 }
 
 function AppContent() {
@@ -362,7 +388,7 @@ function AppContent() {
       <AntApp>
         <AppLayout
           activeKey={activeKey}
-          activeTitle={PAGE_LABELS[activeKey] ?? '市场数据'}
+          activeTitle={location.pathname.startsWith('/market-detail/') ? '行情详情' : PAGE_LABELS[activeKey] ?? '市场数据'}
           navigationItems={NAV_ITEMS}
           onNavigate={(key) => navigate(key)}
           topBar={topBar}
@@ -373,6 +399,8 @@ function AppContent() {
                 <Route path="/analysis" element={<MarketAnalysisRoute />} />
                 <Route path="/data" element={<DataLibraryRoute />} />
                 <Route path="/market-data" element={<MarketDataRoute />} />
+                <Route path="/market-detail/:code" element={<MarketDetailRoute />} />
+                <Route path="/watchlist" element={<WatchlistRoute />} />
                 <Route path="/backtest" element={<BacktestRunner />} />
                 <Route path="/results" element={<BacktestResultsPage />} />
                 <Route path="/factors" element={<FactorResearchPage />} />

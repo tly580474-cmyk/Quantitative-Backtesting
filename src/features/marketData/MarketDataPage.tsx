@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { App, AutoComplete, Button, Card, Collapse, Drawer, Empty, Input, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
-import { ApiOutlined, ArrowDownOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, LineChartOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, StarFilled, ThunderboltOutlined } from '@ant-design/icons';
+import { App, AutoComplete, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, Modal, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
+import { ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CheckOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, LineChartOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, SettingOutlined, StarFilled, StarOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -18,7 +18,18 @@ import type { ImportResult } from '@/models';
 const { Text, Title } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
 const PINNED_WATCHLIST_KEY = 'quant-market-watchlist-pinned-v1';
+const MARKET_INDEX_SELECTION_KEY = 'quant-market-index-selection-v1';
 const MARKET_SENTIMENT_REFRESH_MS = 5 * 60_000;
+const MARKET_INDEX_OPTIONS: Array<{ key: string; code: string; name: string; market: StockSearchItem['market'] }> = [
+  { key: 'SH:000001', code: '000001', name: '上证指数', market: 'SH' },
+  { key: 'SZ:399001', code: '399001', name: '深证成指', market: 'SZ' },
+  { key: 'SZ:399006', code: '399006', name: '创业板指', market: 'SZ' },
+  { key: 'SH:000688', code: '000688', name: '科创50', market: 'SH' },
+  { key: 'SH:000300', code: '000300', name: '沪深300', market: 'SH' },
+  { key: 'SH:000905', code: '000905', name: '中证500', market: 'SH' },
+  { key: 'SH:000852', code: '000852', name: '中证1000', market: 'SH' },
+];
+const DEFAULT_MARKET_INDEX_KEYS = MARKET_INDEX_OPTIONS.slice(0, 5).map((item) => item.key);
 const DEFAULT_WATCHLIST: StockSearchItem[] = [
   { code: '600519', name: '贵州茅台', market: 'SH', type: 'stock' },
   { code: '000001', name: '平安银行', market: 'SZ', type: 'stock' },
@@ -118,6 +129,20 @@ function readPinnedCodes(): string[] {
     return Array.isArray(stored) ? stored.filter((item) => typeof item === 'string') : [];
   } catch { return []; }
 }
+function readMarketIndexSelection(): string[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(MARKET_INDEX_SELECTION_KEY) ?? '[]') as string[];
+    const valid = MARKET_INDEX_OPTIONS.map((item) => item.key);
+    const selected = Array.isArray(stored) ? stored.filter((key) => valid.includes(key)).slice(0, 5) : [];
+    return selected.length ? selected : DEFAULT_MARKET_INDEX_KEYS;
+  } catch { return DEFAULT_MARKET_INDEX_KEYS; }
+}
+function marketIndexKey(item: Pick<StockQuote, 'market' | 'code'>) {
+  return `${item.market}:${item.code}`;
+}
+function marketIndexInstrumentCode(item: Pick<StockSearchItem, 'market' | 'code'>) {
+  return `${item.market.toLowerCase()}${item.code}`;
+}
 function fmt(value: number | null | undefined, digits = 2) {
   return value == null ? '—' : value.toLocaleString('zh-CN', { maximumFractionDigits: digits });
 }
@@ -139,6 +164,30 @@ function formatMetricValue(key: string, value: unknown) {
 }
 function Metric({ label, value }: { label: string; value: string }) {
   return <div className="market-metric"><Text type="secondary">{label}</Text><Text strong>{value}</Text></div>;
+}
+
+function IndexSparkline({ points, label, tone }: { points: KlinePoint[] | undefined; label: string; tone: 'up' | 'down' | 'flat' }) {
+  if (points === undefined) return <div className="market-index-preview is-loading" aria-label={`${label}走势预览加载中`}><span /></div>;
+  const values = points.slice(-30).map((point) => point.close).filter(Number.isFinite);
+  if (values.length < 2) return <div className="market-index-preview is-empty" aria-label={`${label}暂无走势数据`}><span>暂无走势</span></div>;
+  const width = 240;
+  const height = 46;
+  const padding = 3;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = Math.max(max - min, Math.abs(max) * 0.001, 1);
+  const coordinates = values.map((value, index) => ({
+    x: padding + (index / (values.length - 1)) * (width - padding * 2),
+    y: padding + ((max - value) / range) * (height - padding * 2),
+  }));
+  const line = coordinates.map(({ x, y }) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const area = `M ${coordinates[0].x.toFixed(1)} ${height} L ${coordinates.map(({ x, y }) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(' L ')} L ${coordinates[coordinates.length - 1].x.toFixed(1)} ${height} Z`;
+  return <svg className={`market-index-preview is-${tone}`} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={`${label}近30个交易日走势预览`}>
+    <title>{label}近30个交易日走势预览</title>
+    <line x1="0" y1={height / 2} x2={width} y2={height / 2} className="market-index-preview-baseline" />
+    <path d={area} className="market-index-preview-area" />
+    <polyline points={line} className="market-index-preview-line" />
+  </svg>;
 }
 
 function sourceTag(source: MarketSentimentOverview['factors'][number]['source']) {
@@ -217,7 +266,7 @@ function MarketBreadthChart({
         </div>
         <div className="market-breadth-bars">
           {overview.distribution.map((item) => {
-            const height = 18 + (item.count / maxCount) * 138;
+            const height = 8 + (item.count / maxCount) * 108;
             return <button
               type="button"
               key={item.key}
@@ -249,7 +298,7 @@ function MarketBreadthChart({
       destroyOnHidden
     >
       <div className="market-breadth-detail-toolbar">
-        <Text type="secondary">快照时间：{new Date(overview.updatedAt).toLocaleString('zh-CN')} · 点击股票加入自选并查看实时行情</Text>
+        <Text type="secondary">快照时间：{new Date(overview.updatedAt).toLocaleString('zh-CN')} · 点击股票查看行情详情</Text>
         <Input
           allowClear
           prefix={<SearchOutlined />}
@@ -269,7 +318,7 @@ function MarketBreadthChart({
         onRow={(row) => ({
           className: 'market-breadth-stock-row',
           tabIndex: 0,
-          'aria-label': `将${row.name}加入自选并查看实时行情`,
+          'aria-label': `查看${row.name}行情详情`,
           onClick: () => selectStock(row),
           onKeyDown: (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
@@ -576,7 +625,10 @@ function SevenLayerSectionContent({ section }: { section: SevenLayerSection }) {
 }
 
 interface MarketDataPageProps {
+  view?: 'overview' | 'watchlist' | 'detail';
+  instrumentCode?: string;
   onOpenInAnalysis?: (result: ImportResult) => void;
+  onOpenDetail?: (stock: StockSearchItem) => void;
 }
 
 function handleScrollKeys(event: KeyboardEvent<HTMLElement>) {
@@ -597,49 +649,61 @@ function handleScrollKeys(event: KeyboardEvent<HTMLElement>) {
   }
 }
 
-export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps) {
+export default function MarketDataPage({ view = 'overview', instrumentCode, onOpenInAnalysis, onOpenDetail }: MarketDataPageProps) {
   const { message } = App.useApp();
+  const isWatchlistView = view === 'watchlist';
+  const isDetailView = view === 'detail';
+  const isResearchView = isWatchlistView || isDetailView;
   const initial = marketDataCache.watchlist ?? readWatchlist();
+  const initialSelectedCode = instrumentCode || marketDataCache.selectedCode || initial[0]?.code || '600519';
   const [watchlist, setWatchlist] = useState<StockSearchItem[]>(initial);
   const [pinnedCodes, setPinnedCodes] = useState<string[]>(readPinnedCodes);
-  const [selectedCode, setSelectedCode] = useState(marketDataCache.selectedCode ?? initial[0]?.code ?? '600519');
+  const [selectedCode, setSelectedCode] = useState(initialSelectedCode);
   const [watchlistQuery, setWatchlistQuery] = useState('');
   const [searchText, setSearchText] = useState('');
   const [searchItems, setSearchItems] = useState<StockSearchItem[]>([]);
   const [searching, setSearching] = useState(false);
-  const [quote, setQuote] = useState<StockQuote | null>(() => marketDataCache.quotes[marketDataCache.selectedCode ?? initial[0]?.code ?? '600519'] ?? null);
+  const [quote, setQuote] = useState<StockQuote | null>(() => marketDataCache.quotes[initialSelectedCode] ?? null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [period, setPeriod] = useState<MarketKlinePeriod>(marketDataCache.period);
   const [showChipProfile, setShowChipProfile] = useState(false);
-  const [klines, setKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(marketDataCache.selectedCode ?? initial[0]?.code ?? '600519', marketDataCache.period)] ?? []);
+  const [klines, setKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(initialSelectedCode, marketDataCache.period)] ?? []);
   const [klineLoading, setKlineLoading] = useState(false);
-  const [scoreKlines, setScoreKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(marketDataCache.selectedCode ?? initial[0]?.code ?? '600519', 'day')] ?? []);
-  const [scoreCode, setScoreCode] = useState<string | null>(marketDataCache.selectedCode ?? initial[0]?.code ?? '600519');
+  const [scoreKlines, setScoreKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(initialSelectedCode, 'day')] ?? []);
+  const [scoreCode, setScoreCode] = useState<string | null>(initialSelectedCode);
   const [scoreKlineLoading, setScoreKlineLoading] = useState(false);
   const [benchmarkKlines, setBenchmarkKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey('sh000300', 'day')] ?? []);
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [indexQuotes, setIndexQuotes] = useState<StockQuote[]>(() => marketDataCache.indexQuotes ?? []);
+  const [selectedIndexKeys, setSelectedIndexKeys] = useState<string[]>(readMarketIndexSelection);
+  const [draftIndexKeys, setDraftIndexKeys] = useState<string[]>(readMarketIndexSelection);
+  const [indexConfigOpen, setIndexConfigOpen] = useState(false);
+  const [indexPreviewKlines, setIndexPreviewKlines] = useState<Record<string, KlinePoint[]>>({});
   const [indexLoading, setIndexLoading] = useState(false);
   const [marketSentiment, setMarketSentiment] = useState<MarketSentimentOverview | null>(() => marketDataCache.marketSentiment ?? null);
   const [marketSentimentLoading, setMarketSentimentLoading] = useState(false);
-  const [marketSentimentOpen, setMarketSentimentOpen] = useState(false);
   const [exporting, setExporting] = useState<'analysis' | 'excel' | null>(null);
-  const [reports, setReports] = useState<ResearchReport[]>(() => marketDataCache.reports[marketDataCache.selectedCode ?? initial[0]?.code ?? '600519'] ?? []);
+  const [reports, setReports] = useState<ResearchReport[]>(() => marketDataCache.reports[initialSelectedCode] ?? []);
   const [reportsLoading, setReportsLoading] = useState(false);
-  const [sevenLayerSections, setSevenLayerSections] = useState<Partial<Record<SevenLayerSection['key'], SevenLayerSection>>>(() => marketDataCache.sevenLayer[marketDataCache.selectedCode ?? initial[0]?.code ?? '600519'] ?? {});
+  const [sevenLayerSections, setSevenLayerSections] = useState<Partial<Record<SevenLayerSection['key'], SevenLayerSection>>>(() => marketDataCache.sevenLayer[initialSelectedCode] ?? {});
   const [sevenLayerLoading, setSevenLayerLoading] = useState<Partial<Record<SevenLayerSection['key'], boolean>>>({});
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(marketDataCache.agentStatus ?? null);
   const [agentQuestion, setAgentQuestion] = useState(marketDataCache.agentQuestion);
   const [agentModel, setAgentModel] = useState<string | undefined>(marketDataCache.agentModel);
   const [agentRunning, setAgentRunning] = useState(false);
-  const [agentResult, setAgentResult] = useState(() => marketDataCache.agentResults[marketDataCache.selectedCode ?? initial[0]?.code ?? '600519']?.content ?? '');
-  const [reasoningSummary, setReasoningSummary] = useState<string[]>(() => marketDataCache.agentResults[marketDataCache.selectedCode ?? initial[0]?.code ?? '600519']?.reasoningSummary ?? []);
+  const [agentResult, setAgentResult] = useState(() => marketDataCache.agentResults[initialSelectedCode]?.content ?? '');
+  const [reasoningSummary, setReasoningSummary] = useState<string[]>(() => marketDataCache.agentResults[initialSelectedCode]?.reasoningSummary ?? []);
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const marketWorkspaceRef = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    if (!instrumentCode || instrumentCode === selectedCode) return;
+    marketDataCache.selectedCode = instrumentCode;
+    setSelectedCode(instrumentCode);
+  }, [instrumentCode, selectedCode]);
   useEffect(() => { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist)); marketDataCache.watchlist = watchlist; }, [watchlist]);
   useEffect(() => { localStorage.setItem(PINNED_WATCHLIST_KEY, JSON.stringify(pinnedCodes)); }, [pinnedCodes]);
+  useEffect(() => { localStorage.setItem(MARKET_INDEX_SELECTION_KEY, JSON.stringify(selectedIndexKeys)); }, [selectedIndexKeys]);
   useEffect(() => { marketDataCache.selectedCode = selectedCode; }, [selectedCode]);
   useEffect(() => { marketDataCache.period = period; }, [period]);
   useEffect(() => { marketDataCache.agentQuestion = agentQuestion; }, [agentQuestion]);
@@ -710,6 +774,7 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
   }, [message]);
 
   useEffect(() => {
+    if (!isResearchView) return undefined;
     const cachedQuote = marketDataCache.quotes[selectedCode];
     const cachedKlines = marketDataCache.klines[klineCacheKey(selectedCode, period)];
     const cachedReports = marketDataCache.reports[selectedCode];
@@ -729,8 +794,9 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
     if (!cachedKlines) void loadKline(selectedCode, period);
     // Period changes are requested explicitly to avoid duplicate fetches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCode, loadQuote, loadKline, loadReports]);
+  }, [isResearchView, selectedCode, loadQuote, loadKline, loadReports]);
   useEffect(() => {
+    if (!isResearchView) return undefined;
     let cancelled = false;
     const cacheKey = klineCacheKey(selectedCode, 'day');
     const cached = marketDataCache.klines[cacheKey];
@@ -762,8 +828,9 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
       })
       .finally(() => { if (!cancelled) setScoreKlineLoading(false); });
     return () => { cancelled = true; };
-  }, [message, period, selectedCode]);
+  }, [isResearchView, message, period, selectedCode]);
   useEffect(() => {
+    if (!isResearchView) return;
     if (period !== 'day') return;
     const cachedForSelected = marketDataCache.klines[klineCacheKey(selectedCode, 'day')];
     if (klines.length > 0 && cachedForSelected === klines) {
@@ -773,8 +840,9 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
     } else if (!klineLoading && klines.length === 0) {
       setScoreKlineLoading(false);
     }
-  }, [klineLoading, klines, period, selectedCode]);
+  }, [isResearchView, klineLoading, klines, period, selectedCode]);
   useEffect(() => {
+    if (!isResearchView) return undefined;
     const cacheKey = klineCacheKey('sh000300', 'day');
     const cached = marketDataCache.klines[cacheKey];
     if (cached) {
@@ -795,33 +863,61 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
       })
       .finally(() => { if (!cancelled) setBenchmarkLoading(false); });
     return () => { cancelled = true; };
-  }, [message]);
+  }, [isResearchView, message]);
   useEffect(() => {
+    if (!isResearchView) return;
     if (marketDataCache.agentStatus) return;
     void apiFetch<AgentStatus>('/api/market-data/research-agent/status').then((s) => { marketDataCache.agentStatus = s; setAgentStatus(s); if (!marketDataCache.agentModel) setAgentModel(s.currentModel); }).catch(() => undefined);
-  }, []);
+  }, [isResearchView]);
   useEffect(() => {
+    if (isResearchView) return undefined;
     if (!marketDataCache.indexQuotes) void loadIndexQuotes();
     const timer = window.setInterval(() => void loadIndexQuotes(true), 15000);
     return () => window.clearInterval(timer);
-  }, [loadIndexQuotes]);
+  }, [isResearchView, loadIndexQuotes]);
   useEffect(() => {
+    if (isResearchView) return undefined;
+    let cancelled = false;
+    void Promise.all(selectedIndexKeys.map(async (key) => {
+      const option = MARKET_INDEX_OPTIONS.find((item) => item.key === key);
+      if (!option) return [key, []] as const;
+      const instrumentCode = marketIndexInstrumentCode(option);
+      const cacheKey = klineCacheKey(instrumentCode, 'day');
+      const cached = marketDataCache.klines[cacheKey];
+      if (cached) return [key, cached] as const;
+      try {
+        const data = await apiFetch<{ items: KlinePoint[] }>(`/api/market-data/stocks/${instrumentCode}/kline?period=day`);
+        const next = data.items ?? [];
+        marketDataCache.klines[cacheKey] = next;
+        return [key, next] as const;
+      } catch {
+        return [key, []] as const;
+      }
+    })).then((entries) => {
+      if (!cancelled) setIndexPreviewKlines((current) => ({ ...current, ...Object.fromEntries(entries) }));
+    });
+    return () => { cancelled = true; };
+  }, [isResearchView, selectedIndexKeys]);
+  useEffect(() => {
+    if (isResearchView) return undefined;
     void loadMarketSentiment(true);
     const timer = window.setInterval(() => void loadMarketSentiment(true, true), MARKET_SENTIMENT_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [loadMarketSentiment]);
+  }, [isResearchView, loadMarketSentiment]);
   useEffect(() => {
-    if (!marketSentimentOpen || marketSentimentLoading || (marketSentiment?.total ?? 0) > 0) return undefined;
+    if (isResearchView) return undefined;
+    if (marketSentimentLoading || (marketSentiment?.total ?? 0) > 0) return undefined;
     const timer = window.setInterval(() => void loadMarketSentiment(true), 5000);
     return () => window.clearInterval(timer);
-  }, [loadMarketSentiment, marketSentiment?.total, marketSentimentLoading, marketSentimentOpen]);
+  }, [isResearchView, loadMarketSentiment, marketSentiment?.total, marketSentimentLoading]);
   useEffect(() => {
+    if (!isResearchView) return undefined;
     if (period !== 'intraday') return undefined;
     const timer = window.setInterval(() => {
       void loadKline(selectedCode, 'intraday', true);
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [loadKline, period, selectedCode]);
+  }, [isResearchView, loadKline, period, selectedCode]);
 
   const search = (value: string) => {
     setSearchText(value);
@@ -835,17 +931,19 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
     }, 280);
   };
   const addStock = (stock: StockSearchItem) => {
-    setWatchlist((all) => all.some((x) => x.code === stock.code) ? all : [...all, stock]);
+    setWatchlist((all) => {
+      const next = all.some((x) => x.code === stock.code) ? all : [...all, stock];
+      localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next));
+      marketDataCache.watchlist = next;
+      return next;
+    });
+    marketDataCache.selectedCode = stock.code;
     setSelectedCode(stock.code); setSearchText(''); setSearchItems([]);
   };
-  const openSectorConstituent = (stock: StockSearchItem) => {
-    const alreadyAdded = watchlist.some((item) => item.code === stock.code);
-    addStock(stock);
-    message.success(alreadyAdded ? `已切换至 ${stock.name} 实时行情` : `${stock.name} 已加入自选`);
-    window.requestAnimationFrame(() => {
-      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-      marketWorkspaceRef.current?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
-    });
+  const openInstrumentDetail = (stock: StockSearchItem) => {
+    marketDataCache.selectedCode = stock.code;
+    setSelectedCode(stock.code);
+    onOpenDetail?.(stock);
   };
   const removeStock = (code: string) => setWatchlist((all) => {
     const next = all.filter((x) => x.code !== code);
@@ -960,6 +1058,7 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
 
   const accent = (quote?.changePct ?? 0) > 0 ? 'up' : (quote?.changePct ?? 0) < 0 ? 'down' : '';
   const selected = watchlist.find((x) => x.code === selectedCode);
+  const selectedIsInWatchlist = watchlist.some((item) => item.code === selectedCode);
   const orderedWatchlist = useMemo(() => [...watchlist].sort((a, b) => (
     Number(pinnedCodes.includes(b.code)) - Number(pinnedCodes.includes(a.code))
   )), [pinnedCodes, watchlist]);
@@ -975,10 +1074,7 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
   const options = useMemo(() => searchItems.map((item) => ({ value: item.code, label: <div className="market-search-option"><span><b>{item.name}</b> <Text type="secondary">{item.code}</Text></span><Tag>{item.market}</Tag></div> })), [searchItems]);
   const selectIndexQuote = (item: StockQuote) => {
     const code = `${item.market.toLowerCase()}${item.code}`;
-    setWatchlist((all) => all.some((x) => x.code === code)
-      ? all
-      : [...all, { code, name: item.name, market: item.market, type: 'index' }]);
-    setSelectedCode(code);
+    openInstrumentDetail({ code, name: item.name, market: item.market, type: 'index' });
   };
   const loadedSevenKeys = Object.keys(sevenLayerSections) as SevenLayerSection['key'][];
   const refreshLoadedSevenLayers = () => {
@@ -992,65 +1088,91 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
       }
     }
   };
-  const handleMarketSentimentChange = (keys: string | string[]) => {
-    const activeKeys = Array.isArray(keys) ? keys : [keys];
-    const isOpen = activeKeys.includes('market-sentiment');
-    setMarketSentimentOpen(isOpen);
-    if (isOpen && !marketDataCache.marketSentiment && !marketSentimentLoading) void loadMarketSentiment();
+  const visibleIndexQuotes = selectedIndexKeys.flatMap((key) => {
+    const quote = indexQuotes.find((item) => marketIndexKey(item) === key);
+    return quote ? [quote] : [];
+  });
+  const openIndexConfig = () => {
+    setDraftIndexKeys([...selectedIndexKeys]);
+    setIndexConfigOpen(true);
   };
+  const toggleDraftIndex = (key: string, checked: boolean) => {
+    setDraftIndexKeys((current) => checked
+      ? current.includes(key) || current.length >= 5 ? current : [...current, key]
+      : current.filter((item) => item !== key));
+  };
+  const overviewUpdatedAt = marketSentiment?.updatedAt
+    ?? indexQuotes.reduce<string | null>((latest, item) => (!latest || item.updatedAt > latest ? item.updatedAt : latest), null);
+  const advanceRatio = marketSentiment
+    ? (marketSentiment.advancers / Math.max(1, marketSentiment.advancers + marketSentiment.decliners)) * 100
+    : null;
 
-  return <main className="market-page" tabIndex={0} aria-label="市场数据内容，可上下滚动" onKeyDown={handleScrollKeys}>
-    <section className="market-index-ticker" aria-label="当前交易日大盘实时数据">
-      <div className="market-index-ticker-head">
-        <Text strong>大盘实时</Text>
-        <Tooltip title="刷新大盘行情"><Button size="small" type="text" icon={<ReloadOutlined />} loading={indexLoading} aria-label="刷新大盘行情" onClick={() => loadIndexQuotes()} /></Tooltip>
+  return <main className={`market-page${isWatchlistView ? ' market-watchlist-page' : ''}${isDetailView ? ' market-detail-page' : ''}`} tabIndex={0} aria-label={`${isWatchlistView ? '我的自选' : isDetailView ? '行情详情' : '市场数据'}内容，可上下滚动`} onKeyDown={handleScrollKeys}>
+    {!isWatchlistView && <>
+    <section className="market-overview-header" aria-label="市场总览工具栏">
+      <div className="market-overview-heading">
+        <div><Title level={2}>市场总览</Title><Tag color="blue">沪深 A 股</Tag></div>
+        <Text type="secondary">更新于 {overviewUpdatedAt ? new Date(overviewUpdatedAt).toLocaleString('zh-CN') : '等待行情数据'}</Text>
       </div>
-      <div className="market-index-viewport">
-        <div className="market-index-track">
-          {[...indexQuotes, ...indexQuotes].map((item, index) => {
-            const direction = (item.changePct ?? 0) > 0 ? 'up' : (item.changePct ?? 0) < 0 ? 'down' : '';
-            return <button type="button" className="market-index-item" key={`${item.code}-${index}`} onClick={() => selectIndexQuote(item)} aria-label={`查看${item.name}行情`}><b>{item.name}</b><em className={direction && `market-${direction}`}>{fmt(item.price)} {fmt(item.changePct)}%</em><small>{fmt(item.amountWan == null ? null : item.amountWan / 10000)} 亿</small></button>;
-          })}
-          {indexQuotes.length === 0 && <Text type="secondary">{indexLoading ? '正在加载大盘行情...' : '暂无大盘行情'}</Text>}
-        </div>
-      </div>
-    </section>
-    <section className="market-command-bar" aria-label="市场数据工具栏">
-      <div className="market-command-copy"><Space size={8}><ApiOutlined /><Text type="secondary">市场数据</Text><Tag color="blue">沪深 A 股</Tag></Space><Title level={3}>行情与调研工作台</Title></div>
-      <AutoComplete className="market-search" value={searchText} options={options} onSearch={search} onSelect={(code) => { const item = searchItems.find((x) => x.code === code); if (item) addStock(item); }} notFoundContent={searching ? <Spin size="small" /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入代码、简称或拼音" />}>
-        <Input size="middle" prefix={<SearchOutlined />} suffix={<PlusOutlined />} placeholder="搜索 5000+ A 股，如 600519、茅台、mt" aria-label="搜索股票" />
+      <AutoComplete className="market-search" value={searchText} options={options} onSearch={search} onSelect={(code) => { const item = searchItems.find((x) => x.code === code); if (item) openInstrumentDetail(item); }} notFoundContent={searching ? <Spin size="small" /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入代码、简称或拼音" />}>
+        <Input size="middle" prefix={<SearchOutlined />} suffix={<ArrowRightOutlined />} placeholder="搜索股票并查看详情，如 600519、茅台、mt" aria-label="搜索股票并查看详情" />
       </AutoComplete>
+      <Space size={6}>
+        <Tooltip title="设置展示的指数"><Button icon={<SettingOutlined />} aria-label="设置展示的指数" onClick={openIndexConfig} /></Tooltip>
+        <Tooltip title="刷新指数与市场概况"><Button icon={<ReloadOutlined />} loading={indexLoading || marketSentimentLoading} aria-label="刷新市场总览" onClick={() => { void loadIndexQuotes(); void loadMarketSentiment(false, true); }} /></Tooltip>
+      </Space>
+    </section>
+    <section className={`market-index-grid is-count-${visibleIndexQuotes.length}`} aria-label="当前交易日主要指数">
+      {visibleIndexQuotes.map((item) => {
+        const direction = (item.changePct ?? 0) > 0 ? 'up' : (item.changePct ?? 0) < 0 ? 'down' : '';
+        const key = marketIndexKey(item);
+        return <button type="button" className="market-index-card" key={item.code} onClick={() => selectIndexQuote(item)} aria-label={`查看${item.name}行情`}>
+          <span>{item.name}<small>{item.market}</small></span>
+          <strong className={direction && `market-${direction}`}>{fmt(item.price)}</strong>
+          <em className={direction && `market-${direction}`}>{signed(item.changeAmount)}　{signed(item.changePct)}%</em>
+          <IndexSparkline points={indexPreviewKlines[key]} label={item.name} tone={direction || 'flat'} />
+          <small>成交额 {fmt(item.amountWan == null ? null : item.amountWan / 10000)} 亿</small>
+        </button>;
+      })}
+      {indexQuotes.length === 0 && <div className="market-index-loading"><Skeleton active paragraph={{ rows: 2 }} /></div>}
+      <div className="market-index-summary">
+        <div><span>全市场</span><strong>{fmt(marketSentiment?.total, 0)}<small> 只</small></strong></div>
+        <div><span>上涨占比</span><strong className={(advanceRatio ?? 0) >= 50 ? 'market-up' : 'market-down'}>{fmt(advanceRatio)}<small>%</small></strong></div>
+        <div><span>情绪 MSI</span><strong className={(marketSentiment?.msi ?? 0) >= 0 ? 'market-up' : 'market-down'}>{signed(marketSentiment?.msi)}</strong></div>
+      </div>
     </section>
     <section className="market-sentiment-section" aria-label="市场情绪与涨跌分布">
-      <Collapse
-        className="market-sentiment-collapse"
-        activeKey={marketSentimentOpen ? ['market-sentiment'] : []}
-        onChange={handleMarketSentimentChange}
-        items={[{
-          key: 'market-sentiment',
-          label: <Space><DashboardOutlined />市场概况</Space>,
-          extra: marketSentimentOpen
-            ? <Tooltip title="刷新市场情绪"><Button size="small" icon={<ReloadOutlined />} loading={marketSentimentLoading} onClick={(event) => { event.stopPropagation(); void loadMarketSentiment(false, true); }}>刷新</Button></Tooltip>
-            : <Tag>展开后加载</Tag>,
-          children: <MarketSentimentPanel overview={marketSentiment} loading={marketSentimentLoading} onSelectStock={openSectorConstituent} />,
-        }]}
-      />
+      <div className="market-dashboard-panel-head"><span><DashboardOutlined />市场概况</span><Tooltip title="刷新市场情绪"><Button size="small" type="text" icon={<ReloadOutlined />} loading={marketSentimentLoading} aria-label="刷新市场概况" onClick={() => void loadMarketSentiment(false, true)} /></Tooltip></div>
+      <MarketSentimentPanel overview={marketSentiment} loading={marketSentimentLoading} onSelectStock={openInstrumentDetail} />
     </section>
-    <HotSectorPanel onSelectStock={openSectorConstituent} />
-    <section className="market-selection-section" aria-label="选股评分与市场技术筛选">
+    <HotSectorPanel onSelectStock={openInstrumentDetail} />
+    <section className="market-selection-section" aria-label="市场技术筛选">
       <StockSelectionWorkspace
+        mode="screen"
         watchlist={watchlist}
         selectedCode={selectedCode}
         pinnedCodes={pinnedCodes}
-        benchmarkCandles={benchmarkKlines}
+        benchmarkCandles={[]}
         onSelect={setSelectedCode}
         onTogglePin={togglePinnedStock}
         onAdd={addStock}
         onRemove={removeStock}
       />
     </section>
-    <div className="market-workspace" ref={marketWorkspaceRef}>
-      <aside className="market-watchlist"><div className="market-section-title"><span><StarFilled /> 我的自选</span><Tag>{watchlist.length}</Tag></div>
+    </>}
+    {isResearchView && <>
+    {isWatchlistView && <section className="market-overview-header market-watchlist-header" aria-label="我的自选工具栏">
+      <div className="market-overview-heading">
+        <div><Title level={2}>我的自选</Title><Tag color="blue">{watchlist.length} 项</Tag></div>
+        <Text type="secondary">集中查看行情、走势与量化评分</Text>
+      </div>
+      <AutoComplete className="market-search" value={searchText} options={options} onSearch={search} onSelect={(code) => { const item = searchItems.find((x) => x.code === code); if (item) addStock(item); }} notFoundContent={searching ? <Spin size="small" /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入代码、简称或拼音" />}>
+        <Input size="middle" prefix={<SearchOutlined />} suffix={<PlusOutlined />} placeholder="搜索股票并加入自选" aria-label="搜索并加入自选" />
+      </AutoComplete>
+      <Tooltip title="刷新当前行情"><Button icon={<ReloadOutlined />} loading={quoteLoading || klineLoading} aria-label="刷新当前自选行情" disabled={!selectedCode} onClick={() => { void loadQuote(selectedCode); void loadKline(selectedCode, period); }} /></Tooltip>
+    </section>}
+    <div className={`market-workspace${isDetailView ? ' is-detail' : ''}`}>
+      {isWatchlistView && <aside className="market-watchlist"><div className="market-section-title"><span><StarFilled /> 我的自选</span><Tag>{watchlist.length}</Tag></div>
         {watchlist.length ? <>
           <div className="market-watchlist-search">
             <Input
@@ -1067,10 +1189,10 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
             ? <div className="market-watchlist-items" aria-label="自选股列表">{filteredWatchlist.map((item) => <div key={item.code} className={`market-watchlist-item${item.code === selectedCode ? ' is-active' : ''}`}><button type="button" className="market-stock-select" aria-pressed={item.code === selectedCode} onClick={() => setSelectedCode(item.code)}><strong>{pinnedCodes.includes(item.code) && <span className="market-pinned-mark" aria-label="已置顶">置顶</span>}{item.name}</strong><span>{item.code} · {item.market}</span></button><Tooltip title="移出自选"><Button type="text" danger icon={<DeleteOutlined />} aria-label={`移除 ${item.name}`} onClick={() => removeStock(item.code)} /></Tooltip></div>)}</div>
             : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未找到匹配的自选股" />}
         </> : <Empty description="搜索并加入第一只自选股" />}
-      </aside>
+      </aside>}
       <div className="market-main">
         <Card className="market-quote-card" variant="borderless"><Skeleton loading={quoteLoading} active paragraph={{ rows: 3 }}>
-          {quote ? <><div className="market-quote-head"><div className="market-quote-meta"><Space align="baseline"><Title level={3}>{quote.name}</Title><Text type="secondary">{quote.code} · {quote.market}</Text></Space><Space wrap><Tag color="blue">{quote.industry || '行业待补充'}</Tag>{quote.source.map((s) => <Tag key={s}>{s}</Tag>)}</Space><Space wrap className="market-quote-actions"><Button icon={<ReloadOutlined />} onClick={() => loadQuote(selectedCode)}>刷新行情</Button><Button icon={<ExportOutlined />} loading={exporting === 'analysis'} onClick={openInAnalysis}>导入行情分析</Button><Button icon={<DownloadOutlined />} loading={exporting === 'excel'} onClick={exportExcel}>导出 Excel</Button></Space></div><div className="market-price-block"><span className={accent && `market-${accent}`}>{fmt(quote.price)}</span><Text className={accent && `market-${accent}`}>{fmt(quote.changeAmount)} / {fmt(quote.changePct)}%</Text></div></div>
+          {quote ? <><div className="market-quote-head"><div className="market-quote-meta"><Space align="baseline"><Title level={3}>{quote.name}</Title><Text type="secondary">{quote.code} · {quote.market}</Text></Space><Space wrap><Tag color="blue">{quote.industry || '行业待补充'}</Tag>{quote.source.map((s) => <Tag key={s}>{s}</Tag>)}</Space><Space wrap className="market-quote-actions"><Button icon={<ReloadOutlined />} onClick={() => loadQuote(selectedCode)}>刷新行情</Button><Button icon={<ExportOutlined />} loading={exporting === 'analysis'} onClick={openInAnalysis}>导入行情分析</Button><Button icon={<DownloadOutlined />} loading={exporting === 'excel'} onClick={exportExcel}>导出 Excel</Button>{isDetailView && (selectedIsInWatchlist ? <Button icon={<CheckOutlined />} disabled>已在自选</Button> : <Button type="primary" icon={<StarOutlined />} onClick={() => { addStock({ code: selectedCode, name: quote.name, market: quote.market, type: quote.type }); message.success(`${quote.name} 已加入自选`); }}>添加自选</Button>)}</Space></div><div className="market-price-block"><span className={accent && `market-${accent}`}>{fmt(quote.price)}</span><Text className={accent && `market-${accent}`}>{fmt(quote.changeAmount)} / {fmt(quote.changePct)}%</Text></div></div>
           <div className="market-metrics-grid"><Metric label="今开 / 最高 / 最低" value={`${fmt(quote.open)} / ${fmt(quote.high)} / ${fmt(quote.low)}`} /><Metric label="昨收 / 涨停 / 跌停" value={`${fmt(quote.previousClose)} / ${fmt(quote.limitUp)} / ${fmt(quote.limitDown)}`} /><Metric label="换手率" value={`${fmt(quote.turnoverPct)}%`} /><Metric label="振幅" value={`${fmt(quote.amplitudePct)}%`} /><Metric label="量比" value={fmt(quote.volumeRatio)} /><Metric label="成交额" value={amount(quote.amountWan)} /><Metric label="PE(TTM) / PE(静)" value={`${fmt(quote.peTtm)} / ${fmt(quote.peStatic)}`} /><Metric label="PB" value={fmt(quote.pb)} /><Metric label="总市值" value={`${fmt(quote.marketCapYi)} 亿`} /><Metric label="流通市值" value={`${fmt(quote.floatMarketCapYi)} 亿`} /><Metric label="上市日期" value={quote.listDate || '—'} /><Metric label="所属行业" value={quote.industry || '—'} /></div>
           {quote.type === 'stock' && <StockSelectionScore candles={scoreCode === selectedCode ? scoreKlines : []} benchmarkCandles={benchmarkKlines} loading={scoreKlineLoading || benchmarkLoading || scoreCode !== selectedCode} />}</> : <Empty description={`无法加载 ${selected?.name ?? selectedCode} 行情`} />}
         </Skeleton></Card>
@@ -1150,5 +1272,49 @@ export default function MarketDataPage({ onOpenInAnalysis }: MarketDataPageProps
         </Card>
       </div>
     </div>
+    {isWatchlistView && <section className="market-selection-section" aria-label="自选评分排名">
+      <StockSelectionWorkspace
+        mode="ranking"
+        watchlist={watchlist}
+        selectedCode={selectedCode}
+        pinnedCodes={pinnedCodes}
+        benchmarkCandles={benchmarkKlines}
+        onSelect={setSelectedCode}
+        onTogglePin={togglePinnedStock}
+        onAdd={addStock}
+        onRemove={removeStock}
+      />
+    </section>}
+    </>}
+    {!isResearchView && <Modal
+      className="market-index-config-modal"
+      title="设置总览指数"
+      open={indexConfigOpen}
+      okText="应用"
+      cancelText="取消"
+      okButtonProps={{ disabled: draftIndexKeys.length === 0 }}
+      onCancel={() => setIndexConfigOpen(false)}
+      onOk={() => {
+        if (!draftIndexKeys.length) return;
+        setSelectedIndexKeys(MARKET_INDEX_OPTIONS.filter((item) => draftIndexKeys.includes(item.key)).map((item) => item.key));
+        setIndexConfigOpen(false);
+      }}
+    >
+      <Text type="secondary">选择 1–5 个指数用于市场总览，设置会保存在当前浏览器。</Text>
+      <div className="market-index-config-list">
+        {MARKET_INDEX_OPTIONS.map((item) => {
+          const checked = draftIndexKeys.includes(item.key);
+          return <label key={item.key} className={checked ? 'is-selected' : ''}>
+            <Checkbox
+              checked={checked}
+              disabled={!checked && draftIndexKeys.length >= 5}
+              onChange={(event) => toggleDraftIndex(item.key, event.target.checked)}
+            />
+            <span><strong>{item.name}</strong><small>{item.code} · {item.market}</small></span>
+          </label>;
+        })}
+      </div>
+      <Text type="secondary">已选择 {draftIndexKeys.length} / 5</Text>
+    </Modal>}
   </main>;
 }
