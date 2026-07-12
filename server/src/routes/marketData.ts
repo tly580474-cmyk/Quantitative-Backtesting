@@ -19,6 +19,8 @@ import {
   fetchResearchReports,
   fetchCachedMarketSentimentOverview,
   fetchMarketTechnicalRows,
+  fetchMarketTechnicalRowsFromDb,
+  fetchStockKlineFromDb,
   fetchMarketIndexQuotes,
   fetchStockIntraday,
   fetchStockKline,
@@ -59,6 +61,7 @@ const CANDIDATE_INDICATOR_CACHE_MS = 30 * 60_000;
 
 async function enrichTechnicalCandidates(
   candidates: MarketTechnicalCandidate[],
+  mode: 'realtime' | 'close' = 'realtime',
 ): Promise<MarketTechnicalCandidate[]> {
   const result = [...candidates];
   let cursor = 0;
@@ -72,7 +75,10 @@ async function enrichTechnicalCandidates(
         continue;
       }
       try {
-        const indicators = analyzeHistoricalTechnicals(await fetchStockKline(candidate.code, 'day', 120));
+        const klines = mode === 'close'
+          ? await fetchStockKlineFromDb(candidate.code, 'day', 120)
+          : await fetchStockKline(candidate.code, 'day', 120);
+        const indicators = analyzeHistoricalTechnicals(klines);
         candidateIndicatorCache.set(candidate.code, { data: indicators, cachedAt: Date.now() });
         result[index] = { ...candidate, indicators };
       } catch {
@@ -204,6 +210,7 @@ export function registerMarketDataRoutes(
       macdSignal: z.enum(['any', 'golden', 'death']).default('any'),
       limit: z.number().int().min(1).max(200).default(50),
       force: z.boolean().optional(),
+      mode: z.enum(['realtime', 'close']).default('realtime'),
     }).safeParse(req.body ?? {});
     if (!body.success
       || body.data.minChangePct > body.data.maxChangePct
@@ -212,11 +219,16 @@ export function registerMarketDataRoutes(
       return reply.status(400).send({ message: '技术筛选条件无效，请检查范围上下限' });
     }
     try {
-      const { force, ...criteria } = body.data;
-      const rows = await fetchMarketTechnicalRows(force);
-      const poolLimit = Math.min(160, Math.max(criteria.limit * 3, 80));
+      const { force, mode, ...criteria } = body.data;
+      const useClose = mode === 'close';
+      const rows = useClose
+        ? await fetchMarketTechnicalRowsFromDb(criteria.markets)
+        : await fetchMarketTechnicalRows(force);
+      const poolLimit = useClose
+        ? Math.min(800, Math.max(criteria.limit * 5, 200))
+        : Math.min(160, Math.max(criteria.limit * 3, 80));
       const prefiltered = prefilterMarketTechnicalRows(rows, criteria, poolLimit);
-      const enriched = await enrichTechnicalCandidates(prefiltered);
+      const enriched = await enrichTechnicalCandidates(prefiltered, useClose ? 'close' : 'realtime');
       const items = filterEnrichedCandidates(enriched, criteria);
       return reply.send({
         items,
@@ -231,13 +243,16 @@ export function registerMarketDataRoutes(
   });
 
   app.get<{ Params: { code: string } }>('/api/market-data/stocks/:code/kline', async (req, reply) => {
-    const query = z.object({ period: z.enum(['intraday', 'day', 'week', 'year']).default('day') }).safeParse(req.query);
+    const query = z.object({
+      period: z.enum(['intraday', 'day', 'week', 'year']).default('day'),
+      adjustmentMode: z.enum(['none', 'qfq', 'hfq']).default('qfq'),
+    }).safeParse(req.query);
     if (!query.success) return reply.status(400).send({ message: '不支持的 K 线周期' });
     try {
       const items = query.data.period === 'intraday'
         ? await fetchStockIntraday(req.params.code)
-        : await fetchStockKline(req.params.code, query.data.period);
-      return reply.send({ period: query.data.period, items });
+        : await fetchStockKline(req.params.code, query.data.period, 320, query.data.adjustmentMode);
+      return reply.send({ period: query.data.period, adjustmentMode: query.data.adjustmentMode, items });
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : 'K 线获取失败' });
     }

@@ -37,6 +37,7 @@ import { useCandleStore } from '@/stores/useCandleStore';
 import { useDataLibraryViewStore } from '@/stores/useDataLibraryViewStore';
 import { getDatasetAssetType, type DatasetAssetType } from './datasetAssetType';
 import { fetchHistoryCandles } from './historyBar';
+import { fetchAdjustedDatasets, exportAdjustedKlinesToExcel } from '@/features/marketData/exportMarketData';
 import type { SyncJob } from '../marketData/types';
 
 const { Text, Title } = Typography;
@@ -112,6 +113,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
   const [stockError, setStockError] = useState<string | null>(null);
   const [stockRefreshKey, setStockRefreshKey] = useState(0);
   const [openingInstrumentId, setOpeningInstrumentId] = useState<string | null>(null);
+  const [exportingInstrumentId, setExportingInstrumentId] = useState<string | null>(null);
   const [updatingGroup, setUpdatingGroup] = useState<IndexDatasetUpdateResult['group'] | null>(null);
   const [stockSyncJob, setStockSyncJob] = useState<SyncJob | null>(null);
   const [stockSyncLoading, setStockSyncLoading] = useState(false);
@@ -347,6 +349,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
         success: true,
         fileName: `MySQL历史库 · ${instrument.name}`,
         symbol: instrument.symbol,
+        name: instrument.name,
         dateRange: {
           from: instrument.startDate ?? candles[0]?.time ?? '',
           to: instrument.endDate ?? candles[candles.length - 1]?.time ?? '',
@@ -372,6 +375,29 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
       message.error(error instanceof Error ? error.message : '历史行情读取失败');
     } finally {
       setOpeningInstrumentId(null);
+    }
+  };
+
+  const handleExportInstrument = async (instrument: HistoryInstrument) => {
+    if (instrument.recordCount <= 0) {
+      message.warning('该证券暂无可用日线数据');
+      return;
+    }
+    setExportingInstrumentId(instrument.id);
+    try {
+      const datasets = await fetchAdjustedDatasets(instrument.id, instrument.symbol);
+      if (!datasets.raw?.length && !datasets.qfq?.length && !datasets.hfq?.length) {
+        throw new Error('未获取到任何复权行情数据');
+      }
+      const fileName = exportAdjustedKlinesToExcel(
+        { code: instrument.symbol, name: instrument.name },
+        datasets,
+      );
+      message.success(`已导出 ${fileName}`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '复权行情导出失败');
+    } finally {
+      setExportingInstrumentId(null);
     }
   };
 
@@ -794,6 +820,15 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
                     onClick={() => handleOpenInstrument(instrument)}
                   >
                     打开
+                  </Button>
+                  <Button
+                    type="text"
+                    icon={<DownloadOutlined />}
+                    loading={exportingInstrumentId === instrument.id}
+                    disabled={instrument.recordCount <= 0 || exportingInstrumentId != null}
+                    onClick={() => handleExportInstrument(instrument)}
+                  >
+                    导出
                   </Button>
                 </div>
               </div>

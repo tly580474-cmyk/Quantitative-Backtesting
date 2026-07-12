@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Button, Layout, Menu, Tooltip, Typography } from 'antd';
 import type { MenuProps } from 'antd';
 import {
+  ArrowLeftOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
 } from '@ant-design/icons';
@@ -15,6 +16,7 @@ interface AppLayoutProps {
   activeTitle: string;
   navigationItems: MenuProps['items'];
   onNavigate: (key: string) => void;
+  onBack?: () => void;
   topBar: ReactNode;
   leftPanel?: ReactNode;
   center: ReactNode;
@@ -26,6 +28,7 @@ export default function AppLayout({
   activeTitle,
   navigationItems,
   onNavigate,
+  onBack,
   topBar,
   leftPanel,
   center,
@@ -80,6 +83,17 @@ export default function AppLayout({
             <Text strong className="app-title">
               {activeTitle}
             </Text>
+            {onBack && (
+              <Button
+                size="small"
+                icon={<ArrowLeftOutlined />}
+                onClick={onBack}
+                aria-label="返回上一级"
+                style={{ marginLeft: 8, backgroundColor: '#e6f4ff', color: '#5e91e0', borderColor: 'transparent' }}
+              >
+                返回
+              </Button>
+            )}
           </div>
           <div className="app-header-tools">
             {topBar}

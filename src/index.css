@@ -137,6 +137,8 @@
 .selection-stock-cell { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .selection-stock-cell strong { overflow: hidden; color: #0f172a; text-overflow: ellipsis; white-space: nowrap; }
 .selection-stock-cell span { color: #64748b; font-size: 12px; }
+.selection-stock-cell.clickable { cursor: pointer; border-radius: 6px; transition: background-color 0.15s; padding: 2px 4px; margin: -2px -4px; }
+.selection-stock-cell.clickable:hover { background-color: #e0e7ff; }
 .selection-filter-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .selection-filter-group > .ant-typography, .selection-filter-group-head > .ant-typography:first-child { display: inline-flex; align-items: center; gap: 8px; color: #1e293b; }
 .selection-filter-group > .ant-typography::before, .selection-filter-group-head > .ant-typography:first-child::before { display: inline-block; width: 3px; height: 16px; border-radius: 999px; background: #2563eb; content: ""; }

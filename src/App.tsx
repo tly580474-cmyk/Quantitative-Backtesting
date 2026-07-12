@@ -8,6 +8,7 @@ import {
   ControlOutlined,
   DatabaseOutlined,
   DotChartOutlined,
+  DownloadOutlined,
   ExperimentOutlined,
   FundProjectionScreenOutlined,
   LineChartOutlined,
@@ -26,10 +27,17 @@ import RangeChangePanel from './features/chart/RangeChangePanel';
 import SaveDatasetModal from './features/dataLibrary/SaveDatasetModal';
 import { useImport } from './features/import/useImport';
 import { useCandleStore } from './stores/useCandleStore';
+import { apiFetch } from '@/api/client';
 import { getRepository } from './api/useRepository';
 import { computeChecksum } from './db/marketDataRepository';
 import type { ImportResult } from './models';
 import { aggregateCandles, type ChartPeriod } from './features/chart/timeframe';
+import {
+  fetchAdjustedDatasets,
+  fetchAdjustedDatasetsByCode,
+  exportAdjustedKlinesToExcel,
+  resolveInstrumentBySymbol,
+} from './features/marketData/exportMarketData';
 
 const ChartContainer = lazy(() => import('./features/chart/ChartContainer'));
 const DataLibrary = lazy(() => import('./features/dataLibrary/DataLibrary'));
@@ -122,6 +130,7 @@ function MarketAnalysisRoute() {
   const [showChipProfile, setShowChipProfile] = useState(false);
   const [indicatorInspectorOpen, setIndicatorInspectorOpen] = useState(true);
   const [indicatorDrawerOpen, setIndicatorDrawerOpen] = useState(false);
+  const [exportingAnalysis, setExportingAnalysis] = useState(false);
   const emptyCandlesPromptShownRef = useRef(false);
   const isCompactViewport = useCompactViewport();
   const sourceCandles = useCandleStore((state) => state.candles);
@@ -169,6 +178,63 @@ function MarketAnalysisRoute() {
     setIndicatorInspectorOpen((value) => !value);
   }, [isCompactViewport]);
 
+  const handleExportAnalysis = useCallback(async () => {
+    const { importResult } = useCandleStore.getState();
+    const symbol = importResult?.symbol ?? sourceCandles[0]?.symbol;
+    if (!symbol) {
+      notification.warning({ message: '当前没有可导出的标的' });
+      return;
+    }
+    setExportingAnalysis(true);
+    try {
+      let instrumentId = importResult?.instrumentId ?? null;
+      let resolvedName = importResult?.name;
+      if (!instrumentId) {
+        const resolved = await resolveInstrumentBySymbol(symbol);
+        if (resolved) {
+          instrumentId = resolved.id;
+          resolvedName = resolvedName ?? resolved.name;
+        }
+      }
+      let datasets = instrumentId
+        ? await fetchAdjustedDatasets(instrumentId, symbol)
+        : null;
+      if (!datasets || (!datasets.raw?.length && !datasets.qfq?.length && !datasets.hfq?.length)) {
+        // 未接入行情数据库时，改为通过个股代码接口按三种复权口径拉取。
+        datasets = await fetchAdjustedDatasetsByCode(symbol);
+      }
+      if (!datasets || (!datasets.raw?.length && !datasets.qfq?.length && !datasets.hfq?.length)) {
+        // 兜底：直接导出当前图表已加载的 K 线（单一复权口径）。
+        if (sourceCandles.length === 0) throw new Error('未获取到任何行情数据');
+        const points = sourceCandles.map((candle) => ({
+          date: candle.time,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          volume: candle.volume ?? 0,
+          turnoverRatePct: candle.turnoverRatePct,
+        }));
+        const fallbackName = resolvedName ?? symbol;
+        const fileName = exportAdjustedKlinesToExcel(
+          { code: symbol, name: fallbackName },
+          { raw: points, qfq: null, hfq: null },
+        );
+        notification.success({ message: `已导出当前行情（单一口径） ${fileName}` });
+        return;
+      }
+      const fileName = exportAdjustedKlinesToExcel(
+        { code: symbol, name: resolvedName ?? symbol },
+        datasets,
+      );
+      notification.success({ message: `已导出 ${fileName}` });
+    } catch (error) {
+      notification.error({ message: error instanceof Error ? error.message : '导出失败' });
+    } finally {
+      setExportingAnalysis(false);
+    }
+  }, [notification, sourceCandles]);
+
   const indicatorPanel = (
     <WorkbenchPanel
       title="指标配置"
@@ -215,6 +281,16 @@ function MarketAnalysisRoute() {
         ]}
         onChange={setPeriod}
       />
+      <Button
+        size="small"
+        icon={<DownloadOutlined />}
+        loading={exportingAnalysis}
+        disabled={sourceCandles.length === 0}
+        title="导出前复权 / 后复权 / 不复权日 K 行情"
+        onClick={handleExportAnalysis}
+      >
+        导出数据
+      </Button>
     </Space>
   );
 
@@ -391,6 +467,7 @@ function AppContent() {
           activeTitle={location.pathname.startsWith('/market-detail/') ? '行情详情' : PAGE_LABELS[activeKey] ?? '市场数据'}
           navigationItems={NAV_ITEMS}
           onNavigate={(key) => navigate(key)}
+          onBack={location.pathname.startsWith('/market-detail/') ? () => navigate('/market-data') : undefined}
           topBar={topBar}
           center={
             <Suspense fallback={<PageSkeleton />}>

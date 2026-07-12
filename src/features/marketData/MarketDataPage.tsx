@@ -1017,6 +1017,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       success: true,
       fileName: `${currentQuote.code}-${currentQuote.name}-市场数据`,
       symbol: currentQuote.code,
+      name: currentQuote.name,
       dateRange: { from: candles[0]?.time ?? '', to: candles[candles.length - 1]?.time ?? '' },
       totalRows: candles.length,
       validRows: candles.length,
@@ -1108,7 +1109,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     : null;
 
   return <main className={`market-page${isWatchlistView ? ' market-watchlist-page' : ''}${isDetailView ? ' market-detail-page' : ''}`} tabIndex={0} aria-label={`${isWatchlistView ? '我的自选' : isDetailView ? '行情详情' : '市场数据'}内容，可上下滚动`} onKeyDown={handleScrollKeys}>
-    {!isWatchlistView && <>
+    {view === 'overview' && <>
     <section className="market-overview-header" aria-label="市场总览工具栏">
       <div className="market-overview-heading">
         <div><Title level={2}>市场总览</Title><Tag color="blue">沪深 A 股</Tag></div>
@@ -1157,6 +1158,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         onTogglePin={togglePinnedStock}
         onAdd={addStock}
         onRemove={removeStock}
+        onOpenDetail={openInstrumentDetail}
       />
     </section>
     </>}
@@ -1283,6 +1285,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         onTogglePin={togglePinnedStock}
         onAdd={addStock}
         onRemove={removeStock}
+        onOpenDetail={openInstrumentDetail}
       />
     </section>}
     </>}

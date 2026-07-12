@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getHistoryDailyBarsInRange, getLatestMarketSnapshot, getInstrumentKeyBySymbol } from './repositories/marketDataRepository.js';
 
 const TENCENT_QUOTE_URL = 'https://qt.gtimg.cn/q=';
 const TENCENT_KLINE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';
@@ -288,7 +289,7 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Pro
 
 async function eastmoneyGet(url: string, params: URLSearchParams, referer: string): Promise<Response> {
   const run = eastmoneyQueue.then(async () => {
-    const wait = Math.max(0, 1200 - (Date.now() - eastmoneyLastCall));
+    const wait = Math.max(0, 500 - (Date.now() - eastmoneyLastCall));
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait + Math.floor(Math.random() * 250)));
     let lastError: unknown;
     try {
@@ -638,8 +639,18 @@ async function fetchTencentAStockRows(universe: MarketUniverseItem[]): Promise<A
     const workerRows: Array<Record<string, unknown>> = [];
     while (cursor < chunks.length) {
       const chunk = chunks[cursor++];
-      const text = await fetchText(`${TENCENT_QUOTE_URL}${chunk.join(',')}`, 'gbk');
-      workerRows.push(...parseTencentSentimentRows(text, universeByCode));
+      try {
+        const response = await fetchWithRetry(
+          `${TENCENT_QUOTE_URL}${chunk.join(',')}`,
+          { headers: BROWSER_HEADERS },
+          3,
+        );
+        const bytes = await response.arrayBuffer();
+        const text = new TextDecoder('gbk').decode(bytes);
+        workerRows.push(...parseTencentSentimentRows(text, universeByCode));
+      } catch {
+        // 单个分片失败不影响其他分片；该分片数据缺失时由下游 AKShare 兜底。
+      }
     }
     return workerRows;
   });
@@ -727,6 +738,56 @@ async function refreshMarketTechnicalRows(): Promise<MarketTechnicalRow[]> {
     marketTechnicalRowsInFlight = null;
   });
   return marketTechnicalRowsInFlight;
+}
+
+/**
+ * 盘后模式：从本地 MySQL（quant_backtest）取全市场最新交易日（T-1 收盘）快照，
+ * 转为 MarketTechnicalRow。稳定、秒级，不依赖任何外部行情接口。
+ */
+export async function fetchMarketTechnicalRowsFromDb(
+  markets?: Array<'SH' | 'SZ' | 'BJ'>,
+): Promise<MarketTechnicalRow[]> {
+  const snapshot = await getLatestMarketSnapshot(markets);
+  return snapshot.map((row) => ({
+    code: row.code,
+    name: row.name,
+    market: row.market,
+    price: row.price,
+    changePct: row.changePct,
+    amountYi: row.amountYi,
+    turnoverPct: row.turnoverPct,
+    amplitudePct: row.amplitudePct,
+    volumeRatio: row.volumeRatio,
+  }));
+}
+
+/**
+ * 盘后模式：从 daily_bars_v2 取最近 count 个交易日的日 K 线（本地 MySQL），
+ * 转为 KlinePoint 供 analyzeHistoricalTechnicals 复用。
+ */
+export async function fetchStockKlineFromDb(
+  code: string,
+  period: 'day',
+  count = 120,
+): Promise<KlinePoint[]> {
+  const market = marketForCode(code);
+  const instrumentKey = await getInstrumentKeyBySymbol(code, market);
+  if (instrumentKey == null) return [];
+  const end = new Date();
+  const start = new Date(end.getTime() - 400 * 24 * 60 * 60 * 1000);
+  const endDate = end.toISOString().slice(0, 10);
+  const startDate = start.toISOString().slice(0, 10);
+  const bars = await getHistoryDailyBarsInRange(instrumentKey, startDate, endDate);
+  const recent = bars.slice(-count);
+  return recent.map((bar) => ({
+    date: bar.tradeDate,
+    open: Number(bar.open),
+    close: Number(bar.close),
+    high: Number(bar.high),
+    low: Number(bar.low),
+    volume: Number(bar.volume),
+    turnoverRatePct: bar.turnoverRatePct != null ? Number(bar.turnoverRatePct) : undefined,
+  }));
 }
 
 function buildMainNetInTrend(mainNetInYi: number): MarketSentimentOverview['mainNetInTrend'] {
@@ -1256,14 +1317,24 @@ function parseTencentQuote(
   };
 }
 
-export async function fetchStockKline(input: string, period: 'day' | 'week' | 'year', count = 320): Promise<KlinePoint[]> {
+export async function fetchStockKline(
+  input: string,
+  period: 'day' | 'week' | 'year',
+  count = 320,
+  adjustmentMode: 'none' | 'qfq' | 'hfq' = 'qfq',
+): Promise<KlinePoint[]> {
   const security = resolveSecurity(input);
   const { prefixed } = security;
+
+  // 前复权日 K 走东财（含 f61 换手率）+ 新浪补全的富链路；其余复权口径腾讯直接给出，跳过东财/新浪补全。
+  const useRichPath = adjustmentMode === 'qfq'
+    && period === 'day'
+    && inferType(security.code, security.market) === 'stock';
 
   // Eastmoney daily rows include f61, the exchange-reported daily turnover
   // rate. Tencent is retained as a fallback, but its K-line rows only contain
   // OHLCV and therefore cannot provide this field.
-  if (period === 'day' && inferType(security.code, security.market) === 'stock') {
+  if (useRichPath) {
     try {
       const eastmoneyPoints = await fetchEastmoneyDailyKline(input, count);
       if (eastmoneyPoints.length > 0) return eastmoneyPoints;
@@ -1277,8 +1348,9 @@ export async function fetchStockKline(input: string, period: 'day' | 'week' | 'y
   // monthly bars instead, then aggregate them so long-lived stocks retain history.
   const upstreamPeriod = period === 'year' ? 'month' : period;
   const upstreamCount = period === 'year' ? 500 : Math.min(Math.max(count, 30), 800);
+  const tencentAdjParam = adjustmentMode === 'none' ? '0' : adjustmentMode;
   const params = new URLSearchParams({
-    param: `${prefixed},${upstreamPeriod},,,${upstreamCount},qfq`,
+    param: `${prefixed},${upstreamPeriod},,,${upstreamCount},${tencentAdjParam}`,
     r: Math.random().toString(),
   });
   const response = await fetchWithRetry(`${TENCENT_KLINE_URL}?${params.toString()}`, {
@@ -1288,7 +1360,8 @@ export async function fetchStockKline(input: string, period: 'day' | 'week' | 'y
   if (!response.ok) throw new Error(`腾讯 K 线接口 HTTP ${response.status}`);
   const payload = await response.json() as { data?: Record<string, Record<string, unknown[][]>> };
   const node = payload.data?.[prefixed] ?? {};
-  const rows = node[`qfq${upstreamPeriod}`] ?? node[upstreamPeriod] ?? [];
+  const key = adjustmentMode === 'none' ? upstreamPeriod : `${adjustmentMode}${upstreamPeriod}`;
+  const rows = node[key] ?? node[`qfq${upstreamPeriod}`] ?? node[upstreamPeriod] ?? [];
   const points: KlinePoint[] = rows.flatMap((row) => {
     if (row.length < 6) return [];
     const [date, open, close, high, low, volume] = row;
@@ -1301,7 +1374,7 @@ export async function fetchStockKline(input: string, period: 'day' | 'week' | 'y
   // 降级链：东财 K 线（含 f61）→ 新浪（akshare，补全历史每日换手率）→ 腾讯行情快照（仅补最新一天实时值）
   // 腾讯 K 线本身只返回 OHLCV，无换手率；故在东财降级后优先用新浪补全全部交易日，
   // 最后才用腾讯行情快照兜底“最新一天”的实时换手率。
-  if (period === 'day' && inferType(security.code, security.market) === 'stock' && points.length > 0) {
+  if (useRichPath && points.length > 0) {
     // 第二级：新浪（akshare）补全历史每日换手率
     try {
       const sinaMap = await fetchSinaTurnoverSeries(security);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { App, Button, Checkbox, Collapse, Empty, InputNumber, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import { App, Button, Checkbox, Collapse, Empty, InputNumber, Segmented, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { FilterOutlined, MinusOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ReloadOutlined, StarFilled } from '@ant-design/icons';
 import { apiFetch } from '../../api/client';
 import { calculateSelectionScore } from './selectionScore';
@@ -84,6 +84,7 @@ interface StockSelectionWorkspaceProps {
   onTogglePin: (code: string) => void;
   onAdd: (stock: StockSearchItem) => void;
   onRemove: (code: string) => void;
+  onOpenDetail?: (stock: StockSearchItem) => void;
 }
 
 export default function StockSelectionWorkspace({
@@ -96,6 +97,7 @@ export default function StockSelectionWorkspace({
   onTogglePin,
   onAdd,
   onRemove,
+  onOpenDetail,
 }: StockSelectionWorkspaceProps) {
   const { message } = App.useApp();
   const [scores, setScores] = useState<Record<string, WatchlistScoreSnapshot>>(
@@ -113,6 +115,7 @@ export default function StockSelectionWorkspace({
     ...DEFAULT_SCREENER_CRITERIA,
     ...storedScreener.criteria,
   });
+  const [dataMode, setDataMode] = useState<'realtime' | 'close'>('realtime');
   const [screenSnapshot, setScreenSnapshot] = useState<MarketScreenerSnapshot | null>(storedScreener.snapshot);
   const [screenLoading, setScreenLoading] = useState(false);
   const [activeSections, setActiveSections] = useState<string[]>(mode === 'ranking' ? ['ranking'] : []);
@@ -194,7 +197,7 @@ export default function StockSelectionWorkspace({
       const next = await apiFetch<MarketScreenerSnapshot>('/api/market-data/technical-screen', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...criteria, force }),
+        body: JSON.stringify({ ...criteria, mode: dataMode, force }),
         timeoutMs: 180000,
       });
       setScreenSnapshot(next);
@@ -251,6 +254,21 @@ export default function StockSelectionWorkspace({
   </div>;
 
   const screenerTab = <div className="selection-screener">
+    <div className="selection-toolbar" style={{ marginBottom: 12 }}>
+      <Space>
+        <Text strong>数据源</Text>
+        <Segmented
+          value={dataMode}
+          onChange={(value) => setDataMode(value as 'realtime' | 'close')}
+          options={[
+            { label: '实时', value: 'realtime' },
+            { label: '盘后 (T-1)', value: 'close' },
+          ]}
+        />
+        <Text type="secondary">{dataMode === 'close' ? '盘后取本地 MySQL 快照，稳定快速' : '盘中实时行情，依赖外部接口'}</Text>
+      </Space>
+    </div>
+
     <div className="selection-filter-group">
       <Text strong>实时量价初筛</Text>
       <div className="selection-filter-grid">
@@ -300,7 +318,12 @@ export default function StockSelectionWorkspace({
       pagination={{ pageSize: 10, hideOnSinglePage: true, responsive: true }}
       scroll={{ x: 1520 }}
       columns={[
-        { title: '股票', width: 150, fixed: 'left', render: (_, row) => <div className="selection-stock-cell"><strong>{row.name}</strong><span>{row.code} · {row.market}</span></div> },
+        { title: '股票', width: 150, fixed: 'left', render: (_, row) => (
+          <div className="selection-stock-cell clickable" onClick={() => onOpenDetail?.({ code: row.code, name: row.name, market: row.market, type: 'stock' as const })}>
+            <strong>{row.name}</strong>
+            <span>{row.code} · {row.market}</span>
+          </div>
+        ) },
         { title: '技术分', dataIndex: 'technicalScore', width: 80, sorter: (a, b) => a.technicalScore - b.technicalScore },
         { title: '涨跌幅', dataIndex: 'changePct', width: 92, render: (value) => <span className={(value ?? 0) > 0 ? 'market-up' : (value ?? 0) < 0 ? 'market-down' : ''}>{numberText(value, '%')}</span> },
         { title: '均线趋势', width: 118, render: (_, row) => <Tooltip title={row.indicators ? `MA5 ${row.indicators.ma5} / MA10 ${row.indicators.ma10} / MA20 ${row.indicators.ma20} / MA60 ${row.indicators.ma60}` : '有效日 K 少于 65 根或加载失败'}>{trendTag(row.indicators)}</Tooltip> },

@@ -14,6 +14,7 @@ export interface ImportResult {
   success: boolean;
   fileName: string;
   symbol: string;
+  name?: string;
   dateRange: { from: string; to: string };
   totalRows: number;
   validRows: number;

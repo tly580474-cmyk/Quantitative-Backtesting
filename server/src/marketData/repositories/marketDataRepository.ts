@@ -681,3 +681,108 @@ export async function getDataFreshness(): Promise<DataFreshness> {
     openIssueCount: Number(openIssues?.count ?? 0),
   };
 }
+
+export interface MarketSnapshotRow {
+  instrumentKey: number;
+  code: string;
+  name: string;
+  market: 'SH' | 'SZ' | 'BJ';
+  price: number | null;
+  changePct: number | null;
+  amountYi: number | null;
+  turnoverPct: number | null;
+  amplitudePct: number | null;
+  volumeRatio: number | null;
+  isSt: boolean;
+}
+
+/**
+ * 取全市场最新交易日（盘后/快照）的量价快照：JOIN instruments（名称/市场）、
+ * daily_bars_v2 最新日（OHLC/成交额/换手率）、daily_stock_metrics 最新日（量比/ST）。
+ * 涨跌幅与振幅由 OHLC 在内存推导（库里不存储这两个字段）。
+ */
+export async function getLatestMarketSnapshot(
+  markets?: Array<'SH' | 'SZ' | 'BJ'>,
+): Promise<MarketSnapshotRow[]> {
+  const [latestRow] = await getDb()
+    .select({ maxDate: sql<string>`MAX(${dailyBarsV2.tradeDate})` })
+    .from(dailyBarsV2);
+  const latestDate = latestRow?.maxDate;
+  if (!latestDate) return [];
+
+  const latestDates = getDb()
+    .select({
+      instrumentKey: dailyBarsV2.instrumentKey,
+      latestTradeDate: max(dailyBarsV2.tradeDate).as('latest_trade_date'),
+    })
+    .from(dailyBarsV2)
+    .groupBy(dailyBarsV2.instrumentKey)
+    .as('latest_dates');
+
+  const rows = await getDb()
+    .select({
+      instrumentKey: instruments.instrumentKey,
+      code: instruments.symbol,
+      name: instruments.name,
+      market: instruments.market,
+      price: dailyBarsV2.close,
+      previousClose: dailyBarsV2.previousClose,
+      high: dailyBarsV2.high,
+      low: dailyBarsV2.low,
+      amount: dailyBarsV2.amount,
+      turnoverRatePct: dailyBarsV2.turnoverRatePct,
+      volumeRatio: dailyStockMetrics.volumeRatio,
+      isSt: dailyStockMetrics.isSt,
+    })
+    .from(instruments)
+    .innerJoin(latestDates, eq(instruments.instrumentKey, latestDates.instrumentKey))
+    .innerJoin(
+      dailyBarsV2,
+      and(
+        eq(dailyBarsV2.instrumentKey, latestDates.instrumentKey),
+        eq(dailyBarsV2.tradeDate, latestDates.latestTradeDate),
+      ),
+    )
+    .leftJoin(
+      dailyStockMetrics,
+      and(
+        eq(dailyStockMetrics.instrumentKey, latestDates.instrumentKey),
+        eq(dailyStockMetrics.tradeDate, latestDates.latestTradeDate),
+      ),
+    )
+    .where(markets && markets.length > 0 ? inArray(instruments.market, markets) : undefined);
+
+  return rows.map((row) => {
+    const prev = row.previousClose != null ? Number(row.previousClose) : null;
+    const price = row.price != null ? Number(row.price) : null;
+    const changePct = prev != null && prev > 0 && price != null ? (price / prev - 1) * 100 : null;
+    const amplitudePct = prev != null && prev > 0
+      ? ((Number(row.high) - Number(row.low)) / prev) * 100
+      : null;
+    return {
+      instrumentKey: Number(row.instrumentKey),
+      code: row.code,
+      name: row.name,
+      market: row.market as 'SH' | 'SZ' | 'BJ',
+      price,
+      changePct,
+      amountYi: row.amount != null ? Number(row.amount) / 100_000_000 : null,
+      turnoverPct: row.turnoverRatePct != null ? Number(row.turnoverRatePct) : null,
+      amplitudePct,
+      volumeRatio: row.volumeRatio != null ? Number(row.volumeRatio) : null,
+      isSt: Number(row.isSt) === 1,
+    };
+  });
+}
+
+export async function getInstrumentKeyBySymbol(
+  symbol: string,
+  market: string,
+): Promise<number | null> {
+  const [row] = await getDb()
+    .select({ instrumentKey: instruments.instrumentKey })
+    .from(instruments)
+    .where(and(eq(instruments.symbol, symbol), eq(instruments.market, market)))
+    .limit(1);
+  return row?.instrumentKey ?? null;
+}
