@@ -7,7 +7,52 @@ export interface FactorDefinition {
   direction: 'higher-is-better' | 'lower-is-better' | 'research';
   dependencies: string[];
   warmupDays: number;
-  expression: { type: 'builtin'; id: string };
+  expression: { type: 'builtin'; id: string } | { type: 'ast'; version: 1; root: Record<string, unknown> };
+}
+
+export interface FactorMiningTask {
+  id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
+  snapshotId: string;
+  config: Record<string, unknown>;
+  totalGenerations: number;
+  completedGenerations: number;
+  artifactUri?: string | null;
+  errorMessage?: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+}
+
+export type FactorCandidateStatus = 'draft' | 'frozen' | 'testing' | 'tested' | 'rejected' | 'approved';
+export interface FactorCandidate {
+  id: string;
+  taskId: string;
+  name: string;
+  formula: string;
+  expression: { type: 'ast'; version: 1; root: Record<string, unknown> };
+  direction: FactorDefinition['direction'];
+  dependencies: string[];
+  warmupDays: number;
+  status: FactorCandidateStatus;
+  validationMetrics: Record<string, unknown>;
+  lockedTestMetrics?: Record<string, unknown> | null;
+  sourceLineage: Record<string, unknown>;
+  factorRunId?: string | null;
+  rejectionReason?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  publishedFactorVersionId?: string | null;
+  updatedAt: string;
+}
+export interface MiningEvolutionPoint {
+  generation: string; seed?: string; best_train_fitness?: string;
+  best_val_fitness?: string; diversity?: string; avg_complexity?: string;
+}
+export interface FactorMiningSchedule {
+  id: string; name: string; enabled: number; config: Record<string, unknown>;
+  totalGenerations: number; lastSnapshotId?: string | null; lastTaskId?: string | null;
+  lastTestEndDate?: string | null;
 }
 
 export interface FactorCatalogItem {
@@ -92,6 +137,18 @@ export interface FactorReport {
   };
   daily: DailyFactorMetric[];
   layers: LayerMetric[];
+  portfolio: {
+    method: 'non-overlapping'; holdingDays: number; observationCount: number;
+    grossSharpe: number | null; netSharpe: number | null; stressedCostSharpe: number | null;
+    maxDrawdown: number | null; costBpsPerLeg: number;
+  };
+  robustness: {
+    coverageRate: number | null; sizeExposure: number | null; liquidityExposure: number | null;
+    averageTopLayerTurnover: number | null; capacityEstimate: number | null;
+    regimeRankIc: Array<{ startDate: string; endDate: string; averageRankIc: number | null }>;
+    groupStability: Array<{ dimension: 'market' | 'industry' | 'size' | 'regime';
+      bucket: string; sampleCount: number; ic: number | null }>;
+  };
   createdAt: string;
   artifactPath?: string;
 }
@@ -280,4 +337,69 @@ export function updateResearchSnapshot() {
     body: JSON.stringify({}),
     timeoutMs: 300000,
   });
+}
+
+export function fetchMiningTasks(limit = 20) {
+  return apiFetch<{ items: FactorMiningTask[] }>(`/api/factor-mining-tasks?limit=${limit}`);
+}
+
+export function fetchMiningTaskTrace(id: string) {
+  return apiFetch<{ items: MiningEvolutionPoint[] }>(`/api/factor-mining-tasks/${id}/trace`);
+}
+
+export function fetchMiningSchedules() {
+  return apiFetch<{ items: FactorMiningSchedule[] }>('/api/factor-mining-schedules');
+}
+
+export function createMiningSchedule(input: { name: string; totalGenerations: number;
+  config: Record<string, unknown> }) {
+  return apiFetch<{ schedule: FactorMiningSchedule }>('/api/factor-mining-schedules', {
+    method: 'POST', body: JSON.stringify(input),
+  });
+}
+
+export function createMiningTask(input: { totalGenerations: number; config: Record<string, unknown> }) {
+  return apiFetch<{ task: FactorMiningTask }>('/api/factor-mining-tasks', {
+    method: 'POST', body: JSON.stringify(input),
+  });
+}
+
+export function startMiningTask(id: string, resume = false) {
+  return apiFetch<{ taskId: string; pid: number }>(
+    `/api/factor-mining-tasks/${id}/${resume ? 'resume' : 'start'}`, { method: 'POST' });
+}
+
+export function cancelMiningTask(id: string) {
+  return apiFetch<{ canceled: boolean }>(`/api/factor-mining-tasks/${id}/cancel`, { method: 'POST' });
+}
+
+export function fetchFactorCandidates(taskId?: string) {
+  const query = taskId ? `?taskId=${encodeURIComponent(taskId)}` : '';
+  return apiFetch<{ items: FactorCandidate[] }>(`/api/factor-candidates${query}`);
+}
+
+export function freezeFactorCandidate(id: string) {
+  return apiFetch<{ candidate: FactorCandidate }>(`/api/factor-candidates/${id}/freeze`, { method: 'POST' });
+}
+
+export function testFactorCandidate(id: string, input: Omit<FactorRunRequest, 'factorId'>) {
+  return apiFetch<{ candidate: FactorCandidate; report: FactorReport }>(`/api/factor-candidates/${id}/test`, {
+    method: 'POST', body: JSON.stringify(input), timeoutMs: 300000,
+  });
+}
+
+export function approveFactorCandidate(id: string, approvedBy: string) {
+  return apiFetch<{ candidate: FactorCandidate }>(`/api/factor-candidates/${id}/approve`, {
+    method: 'POST', body: JSON.stringify({ approvedBy }),
+  });
+}
+
+export function rejectFactorCandidate(id: string, reason: string) {
+  return apiFetch<{ candidate: FactorCandidate }>(`/api/factor-candidates/${id}/reject`, {
+    method: 'POST', body: JSON.stringify({ reason }),
+  });
+}
+
+export function publishFactorCandidate(id: string) {
+  return apiFetch<{ versionId: string }>(`/api/factor-candidates/${id}/publish`, { method: 'POST' });
 }

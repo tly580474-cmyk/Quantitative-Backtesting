@@ -8,12 +8,29 @@ export type FactorDependency =
   | 'previousClose'
   | 'volume'
   | 'amount'
-  | 'turnoverRatePct';
+  | 'turnoverRatePct'
+  | 'totalMarketCap'
+  | 'industry';
 
-export interface FactorExpression {
+export interface BuiltinFactorExpression {
   type: 'builtin';
   id: string;
 }
+
+export type FactorAstTerminal = Exclude<FactorDependency, 'industry'> | 'returns' | 'vwap' | 'log_mktcap';
+
+export type FactorAstNode =
+  | { type: 'terminal'; name: FactorAstTerminal }
+  | { type: 'constant'; value: number }
+  | { type: 'operator'; op: string; args: FactorAstNode[]; window?: number };
+
+export interface AstFactorExpression {
+  type: 'ast';
+  version: 1;
+  root: FactorAstNode;
+}
+
+export type FactorExpression = BuiltinFactorExpression | AstFactorExpression;
 
 export interface FactorDefinition {
   id: string;
@@ -79,6 +96,30 @@ export interface FactorResearchReport {
   };
   daily: DailyFactorMetric[];
   layers: LayerMetric[];
+  portfolio: {
+    method: 'non-overlapping';
+    holdingDays: number;
+    observationCount: number;
+    grossSharpe: number | null;
+    netSharpe: number | null;
+    stressedCostSharpe: number | null;
+    maxDrawdown: number | null;
+    costBpsPerLeg: number;
+  };
+  robustness: {
+    coverageRate: number | null;
+    sizeExposure: number | null;
+    liquidityExposure: number | null;
+    averageTopLayerTurnover: number | null;
+    capacityEstimate: number | null;
+    regimeRankIc: Array<{ startDate: string; endDate: string; averageRankIc: number | null }>;
+    groupStability: Array<{
+      dimension: 'market' | 'industry' | 'size' | 'regime';
+      bucket: string;
+      sampleCount: number;
+      ic: number | null;
+    }>;
+  };
   createdAt: string;
 }
 

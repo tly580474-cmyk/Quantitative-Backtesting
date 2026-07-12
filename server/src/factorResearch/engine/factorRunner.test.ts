@@ -5,7 +5,8 @@ import { mkdtemp } from 'node:fs/promises';
 import { DuckDBInstance } from '@duckdb/node-api';
 import { describe, expect, it } from 'vitest';
 import { sha256File, type ResearchSnapshotManifest } from '../../research/snapshotManifest.js';
-import { runFactorResearch } from './factorRunner.js';
+import { auditFactorCorrelations, auditFactorDecay, runFactorResearch } from './factorRunner.js';
+import { getBuiltinFactor } from '../definitions/builtins.js';
 
 describe('factor runner', () => {
   it('evaluates a builtin factor from a published Parquet snapshot without returning the full matrix', async () => {
@@ -46,6 +47,41 @@ describe('factor runner', () => {
       },
       writeReport: false,
     })).rejects.toThrow('超出当前快照最大日期');
+  });
+
+  it('re-evaluates an AST candidate through the same snapshot engine', async () => {
+    const root = await createFixtureSnapshot();
+    const factorId = 'candidate_fixture';
+    const report = await runFactorResearch({
+      snapshotRoot: root,
+      factorDefinition: {
+        id: factorId, name: '候选', description: 'AST candidate', direction: 'higher-is-better',
+        dependencies: ['close', 'previousClose'], warmupDays: 5,
+        expression: { type: 'ast', version: 1, root: {
+          type: 'operator', op: 'ts_mean', window: 5,
+          args: [{ type: 'terminal', name: 'returns' }],
+        } },
+      },
+      config: { factorId, startDate: '2026-01-25', endDate: '2026-02-08',
+        horizonDays: 2, layers: 3 },
+      writeReport: false,
+    });
+    expect(report.factor.expression.type).toBe('ast');
+    expect(report.summary.sampleCount).toBeGreaterThan(0);
+  });
+
+  it('audits candidate redundancy against published factor definitions', async () => {
+    const root = await createFixtureSnapshot();
+    const candidate = getBuiltinFactor('momentum_20')!;
+    const references = [getBuiltinFactor('roc_10')!, getBuiltinFactor('reversal_5')!];
+    const correlations = await auditFactorCorrelations({ snapshotRoot: root, candidate, references,
+      startDate: '2026-01-25', endDate: '2026-02-08' });
+    expect(correlations).toHaveLength(2);
+    expect(correlations.every((item) => item.correlation === null
+      || Math.abs(item.correlation) <= 1)).toBe(true);
+    const decay = await auditFactorDecay({ snapshotRoot: root, factor: candidate,
+      startDate: '2026-01-25', endDate: '2026-02-08', horizons: [1, 2, 5] });
+    expect(decay.map((item) => item.horizonDays)).toEqual([1, 2, 5]);
   });
 });
 

@@ -18,8 +18,8 @@ export function requireBuiltinFactor(id: string): FactorDefinition {
   return factor;
 }
 
-export function validateFactorRunConfig(input: FactorRunConfig): FactorRunConfig {
-  requireBuiltinFactor(input.factorId);
+export function validateFactorRunConfig(input: FactorRunConfig, customFactorId?: string): FactorRunConfig {
+  if (input.factorId !== customFactorId) requireBuiltinFactor(input.factorId);
   if (!DATE_PATTERN.test(input.startDate) || !DATE_PATTERN.test(input.endDate)) {
     throw new Error('研究区间必须使用 YYYY-MM-DD 日期');
   }

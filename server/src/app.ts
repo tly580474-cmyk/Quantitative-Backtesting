@@ -168,6 +168,12 @@ async function main(): Promise<void> {
     snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
     artifactRoot: config.FACTOR_RESEARCH_ROOT,
     pool,
+    miningWorker: {
+      pythonExecutable: config.FACTOR_MINER_PYTHON,
+      minerRoot: config.FACTOR_MINER_ROOT,
+      timeoutMs: Math.max(60_000, parseInt(config.FACTOR_MINER_TIMEOUT_MS, 10) || 3_600_000),
+      maxMemoryMb: Math.max(256, parseInt(config.FACTOR_MINER_MAX_MEMORY_MB, 10) || 4096),
+    },
     ai: {
       enabled: aiEnabled,
       configured: aiConfigured,
@@ -177,14 +183,27 @@ async function main(): Promise<void> {
       timeoutMs: parseInt(config.OPENAI_TIMEOUT_MS, 10),
     },
   });
+  if (dbOnline) {
+    const { startMiningScheduler } = await import('./factorResearch/mining/miningScheduler.js');
+    startMiningScheduler({
+      pythonExecutable: config.FACTOR_MINER_PYTHON,
+      minerRoot: config.FACTOR_MINER_ROOT,
+      snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
+      artifactRoot: config.FACTOR_RESEARCH_ROOT,
+      timeoutMs: Math.max(60_000, parseInt(config.FACTOR_MINER_TIMEOUT_MS, 10) || 3_600_000),
+      maxMemoryMb: Math.max(256, parseInt(config.FACTOR_MINER_MAX_MEMORY_MB, 10) || 4096),
+    });
+  }
 
   // Graceful shutdown
   const shutdown = async () => {
     console.log('[Server] Shutting down...');
     const { stopScheduler } = await import('./marketData/jobs/syncScheduler.js');
     const { stopIndexDatasetScheduler } = await import('./marketData/jobs/indexDatasetScheduler.js');
+    const { stopMiningScheduler } = await import('./factorResearch/mining/miningScheduler.js');
     stopScheduler();
     stopIndexDatasetScheduler();
+    stopMiningScheduler();
     await app.close();
     closeDb();
     await closePool(pool);

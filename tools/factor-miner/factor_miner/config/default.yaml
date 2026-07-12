@@ -1,0 +1,124 @@
+# =====================================================================
+# 遗传算法自动因子挖掘系统 · 默认配置
+# 纯 Python + 自研 GP 引擎 + 本地 MySQL 真实 A 股
+# =====================================================================
+
+# ---------------------- 数据层 ----------------------
+data:
+  source: "snapshot"          # snapshot（推荐，共用主项目事实源）| mysql（兼容旧流程）
+  snapshot_root: "../../server/data/research-snapshots"
+  verify_snapshot_checksums: false # 发布时已校验；审计运行可开启逐分区 SHA-256
+  host: "127.0.0.1"
+  port: 3306
+  user: "user1"              # 只读账号
+  password: ""                # 仅供本地临时覆盖；推荐使用 FACTOR_MINER_DB_PASSWORD
+  database: "quant_backtest"
+  start_date: "2010-01-01"   # 取数起点（更早数据稀疏）
+  train_end: "2021-12-31"    # 训练集截止
+  valid_end: "2023-12-31"    # 验证集截止；之后为测试集
+  label_window: 5            # 主标签窗口：ret_5（进化/验收使用）
+  label_windows: [5]         # M2：多窗口收益标签（如 [5,10,20]），首个为进化主窗口
+  label_price: "next_open_to_close" # T 日信号，T+1 开盘进入，T+h 收盘退出
+  use_adjusted: false        # M2：复权（需 daily_stock_metrics.adj_factor 列；true 时改用后复权收益）
+  sample_symbols: 0          # >0 时随机抽样 N 个标的（调试/快速验证用）
+  sample_seed: 20260710      # 随机抽样种子（保证可复现；None 则 ORDER BY RAND()）
+  engine: "pandas"           # M3-2：数据加载引擎 "pandas"(默认) | "dask"（分块+惰性，突破内存）
+  cache_dir: "output/cache/raw_parquet"  # M3-2：分块抽取落盘的 parquet 分区目录
+  gp_panel_symbols: 0     # M3-2：Dask 路径物化前的 GP 面板标的数（dask 侧抽样，内存安全；0=不抽样=全市场物化）
+  universe:
+    exclude_index: true      # 剔除指数（不可交易标的）
+    exclude_st: true         # 剔除 ST
+    exclude_suspended: true  # 剔除停牌（volume=0）
+    exclude_delisted: true   # 剔除未上市/已退市区间
+    recent_listing_days: 0   # M2：次新股过滤（如 60/250）
+    exclude_limit: false     # M2：剔除涨跌停当日样本
+    limit_pct: 0.095         # M2：涨跌停判定阈值（主板 ±9.5%）
+
+# ---------------------- 算子集 ----------------------
+primitives:
+  terminals:
+    [open, high, low, close, volume, amount, vwap, turnover,
+     market_cap, pe_ttm, pb, ps_ttm, returns, log_mktcap]
+  functions:
+    [add, sub, mul, div, neg, abs, log, sqrt, sign, inv, power, min, max,
+     cs_rank, cs_scale, cs_zscore, cs_mean, cs_std, cs_min, cs_max, cs_decay_linear,
+     cs_neutralize, cs_indneutral,
+     ts_delay, ts_delta, ts_mean, ts_std, ts_min, ts_max, ts_sum, ts_product,
+     ts_rank, ts_argmax, ts_argmin, ts_corr, ts_cov,
+     greater, lesser, if_else]
+  constants: {min: -1.0, max: 1.0, p_const: 0.1}
+
+# ---------------------- 进化引擎 ----------------------
+evolution:
+  population_size: 300
+  generations: 40
+  min_depth_init: 2
+  max_depth_init: 4
+  max_depth: 6               # 进化中生成树的最大深度（可读性 + 防过拟合）
+  tournament_size: 5
+  elite_size: 3
+  crossover_rate: 0.8
+  mutation_rate: 0.2
+  seed: 20260710
+  n_jobs: 1                  # >1 启用多进程并行求值（Windows 需包可导入）
+  checkpoint_freq: 5         # 每 N 代保存检查点
+  early_stop: {patience: 10, min_delta: 1.0e-4}
+  # M2：种子因子保护——把已知有效因子注入种群并保证每代保留，不被交叉/变异淘汰
+  # 注意：须用「前缀表达式」格式（与 from_prefix 一致），例如 (inv amount)
+  seed_factors:
+    - "(inv amount)"
+    - "(cs_rank returns)"
+
+# ---------------------- 适应度 ----------------------
+fitness:
+  complexity_w_depth: 1.0    # 复杂度 = w_depth*depth + w_node*node_count
+  complexity_w_node: 0.1
+  lambda_complexity: 5.0e-4  # 复杂度惩罚权重（预测力主导，惩罚很小）
+  lambda_corr: 0.1           # 相关性惩罚权重（对齐已入选因子，鼓励多样性）
+  corr_subsample: 20000      # 相关性惩罚计算时的行下采样
+  use_combined_panel: false  # 方法学门禁：进化选择只能读取训练集；该选项保留仅为兼容旧配置
+  # M2：风险项（驱动 GP 主动偏好中性化 / 稳健因子）
+  lambda_const: 0.1          # 近常量惩罚（横截面 CV 过小的退化表达式）
+  const_cv_thresh: 0.01      # CV 低于此阈触发近常量惩罚
+  lambda_icir: 0.05          # ICIR 奖励（稳定性，中性化因子天然更高）
+  lambda_consistency: 0.1    # 前后半样本 RankIC 符号反转惩罚（抗过拟合）
+
+# ---------------------- 滚动时序验证（M2） ----------------------
+validation:
+  rolling: true              # expanding walk-forward；每折保留评价日前的完整预热历史
+  n_folds: 3                 # 滚动折数
+
+# ---------------------- 组合评价 ----------------------
+backtest:
+  commission_bps: 3.0       # 单边佣金
+  slippage_bps: 5.0         # 单边滑点
+  stamp_tax_bps: 5.0        # 卖出印花税
+
+robustness:
+  search_seeds: [20260710, 20260711, 20260712]
+  stressed_cost_multiplier: 2.0
+
+# ---------------------- 因子验收阈值（入库硬门槛） ----------------------
+acceptance:
+  oos_abs_rankic: 0.02       # 样本外 |RankIC|
+  icir: 0.5                  # IC 信息比率
+  ic_t: 2.0                  # IC t 值（显著性）
+  long_short_sharpe: 1.0     # 多空组合年化夏普
+  deflated_sharpe_probability: 0.95 # 多重公式试验校正后的最低置信概率
+  stressed_cost_sharpe: 0.0 # 双倍成本压力下夏普仍须为正
+  max_drawdown: -0.15        # 多空最大回撤（≤）
+  oos_ic_decay: 0.30         # 训练→测试 IC 衰减（≤）
+  factor_corr: 0.7           # 与已入选因子相关性（≤）
+  long_excess_positive: true # 多头超额收益 > 0
+
+# ---------------------- 报告 / 输出 ----------------------
+report:
+  top_k: 20
+  out_dir: "output"
+
+# ---------------------- 因子库持久化（M3） ----------------------
+persistence:
+  enabled: true                 # 进化结束后把因子入库（SQLite + Parquet + JSON 轨迹）
+  root: "output/factor_library" # 因子库根目录
+  version: "v1"                 # 实验版本号（便于多版本管理）
+  store_values: true            # 是否把因子取值落 Parquet（复用 / 可视化）

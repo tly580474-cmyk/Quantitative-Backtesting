@@ -1,0 +1,4 @@
+# 日志配置
+level: "INFO"                 # DEBUG / INFO / WARNING / ERROR
+log_dir: "output/logs"       # 日志目录 (自动创建)
+format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"

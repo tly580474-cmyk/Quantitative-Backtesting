@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'mysql2/promise';
+import { readFile } from 'node:fs/promises';
+import { relative, resolve } from 'node:path';
 import { z } from 'zod';
 import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
-import { runFactorResearch } from '../factorResearch/engine/factorRunner.js';
+import { auditFactorCorrelations, auditFactorDecay, runFactorResearch } from '../factorResearch/engine/factorRunner.js';
 import { runCompositeFactorResearch } from '../factorResearch/engine/compositeRunner.js';
 import {
   cancelFactorRun,
@@ -21,11 +23,35 @@ import {
   getResearchSnapshotFreshness,
 } from '../research/snapshotFreshness.js';
 import { interpretFactorReport } from '../factorResearch/reportInterpreter.js';
+import {
+  candidateToFactorDefinition,
+  createFactorCandidate,
+  createMiningTask,
+  createMiningSchedule,
+  getFactorCandidate,
+  getMiningTask,
+  listFactorCandidates,
+  listMiningTasks,
+  listMiningSchedules,
+  publishApprovedCandidate,
+  transitionFactorCandidate,
+  updateMiningSchedule,
+} from '../factorResearch/candidates/candidateRepository.js';
+import type { FactorAstNode } from '../factorResearch/definitions/schema.js';
+import { listBuiltinFactors } from '../factorResearch/definitions/validator.js';
+import { readCurrentSnapshot } from '../research/snapshotManifest.js';
+import { cancelMiningWorker, startMiningWorker } from '../factorResearch/mining/miningWorker.js';
 
 interface FactorResearchRouteConfig {
   snapshotRoot: string;
   artifactRoot: string;
   pool: Pool;
+  miningWorker: {
+    pythonExecutable: string;
+    minerRoot: string;
+    timeoutMs: number;
+    maxMemoryMb: number;
+  };
   ai: {
     enabled: boolean;
     configured: boolean;
@@ -61,6 +87,27 @@ const compositeRunBodySchema = z.object({
   minDailyAmount: z.number().min(0).optional(),
 });
 
+const factorAstNodeSchema: z.ZodType<FactorAstNode> = z.lazy(() => z.discriminatedUnion('type', [
+  z.object({ type: z.literal('terminal'), name: z.enum([
+    'open', 'high', 'low', 'close', 'previousClose', 'volume', 'amount',
+    'turnoverRatePct', 'totalMarketCap', 'returns', 'vwap', 'log_mktcap',
+  ]) }),
+  z.object({ type: z.literal('constant'), value: z.number().finite() }),
+  z.object({
+    type: z.literal('operator'), op: z.string().min(1).max(32),
+    args: z.array(factorAstNodeSchema).max(8), window: z.number().int().min(2).max(252).optional(),
+  }),
+]));
+const candidateBodySchema = z.object({
+  taskId: z.string().uuid(), name: z.string().trim().min(1).max(255),
+  formula: z.string().min(1).max(2000),
+  expression: z.object({ type: z.literal('ast'), version: z.literal(1), root: factorAstNodeSchema }),
+  direction: z.enum(['higher-is-better', 'lower-is-better', 'research']),
+  validationMetrics: z.record(z.string(), z.unknown()),
+  sourceLineage: z.record(z.string(), z.unknown()),
+});
+const candidateTestBodySchema = factorRunBodySchema.omit({ factorId: true });
+
 export function registerFactorResearchRoutes(
   app: FastifyInstance,
   dbOnline: boolean,
@@ -77,8 +124,241 @@ export function registerFactorResearchRoutes(
     app.post('/api/factor-runs/:id/retry', stub);
     app.post('/api/factor-runs', stub);
     app.post('/api/factor-composites', stub);
+    app.get('/api/factor-candidates', stub);
+    app.post('/api/factor-mining-tasks', stub);
+    app.get('/api/factor-mining-tasks', stub);
+    app.post('/api/factor-mining-tasks/:id/start', stub);
+    app.post('/api/factor-mining-tasks/:id/resume', stub);
+    app.post('/api/factor-mining-tasks/:id/cancel', stub);
+    app.get('/api/factor-mining-tasks/:id/trace', stub);
+    app.get('/api/factor-mining-schedules', stub);
+    app.post('/api/factor-mining-schedules', stub);
+    app.post('/api/factor-mining-schedules/:id/toggle', stub);
+    app.post('/api/factor-candidates', stub);
+    app.post('/api/factor-candidates/:id/freeze', stub);
+    app.post('/api/factor-candidates/:id/test', stub);
+    app.post('/api/factor-candidates/:id/approve', stub);
+    app.post('/api/factor-candidates/:id/reject', stub);
+    app.post('/api/factor-candidates/:id/publish', stub);
     return;
   }
+
+  app.post<{ Body: { config?: Record<string, unknown>; lineage?: Record<string, unknown>;
+    totalGenerations?: number; artifactUri?: string } }>('/api/factor-mining-tasks', async (req, reply) => {
+    const current = await readCurrentSnapshot(config.snapshotRoot);
+    if (!current) return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR, '没有已发布研究快照'));
+    const task = await createMiningTask({
+      snapshotId: current.manifest.snapshotId,
+      config: req.body?.config ?? {},
+      lineage: { ...(req.body?.lineage ?? {}), sourceVersion: current.manifest.sourceVersion },
+      totalGenerations: Math.max(1, Math.min(10000, Number(req.body?.totalGenerations ?? 1))),
+      artifactUri: req.body?.artifactUri,
+    });
+    return reply.status(201).send({ task });
+  });
+
+  app.get<{ Querystring: { limit?: string } }>('/api/factor-mining-tasks', async (req, reply) => {
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? '20', 10) || 20));
+    return reply.send({ items: await listMiningTasks(limit) });
+  });
+
+  app.get<{ Params: { id: string } }>('/api/factor-mining-tasks/:id/trace', async (req, reply) => {
+    const task = await getMiningTask(req.params.id);
+    if (!task) return reply.status(404).send(apiError(ErrorCodes.RESULT_NOT_FOUND, '挖掘任务不存在'));
+    if (!task.artifactUri) return reply.send({ items: [] });
+    const path = resolve(task.artifactUri, 'evolution_trace.csv');
+    const root = resolve(config.artifactRoot);
+    const rel = relative(root, path);
+    if (rel.startsWith('..') || rel.includes(':')) return reply.status(409).send(
+      apiError(ErrorCodes.VALIDATION_ERROR, '任务轨迹路径越界'));
+    try {
+      const lines = (await readFile(path, 'utf8')).trim().split(/\r?\n/);
+      if (lines.length < 2) return reply.send({ items: [] });
+      const headers = lines[0].replace(/^\uFEFF/, '').split(',');
+      const items = lines.slice(1).map((line) => Object.fromEntries(
+        splitCsvLine(line).map((value, index) => [headers[index], value])));
+      return reply.send({ items });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return reply.send({ items: [] });
+      throw error;
+    }
+  });
+
+  app.get('/api/factor-mining-schedules', async (_req, reply) => reply.send({
+    items: await listMiningSchedules(false),
+  }));
+  app.post<{ Body: { name?: string; config?: Record<string, unknown>; totalGenerations?: number } }>(
+    '/api/factor-mining-schedules', async (req, reply) => {
+      const current = await readCurrentSnapshot(config.snapshotRoot);
+      if (!current) return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR, '没有已发布研究快照'));
+      try {
+        const schedule = await createMiningSchedule({ name: req.body?.name ?? '快照更新自动挖掘',
+          config: req.body?.config ?? {}, totalGenerations: Math.max(2,
+            Math.min(1000, Number(req.body?.totalGenerations ?? 40))),
+          lastSnapshotId: current.manifest.snapshotId,
+          lastTestEndDate: current.manifest.maxDate });
+        return reply.status(201).send({ schedule });
+      } catch (error) { return reply.status(400).send(apiError(ErrorCodes.VALIDATION_ERROR,
+        error instanceof Error ? error.message : '调度配置无效')); }
+    },
+  );
+  app.post<{ Params: { id: string }; Body: { enabled?: boolean } }>(
+    '/api/factor-mining-schedules/:id/toggle', async (req, reply) => {
+      await updateMiningSchedule(req.params.id, { enabled: req.body?.enabled === false ? 0 : 1 });
+      return reply.send({ updated: true });
+    },
+  );
+
+  const launchMiningTask = async (id: string, resume: boolean) => startMiningWorker(id, {
+    ...config.miningWorker,
+    snapshotRoot: config.snapshotRoot,
+    artifactRoot: config.artifactRoot,
+  }, resume);
+
+  app.post<{ Params: { id: string } }>('/api/factor-mining-tasks/:id/start', async (req, reply) => {
+    try { return reply.status(202).send(await launchMiningTask(req.params.id, false)); }
+    catch (error) { return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR,
+      error instanceof Error ? error.message : '任务启动失败')); }
+  });
+  app.post<{ Params: { id: string } }>('/api/factor-mining-tasks/:id/resume', async (req, reply) => {
+    try { return reply.status(202).send(await launchMiningTask(req.params.id, true)); }
+    catch (error) { return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR,
+      error instanceof Error ? error.message : '任务恢复失败')); }
+  });
+  app.post<{ Params: { id: string } }>('/api/factor-mining-tasks/:id/cancel', async (req, reply) => {
+    const canceled = await cancelMiningWorker(req.params.id);
+    return canceled ? reply.send({ canceled: true }) : reply.status(409).send(
+      apiError(ErrorCodes.VALIDATION_ERROR, '任务未在当前服务进程运行'));
+  });
+
+  app.get<{ Querystring: { taskId?: string; status?: 'draft' | 'frozen' | 'testing' | 'tested' | 'rejected' | 'approved' } }>(
+    '/api/factor-candidates', async (req, reply) => reply.send({
+      items: await listFactorCandidates(req.query.taskId, req.query.status),
+    }),
+  );
+
+  app.post<{ Body: z.infer<typeof candidateBodySchema> }>('/api/factor-candidates', async (req, reply) => {
+    const parsed = candidateBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.status(400).send(
+      apiError(ErrorCodes.VALIDATION_ERROR, '候选因子参数无效', parsed.error.issues));
+    try {
+      return reply.status(201).send({ candidate: await createFactorCandidate(parsed.data) });
+    } catch (error) {
+      return reply.status(400).send(apiError(ErrorCodes.VALIDATION_ERROR,
+        error instanceof Error ? error.message : '候选因子无效'));
+    }
+  });
+
+  app.post<{ Params: { id: string } }>('/api/factor-candidates/:id/freeze', async (req, reply) => {
+    try {
+      const candidate = await transitionFactorCandidate(req.params.id, 'frozen', {});
+      return candidate ? reply.send({ candidate }) : reply.status(404).send(
+        apiError(ErrorCodes.RESULT_NOT_FOUND, '候选因子不存在'));
+    } catch (error) {
+      return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR,
+        error instanceof Error ? error.message : '候选冻结失败'));
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: z.infer<typeof candidateTestBodySchema> }>(
+    '/api/factor-candidates/:id/test', async (req, reply) => {
+      const parsed = candidateTestBodySchema.safeParse(req.body ?? {});
+      if (!parsed.success) return reply.status(400).send(
+        apiError(ErrorCodes.VALIDATION_ERROR, '锁定测试参数无效', parsed.error.issues));
+      const candidate = await getFactorCandidate(req.params.id);
+      if (!candidate) return reply.status(404).send(apiError(ErrorCodes.RESULT_NOT_FOUND, '候选因子不存在'));
+      if (candidate.status !== 'frozen') return reply.status(409).send(
+        apiError(ErrorCodes.VALIDATION_ERROR, '只有 frozen 候选可以执行锁定测试'));
+      try {
+        await transitionFactorCandidate(candidate.id, 'testing', {});
+        await assertResearchSnapshotFresh(config.pool, config.snapshotRoot);
+        const definition = candidateToFactorDefinition(candidate);
+        const report = await runFactorResearch({
+          snapshotRoot: config.snapshotRoot, artifactRoot: config.artifactRoot,
+          factorDefinition: definition,
+          config: { factorId: definition.id, ...parsed.data }, writeReport: true,
+        });
+        const persisted = await persistCompletedFactorRun(report, report.config);
+        const [correlations, factorDecay] = await Promise.all([
+          auditFactorCorrelations({ snapshotRoot: config.snapshotRoot, candidate: definition,
+            references: listBuiltinFactors(), startDate: report.config.startDate, endDate: report.config.endDate }),
+          auditFactorDecay({ snapshotRoot: config.snapshotRoot, factor: definition,
+            startDate: report.config.startDate, endDate: report.config.endDate }),
+        ]);
+        const maxPublishedFactorCorrelation = correlations.reduce((max, item) =>
+          item.correlation === null ? max : Math.max(max, Math.abs(item.correlation)), 0);
+        const closestPublishedFactor = correlations.reduce<(typeof correlations)[number] | null>((closest, item) => {
+          if (item.correlation === null) return closest;
+          return !closest || closest.correlation === null
+            || Math.abs(item.correlation) > Math.abs(closest.correlation) ? item : closest;
+        }, null);
+        const updated = await transitionFactorCandidate(candidate.id, 'tested', {
+          lockedTestMetrics: {
+            ...report.summary,
+            portfolio: report.portfolio,
+            robustness: report.robustness,
+            correlations,
+            factorDecay,
+            maxPublishedFactorCorrelation,
+            marginalInformationIc: closestPublishedFactor?.marginalIc ?? null,
+            closestPublishedFactorId: closestPublishedFactor?.factorId ?? null,
+          },
+          factorRunId: persisted.runId,
+        });
+        return reply.status(201).send({ candidate: updated, ...persisted, report });
+      } catch (error) {
+        req.log.error(error);
+        const latest = await getFactorCandidate(candidate.id);
+        if (latest?.status === 'testing') {
+          await transitionFactorCandidate(candidate.id, 'rejected', {
+            rejectionReason: `锁定测试执行失败：${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+        return reply.status(503).send({ message: error instanceof Error ? error.message : '锁定测试失败' });
+      }
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { approvedBy?: string } }>(
+    '/api/factor-candidates/:id/approve', async (req, reply) => {
+      try {
+        const candidate = await transitionFactorCandidate(req.params.id, 'approved', {
+          approvedBy: req.body?.approvedBy,
+        });
+        return candidate ? reply.send({ candidate }) : reply.status(404).send(
+          apiError(ErrorCodes.RESULT_NOT_FOUND, '候选因子不存在'));
+      } catch (error) {
+        return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR,
+          error instanceof Error ? error.message : '候选批准失败'));
+      }
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { reason?: string } }>(
+    '/api/factor-candidates/:id/reject', async (req, reply) => {
+      try {
+        const candidate = await transitionFactorCandidate(req.params.id, 'rejected', {
+          rejectionReason: req.body?.reason,
+        });
+        return candidate ? reply.send({ candidate }) : reply.status(404).send(
+          apiError(ErrorCodes.RESULT_NOT_FOUND, '候选因子不存在'));
+      } catch (error) {
+        return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR,
+          error instanceof Error ? error.message : '候选拒绝失败'));
+      }
+    },
+  );
+
+  app.post<{ Params: { id: string } }>('/api/factor-candidates/:id/publish', async (req, reply) => {
+    try {
+      const published = await publishApprovedCandidate(req.params.id);
+      return published ? reply.status(published.alreadyPublished ? 200 : 201).send(published)
+        : reply.status(404).send(apiError(ErrorCodes.RESULT_NOT_FOUND, '候选因子不存在'));
+    } catch (error) {
+      return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR,
+        error instanceof Error ? error.message : '候选发布失败'));
+    }
+  });
 
   app.get('/api/factors', async (_req, reply) => {
     await syncBuiltinFactorCatalog();
@@ -348,4 +628,19 @@ function parseStoredRunConfig(
     };
   }
   return { ok: true, kind: 'single', config: parsed.data };
+}
+
+function splitCsvLine(line: string): string[] {
+  const values: string[] = [];
+  let value = ''; let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '"') {
+      if (quoted && line[index + 1] === '"') { value += '"'; index += 1; }
+      else quoted = !quoted;
+    } else if (char === ',' && !quoted) { values.push(value); value = ''; }
+    else value += char;
+  }
+  values.push(value);
+  return values;
 }

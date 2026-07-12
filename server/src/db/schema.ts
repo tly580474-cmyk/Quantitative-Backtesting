@@ -487,3 +487,61 @@ export const factorReports = mysqlTable('factor_reports', {
   runIdx: index('idx_frep_run').on(table.runId),
   createdAtIdx: index('idx_frep_created_at').on(table.createdAt),
 }));
+
+export const factorMiningTasks = mysqlTable('factor_mining_tasks', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  status: varchar('status', { length: 16 }).notNull().default('pending'),
+  snapshotId: varchar('snapshot_id', { length: 128 }).notNull(),
+  config: json('config').notNull(),
+  lineage: json('lineage').notNull(),
+  totalGenerations: int('total_generations').notNull().default(0),
+  completedGenerations: int('completed_generations').notNull().default(0),
+  artifactUri: varchar('artifact_uri', { length: 1024 }),
+  errorMessage: varchar('error_message', { length: 1000 }),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  startedAt: varchar('started_at', { length: 24 }),
+  finishedAt: varchar('finished_at', { length: 24 }),
+}, (table) => ({
+  statusIdx: index('idx_fmt_status_created').on(table.status, table.createdAt),
+  snapshotIdx: index('idx_fmt_snapshot').on(table.snapshotId),
+}));
+
+export const factorCandidates = mysqlTable('factor_candidates', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  taskId: varchar('task_id', { length: 36 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  formula: varchar('formula', { length: 2000 }).notNull(),
+  expression: json('expression').notNull(),
+  direction: varchar('direction', { length: 24 }).notNull(),
+  dependencies: json('dependencies').notNull(),
+  warmupDays: int('warmup_days').notNull().default(0),
+  status: varchar('status', { length: 16 }).notNull().default('draft'),
+  validationMetrics: json('validation_metrics').notNull(),
+  lockedTestMetrics: json('locked_test_metrics'),
+  sourceLineage: json('source_lineage').notNull(),
+  factorRunId: varchar('factor_run_id', { length: 36 }),
+  publishedFactorVersionId: varchar('published_factor_version_id', { length: 96 }),
+  rejectionReason: varchar('rejection_reason', { length: 1000 }),
+  approvedBy: varchar('approved_by', { length: 128 }),
+  approvedAt: varchar('approved_at', { length: 24 }),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+}, (table) => ({
+  taskStatusIdx: index('idx_fc_task_status').on(table.taskId, table.status),
+  updatedAtIdx: index('idx_fc_updated_at').on(table.updatedAt),
+}));
+
+export const factorMiningSchedules = mysqlTable('factor_mining_schedules', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  enabled: int('enabled').notNull().default(1),
+  config: json('config').notNull(),
+  totalGenerations: int('total_generations').notNull(),
+  lastSnapshotId: varchar('last_snapshot_id', { length: 128 }),
+  lastTestEndDate: varchar('last_test_end_date', { length: 10 }),
+  lastTaskId: varchar('last_task_id', { length: 36 }),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+}, (table) => ({
+  enabledIdx: index('idx_fms_enabled_updated').on(table.enabled, table.updatedAt),
+}));

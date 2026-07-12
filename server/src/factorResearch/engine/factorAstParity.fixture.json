@@ -1,0 +1,56 @@
+{
+  "expression": {
+    "type": "ast",
+    "version": 1,
+    "root": {
+      "type": "operator",
+      "op": "neg",
+      "args": [
+        {
+          "type": "operator",
+          "op": "ts_mean",
+          "window": 5,
+          "args": [{ "type": "terminal", "name": "returns" }]
+        }
+      ]
+    }
+  },
+  "gpPrefix": "(neg (ts_mean returns 5))",
+  "rows": [
+    { "tradeDate": "2024-01-02", "close": 11.0, "previousClose": 10.0, "logMktCap": 1.0 },
+    { "tradeDate": "2024-01-03", "close": 12.0, "previousClose": 10.0, "logMktCap": 2.0 },
+    { "tradeDate": "2024-01-04", "close": 9.0, "previousClose": 10.0, "logMktCap": 3.0 },
+    { "tradeDate": "2024-01-05", "close": 10.5, "previousClose": 10.0, "logMktCap": 4.0 },
+    { "tradeDate": "2024-01-08", "close": 11.5, "previousClose": 10.0, "logMktCap": 5.0 },
+    { "tradeDate": "2024-01-09", "close": 10.0, "previousClose": 10.0, "logMktCap": 6.0 }
+  ],
+  "compareFrom": "2024-01-08",
+  "expected": [-0.08, -0.06],
+  "scalarExpression": {
+    "type": "ast",
+    "version": 1,
+    "root": {
+      "type": "operator",
+      "op": "log",
+      "args": [{ "type": "operator", "op": "sub", "args": [
+        { "type": "terminal", "name": "close" }, { "type": "constant", "value": 12.0 }
+      ] }]
+    }
+  },
+  "scalarGpPrefix": "(log (sub close 12))",
+  "scalarExpected": [-0.6931471805599453, 0.0, -1.3862943611198906, -0.9162907318741551, -0.4054651081081644, -1.0986122886681098],
+  "neutralExpression": {
+    "type": "ast", "version": 1,
+    "root": { "type": "operator", "op": "cs_neutralize", "args": [
+      { "type": "terminal", "name": "close" }, { "type": "terminal", "name": "log_mktcap" }
+    ] }
+  },
+  "neutralGpPrefix": "(cs_neutralize close log_mktcap)",
+  "neutralExpected": [-0.02380952380952317, 1.1190476190476197, -1.7380952380952375, -0.09523809523809465, 1.0476190476190481, -0.309523809523809],
+  "rankExpression": { "type": "ast", "version": 1,
+    "root": { "type": "operator", "op": "cs_rank", "args": [{ "type": "terminal", "name": "close" }] } },
+  "rankGpPrefix": "(cs_rank close)",
+  "rankValues": [1.0, 2.0, 2.0, 4.0, null],
+  "rankExpected": [0.25, 0.625, 0.625, 1.0, null],
+  "tolerance": 1e-12
+}

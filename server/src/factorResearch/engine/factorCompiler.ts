@@ -1,4 +1,83 @@
-import type { FactorDefinition } from '../definitions/schema.js';
+import { validateAndAnalyzeFactorAst } from '../definitions/factorAst.js';
+import type { FactorAstNode, FactorDefinition } from '../definitions/schema.js';
+
+export function compileFactorSql(factor: FactorDefinition): string {
+  if (factor.expression.type === 'builtin') return compileBuiltinFactorSql(factor);
+  if (factor.expression.version !== 1) throw new Error(`不支持的因子 AST 版本：${factor.expression.version}`);
+  const analysis = validateAndAnalyzeFactorAst(factor.expression.root);
+  if (factor.warmupDays < analysis.warmupDays) {
+    throw new Error(`因子预热期 ${factor.warmupDays} 小于 AST 所需 ${analysis.warmupDays}`);
+  }
+  const declared = new Set(factor.dependencies);
+  const missing = analysis.dependencies.filter((dependency) => !declared.has(dependency));
+  if (missing.length) throw new Error(`因子依赖声明缺少：${missing.join(', ')}`);
+  return compileAstNode(factor.expression.root);
+}
+
+function compileAstNode(node: FactorAstNode): string {
+  if (node.type === 'constant') return sqlNumber(node.value);
+  if (node.type === 'terminal') {
+    if (node.name === 'returns') return '(close / NULLIF(previousClose, 0) - 1)';
+    if (node.name === 'vwap') return '(amount / NULLIF(volume, 0))';
+    if (node.name === 'log_mktcap') return 'LN(NULLIF(totalMarketCap, 0))';
+    return node.name;
+  }
+  if (isAnalyticOperator(node.op) && node.args.some(containsAnalyticOperator)) {
+    throw new Error('当前 AST 协议不允许嵌套时间序列或截面窗口算子');
+  }
+  const args = node.args.map(compileAstNode);
+  switch (node.op) {
+    case 'add': return `(${args[0]} + ${args[1]})`;
+    case 'sub': return `(${args[0]} - ${args[1]})`;
+    case 'mul': return `(${args[0]} * ${args[1]})`;
+    case 'div': return `(${args[0]} / CASE WHEN ABS(${args[1]}) > 1e-9 THEN ${args[1]} ELSE 1.0 END)`;
+    case 'min': return `(CASE WHEN ${args[0]} IS NULL OR ${args[1]} IS NULL THEN NULL ELSE LEAST(${args[0]}, ${args[1]}) END)`;
+    case 'max': return `(CASE WHEN ${args[0]} IS NULL OR ${args[1]} IS NULL THEN NULL ELSE GREATEST(${args[0]}, ${args[1]}) END)`;
+    case 'neg': return `(-1 * ${args[0]})`;
+    case 'abs': return `ABS(${args[0]})`;
+    case 'log': return `(SIGN(${args[0]}) * LN(1 + ABS(${args[0]})))`;
+    case 'sqrt': return `SQRT(ABS(${args[0]}))`;
+    case 'sign': return `SIGN(${args[0]})`;
+    case 'inv': return `(1 / NULLIF(${args[0]}, 0))`;
+    case 'cs_rank': return `(CASE WHEN ${args[0]} IS NULL THEN NULL ELSE (RANK() OVER (PARTITION BY tradeDate ORDER BY ${args[0]} NULLS LAST) + (COUNT(${args[0]}) OVER (PARTITION BY tradeDate, ${args[0]}) - 1) / 2.0) / COUNT(${args[0]}) OVER (PARTITION BY tradeDate) END)`;
+    case 'cs_zscore': return `((${args[0]}) - AVG(${args[0]}) OVER (PARTITION BY tradeDate)) / NULLIF(STDDEV_SAMP(${args[0]}) OVER (PARTITION BY tradeDate), 0)`;
+    case 'cs_neutralize': {
+      const yMean = `AVG(${args[0]}) OVER (PARTITION BY tradeDate)`;
+      const xMean = `AVG(${args[1]}) OVER (PARTITION BY tradeDate)`;
+      const beta = `COALESCE(COVAR_POP(${args[0]}, ${args[1]}) OVER (PARTITION BY tradeDate) / NULLIF(VAR_POP(${args[1]}) OVER (PARTITION BY tradeDate), 0), 0)`;
+      return `((${args[0]}) - ${yMean} - (${beta}) * ((${args[1]}) - ${xMean}))`;
+    }
+    case 'cs_indneutral': return `((${args[0]}) - AVG(${args[0]}) OVER (PARTITION BY tradeDate, COALESCE(industry, 'UNK')))`;
+    case 'ts_delay': return `LAG(${args[0]}, ${node.window}) OVER instrument_window`;
+    case 'ts_delta': return `((${args[0]}) - LAG(${args[0]}, ${node.window}) OVER instrument_window)`;
+    case 'ts_mean': return rolling('AVG', args[0], node.window!);
+    case 'ts_std': return rolling('STDDEV_SAMP', args[0], node.window!);
+    case 'ts_min': return rolling('MIN', args[0], node.window!);
+    case 'ts_max': return rolling('MAX', args[0], node.window!);
+    case 'ts_sum': return rolling('SUM', args[0], node.window!);
+    default: throw new Error(`不支持的因子算子：${node.op}`);
+  }
+}
+
+function isAnalyticOperator(op: string): boolean {
+  return op.startsWith('ts_') || op.startsWith('cs_');
+}
+
+function containsAnalyticOperator(node: FactorAstNode): boolean {
+  return node.type === 'operator'
+    && (isAnalyticOperator(node.op) || node.args.some(containsAnalyticOperator));
+}
+
+function rolling(fn: string, expression: string, window: number): string {
+  const frame = `PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN ${window - 1} PRECEDING AND CURRENT ROW`;
+  const minPeriods = Math.max(2, Math.floor(window * 0.6));
+  return `(CASE WHEN COUNT(${expression}) OVER (${frame}) >= ${minPeriods} THEN ${fn}(${expression}) OVER (${frame}) ELSE NULL END)`;
+}
+
+function sqlNumber(value: number): string {
+  if (!Number.isFinite(value)) throw new Error('因子 AST 常数必须是有限数');
+  return Number.isInteger(value) ? `${value}.0` : String(value);
+}
 
 export function compileBuiltinFactorSql(factor: FactorDefinition): string {
   switch (factor.id) {
