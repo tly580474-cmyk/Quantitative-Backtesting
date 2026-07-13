@@ -501,6 +501,9 @@ export const factorMiningTasks = mysqlTable('factor_mining_tasks', {
   createdAt: varchar('created_at', { length: 24 }).notNull(),
   startedAt: varchar('started_at', { length: 24 }),
   finishedAt: varchar('finished_at', { length: 24 }),
+  workerPid: int('worker_pid'),
+  archivedAt: varchar('archived_at', { length: 24 }),
+  deletedAt: varchar('deleted_at', { length: 24 }),
 }, (table) => ({
   statusIdx: index('idx_fmt_status_created').on(table.status, table.createdAt),
   snapshotIdx: index('idx_fmt_snapshot').on(table.snapshotId),

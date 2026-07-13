@@ -743,7 +743,7 @@ export default function FactorResearchPage() {
           </section>
         </main>
       </div>
-      <section className="factor-panel" style={{ marginTop: 16 }}>
+      <section className="factor-panel factor-automated-panel">
         <WorkbenchPanel title="自动因子挖掘" subtitle="验证筛选、锁定测试、人工批准、显式发布">
           <AutomatedMiningPanel />
         </WorkbenchPanel>

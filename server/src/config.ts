@@ -33,7 +33,8 @@ const envSchema = z.object({
   FACTOR_RESEARCH_ROOT: z.string().default('./data/factor-research'),
   FACTOR_MINER_PYTHON: z.string().default('python'),
   FACTOR_MINER_ROOT: z.string().default('../tools/factor-miner'),
-  FACTOR_MINER_TIMEOUT_MS: z.string().default('3600000'),
+  // 系统级硬上限；单个任务仍可在界面设置更短的超时。
+  FACTOR_MINER_TIMEOUT_MS: z.string().default('21600000'),
   FACTOR_MINER_MAX_MEMORY_MB: z.string().default('4096'),
 
   PORT: z.string().default('3001'),

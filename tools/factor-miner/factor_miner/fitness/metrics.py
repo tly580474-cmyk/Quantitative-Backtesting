@@ -177,7 +177,7 @@ def correlation_penalty(factor: pd.Series, selected_arrays, subsample: int = 200
 # 综合适应度
 # ---------------------------------------------------------------------------
 def fitness_of(node: Node, panel: pd.DataFrame, fwd_col: str, cfg: dict,
-               selected_arrays=None) -> tuple[float, dict]:
+               selected_arrays=None, rolling_valid_dates=None) -> tuple[float, dict]:
     """计算个体适应度。
 
     fit = base + λ_icir·icir − λ_complex·complexity − λ_corr·corr_pen
@@ -207,6 +207,21 @@ def fitness_of(node: Node, panel: pd.DataFrame, fwd_col: str, cfg: dict,
     base = float(ic_series.mean()) if len(ic_series) else np.nan
     if not np.isfinite(base):
         return -np.inf, {}
+
+    # Walk-forward 选择适应度只需要按各验证窗聚合已经算好的“日频 RankIC”。
+    # 旧路径会为每个个体再次求值整棵表达式，并在每一折重复做横截面排名；
+    # 这里保持完全相同的统计口径，但复用上面的 factor rank / label rank。
+    rolling = False
+    rolling_base = None
+    if rolling_valid_dates:
+        fold_bases = []
+        for dates in rolling_valid_dates:
+            fold_ic = ic_series.reindex(dates).dropna()
+            if len(fold_ic):
+                fold_bases.append(float(fold_ic.mean()))
+        if fold_bases:
+            rolling_base = float(np.mean(fold_bases))
+            rolling = True
 
     # ---- 复杂度惩罚 ----
     w_depth = float(fc.get("complexity_w_depth", 1.0))
@@ -255,13 +270,16 @@ def fitness_of(node: Node, panel: pd.DataFrame, fwd_col: str, cfg: dict,
             consistency_pen = lambda_cons * (abs(ic1) + abs(ic2)) / 2.0
 
     fit = base + icir_reward - pen - corr_pen - const_pen - consistency_pen
+    if rolling_base is not None:
+        fit += rolling_base - base
     detail = {
-        "base": float(base),
+        "base": float(rolling_base if rolling_base is not None else base),
         "icir": float(icir) if np.isfinite(icir) else None,
         "complexity": float(complexity),
         "corr_raw": float(corr_raw),
         "corr_penalty": float(corr_pen),
         "const_penalty": float(const_pen),
         "consistency_penalty": float(consistency_pen),
+        "rolling": rolling,
     }
     return float(fit), detail

@@ -73,23 +73,6 @@ def _rolling_folds(panel: pd.DataFrame, n_folds: int = 3):
     return folds
 
 
-def _rolling_base(node: Node, folds, fwd_col: str, panel: pd.DataFrame) -> float:
-    """各折验证 RankIC 均值；因子在完整历史上计算后再截取，保留预热。"""
-    bases = []
-    try:
-        full_factor = as_series(evaluate_tree(node, panel), panel)
-    except Exception:
-        return -np.inf
-    for _, va_mask in folds:
-        try:
-            b = mean_rankic(full_factor[va_mask], panel.loc[va_mask, fwd_col])
-            if np.isfinite(b):
-                bases.append(b)
-        except Exception:
-            continue
-    return float(np.mean(bases)) if bases else -np.inf
-
-
 def _evaluate_population(pop: list[Node], panel: pd.DataFrame, fwd_col: str,
                          cfg: dict, selected_arrays, rolling_folds=None):
     n_jobs = int(cfg.get("evolution", {}).get("n_jobs", 1))
@@ -107,15 +90,14 @@ def _evaluate_population(pop: list[Node], panel: pd.DataFrame, fwd_col: str,
             return
         except Exception as exc:  # 并行失败回退单进程
             logger.warning("并行求值失败，回退单进程: %s", exc)
+    rolling_valid_dates = None
+    if rolling_folds is not None:
+        panel_dates = panel.index.get_level_values(1)
+        rolling_valid_dates = [panel_dates[va_mask].unique()
+                               for _, va_mask in rolling_folds]
     for ind in pop:
-        fit, detail = fitness_of(ind, panel, fwd_col, cfg, selected_arrays)
-        # 滚动验证模式：用各折 OOS RankIC 均值替换选择适应度的 base
-        if rolling_folds is not None and np.isfinite(fit):
-            base_ov = _rolling_base(ind, rolling_folds, fwd_col, panel)
-            if np.isfinite(base_ov):
-                fit = base_ov + (fit - detail["base"])
-                detail["base"] = float(base_ov)
-                detail["rolling"] = True
+        fit, detail = fitness_of(ind, panel, fwd_col, cfg, selected_arrays,
+                                 rolling_valid_dates=rolling_valid_dates)
         ind.fitness, ind.metrics = fit, detail
 
 

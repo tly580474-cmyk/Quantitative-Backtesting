@@ -82,7 +82,7 @@ export async function auditFactorCorrelations(options: {
       sourceEndDate: dateOffset(options.endDate, Math.max(horizonDays * 3, 30)) });
     const row = reader.getRowObjectsJson()[0] ?? {};
     return references.map((factor, index) => ({ factorId: factor.id,
-      correlation: nullableNumber(row[`corr_${index}`]),
+      correlation: boundedCorrelation(row[`corr_${index}`]),
       marginalIc: nullableNumber(row[`marginal_${index}`]) }));
   } finally { connection.closeSync(); instance.closeSync(); }
 }
@@ -424,8 +424,14 @@ async function writeReport(
 }
 
 function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function boundedCorrelation(value: unknown): number | null {
+  const numeric = nullableNumber(value);
+  return numeric === null ? null : Math.max(-1, Math.min(1, numeric));
 }
 
 function ratio(numerator: unknown, denominator: unknown): number | null {

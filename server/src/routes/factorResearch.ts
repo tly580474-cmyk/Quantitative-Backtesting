@@ -25,9 +25,11 @@ import {
 import { interpretFactorReport } from '../factorResearch/reportInterpreter.js';
 import {
   candidateToFactorDefinition,
+  archiveMiningTask,
   createFactorCandidate,
   createMiningTask,
   createMiningSchedule,
+  deleteMiningTask,
   getFactorCandidate,
   getMiningTask,
   listFactorCandidates,
@@ -38,9 +40,14 @@ import {
   updateMiningSchedule,
 } from '../factorResearch/candidates/candidateRepository.js';
 import type { FactorAstNode } from '../factorResearch/definitions/schema.js';
+import { factorAstRequiresMaterialization } from '../factorResearch/definitions/factorAst.js';
 import { listBuiltinFactors } from '../factorResearch/definitions/validator.js';
 import { readCurrentSnapshot } from '../research/snapshotManifest.js';
 import { cancelMiningWorker, startMiningWorker } from '../factorResearch/mining/miningWorker.js';
+import {
+  assertLockedTestCoverage,
+  assertLockedTestLineage,
+} from '../factorResearch/candidates/lockedTestValidation.js';
 
 interface FactorResearchRouteConfig {
   snapshotRoot: string;
@@ -108,6 +115,47 @@ const candidateBodySchema = z.object({
 });
 const candidateTestBodySchema = factorRunBodySchema.omit({ factorId: true });
 
+async function runLockedCandidateTest(
+  candidateId: string,
+  definition: ReturnType<typeof candidateToFactorDefinition>,
+  input: z.infer<typeof candidateTestBodySchema>,
+  config: FactorResearchRouteConfig,
+): Promise<void> {
+  const report = await runFactorResearch({
+    snapshotRoot: config.snapshotRoot, artifactRoot: config.artifactRoot,
+    factorDefinition: definition,
+    config: { factorId: definition.id, ...input }, writeReport: true,
+  });
+  assertLockedTestCoverage(report.summary);
+  const persisted = await persistCompletedFactorRun(report, report.config);
+  const [correlations, factorDecay] = await Promise.all([
+    auditFactorCorrelations({ snapshotRoot: config.snapshotRoot, candidate: definition,
+      references: listBuiltinFactors(), startDate: report.config.startDate, endDate: report.config.endDate }),
+    auditFactorDecay({ snapshotRoot: config.snapshotRoot, factor: definition,
+      startDate: report.config.startDate, endDate: report.config.endDate }),
+  ]);
+  const maxPublishedFactorCorrelation = correlations.reduce((max, item) =>
+    item.correlation === null ? max : Math.max(max, Math.abs(item.correlation)), 0);
+  const closestPublishedFactor = correlations.reduce<(typeof correlations)[number] | null>((closest, item) => {
+    if (item.correlation === null) return closest;
+    return !closest || closest.correlation === null
+      || Math.abs(item.correlation) > Math.abs(closest.correlation) ? item : closest;
+  }, null);
+  await transitionFactorCandidate(candidateId, 'tested', {
+    lockedTestMetrics: {
+      ...report.summary,
+      portfolio: report.portfolio,
+      robustness: report.robustness,
+      correlations,
+      factorDecay,
+      maxPublishedFactorCorrelation,
+      marginalInformationIc: closestPublishedFactor?.marginalIc ?? null,
+      closestPublishedFactorId: closestPublishedFactor?.factorId ?? null,
+    },
+    factorRunId: persisted.runId,
+  });
+}
+
 export function registerFactorResearchRoutes(
   app: FastifyInstance,
   dbOnline: boolean,
@@ -130,6 +178,8 @@ export function registerFactorResearchRoutes(
     app.post('/api/factor-mining-tasks/:id/start', stub);
     app.post('/api/factor-mining-tasks/:id/resume', stub);
     app.post('/api/factor-mining-tasks/:id/cancel', stub);
+    app.post('/api/factor-mining-tasks/:id/archive', stub);
+    app.delete('/api/factor-mining-tasks/:id', stub);
     app.get('/api/factor-mining-tasks/:id/trace', stub);
     app.get('/api/factor-mining-schedules', stub);
     app.post('/api/factor-mining-schedules', stub);
@@ -157,9 +207,9 @@ export function registerFactorResearchRoutes(
     return reply.status(201).send({ task });
   });
 
-  app.get<{ Querystring: { limit?: string } }>('/api/factor-mining-tasks', async (req, reply) => {
+  app.get<{ Querystring: { limit?: string; includeArchived?: string } }>('/api/factor-mining-tasks', async (req, reply) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? '20', 10) || 20));
-    return reply.send({ items: await listMiningTasks(limit) });
+    return reply.send({ items: await listMiningTasks(limit, req.query.includeArchived === 'true') });
   });
 
   app.get<{ Params: { id: string } }>('/api/factor-mining-tasks/:id/trace', async (req, reply) => {
@@ -230,6 +280,24 @@ export function registerFactorResearchRoutes(
     return canceled ? reply.send({ canceled: true }) : reply.status(409).send(
       apiError(ErrorCodes.VALIDATION_ERROR, '任务未在当前服务进程运行'));
   });
+  app.post<{ Params: { id: string }; Body: { archived?: boolean } }>(
+    '/api/factor-mining-tasks/:id/archive', async (req, reply) => {
+      try {
+        const task = await archiveMiningTask(req.params.id, req.body?.archived !== false);
+        return task ? reply.send({ task }) : reply.status(404).send(
+          apiError(ErrorCodes.RESULT_NOT_FOUND, '挖掘任务不存在'));
+      } catch (error) { return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR,
+        error instanceof Error ? error.message : '任务归档失败')); }
+    },
+  );
+  app.delete<{ Params: { id: string } }>('/api/factor-mining-tasks/:id', async (req, reply) => {
+    try {
+      const task = await deleteMiningTask(req.params.id);
+      return task ? reply.send({ deleted: true }) : reply.status(404).send(
+        apiError(ErrorCodes.RESULT_NOT_FOUND, '挖掘任务不存在'));
+    } catch (error) { return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR,
+      error instanceof Error ? error.message : '任务删除失败')); }
+  });
 
   app.get<{ Querystring: { taskId?: string; status?: 'draft' | 'frozen' | 'testing' | 'tested' | 'rejected' | 'approved' } }>(
     '/api/factor-candidates', async (req, reply) => reply.send({
@@ -270,51 +338,39 @@ export function registerFactorResearchRoutes(
       if (candidate.status !== 'frozen') return reply.status(409).send(
         apiError(ErrorCodes.VALIDATION_ERROR, '只有 frozen 候选可以执行锁定测试'));
       try {
-        await transitionFactorCandidate(candidate.id, 'testing', {});
+        assertLockedTestLineage(candidate.sourceLineage, parsed.data);
+      } catch (error) {
+        return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR,
+          error instanceof Error ? error.message : '锁定测试血缘无效'));
+      }
+      const expression = candidate.expression as { root?: FactorAstNode };
+      if (expression.root && factorAstRequiresMaterialization(expression.root)) {
+        return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR,
+          '该候选包含嵌套窗口算子，已保留；请先完成离线因子值物化后再执行锁定测试'));
+      }
+      try {
         await assertResearchSnapshotFresh(config.pool, config.snapshotRoot);
         const definition = candidateToFactorDefinition(candidate);
-        const report = await runFactorResearch({
-          snapshotRoot: config.snapshotRoot, artifactRoot: config.artifactRoot,
-          factorDefinition: definition,
-          config: { factorId: definition.id, ...parsed.data }, writeReport: true,
+        const testingCandidate = await transitionFactorCandidate(candidate.id, 'testing', {});
+        void runLockedCandidateTest(candidate.id, definition, parsed.data, config).catch(async (error) => {
+          app.log.error({ err: error, candidateId: candidate.id }, 'Locked candidate test failed');
+          try {
+            const latest = await getFactorCandidate(candidate.id);
+            if (latest?.status === 'testing') {
+              await transitionFactorCandidate(candidate.id, 'rejected', {
+                rejectionReason: `锁定测试执行失败：${error instanceof Error ? error.message : String(error)}`,
+              });
+            }
+          } catch (statusError) {
+            app.log.error({ err: statusError, candidateId: candidate.id },
+              'Failed to persist locked candidate test failure');
+          }
         });
-        const persisted = await persistCompletedFactorRun(report, report.config);
-        const [correlations, factorDecay] = await Promise.all([
-          auditFactorCorrelations({ snapshotRoot: config.snapshotRoot, candidate: definition,
-            references: listBuiltinFactors(), startDate: report.config.startDate, endDate: report.config.endDate }),
-          auditFactorDecay({ snapshotRoot: config.snapshotRoot, factor: definition,
-            startDate: report.config.startDate, endDate: report.config.endDate }),
-        ]);
-        const maxPublishedFactorCorrelation = correlations.reduce((max, item) =>
-          item.correlation === null ? max : Math.max(max, Math.abs(item.correlation)), 0);
-        const closestPublishedFactor = correlations.reduce<(typeof correlations)[number] | null>((closest, item) => {
-          if (item.correlation === null) return closest;
-          return !closest || closest.correlation === null
-            || Math.abs(item.correlation) > Math.abs(closest.correlation) ? item : closest;
-        }, null);
-        const updated = await transitionFactorCandidate(candidate.id, 'tested', {
-          lockedTestMetrics: {
-            ...report.summary,
-            portfolio: report.portfolio,
-            robustness: report.robustness,
-            correlations,
-            factorDecay,
-            maxPublishedFactorCorrelation,
-            marginalInformationIc: closestPublishedFactor?.marginalIc ?? null,
-            closestPublishedFactorId: closestPublishedFactor?.factorId ?? null,
-          },
-          factorRunId: persisted.runId,
-        });
-        return reply.status(201).send({ candidate: updated, ...persisted, report });
+        return reply.status(202).send({ candidate: testingCandidate });
       } catch (error) {
         req.log.error(error);
-        const latest = await getFactorCandidate(candidate.id);
-        if (latest?.status === 'testing') {
-          await transitionFactorCandidate(candidate.id, 'rejected', {
-            rejectionReason: `锁定测试执行失败：${error instanceof Error ? error.message : String(error)}`,
-          });
-        }
-        return reply.status(503).send({ message: error instanceof Error ? error.message : '锁定测试失败' });
+        return reply.status(503).send(apiError(ErrorCodes.INTERNAL_ERROR,
+          error instanceof Error ? error.message : '锁定测试启动失败'));
       }
     },
   );

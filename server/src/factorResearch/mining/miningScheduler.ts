@@ -1,11 +1,19 @@
+import { join, resolve } from 'node:path';
+import { DuckDBInstance } from '@duckdb/node-api';
 import { readCurrentSnapshot } from '../../research/snapshotManifest.js';
 import {
   createMiningTask, listMiningSchedules, updateMiningSchedule,
 } from '../candidates/candidateRepository.js';
 import { startMiningWorker, type MiningWorkerOptions } from './miningWorker.js';
+import {
+  hasMinimumLockedTestCalendarSpan,
+  MIN_LOCKED_TEST_SAMPLES,
+  MIN_LOCKED_TEST_TRADING_DAYS,
+} from '../candidates/lockedTestValidation.js';
 
 let timer: NodeJS.Timeout | null = null;
 let ticking = false;
+const windowCoverageCache = new Map<string, { rows: number; tradingDays: number }>();
 
 export function startMiningScheduler(options: MiningWorkerOptions, intervalMs = 300_000): void {
   if (timer) return;
@@ -32,10 +40,16 @@ export async function runMiningScheduleTick(options: MiningWorkerOptions): Promi
   let launched = 0;
   for (const schedule of schedules) {
     if (!shouldLaunchForSnapshot(schedule.lastSnapshotId, current.manifest.snapshotId)) continue;
+    const priorTestEndDate = schedule.lastTestEndDate ?? current.manifest.minDate;
+    if (!hasMinimumLockedTestCalendarSpan(priorTestEndDate, current.manifest.maxDate)) continue;
+    const coverage = await readScheduledWindowCoverage(options.snapshotRoot,
+      current.manifest.snapshotId, priorTestEndDate, current.manifest.maxDate);
+    if (coverage.rows < MIN_LOCKED_TEST_SAMPLES
+      || coverage.tradingDays < MIN_LOCKED_TEST_TRADING_DAYS) continue;
     const task = await createMiningTask({
       snapshotId: current.manifest.snapshotId,
       config: rollScheduledSplit(schedule.config as Record<string, unknown>,
-        schedule.lastTestEndDate ?? current.manifest.minDate),
+        priorTestEndDate),
       lineage: { scheduleId: schedule.id, sourceVersion: current.manifest.sourceVersion,
         priorSnapshotId: schedule.lastSnapshotId },
       totalGenerations: schedule.totalGenerations,
@@ -72,4 +86,33 @@ export function rollScheduledSplit(config: Record<string, unknown>, priorTestEnd
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown> : {};
+}
+
+async function readScheduledWindowCoverage(
+  snapshotRoot: string,
+  snapshotId: string,
+  priorEndDate: string,
+  currentEndDate: string,
+): Promise<{ rows: number; tradingDays: number }> {
+  const cacheKey = `${snapshotId}:${priorEndDate}:${currentEndDate}`;
+  const cached = windowCoverageCache.get(cacheKey);
+  if (cached) return cached;
+  const parquetGlob = join(resolve(snapshotRoot), snapshotId, 'bars', 'year=*', '*.parquet')
+    .replaceAll('\\', '/');
+  const instance = await DuckDBInstance.create(':memory:', { threads: '1', max_memory: '256MB' });
+  const connection = await instance.connect();
+  try {
+    const reader = await connection.runAndReadAll(`
+      SELECT COUNT(*) AS rowCount, COUNT(DISTINCT tradeDate) AS tradingDays
+      FROM read_parquet('${parquetGlob.replaceAll("'", "''")}', hive_partitioning = true)
+      WHERE tradeDate > $priorEndDate AND tradeDate <= $currentEndDate
+    `, { priorEndDate, currentEndDate });
+    const row = reader.getRowObjectsJson()[0] ?? {};
+    const coverage = { rows: Number(row.rowCount ?? 0), tradingDays: Number(row.tradingDays ?? 0) };
+    windowCoverageCache.set(cacheKey, coverage);
+    return coverage;
+  } finally {
+    connection.closeSync();
+    instance.closeSync();
+  }
 }

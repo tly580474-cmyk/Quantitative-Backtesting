@@ -1704,7 +1704,10 @@ body {
   padding: 12px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
   background: #f8fafc;
   color: #0f172a;
 }
@@ -1755,13 +1758,20 @@ body {
 }
 
 .factor-workbench {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  height: max(640px, calc(100dvh - 190px));
   min-width: 0;
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(360px, 420px) minmax(0, 1fr);
   gap: 10px;
   overflow: hidden;
+}
+
+.factor-automated-panel {
+  flex: 0 0 auto;
+  margin-top: 16px;
+  margin-bottom: 4px;
 }
 
 .factor-console,

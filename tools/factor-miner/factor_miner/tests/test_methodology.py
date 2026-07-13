@@ -7,7 +7,12 @@ import pandas as pd
 from factor_miner.analysis.layer import layer_backtest
 from factor_miner.data.loader import _build_derived, make_synthetic_panel
 from factor_miner.engine.evolve import _rolling_folds
-from run_mining import _build_run_manifest
+from factor_miner.engine.evaluator import as_series, evaluate_tree
+from factor_miner.fitness.metrics import fitness_of, mean_rankic
+from factor_miner.tree.serialize import from_prefix
+from run_mining import (
+    _build_run_manifest, _load_completed_seed, _save_completed_seed,
+)
 
 
 def test_synthetic_panel_is_strictly_time_split():
@@ -70,6 +75,34 @@ def test_walk_forward_is_expanding_and_validation_is_future_only(panels):
         assert len(train_dates) > previous_train_count
         assert train_dates.max() < valid_dates.min()
         previous_train_count = len(train_dates)
+
+
+def test_rolling_fitness_reuses_daily_rankic_without_changing_value(cfg, panels):
+    panel = panels["train"]
+    fwd_col = "forward_ret_5"
+    node = from_prefix("(ts_mean returns 5)")
+    folds = _rolling_folds(panel, n_folds=3)
+    dates = panel.index.get_level_values(1)
+    valid_dates = [dates[valid_mask].unique() for _, valid_mask in folds]
+
+    regular_fit, regular_detail = fitness_of(node, panel, fwd_col, cfg, [])
+    factor = as_series(evaluate_tree(node, panel), panel)
+    fold_bases = [mean_rankic(factor[mask], panel.loc[mask, fwd_col])
+                  for _, mask in folds]
+    expected = float(np.mean([value for value in fold_bases if np.isfinite(value)]))
+    rolling_fit, rolling_detail = fitness_of(
+        node, panel, fwd_col, cfg, [], rolling_valid_dates=valid_dates)
+
+    assert np.isclose(rolling_detail["base"], expected)
+    assert np.isclose(rolling_fit, regular_fit + expected - regular_detail["base"])
+    assert rolling_detail["rolling"] is True
+
+
+def test_completed_seed_trace_round_trip(tmp_path):
+    trace = [{"generation": 0, "best_prefix": "returns", "seed": 7}]
+    _save_completed_seed(str(tmp_path), 7, trace)
+    assert _load_completed_seed(str(tmp_path), 7) == trace
+    assert _load_completed_seed(str(tmp_path), 8) is None
 
 
 def test_multiday_layer_backtest_uses_non_overlapping_periods():

@@ -15,6 +15,9 @@ const ARITY: Record<string, number> = {
 const WINDOW_OPERATORS = new Set([
   'ts_delay', 'ts_delta', 'ts_mean', 'ts_std', 'ts_min', 'ts_max', 'ts_sum',
 ]);
+const ANALYTIC_OPERATORS = new Set([
+  ...WINDOW_OPERATORS, 'cs_rank', 'cs_zscore', 'cs_neutralize', 'cs_indneutral',
+]);
 
 export interface FactorAstAnalysis {
   dependencies: FactorDependency[];
@@ -65,4 +68,15 @@ export function validateAndAnalyzeFactorAst(root: FactorAstNode): FactorAstAnaly
 
   visit(root, 1);
   return { dependencies: [...dependencies].sort(), warmupDays, nodeCount, depth: maxDepth };
+}
+
+export function factorAstRequiresMaterialization(root: FactorAstNode): boolean {
+  if (root.type !== 'operator') return false;
+  if (ANALYTIC_OPERATORS.has(root.op) && root.args.some(containsAnalyticOperator)) return true;
+  return root.args.some(factorAstRequiresMaterialization);
+}
+
+function containsAnalyticOperator(node: FactorAstNode): boolean {
+  return node.type === 'operator'
+    && (ANALYTIC_OPERATORS.has(node.op) || node.args.some(containsAnalyticOperator));
 }

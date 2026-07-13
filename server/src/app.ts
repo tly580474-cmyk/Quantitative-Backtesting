@@ -171,7 +171,7 @@ async function main(): Promise<void> {
     miningWorker: {
       pythonExecutable: config.FACTOR_MINER_PYTHON,
       minerRoot: config.FACTOR_MINER_ROOT,
-      timeoutMs: Math.max(60_000, parseInt(config.FACTOR_MINER_TIMEOUT_MS, 10) || 3_600_000),
+      timeoutMs: Math.max(60_000, parseInt(config.FACTOR_MINER_TIMEOUT_MS, 10) || 21_600_000),
       maxMemoryMb: Math.max(256, parseInt(config.FACTOR_MINER_MAX_MEMORY_MB, 10) || 4096),
     },
     ai: {
@@ -190,7 +190,7 @@ async function main(): Promise<void> {
       minerRoot: config.FACTOR_MINER_ROOT,
       snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
       artifactRoot: config.FACTOR_RESEARCH_ROOT,
-      timeoutMs: Math.max(60_000, parseInt(config.FACTOR_MINER_TIMEOUT_MS, 10) || 3_600_000),
+      timeoutMs: Math.max(60_000, parseInt(config.FACTOR_MINER_TIMEOUT_MS, 10) || 21_600_000),
       maxMemoryMb: Math.max(256, parseInt(config.FACTOR_MINER_MAX_MEMORY_MB, 10) || 4096),
     });
   }

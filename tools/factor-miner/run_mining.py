@@ -293,6 +293,32 @@ def _parse_trace_from_log(log_path: str) -> list[dict]:
     return recs
 
 
+def _seed_trace_path(out_dir: str, seed: int) -> str:
+    return os.path.join(out_dir, f"completed_seed_{seed}.json")
+
+
+def _save_completed_seed(out_dir: str, seed: int, trace: list[dict]) -> None:
+    """原子保存已完成种子的轨迹，供跨进程/超时恢复直接复用。"""
+    path = _seed_trace_path(out_dir, seed)
+    os.makedirs(out_dir, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(trace, f, ensure_ascii=False, allow_nan=False)
+    os.replace(tmp, path)
+
+
+def _load_completed_seed(out_dir: str, seed: int) -> list[dict] | None:
+    path = _seed_trace_path(out_dir, seed)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            value = json.load(f)
+        return value if isinstance(value, list) else None
+    except (OSError, ValueError):
+        return None
+
+
 def _analyze_and_export(panels: dict, trace: list[dict], cfg: dict,
                         has_test: bool) -> dict:
     """验证集筛选并冻结候选，再对冻结候选执行一次锁定测试。"""
@@ -539,13 +565,27 @@ def main() -> None:
     seeds = list(dict.fromkeys(int(seed) for seed in configured_seeds))
     original_seed = cfg["evolution"]["seed"]
     trace = []
-    for seed in seeds:
+    out_dir = cfg["report"]["out_dir"]
+    if not args.resume:
+        # 显式“重新开始”不能误用同目录里旧运行的完成标记。
+        for seed in seeds:
+            for suffix in ("", ".tmp"):
+                path = _seed_trace_path(out_dir, seed) + suffix
+                if os.path.exists(path):
+                    os.remove(path)
+    for seed_index, seed in enumerate(seeds, start=1):
         cfg["evolution"]["seed"] = seed
-        LOG.info("=== 随机种子 %d（%d/%d）===", seed, seeds.index(seed) + 1, len(seeds))
-        checkpoint = os.path.join(cfg["report"]["out_dir"], f"checkpoint_seed_{seed}.pkl")
+        LOG.info("=== 随机种子 %d（%d/%d）===", seed, seed_index, len(seeds))
+        completed = _load_completed_seed(out_dir, seed) if args.resume else None
+        if completed is not None:
+            LOG.info("随机种子 %d 已完成，恢复时直接复用 %d 代轨迹", seed, len(completed))
+            trace.extend(completed)
+            continue
+        checkpoint = os.path.join(out_dir, f"checkpoint_seed_{seed}.pkl")
         _, seed_trace = evolve(cfg, panels, resume=args.resume, ckpt_path=checkpoint)
         for record in seed_trace:
             record["seed"] = seed
+        _save_completed_seed(out_dir, seed, seed_trace)
         trace.extend(seed_trace)
     cfg["evolution"]["seed"] = original_seed
     _analyze_and_export(panels, trace, cfg, has_test)

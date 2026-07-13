@@ -5,7 +5,9 @@ describe('factor candidate release gate', () => {
   it('allows only draft -> frozen -> tested -> approved', () => {
     expect(() => assertCandidateTransition('draft', 'frozen')).not.toThrow();
     expect(() => assertCandidateTransition('frozen', 'testing')).not.toThrow();
-    expect(() => assertCandidateTransition('testing', 'tested', { lockedTestMetrics: { rankIc: 0.03 } })).not.toThrow();
+    expect(() => assertCandidateTransition('testing', 'tested', {
+      lockedTestMetrics: { sampleCount: 10_000, tradingDays: 100, rankIc: 0.03 },
+    })).not.toThrow();
     expect(() => assertCandidateTransition('tested', 'approved', { approvedBy: 'researcher' })).not.toThrow();
   });
 

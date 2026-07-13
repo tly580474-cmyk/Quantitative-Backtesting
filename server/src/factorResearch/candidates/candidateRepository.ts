@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import { validateAndAnalyzeFactorAst } from '../definitions/factorAst.js';
 import type { AstFactorExpression, FactorDefinition, FactorDirection } from '../definitions/schema.js';
@@ -32,6 +32,7 @@ export async function createMiningTask(input: CreateMiningTaskInput) {
     totalGenerations: input.totalGenerations, completedGenerations: 0,
     artifactUri: input.artifactUri ?? null, errorMessage: null,
     createdAt: now, startedAt: null, finishedAt: null,
+    workerPid: null, archivedAt: null, deletedAt: null,
   };
   await getDb().insert(schema.factorMiningTasks).values(task);
   return task;
@@ -39,18 +40,49 @@ export async function createMiningTask(input: CreateMiningTaskInput) {
 
 export async function getMiningTask(id: string) {
   const [task] = await getDb().select().from(schema.factorMiningTasks)
-    .where(eq(schema.factorMiningTasks.id, id)).limit(1);
+    .where(and(eq(schema.factorMiningTasks.id, id), isNull(schema.factorMiningTasks.deletedAt))).limit(1);
   return task ?? null;
 }
 
-export async function listMiningTasks(limit = 20) {
+export async function listMiningTasks(limit = 20, includeArchived = false) {
   return getDb().select().from(schema.factorMiningTasks)
+    .where(and(
+      isNull(schema.factorMiningTasks.deletedAt),
+      includeArchived ? undefined : isNull(schema.factorMiningTasks.archivedAt),
+    ))
     .orderBy(desc(schema.factorMiningTasks.createdAt)).limit(Math.min(Math.max(limit, 1), 100));
+}
+
+const terminalMiningTaskStatuses = new Set(['completed', 'failed', 'canceled']);
+
+export function canManageMiningTask(status: string): boolean {
+  return terminalMiningTaskStatuses.has(status);
+}
+
+export async function archiveMiningTask(id: string, archived: boolean) {
+  const task = await getMiningTask(id);
+  if (!task) return null;
+  if (!canManageMiningTask(task.status)) throw new Error('只有已取消、失败或已完成的任务可以归档');
+  await getDb().update(schema.factorMiningTasks)
+    .set({ archivedAt: archived ? new Date().toISOString() : null })
+    .where(and(eq(schema.factorMiningTasks.id, id), isNull(schema.factorMiningTasks.deletedAt)));
+  return getMiningTask(id);
+}
+
+export async function deleteMiningTask(id: string) {
+  const task = await getMiningTask(id);
+  if (!task) return null;
+  if (!canManageMiningTask(task.status)) throw new Error('只有已取消、失败或已完成的任务可以删除');
+  await getDb().update(schema.factorMiningTasks)
+    .set({ deletedAt: new Date().toISOString() })
+    .where(and(eq(schema.factorMiningTasks.id, id), isNull(schema.factorMiningTasks.deletedAt)));
+  return task;
 }
 
 export async function updateMiningTask(id: string, update: {
   status?: string; completedGenerations?: number; artifactUri?: string | null;
   errorMessage?: string | null; startedAt?: string | null; finishedAt?: string | null;
+  workerPid?: number | null;
 }) {
   await getDb().update(schema.factorMiningTasks).set(update)
     .where(eq(schema.factorMiningTasks.id, id));

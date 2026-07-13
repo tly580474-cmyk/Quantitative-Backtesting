@@ -22,6 +22,7 @@ export interface FactorMiningTask {
   createdAt: string;
   startedAt?: string | null;
   finishedAt?: string | null;
+  archivedAt?: string | null;
 }
 
 export type FactorCandidateStatus = 'draft' | 'frozen' | 'testing' | 'tested' | 'rejected' | 'approved';
@@ -339,8 +340,9 @@ export function updateResearchSnapshot() {
   });
 }
 
-export function fetchMiningTasks(limit = 20) {
-  return apiFetch<{ items: FactorMiningTask[] }>(`/api/factor-mining-tasks?limit=${limit}`);
+export function fetchMiningTasks(limit = 20, includeArchived = false) {
+  return apiFetch<{ items: FactorMiningTask[] }>(
+    `/api/factor-mining-tasks?limit=${limit}&includeArchived=${includeArchived}`);
 }
 
 export function fetchMiningTaskTrace(id: string) {
@@ -373,6 +375,16 @@ export function cancelMiningTask(id: string) {
   return apiFetch<{ canceled: boolean }>(`/api/factor-mining-tasks/${id}/cancel`, { method: 'POST' });
 }
 
+export function archiveMiningTask(id: string, archived = true) {
+  return apiFetch<{ task: FactorMiningTask }>(`/api/factor-mining-tasks/${id}/archive`, {
+    method: 'POST', body: JSON.stringify({ archived }),
+  });
+}
+
+export function deleteMiningTask(id: string) {
+  return apiFetch<{ deleted: boolean }>(`/api/factor-mining-tasks/${id}`, { method: 'DELETE' });
+}
+
 export function fetchFactorCandidates(taskId?: string) {
   const query = taskId ? `?taskId=${encodeURIComponent(taskId)}` : '';
   return apiFetch<{ items: FactorCandidate[] }>(`/api/factor-candidates${query}`);
@@ -383,8 +395,8 @@ export function freezeFactorCandidate(id: string) {
 }
 
 export function testFactorCandidate(id: string, input: Omit<FactorRunRequest, 'factorId'>) {
-  return apiFetch<{ candidate: FactorCandidate; report: FactorReport }>(`/api/factor-candidates/${id}/test`, {
-    method: 'POST', body: JSON.stringify(input), timeoutMs: 300000,
+  return apiFetch<{ candidate: FactorCandidate }>(`/api/factor-candidates/${id}/test`, {
+    method: 'POST', body: JSON.stringify(input), timeoutMs: 60000,
   });
 }
 

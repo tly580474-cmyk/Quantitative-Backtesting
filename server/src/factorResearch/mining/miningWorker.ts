@@ -61,18 +61,35 @@ export async function startMiningWorker(taskId: string, options: MiningWorkerOpt
   };
   ACTIVE.set(taskId, active);
   await updateMiningTask(taskId, { status: 'running', startedAt: new Date().toISOString(),
-    finishedAt: null, errorMessage: null, artifactUri: outputRoot });
+    finishedAt: null, errorMessage: null, artifactUri: outputRoot, workerPid: child.pid ?? null });
   let logBuffer = '';
-  let observedGenerations = 0;
+  let lineBuffer = '';
+  let seedIndex = 1;
+  const generationsPerSeed = Math.max(1, Number(
+    asRecord(taskConfig.evolution).generations ?? task.totalGenerations));
   const consume = (chunk: Buffer) => {
     const text = chunk.toString('utf8');
     logBuffer = (logBuffer + text).slice(-200_000);
-    for (const _match of text.matchAll(/Gen\s+(\d+)\s+\|/g)) {
-      void _match;
-      observedGenerations += 1;
-      void updateMiningTask(taskId, {
-        completedGenerations: Math.min(task.totalGenerations, observedGenerations),
-      });
+    lineBuffer += text;
+    const lines = lineBuffer.split(/\r?\n/);
+    lineBuffer = lines.pop() ?? '';
+    for (const line of lines) {
+      const seedMatch = line.match(/随机种子\s+\d+（(\d+)\/(\d+)）/);
+      if (seedMatch) {
+        seedIndex = Math.max(1, Number(seedMatch[1]));
+        const completedBeforeSeed = (seedIndex - 1) * generationsPerSeed;
+        void updateMiningTask(taskId, {
+          completedGenerations: Math.min(task.totalGenerations, completedBeforeSeed),
+        });
+      }
+      const generationMatch = line.match(/Gen\s+(\d+)\s+\|/);
+      if (!generationMatch) continue;
+      const completed = (seedIndex - 1) * generationsPerSeed + Number(generationMatch[1]) + 1;
+      void updateMiningTask(taskId, { completedGenerations: Math.min(task.totalGenerations, completed) });
+    }
+    // stdout/stderr 的 chunk 可能刚好不带换行；限制残片避免异常输出无限增长。
+    if (lineBuffer.length > 16_384) {
+      lineBuffer = lineBuffer.slice(-16_384);
     }
   };
   child.stdout.on('data', consume);
@@ -95,7 +112,7 @@ export async function startMiningWorker(taskId: string, options: MiningWorkerOpt
       const imported = await importWorkerCandidates(taskId, outputRoot);
       await updateMiningTask(taskId, { status: 'completed',
         completedGenerations: task.totalGenerations, finishedAt: new Date().toISOString(),
-        errorMessage: null });
+        errorMessage: null, workerPid: null });
       void imported;
     } catch (error) {
       await finishFailed(taskId, error instanceof Error ? error.message : String(error));
@@ -107,13 +124,19 @@ export async function startMiningWorker(taskId: string, options: MiningWorkerOpt
 
 export async function cancelMiningWorker(taskId: string) {
   const active = ACTIVE.get(taskId);
-  if (!active) return false;
-  active.canceled = true;
-  clearTimeout(active.timeout);
-  await killProcessTree(active.child);
-  ACTIVE.delete(taskId);
+  const task = await getMiningTask(taskId);
+  if (!task || task.status !== 'running') return false;
+  if (active) {
+    active.canceled = true;
+    clearTimeout(active.timeout);
+    await killProcessTree(active.child);
+    ACTIVE.delete(taskId);
+  } else {
+    const orphanPid = await findWorkerPid(taskId, task.workerPid);
+    if (orphanPid !== null) await killProcessId(orphanPid);
+  }
   await updateMiningTask(taskId, { status: 'canceled', errorMessage: '用户取消任务',
-    finishedAt: new Date().toISOString() });
+    finishedAt: new Date().toISOString(), workerPid: null });
   return true;
 }
 
@@ -129,7 +152,9 @@ export function buildWorkerConfig(base: Record<string, unknown>, values: {
   return {
     ...base,
     data,
-    evolution: { ...asRecord(base.evolution), generations: values.totalGenerations },
+    // Web worker 每代只写几十 KB 的检查点；逐代保存可避免超时/取消后
+    // 丢失最多 checkpoint_freq-1 代（全市场单代通常需要数分钟）。
+    evolution: { ...asRecord(base.evolution), generations: values.totalGenerations, checkpoint_freq: 1 },
     primitives: {
       ...asRecord(base.primitives),
       terminals: restrictList(asRecord(base.primitives).terminals, AST_TERMINALS),
@@ -172,20 +197,53 @@ async function terminateWorker(taskId: string, reason: string) {
 
 async function finishFailed(taskId: string, message: string) {
   await updateMiningTask(taskId, { status: 'failed', errorMessage: message.slice(0, 1000),
-    finishedAt: new Date().toISOString() });
+    finishedAt: new Date().toISOString(), workerPid: null });
 }
 
 async function killProcessTree(child: ChildProcessWithoutNullStreams): Promise<void> {
   if (!child.pid) return;
+  await killProcessId(child.pid, child);
+}
+
+async function killProcessId(pid: number, fallbackChild?: ChildProcessWithoutNullStreams): Promise<void> {
   if (process.platform === 'win32') {
     await new Promise<void>((resolvePromise) => {
-      const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+      const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true });
       killer.once('close', () => resolvePromise());
-      killer.once('error', () => { child.kill('SIGKILL'); resolvePromise(); });
+      killer.once('error', () => { fallbackChild?.kill('SIGKILL'); resolvePromise(); });
     });
   } else {
-    child.kill('SIGTERM');
+    try { process.kill(pid, 'SIGTERM'); } catch { fallbackChild?.kill('SIGTERM'); }
   }
+}
+
+export function isWorkerCommandForTask(command: string, taskId: string): boolean {
+  return command.includes(taskId) && /worker_entry\.py/i.test(command);
+}
+
+async function findWorkerPid(taskId: string, storedPid: number | null): Promise<number | null> {
+  const output = process.platform === 'win32'
+    ? await captureCommand('powershell.exe', ['-NoProfile', '-Command',
+      "$id=$env:FACTOR_MINING_TASK_ID; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like \"*$id*\" -and $_.CommandLine -match 'worker_entry\\.py' } | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }"],
+      { FACTOR_MINING_TASK_ID: taskId })
+    : await captureCommand('ps', ['-eo', 'pid=,args=']);
+  const matches = output.split(/\r?\n/).map((line) => {
+    const match = line.trim().match(/^(\d+)\s+(.+)$/);
+    return match ? { pid: Number(match[1]), command: match[2] } : null;
+  }).filter((item): item is { pid: number; command: string } => Boolean(item))
+    .filter((item) => isWorkerCommandForTask(item.command, taskId));
+  if (storedPid && matches.some((item) => item.pid === storedPid)) return storedPid;
+  return matches[0]?.pid ?? null;
+}
+
+async function captureCommand(command: string, args: string[], extraEnv: Record<string, string> = {}): Promise<string> {
+  return new Promise((resolvePromise) => {
+    const child = spawn(command, args, { windowsHide: true, env: { ...process.env, ...extraEnv } });
+    let output = '';
+    child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString('utf8'); });
+    child.once('close', () => resolvePromise(output));
+    child.once('error', () => resolvePromise(''));
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

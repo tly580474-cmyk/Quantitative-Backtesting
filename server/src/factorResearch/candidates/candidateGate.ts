@@ -36,6 +36,7 @@ export function evaluateCandidateReleaseGate(metrics: unknown, validationMetrics
 }
 
 function finite(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
 }

@@ -16,4 +16,15 @@ describe('candidate release metrics gate', () => {
     expect(result.passed).toBe(false);
     expect(result.failures).toHaveLength(10);
   });
+
+  it('does not coerce missing locked-test metrics to zero', () => {
+    const result = evaluateCandidateReleaseGate({
+      sampleCount: null, tradingDays: null, averageRankIc: null,
+      rankIcPositiveRate: null, longShortSpread: null,
+      portfolio: { stressedCostSharpe: null }, robustness: { coverageRate: null },
+      maxPublishedFactorCorrelation: null, marginalInformationIc: null,
+    }, { deflated_sharpe_probability: null });
+    expect(result.passed).toBe(false);
+    expect(result.failures).toHaveLength(10);
+  });
 });

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, App, Button, Form, Input, InputNumber, Modal, Progress, Space, Switch, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Dropdown, Form, Input, InputNumber, Modal, Progress, Space, Switch, Table, Tag, Tooltip, Typography } from 'antd';
+import { DeleteOutlined, InboxOutlined, MoreOutlined, ReloadOutlined, RollbackOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  approveFactorCandidate, cancelMiningTask, createMiningTask, fetchFactorCandidates,
+  approveFactorCandidate, archiveMiningTask, cancelMiningTask, createMiningTask, deleteMiningTask,
+  fetchFactorCandidates,
   fetchMiningTasks, freezeFactorCandidate, publishFactorCandidate, rejectFactorCandidate,
   startMiningTask, testFactorCandidate, fetchMiningTaskTrace,
   createMiningSchedule,
@@ -10,6 +12,16 @@ import {
 } from './api';
 
 const { Text, Title } = Typography;
+
+function generateRandomSeeds(count = 3): string {
+  const seeds = new Set<number>();
+  const buffer = new Uint32Array(1);
+  while (seeds.size < count) {
+    window.crypto.getRandomValues(buffer);
+    seeds.add(10_000_000 + (buffer[0] % 90_000_000));
+  }
+  return [...seeds].join(',');
+}
 
 export default function AutomatedMiningPanel() {
   const { message, modal } = App.useApp();
@@ -22,14 +34,15 @@ export default function AutomatedMiningPanel() {
   const [actionId, setActionId] = useState<string>();
   const [approvalCandidate, setApprovalCandidate] = useState<FactorCandidate>();
   const [approvedBy, setApprovedBy] = useState('');
+  const [showArchivedTasks, setShowArchivedTasks] = useState(false);
 
   const refresh = useCallback(async () => {
     const [taskResult, candidateResult] = await Promise.all([
-      fetchMiningTasks(30), fetchFactorCandidates(selectedTaskId),
+      fetchMiningTasks(30, showArchivedTasks), fetchFactorCandidates(selectedTaskId),
     ]);
     setTasks(taskResult.items);
     setCandidates(candidateResult.items);
-  }, [selectedTaskId]);
+  }, [selectedTaskId, showArchivedTasks]);
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {
@@ -37,10 +50,11 @@ export default function AutomatedMiningPanel() {
     void fetchMiningTaskTrace(selectedTaskId).then((result) => setTrace(result.items)).catch(() => setTrace([]));
   }, [selectedTaskId, tasks]);
   useEffect(() => {
-    if (!tasks.some((task) => task.status === 'running')) return;
+    if (!tasks.some((task) => task.status === 'running')
+      && !candidates.some((candidate) => candidate.status === 'testing')) return;
     const timer = window.setInterval(() => { void refresh(); }, 3000);
     return () => window.clearInterval(timer);
-  }, [tasks, refresh]);
+  }, [tasks, candidates, refresh]);
 
   const runAction = async (id: string, action: () => Promise<unknown>, success: string) => {
     setActionId(id);
@@ -89,9 +103,28 @@ export default function AutomatedMiningPanel() {
       okText: '执行锁定测试', cancelText: '取消',
       onOk: () => runAction(candidate.id, () => testFactorCandidate(candidate.id, {
         startDate: range.start!, endDate: range.end!, horizonDays: 5, layers: 5,
-      }), '锁定测试完成'),
+      }), '锁定测试已启动，完成后会自动更新'),
     });
   };
+
+  const updateTaskArchive = (task: FactorMiningTask, archived: boolean) => runAction(
+    task.id,
+    async () => {
+      await archiveMiningTask(task.id, archived);
+      if (selectedTaskId === task.id) setSelectedTaskId(undefined);
+    },
+    archived ? '任务已归档' : '任务已恢复到列表',
+  );
+
+  const confirmTaskDelete = (task: FactorMiningTask) => modal.confirm({
+    title: '删除挖掘任务？',
+    content: '任务将从列表移除；候选、锁定测试和审批审计仍会保留。此操作不可在界面中恢复。',
+    okText: '确认删除', cancelText: '取消', okButtonProps: { danger: true },
+    onOk: () => runAction(task.id, async () => {
+      await deleteMiningTask(task.id);
+      if (selectedTaskId === task.id) setSelectedTaskId(undefined);
+    }, '任务已删除'),
+  });
 
   const candidateColumns: ColumnsType<FactorCandidate> = useMemo(() => [
     { title: '候选', dataIndex: 'name', width: 150 },
@@ -102,13 +135,22 @@ export default function AutomatedMiningPanel() {
       render: (value: string[]) => value.join(', ') },
     { title: '预热', dataIndex: 'warmupDays', width: 70, render: (value) => `${value} 日` },
     { title: '复杂度', width: 80, render: (_, row) => `${metric(row.validationMetrics, 'complexity_nodes')} 节点` },
-    { title: '验证 RankIC', width: 110, render: (_, row) => metric(row.validationMetrics, 'test_rankic') },
-    { title: '锁定 RankIC', width: 110, render: (_, row) => metric(row.lockedTestMetrics, 'averageRankIc') },
+    { title: '验证 RankIC', width: 110,
+      sorter: (left, right, order) => compareMetric(
+        left.validationMetrics, right.validationMetrics, 'test_rankic', order),
+      sortDirections: ['descend', 'ascend'],
+      render: (_, row) => metric(row.validationMetrics, 'test_rankic') },
+    { title: '锁定 RankIC', width: 110,
+      sorter: (left, right, order) => compareMetric(
+        left.lockedTestMetrics, right.lockedTestMetrics, 'averageRankIc', order),
+      sortDirections: ['descend', 'ascend'],
+      render: (_, row) => metric(row.lockedTestMetrics, 'averageRankIc') },
     { title: '压力夏普', width: 100, render: (_, row) => nestedMetric(row.lockedTestMetrics, 'portfolio', 'stressedCostSharpe') },
     { title: '正式因子相关', width: 110, render: (_, row) => metric(row.lockedTestMetrics, 'maxPublishedFactorCorrelation') },
     { title: '规模/流动性暴露', width: 150, render: (_, row) => `${nestedMetric(row.lockedTestMetrics,
       'robustness', 'sizeExposure')} / ${nestedMetric(row.lockedTestMetrics, 'robustness', 'liquidityExposure')}` },
-    { title: '失败原因', dataIndex: 'rejectionReason', width: 180, ellipsis: true, render: (value) => value ?? '—' },
+    { title: '失败原因', dataIndex: 'rejectionReason', width: 180, ellipsis: true,
+      render: (value) => value ? <Tooltip title={value}><span>{value}</span></Tooltip> : '—' },
     { title: '操作', width: 290, fixed: 'right', render: (_, row) => (
       <Space wrap>
         {row.status === 'draft' && <Button loading={actionId === row.id} onClick={() => void runAction(
@@ -140,7 +182,7 @@ export default function AutomatedMiningPanel() {
           <Title level={4}>新建挖掘任务</Title>
           <Form form={form} layout="vertical" initialValues={{ generations: 40, population: 300,
             sampleSymbols: 500, seeds: '20260710,20260711,20260712', scheduleOnSnapshot: false,
-            maxMemoryMb: 4096, timeoutMinutes: 60 }} onFinish={createAndStart}>
+            maxMemoryMb: 4096, timeoutMinutes: 240 }} onFinish={createAndStart}>
             <div className="factor-form-grid">
               <Form.Item name="generations" label="每种子代数" rules={[{ required: true }]}>
                 <InputNumber min={2} max={1000} style={{ width: '100%' }} />
@@ -158,8 +200,19 @@ export default function AutomatedMiningPanel() {
                 <InputNumber min={1} max={1440} suffix="分钟" style={{ width: '100%' }} />
               </Form.Item>
             </div>
-            <Form.Item name="seeds" label="随机种子（逗号分隔）" rules={[{ required: true }]}>
-              <Input aria-label="随机种子" />
+            <Form.Item label="随机种子（逗号分隔）" required>
+              <Space.Compact block>
+                <Form.Item name="seeds" noStyle rules={[{ required: true, message: '请输入或生成随机种子' }]}>
+                  <Input aria-label="随机种子" />
+                </Form.Item>
+                <Button
+                  icon={<ReloadOutlined />}
+                  aria-label="随机生成种子"
+                  onClick={() => form.setFieldValue('seeds', generateRandomSeeds())}
+                >
+                  随机生成
+                </Button>
+              </Space.Compact>
             </Form.Item>
             <Form.Item name="scheduleOnSnapshot" label="新快照发布后自动创建新实验" valuePropName="checked">
               <Switch aria-label="新快照自动挖掘" />
@@ -168,21 +221,48 @@ export default function AutomatedMiningPanel() {
           </Form>
         </section>
         <section className="factor-chart-box">
-          <Title level={4}>任务进度</Title>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <Title level={4}>任务进度</Title>
+            <Space size={6}>
+              <Text type="secondary">显示归档</Text>
+              <Switch size="small" checked={showArchivedTasks} aria-label="显示归档任务"
+                onChange={setShowArchivedTasks} />
+            </Space>
+          </div>
           <Table rowKey="id" size="small" pagination={{ pageSize: 5 }} dataSource={tasks}
             onRow={(task) => ({ onClick: () => setSelectedTaskId(task.id), style: { cursor: 'pointer' } })}
             columns={[
               { title: '任务', dataIndex: 'id', render: (value) => String(value).slice(0, 8) },
-              { title: '状态', dataIndex: 'status', render: (value) => <Tag>{value}</Tag> },
+              { title: '状态', dataIndex: 'status', render: (value, task) => <Space size={4}>
+                <Tag>{value}</Tag>{task.archivedAt && <Tag color="default">已归档</Tag>}
+              </Space> },
               { title: '进度', render: (_, task) => <Progress size="small" percent={Math.min(100,
                 Math.round(task.completedGenerations / Math.max(1, task.totalGenerations) * 100))} /> },
-              { title: '操作', render: (_, task) => <Space>
+              { title: '操作', width: 120, render: (_, task) => <Space size={4}>
                 {task.status === 'running' && <Button danger size="small" onClick={(event) => {
                   event.stopPropagation(); void runAction(task.id, () => cancelMiningTask(task.id), '任务已取消');
                 }}>取消</Button>}
-                {['failed', 'canceled'].includes(task.status) && <Button size="small" onClick={(event) => {
+                {!task.archivedAt && ['failed', 'canceled'].includes(task.status) && <Button size="small" onClick={(event) => {
                   event.stopPropagation(); void runAction(task.id, () => startMiningTask(task.id, true), '任务已恢复');
                 }}>恢复</Button>}
+                {['completed', 'failed', 'canceled'].includes(task.status) && <Dropdown trigger={['click']} menu={{
+                  onClick: ({ key, domEvent }) => {
+                    domEvent.stopPropagation();
+                    if (key === 'archive') void updateTaskArchive(task, true);
+                    if (key === 'restore') void updateTaskArchive(task, false);
+                    if (key === 'delete') confirmTaskDelete(task);
+                  },
+                  items: [
+                    task.archivedAt
+                      ? { key: 'restore', icon: <RollbackOutlined />, label: '取消归档' }
+                      : { key: 'archive', icon: <InboxOutlined />, label: '归档' },
+                    { type: 'divider' },
+                    { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true },
+                  ],
+                }}>
+                  <Button size="small" icon={<MoreOutlined />} aria-label={`任务 ${task.id.slice(0, 8)} 更多操作`}
+                    loading={actionId === task.id} onClick={(event) => event.stopPropagation()} />
+                </Dropdown>}
               </Space> },
             ]} />
           {selectedTaskId && <Table rowKey={(row, index) => `${row.seed ?? 'seed'}-${row.generation}-${index}`}
@@ -237,8 +317,28 @@ function CandidateStatus({ status }: { status: FactorCandidate['status'] }) {
 }
 
 function metric(metrics: Record<string, unknown> | null | undefined, key: string) {
-  const value = Number(metrics?.[key]);
-  return Number.isFinite(value) ? value.toFixed(4) : 'N/A';
+  const value = metricValue(metrics, key);
+  return value === null ? 'N/A' : value.toFixed(4);
+}
+
+function metricValue(metrics: Record<string, unknown> | null | undefined, key: string): number | null {
+  if (metrics?.[key] === null || metrics?.[key] === undefined || metrics?.[key] === '') return null;
+  const value = Number(metrics[key]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function compareMetric(
+  left: Record<string, unknown> | null | undefined,
+  right: Record<string, unknown> | null | undefined,
+  key: string,
+  order?: 'ascend' | 'descend' | null,
+): number {
+  const leftValue = metricValue(left, key);
+  const rightValue = metricValue(right, key);
+  if (leftValue === null && rightValue === null) return 0;
+  if (leftValue === null) return order === 'descend' ? -1 : 1;
+  if (rightValue === null) return order === 'descend' ? 1 : -1;
+  return leftValue - rightValue;
 }
 
 function nestedMetric(metrics: Record<string, unknown> | null | undefined, group: string, key: string) {
