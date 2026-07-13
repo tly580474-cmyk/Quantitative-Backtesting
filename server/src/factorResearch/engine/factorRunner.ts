@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { DuckDBInstance } from '@duckdb/node-api';
 import { readCurrentSnapshot } from '../../research/snapshotManifest.js';
+import { openManagedDuckDB } from '../../research/duckdbRuntime.js';
 import { requireBuiltinFactor, validateFactorRunConfig } from '../definitions/validator.js';
 import type {
   DailyFactorMetric,
@@ -19,11 +19,12 @@ export interface RunFactorResearchOptions {
   config: FactorRunConfig;
   writeReport?: boolean;
   factorDefinition?: FactorDefinition;
+  materializedValuesPath?: string;
 }
 
 export async function auditFactorCorrelations(options: {
   snapshotRoot: string; candidate: FactorDefinition; references: FactorDefinition[];
-  startDate: string; endDate: string; horizonDays?: number;
+  startDate: string; endDate: string; horizonDays?: number; materializedValuesPath?: string;
 }): Promise<Array<{ factorId: string; correlation: number | null; marginalIc: number | null }>> {
   const current = await readCurrentSnapshot(resolve(options.snapshotRoot));
   if (!current) throw new Error('尚未发布可用的研究快照');
@@ -31,19 +32,24 @@ export async function auditFactorCorrelations(options: {
   if (!references.length) return [];
   const parquetGlob = normalizeDuckDbPath(join(resolve(options.snapshotRoot), current.manifest.snapshotId,
     'bars', 'year=*', '*.parquet'));
-  const candidateSql = compileFactorSql(options.candidate);
+  const candidateSql = options.materializedValuesPath ? 'materializedFactorValue' : compileFactorSql(options.candidate);
   const candidateMultiplier = factorDirectionMultiplier(options.candidate);
   const horizonDays = options.horizonDays ?? 5;
   const referenceSql = references.map((factor, index) => `${compileFactorSql(factor)} AS ref_${index}`);
   const warmup = Math.max(options.candidate.warmupDays, ...references.map((item) => item.warmupDays));
-  const instance = await DuckDBInstance.create(':memory:', { threads: '4', max_memory: '1GB' });
-  const connection = await instance.connect();
+  const session = await openManagedDuckDB({ label: 'factor-correlation',
+    config: { threads: '4', max_memory: '1GB' } });
+  const { connection } = session;
   try {
     const reader = await connection.runAndReadAll(`
-      WITH source AS (
-        SELECT * FROM read_parquet('${escapeSqlLiteral(parquetGlob)}', hive_partitioning = true)
-        WHERE tradeDate BETWEEN $sourceStartDate AND $sourceEndDate
-      ), scored AS (
+       WITH bars AS (
+         SELECT * FROM read_parquet('${escapeSqlLiteral(parquetGlob)}', hive_partitioning = true)
+         WHERE tradeDate BETWEEN $sourceStartDate AND $sourceEndDate
+       )${materializedJoinCte(options.materializedValuesPath)}, source AS (
+         SELECT bars.*${options.materializedValuesPath ? ', materialized.factorValue AS materializedFactorValue' : ''}
+         FROM bars${options.materializedValuesPath
+    ? ' LEFT JOIN materialized USING (tradeDate, instrumentKey)' : ''}
+       ), scored AS (
         SELECT tradeDate, instrumentKey, (${candidateSql}) * ${candidateMultiplier} AS candidate_value,
                LEAD(open, 1) OVER instrument_window AS entryOpen,
                LEAD(close, ${horizonDays}) OVER instrument_window AS exitClose,
@@ -84,12 +90,12 @@ export async function auditFactorCorrelations(options: {
     return references.map((factor, index) => ({ factorId: factor.id,
       correlation: boundedCorrelation(row[`corr_${index}`]),
       marginalIc: nullableNumber(row[`marginal_${index}`]) }));
-  } finally { connection.closeSync(); instance.closeSync(); }
+  } finally { await session.close(); }
 }
 
 export async function auditFactorDecay(options: {
   snapshotRoot: string; factor: FactorDefinition; startDate: string; endDate: string;
-  horizons?: number[];
+  horizons?: number[]; materializedValuesPath?: string;
 }): Promise<Array<{ horizonDays: number; ic: number | null }>> {
   const current = await readCurrentSnapshot(resolve(options.snapshotRoot));
   if (!current) throw new Error('尚未发布可用的研究快照');
@@ -97,15 +103,20 @@ export async function auditFactorDecay(options: {
     .filter((value) => Number.isInteger(value) && value >= 1 && value <= 60);
   const parquetGlob = normalizeDuckDbPath(join(resolve(options.snapshotRoot), current.manifest.snapshotId,
     'bars', 'year=*', '*.parquet'));
-  const factorSql = compileFactorSql(options.factor);
-  const instance = await DuckDBInstance.create(':memory:', { threads: '4', max_memory: '1GB' });
-  const connection = await instance.connect();
+  const factorSql = options.materializedValuesPath ? 'materializedFactorValue' : compileFactorSql(options.factor);
+  const session = await openManagedDuckDB({ label: 'factor-decay',
+    config: { threads: '4', max_memory: '1GB' } });
+  const { connection } = session;
   try {
     const reader = await connection.runAndReadAll(`
-      WITH source AS (
-        SELECT * FROM read_parquet('${escapeSqlLiteral(parquetGlob)}', hive_partitioning = true)
-        WHERE tradeDate BETWEEN $sourceStartDate AND $sourceEndDate
-      ), scored AS (
+       WITH bars AS (
+         SELECT * FROM read_parquet('${escapeSqlLiteral(parquetGlob)}', hive_partitioning = true)
+         WHERE tradeDate BETWEEN $sourceStartDate AND $sourceEndDate
+       )${materializedJoinCte(options.materializedValuesPath)}, source AS (
+         SELECT bars.*${options.materializedValuesPath ? ', materialized.factorValue AS materializedFactorValue' : ''}
+         FROM bars${options.materializedValuesPath
+    ? ' LEFT JOIN materialized USING (tradeDate, instrumentKey)' : ''}
+       ), scored AS (
         SELECT tradeDate, instrumentKey, ${factorSql} AS factorValue,
                LEAD(open, 1) OVER instrument_window AS entryOpen,
                ${horizons.map((horizon) => `LEAD(close, ${horizon}) OVER instrument_window AS exit_${horizon}`).join(', ')}
@@ -128,7 +139,7 @@ export async function auditFactorDecay(options: {
       sourceEndDate: dateOffset(options.endDate, Math.max(...horizons) * 3) });
     const row = reader.getRowObjectsJson()[0] ?? {};
     return horizons.map((horizon) => ({ horizonDays: horizon, ic: nullableNumber(row[`ic_${horizon}`]) }));
-  } finally { connection.closeSync(); instance.closeSync(); }
+  } finally { await session.close(); }
 }
 
 export async function runFactorResearch(
@@ -147,18 +158,16 @@ export async function runFactorResearch(
   const parquetGlob = normalizeDuckDbPath(
     join(snapshotRoot, current.manifest.snapshotId, 'bars', 'year=*', '*.parquet'),
   );
-  const factorSql = compileFactorSql(factor);
+  const factorSql = options.materializedValuesPath ? 'materializedFactorValue' : compileFactorSql(factor);
   const directionMultiplier = factorDirectionMultiplier(factor);
   const values = buildQueryValues(config, factor.warmupDays);
   const filterSql = buildFilterSql(config, values);
-  const commonCte = buildCommonCte(parquetGlob, factorSql, directionMultiplier, filterSql);
+  const commonCte = buildCommonCte(parquetGlob, factorSql, directionMultiplier, filterSql,
+    options.materializedValuesPath);
 
-  const instance = await DuckDBInstance.create(':memory:', {
-    access_mode: 'READ_WRITE',
-    threads: '4',
-    max_memory: '1GB',
-  });
-  const connection = await instance.connect();
+  const session = await openManagedDuckDB({ label: 'factor-run',
+    config: { threads: '4', max_memory: '1GB' } });
+  const { connection } = session;
   try {
     const dailyReader = await connection.runAndReadAll(`
       ${commonCte}
@@ -273,8 +282,7 @@ export async function runFactorResearch(
     }
     return report;
   } finally {
-    connection.closeSync();
-    instance.closeSync();
+    await session.close();
   }
 }
 
@@ -283,13 +291,17 @@ function buildCommonCte(
   factorSql: string,
   directionMultiplier: number,
   filterSql: string,
+  materializedValuesPath?: string,
 ): string {
   return `
-    WITH raw_source AS (
+    WITH bars AS (
       SELECT *
       FROM read_parquet('${escapeSqlLiteral(parquetGlob)}', hive_partitioning = true)
       WHERE tradeDate BETWEEN $sourceStartDate AND $sourceEndDate
       ${filterSql}
+    )${materializedJoinCte(materializedValuesPath)}, raw_source AS (
+      SELECT bars.*${materializedValuesPath ? ', materialized.factorValue AS materializedFactorValue' : ''}
+      FROM bars${materializedValuesPath ? ' LEFT JOIN materialized USING (tradeDate, instrumentKey)' : ''}
     ),
     source AS (
       SELECT *, DENSE_RANK() OVER (ORDER BY tradeDate) AS tradingDayIndex
@@ -360,6 +372,15 @@ function buildCommonCte(
       FROM analysis_rows
     )
   `;
+}
+
+function materializedJoinCte(path: string | undefined): string {
+  return path
+    ? `, materialized AS (
+         SELECT tradeDate, instrumentKey, factorValue
+         FROM read_parquet('${escapeSqlLiteral(normalizeDuckDbPath(path))}', hive_partitioning = true)
+       )`
+    : '';
 }
 
 function buildQueryValues(config: FactorRunConfig, warmupDays: number): Record<string, string | number | null> {

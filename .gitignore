@@ -15,6 +15,7 @@ server/.cache/history-import/
 server/data/research-snapshots/
 server/data/backups/
 server/data/factor-research/
+server/.tmp/
 .claude/
 .workbuddy/
 *.tsbuildinfo

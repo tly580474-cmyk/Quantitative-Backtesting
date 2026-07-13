@@ -1,5 +1,5 @@
 import { join, resolve } from 'node:path';
-import { DuckDBInstance } from '@duckdb/node-api';
+import { openManagedDuckDB } from '../../research/duckdbRuntime.js';
 import { readCurrentSnapshot } from '../../research/snapshotManifest.js';
 import {
   createMiningTask, listMiningSchedules, updateMiningSchedule,
@@ -99,8 +99,9 @@ async function readScheduledWindowCoverage(
   if (cached) return cached;
   const parquetGlob = join(resolve(snapshotRoot), snapshotId, 'bars', 'year=*', '*.parquet')
     .replaceAll('\\', '/');
-  const instance = await DuckDBInstance.create(':memory:', { threads: '1', max_memory: '256MB' });
-  const connection = await instance.connect();
+  const session = await openManagedDuckDB({ label: 'mining-window-coverage',
+    config: { threads: '1', max_memory: '256MB' } });
+  const { connection } = session;
   try {
     const reader = await connection.runAndReadAll(`
       SELECT COUNT(*) AS rowCount, COUNT(DISTINCT tradeDate) AS tradingDays
@@ -112,7 +113,6 @@ async function readScheduledWindowCoverage(
     windowCoverageCache.set(cacheKey, coverage);
     return coverage;
   } finally {
-    connection.closeSync();
-    instance.closeSync();
+    await session.close();
   }
 }

@@ -23,12 +23,12 @@ def read_published_snapshot(cfg: dict) -> tuple[pd.DataFrame, dict]:
     data_cfg = cfg["data"]
     root = Path(data_cfg["snapshot_root"]).expanduser().resolve()
     pointer = _read_json(root / "current.json")
-    snapshot_id = pointer.get("snapshotId")
+    snapshot_id = data_cfg.get("snapshot_id") or pointer.get("snapshotId")
     if not snapshot_id or not isinstance(snapshot_id, str):
         raise ValueError("研究快照 current.json 缺少 snapshotId")
     snapshot_root = root / snapshot_id
     manifest = _read_json(snapshot_root / "manifest.json")
-    _validate_manifest(pointer, manifest)
+    _validate_manifest({"snapshotId": snapshot_id}, manifest)
 
     start = str(data_cfg.get("start_date") or manifest["minDate"])
     end = str(data_cfg.get("end_date") or manifest["maxDate"])
@@ -59,7 +59,12 @@ def read_published_snapshot(cfg: dict) -> tuple[pd.DataFrame, dict]:
             keys = rng.sample(keys, sample_n)
         symbol_filter = ds.field("instrumentKey").isin(keys)
     table_filter = date_filter if symbol_filter is None else date_filter & symbol_filter
-    frame = dataset.to_table(columns=SNAPSHOT_COLUMNS, filter=table_filter).to_pandas()
+    requested_columns = data_cfg.get("snapshot_columns")
+    columns = SNAPSHOT_COLUMNS if requested_columns is None else list(dict.fromkeys(requested_columns))
+    unknown = sorted(set(columns) - set(SNAPSHOT_COLUMNS))
+    if unknown:
+        raise ValueError(f"研究快照包含未知请求列: {', '.join(unknown)}")
+    frame = dataset.to_table(columns=columns, filter=table_filter).to_pandas()
     if frame.empty:
         raise ValueError("研究快照筛选后没有数据")
     logger.info("已读取发布快照 %s：%d 行，%d 个标的", snapshot_id, len(frame),

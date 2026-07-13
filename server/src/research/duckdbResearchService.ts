@@ -1,6 +1,6 @@
 import { join, resolve } from 'node:path';
-import { DuckDBInstance } from '@duckdb/node-api';
 import { readCurrentSnapshot } from './snapshotManifest.js';
+import { openManagedDuckDB } from './duckdbRuntime.js';
 
 const FIELD_SQL = {
   instrumentKey: 'instrumentKey',
@@ -74,13 +74,10 @@ export async function queryResearchSnapshot(root: string, query: ResearchQuery) 
   const built = buildResearchQuery(parquetGlob, query);
   const release = await acquireResearchSlot();
   try {
-    const instance = await DuckDBInstance.create(':memory:', {
-      access_mode: 'READ_WRITE',
-      threads: '4',
-      max_memory: '1GB',
-    });
+    const session = await openManagedDuckDB({ label: 'research-query',
+      config: { threads: '4', max_memory: '1GB' } });
     try {
-      const connection = await instance.connect();
+      const { connection } = session;
       try {
         const startedAt = performance.now();
         const reader = await connection.runAndReadAll(built.sql, built.values);
@@ -94,11 +91,9 @@ export async function queryResearchSnapshot(root: string, query: ResearchQuery) 
           truncated: rows.length > query.limit,
         };
       } finally {
-        connection.closeSync();
+        await session.close();
       }
-    } finally {
-      instance.closeSync();
-    }
+    } finally { await session.close(); }
   } finally {
     release();
   }
@@ -115,8 +110,8 @@ export async function benchmarkResearchSnapshot(
   const parquetGlob = normalizeDuckDbPath(
     join(snapshotRoot, current.manifest.snapshotId, 'bars', 'year=*', '*.parquet'),
   );
-  const instance = await DuckDBInstance.create(':memory:', { threads: '4' });
-  const connection = await instance.connect();
+  const session = await openManagedDuckDB({ label: 'research-benchmark', config: { threads: '4' } });
+  const { connection } = session;
   try {
     const startedAt = performance.now();
     const reader = await connection.runAndReadAll(`
@@ -135,8 +130,7 @@ export async function benchmarkResearchSnapshot(
       elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
     };
   } finally {
-    connection.closeSync();
-    instance.closeSync();
+    await session.close();
   }
 }
 

@@ -26,6 +26,15 @@ function generateRandomSeeds(count = 3): string {
 export default function AutomatedMiningPanel() {
   const { message, modal } = App.useApp();
   const [form] = Form.useForm();
+  const initialFormValues = useMemo(() => ({
+    generations: 40,
+    population: 300,
+    sampleSymbols: 500,
+    seeds: generateRandomSeeds(),
+    scheduleOnSnapshot: false,
+    maxMemoryMb: 4096,
+    timeoutMinutes: 240,
+  }), []);
   const [tasks, setTasks] = useState<FactorMiningTask[]>([]);
   const [candidates, setCandidates] = useState<FactorCandidate[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>();
@@ -79,6 +88,8 @@ export default function AutomatedMiningPanel() {
         totalGenerations: values.generations * Math.max(1, seeds.length),
         config,
       });
+      // 任务记录已经使用当前种子固化；立即为下一次实验准备一组新种子。
+      form.setFieldValue('seeds', generateRandomSeeds());
       await startMiningTask(result.task.id);
       if (values.scheduleOnSnapshot) {
         await createMiningSchedule({ name: '快照更新自动挖掘',
@@ -180,9 +191,7 @@ export default function AutomatedMiningPanel() {
       <div className="factor-chart-grid" style={{ marginTop: 16 }}>
         <section className="factor-chart-box">
           <Title level={4}>新建挖掘任务</Title>
-          <Form form={form} layout="vertical" initialValues={{ generations: 40, population: 300,
-            sampleSymbols: 500, seeds: '20260710,20260711,20260712', scheduleOnSnapshot: false,
-            maxMemoryMb: 4096, timeoutMinutes: 240 }} onFinish={createAndStart}>
+          <Form form={form} layout="vertical" initialValues={initialFormValues} onFinish={createAndStart}>
             <div className="factor-form-grid">
               <Form.Item name="generations" label="每种子代数" rules={[{ required: true }]}>
                 <InputNumber min={2} max={1000} style={{ width: '100%' }} />

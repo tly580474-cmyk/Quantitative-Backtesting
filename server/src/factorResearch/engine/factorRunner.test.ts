@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { sha256File, type ResearchSnapshotManifest } from '../../research/snapshotManifest.js';
 import { auditFactorCorrelations, auditFactorDecay, runFactorResearch } from './factorRunner.js';
 import { getBuiltinFactor } from '../definitions/builtins.js';
+import type { FactorDefinition } from '../definitions/schema.js';
 
 describe('factor runner', () => {
   it('evaluates a builtin factor from a published Parquet snapshot without returning the full matrix', async () => {
@@ -68,6 +69,57 @@ describe('factor runner', () => {
     });
     expect(report.factor.expression.type).toBe('ast');
     expect(report.summary.sampleCount).toBeGreaterThan(0);
+  });
+
+  it('evaluates a nested-window candidate from pre-materialized factor values', async () => {
+    const root = await createFixtureSnapshot();
+    const factorId = 'nested_candidate_fixture';
+    const materializedDir = join(root, 'materialized', 'year=2026');
+    const materializedPath = join(materializedDir, 'data.parquet');
+    await mkdir(materializedDir, { recursive: true });
+    const instance = await DuckDBInstance.create(':memory:');
+    const connection = await instance.connect();
+    try {
+      const barsPath = join(root, 'factor-snapshot-test', 'bars', 'year=2026', 'data.parquet')
+        .replaceAll('\\', '/').replaceAll("'", "''");
+      const outputPath = materializedPath.replaceAll('\\', '/').replaceAll("'", "''");
+      await connection.run(`
+        COPY (
+          SELECT tradeDate, instrumentKey,
+                 close - AVG(close) OVER (PARTITION BY tradeDate) AS factorValue
+          FROM read_parquet('${barsPath}')
+        ) TO '${outputPath}' (FORMAT parquet, COMPRESSION zstd)
+      `);
+    } finally {
+      connection.closeSync();
+      instance.closeSync();
+    }
+
+    const factorDefinition: FactorDefinition = {
+      id: factorId, name: '嵌套候选', description: 'materialized nested candidate',
+      direction: 'higher-is-better' as const, dependencies: ['close'], warmupDays: 5,
+      expression: { type: 'ast' as const, version: 1 as const, root: {
+        type: 'operator' as const, op: 'cs_zscore', args: [{
+          type: 'operator' as const, op: 'ts_mean', window: 5,
+          args: [{ type: 'terminal' as const, name: 'close' }],
+        }],
+      } },
+    };
+    const valuesGlob = join(root, 'materialized', 'year=*', '*.parquet');
+    const report = await runFactorResearch({
+      snapshotRoot: root,
+      factorDefinition,
+      materializedValuesPath: valuesGlob,
+      config: { factorId, startDate: '2026-01-25', endDate: '2026-02-08',
+        horizonDays: 2, layers: 3 },
+      writeReport: false,
+    });
+    expect(report.summary.sampleCount).toBeGreaterThan(0);
+
+    const decay = await auditFactorDecay({ snapshotRoot: root, factor: factorDefinition,
+      materializedValuesPath: valuesGlob, startDate: '2026-01-25', endDate: '2026-02-08',
+      horizons: [1, 2] });
+    expect(decay).toHaveLength(2);
   });
 
   it('audits candidate redundancy against published factor definitions', async () => {

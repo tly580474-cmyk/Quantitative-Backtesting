@@ -1,7 +1,7 @@
 import { join, resolve } from 'node:path';
 import { stat } from 'node:fs/promises';
-import { DuckDBInstance } from '@duckdb/node-api';
 import { readCurrentSnapshot, sha256File } from './snapshotManifest.js';
+import { openManagedDuckDB } from './duckdbRuntime.js';
 
 export async function verifyCurrentResearchSnapshot(root: string) {
   const snapshotRoot = resolve(root);
@@ -9,8 +9,8 @@ export async function verifyCurrentResearchSnapshot(root: string) {
   if (!current) throw new Error('尚未发布可用的研究快照');
   let verifiedRows = 0;
   const files = [];
-  const instance = await DuckDBInstance.create(':memory:', { threads: '4' });
-  const connection = await instance.connect();
+  const session = await openManagedDuckDB({ label: 'snapshot-verify', config: { threads: '4' } });
+  const { connection } = session;
   try {
     for (const partition of current.manifest.partitions) {
       const path = join(
@@ -47,8 +47,7 @@ export async function verifyCurrentResearchSnapshot(root: string) {
       });
     }
   } finally {
-    connection.closeSync();
-    instance.closeSync();
+    await session.close();
   }
   if (verifiedRows !== current.manifest.rowCount) {
     throw new Error('研究快照总行数不一致');

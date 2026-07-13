@@ -154,6 +154,18 @@ export async function getFactorCandidate(id: string) {
   return candidate ?? null;
 }
 
+/** 单实例服务重启后，内存中的后台锁定测试已不存在，允许用户安全地重新执行。 */
+export async function recoverInterruptedCandidateTests(): Promise<number> {
+  const result = await getDb().update(schema.factorCandidates).set({
+    status: 'frozen',
+    rejectionReason: '上次锁定测试因服务重启中断，请重新执行',
+    updatedAt: new Date().toISOString(),
+  }).where(eq(schema.factorCandidates.status, 'testing'));
+  const header = Array.isArray(result) ? result[0] as { affectedRows?: number }
+    : result as unknown as { affectedRows?: number };
+  return Number(header?.affectedRows ?? 0);
+}
+
 export async function transitionFactorCandidate(
   id: string,
   to: FactorCandidateStatus,
@@ -173,7 +185,8 @@ export async function transitionFactorCandidate(
     status: to,
     lockedTestMetrics: to === 'tested' ? context.lockedTestMetrics : candidate.lockedTestMetrics,
     factorRunId: to === 'tested' ? context.factorRunId ?? null : candidate.factorRunId,
-    rejectionReason: to === 'rejected' ? context.rejectionReason : candidate.rejectionReason,
+    rejectionReason: to === 'rejected' ? context.rejectionReason
+      : to === 'testing' ? null : candidate.rejectionReason,
     approvedBy: to === 'approved' ? context.approvedBy : candidate.approvedBy,
     approvedAt: to === 'approved' ? now : candidate.approvedAt,
     updatedAt: now,

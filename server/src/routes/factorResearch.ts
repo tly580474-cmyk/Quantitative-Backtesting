@@ -48,6 +48,7 @@ import {
   assertLockedTestCoverage,
   assertLockedTestLineage,
 } from '../factorResearch/candidates/lockedTestValidation.js';
+import { ensureMaterializedFactor } from '../factorResearch/materialization/materializedFactor.js';
 
 interface FactorResearchRouteConfig {
   snapshotRoot: string;
@@ -120,20 +121,35 @@ async function runLockedCandidateTest(
   definition: ReturnType<typeof candidateToFactorDefinition>,
   input: z.infer<typeof candidateTestBodySchema>,
   config: FactorResearchRouteConfig,
+  materializationPrefix?: string,
 ): Promise<void> {
+  const materialized = materializationPrefix ? await ensureMaterializedFactor({
+    candidateId,
+    prefix: materializationPrefix,
+    warmupDays: definition.warmupDays,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    snapshotRoot: config.snapshotRoot,
+    artifactRoot: config.artifactRoot,
+    minerRoot: config.miningWorker.minerRoot,
+    pythonExecutable: config.miningWorker.pythonExecutable,
+    timeoutMs: config.miningWorker.timeoutMs,
+  }) : undefined;
   const report = await runFactorResearch({
     snapshotRoot: config.snapshotRoot, artifactRoot: config.artifactRoot,
     factorDefinition: definition,
     config: { factorId: definition.id, ...input }, writeReport: true,
+    materializedValuesPath: materialized?.parquetGlob,
   });
   assertLockedTestCoverage(report.summary);
   const persisted = await persistCompletedFactorRun(report, report.config);
-  const [correlations, factorDecay] = await Promise.all([
-    auditFactorCorrelations({ snapshotRoot: config.snapshotRoot, candidate: definition,
-      references: listBuiltinFactors(), startDate: report.config.startDate, endDate: report.config.endDate }),
-    auditFactorDecay({ snapshotRoot: config.snapshotRoot, factor: definition,
-      startDate: report.config.startDate, endDate: report.config.endDate }),
-  ]);
+  // 两项审计均会执行全市场窗口查询；串行运行可避免同一候选同时占用两份重型资源。
+  const correlations = await auditFactorCorrelations({ snapshotRoot: config.snapshotRoot,
+    candidate: definition, references: listBuiltinFactors(), startDate: report.config.startDate,
+    endDate: report.config.endDate, materializedValuesPath: materialized?.parquetGlob });
+  const factorDecay = await auditFactorDecay({ snapshotRoot: config.snapshotRoot, factor: definition,
+    startDate: report.config.startDate, endDate: report.config.endDate,
+    materializedValuesPath: materialized?.parquetGlob });
   const maxPublishedFactorCorrelation = correlations.reduce((max, item) =>
     item.correlation === null ? max : Math.max(max, Math.abs(item.correlation)), 0);
   const closestPublishedFactor = correlations.reduce<(typeof correlations)[number] | null>((closest, item) => {
@@ -151,6 +167,13 @@ async function runLockedCandidateTest(
       maxPublishedFactorCorrelation,
       marginalInformationIc: closestPublishedFactor?.marginalIc ?? null,
       closestPublishedFactorId: closestPublishedFactor?.factorId ?? null,
+      materialization: materialized ? {
+        backend: materialized.manifest.backend,
+        snapshotId: materialized.manifest.snapshotId,
+        rowCount: materialized.manifest.rowCount,
+        validValueCount: materialized.manifest.validValueCount,
+        elapsedSeconds: materialized.manifest.elapsedSeconds,
+      } : null,
     },
     factorRunId: persisted.runId,
   });
@@ -344,15 +367,18 @@ export function registerFactorResearchRoutes(
           error instanceof Error ? error.message : '锁定测试血缘无效'));
       }
       const expression = candidate.expression as { root?: FactorAstNode };
-      if (expression.root && factorAstRequiresMaterialization(expression.root)) {
+      const materializationPrefix = expression.root && factorAstRequiresMaterialization(expression.root)
+        ? String((candidate.validationMetrics as Record<string, unknown>).prefix ?? '') : undefined;
+      if (expression.root && factorAstRequiresMaterialization(expression.root) && !materializationPrefix) {
         return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR,
-          '该候选包含嵌套窗口算子，已保留；请先完成离线因子值物化后再执行锁定测试'));
+          '复杂候选缺少可复现的前缀公式，无法执行离线物化'));
       }
       try {
         await assertResearchSnapshotFresh(config.pool, config.snapshotRoot);
         const definition = candidateToFactorDefinition(candidate);
         const testingCandidate = await transitionFactorCandidate(candidate.id, 'testing', {});
-        void runLockedCandidateTest(candidate.id, definition, parsed.data, config).catch(async (error) => {
+        void runLockedCandidateTest(candidate.id, definition, parsed.data, config,
+          materializationPrefix).catch(async (error) => {
           app.log.error({ err: error, candidateId: candidate.id }, 'Locked candidate test failed');
           try {
             const latest = await getFactorCandidate(candidate.id);

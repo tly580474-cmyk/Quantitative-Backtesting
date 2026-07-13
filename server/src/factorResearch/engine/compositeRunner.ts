@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { DuckDBInstance } from '@duckdb/node-api';
 import { readCurrentSnapshot } from '../../research/snapshotManifest.js';
+import { openManagedDuckDB } from '../../research/duckdbRuntime.js';
 import type {
   CompositeFactorResearchReport,
   CompositeFactorRunConfig,
@@ -44,12 +44,9 @@ export async function runCompositeFactorResearch(
   const filterSql = buildFilterSql(config, values);
   const equalWeights = factors.map(() => 1 / factors.length);
 
-  const instance = await DuckDBInstance.create(':memory:', {
-    access_mode: 'READ_WRITE',
-    threads: '4',
-    max_memory: '1GB',
-  });
-  const connection = await instance.connect();
+  const session = await openManagedDuckDB({ label: 'composite-factor-run',
+    config: { threads: '4', max_memory: '1GB' } });
+  const { connection } = session;
   try {
     const weightCte = buildCompositeCommonCte(parquetGlob, factors, filterSql, equalWeights);
     const weightReader = await connection.runAndReadAll(`
@@ -134,8 +131,7 @@ export async function runCompositeFactorResearch(
     }
     return report;
   } finally {
-    connection.closeSync();
-    instance.closeSync();
+    await session.close();
   }
 }
 

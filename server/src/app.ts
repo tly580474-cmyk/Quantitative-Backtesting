@@ -25,6 +25,8 @@ import { tencentProvider } from './marketData/providers/tencentProvider.js';
 import { startScheduler } from './marketData/jobs/syncScheduler.js';
 import { startIndexDatasetScheduler } from './marketData/jobs/indexDatasetScheduler.js';
 import { configureHistoryStorePolicy } from './marketData/repositories/historyStorePolicy.js';
+import { recoverInterruptedCandidateTests } from './factorResearch/candidates/candidateRepository.js';
+import { getDuckDBRuntimeStats } from './research/duckdbRuntime.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -76,6 +78,10 @@ async function main(): Promise<void> {
     if (errors.length > 0) {
       console.error(`[DB] Migration errors: ${errors.join('; ')}`);
     }
+    const recoveredTests = await recoverInterruptedCandidateTests();
+    if (recoveredTests > 0) {
+      console.warn(`[FactorResearch] Recovered ${recoveredTests} interrupted locked test(s).`);
+    }
   }
 
   // ── Fastify App ─────────────────────────────────────────────
@@ -91,6 +97,7 @@ async function main(): Promise<void> {
   app.get('/api/health', async () => ({
     status: 'ok',
     db: dbStatus.ok ? 'connected' : 'disconnected',
+    duckdb: getDuckDBRuntimeStats(),
   }));
 
   // Register AI routes

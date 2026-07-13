@@ -16,7 +16,7 @@ import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import mysql from 'mysql2';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
-import { DuckDBInstance } from '@duckdb/node-api';
+import { openManagedDuckDB } from './duckdbRuntime.js';
 import type { EnvConfig } from '../config.js';
 import {
   sha256File,
@@ -430,8 +430,8 @@ function nextDate(tradeDate: string): string {
 }
 
 async function convertTsvToParquet(tsvPath: string, parquetPath: string): Promise<void> {
-  const instance = await DuckDBInstance.create(':memory:', { threads: '4' });
-  const connection = await instance.connect();
+  const session = await openManagedDuckDB({ label: 'snapshot-convert', config: { threads: '4' } });
+  const { connection } = session;
   try {
     await connection.run(`
       COPY (
@@ -451,8 +451,7 @@ async function convertTsvToParquet(tsvPath: string, parquetPath: string): Promis
       (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE 122880)
     `);
   } finally {
-    connection.closeSync();
-    instance.closeSync();
+    await session.close();
   }
 }
 
@@ -461,8 +460,8 @@ async function inspectPartition(
   snapshotRoot: string,
   year: number,
 ): Promise<ResearchSnapshotPartition> {
-  const instance = await DuckDBInstance.create(':memory:');
-  const connection = await instance.connect();
+  const session = await openManagedDuckDB({ label: 'snapshot-inspect' });
+  const { connection } = session;
   try {
     const reader = await connection.runAndReadAll(`
       SELECT COUNT(*) AS rows,
@@ -482,8 +481,7 @@ async function inspectPartition(
       sha256: await sha256File(parquetPath),
     };
   } finally {
-    connection.closeSync();
-    instance.closeSync();
+    await session.close();
   }
 }
 
