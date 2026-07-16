@@ -4,7 +4,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $serverRoot = Join-Path $root 'server'
 $logRoot = Join-Path $root 'logs'
 $backendUrl = 'http://127.0.0.1:3001/api/health'
-$frontendUrl = 'http://127.0.0.1:5432/'
+$frontendUrl = 'http://127.0.0.1:5558/'
+$adminUrl = 'http://127.0.0.1:5559/'
 $env:VITE_DATA_SOURCE = 'api'
 $env:VITE_API_URL = 'http://127.0.0.1:3001'
 
@@ -31,6 +32,9 @@ function Assert-PortAvailable([int]$port, [string]$label) {
     if ($label -eq 'frontend' -and (Test-HttpReady $frontendUrl)) {
         return
     }
+    if ($label -eq 'admin' -and (Test-HttpReady $adminUrl)) {
+        return
+    }
     throw "Port $port is already occupied by another process."
 }
 
@@ -48,7 +52,8 @@ function Start-HiddenCommand(
 }
 
 Assert-PortAvailable 3001 'backend'
-Assert-PortAvailable 5432 'frontend'
+Assert-PortAvailable 5558 'frontend'
+Assert-PortAvailable 5559 'admin'
 
 if (-not (Test-HttpReady $backendUrl)) {
     Start-HiddenCommand $serverRoot 'npm.cmd run start' 'backend.log'
@@ -60,20 +65,30 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Frontend build failed with exit code $LASTEXITCODE."
     }
+    & npm.cmd run admin:build
+    if ($LASTEXITCODE -ne 0) {
+        throw "Admin console build failed with exit code $LASTEXITCODE."
+    }
 } finally {
     Pop-Location
 }
 
 if (-not (Test-HttpReady $frontendUrl)) {
-    Start-HiddenCommand $root 'npm.cmd run preview -- --host 127.0.0.1 --port 5432 --strictPort' 'frontend.log'
+    Start-HiddenCommand $root 'npm.cmd run preview -- --host 127.0.0.1 --port 5558 --strictPort' 'frontend.log'
+}
+
+if (-not (Test-HttpReady $adminUrl)) {
+    Start-HiddenCommand $root 'npm.cmd run admin:preview' 'admin.log'
 }
 
 $deadline = (Get-Date).AddSeconds(60)
 do {
-    if ((Test-HttpReady $backendUrl) -and (Test-HttpReady $frontendUrl)) {
+    if ((Test-HttpReady $backendUrl) -and
+        (Test-HttpReady $frontendUrl) -and
+        (Test-HttpReady $adminUrl)) {
         exit 0
     }
     Start-Sleep -Milliseconds 500
 } while ((Get-Date) -lt $deadline)
 
-throw 'Project services did not become healthy within 60 seconds. Check logs\backend.log and logs\frontend.log.'
+throw 'Project services did not become healthy within 60 seconds. Check logs\backend.log, logs\frontend.log and logs\admin.log.'

@@ -40,6 +40,9 @@ const envSchema = z.object({
   FACTOR_MINER_TIMEOUT_MS: z.string().default('21600000'),
   FACTOR_MINER_MAX_MEMORY_MB: z.string().default('4096'),
 
+  // Operations admin console. Empty means the admin API is disabled.
+  ADMIN_API_TOKEN: z.string().default(''),
+
   PORT: z.string().default('3001'),
 });
 

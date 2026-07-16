@@ -216,14 +216,16 @@ MARKET_US_INDEX_UPDATE_TIME=05:00
 尚未完成的任务，成功后当天不重复；失败任务按分钟重试。交易日历缺失时，服务
 会先从腾讯指数日线确认沪、深、北三市是否开市。
 
-前端默认运行在 `http://127.0.0.1:5432`。注册 Windows 登录后自启动：
+业务前端默认运行在 `http://127.0.0.1:5558`，运维管理台运行在
+`http://127.0.0.1:5559`。注册 Windows 登录后会同时启动后端、业务前端和
+运维管理台：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\register-startup.ps1
 ```
 
-后台日志写入 `logs/backend.log` 和 `logs/frontend.log`。启动脚本是幂等的，服务
-已经运行时不会创建重复进程。
+后台日志分别写入 `logs/backend.log`、`logs/frontend.log` 和
+`logs/admin.log`。启动脚本是幂等的，服务已经运行时不会创建重复进程。
 
 当交易所昨收价与数据库上一交易日收盘价不一致时，系统将该证券标记为疑似除权
 除息，只为该证券拉取近期前复权数据并重新校验压缩因子。校验通过后按证券原子
@@ -389,6 +391,7 @@ server/src/
 ## 相关文档
 
 - [项目总览与完整业务流程](./doc/PROJECT_OVERVIEW.md)
+- [独立运维管理台](./doc/ADMIN_CONSOLE_GUIDE.md)
 - [一期开发计划](./doc/PHASE1_PLAN.md)
 - [二期回测开发计划](./doc/PHASE2_PLAN.md)
 - [三期可视化策略与 AI 生成开发计划](./doc/PHASE3_PLAN.md)

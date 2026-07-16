@@ -23,7 +23,7 @@ $principal = New-ScheduledTaskPrincipal `
 
 Register-ScheduledTask `
     -TaskName $taskName `
-    -Description 'Start Quant Backtest backend and frontend on ports 3001/5432.' `
+    -Description 'Start Quant Backtest backend, frontend and admin console on ports 3001/5558/5559.' `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `

@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "admin:dev": "vite --config admin/vite.config.ts",
+    "admin:build": "tsc -p admin/tsconfig.json --noEmit && vite build --config admin/vite.config.ts",
+    "admin:preview": "vite preview --config admin/vite.config.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"

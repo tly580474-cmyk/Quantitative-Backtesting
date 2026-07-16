@@ -4,6 +4,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $serverRoot = Join-Path $root 'server'
 $backendUrl = 'http://127.0.0.1:3001'
 $frontendUrl = 'http://127.0.0.1:5558'
+$adminUrl = 'http://127.0.0.1:5559'
 
 # Ensure log directory exists
 $logDir = Join-Path $root 'logs'
@@ -39,6 +40,7 @@ function Wait-Http([string]$url, [int]$timeoutSeconds, [string]$label) {
 try {
     Stop-ProjectListener 3001 'server*src/app.ts'
     Stop-ProjectListener 5558 'node_modules*vite'
+    Stop-ProjectListener 5559 'admin*vite.config.ts'
     Start-Sleep -Milliseconds 500
 
     # Backend
@@ -56,6 +58,14 @@ try {
         -WorkingDirectory $root `
         -WindowStyle Hidden
     Wait-Http "$frontendUrl/" 35 'Frontend'
+
+    # Independent operations admin console
+    $adminLog = Join-Path $logDir 'admin.log'
+    Start-Process -FilePath 'cmd.exe' `
+        -ArgumentList '/c', "cd /d `"$root`" && npm run admin:dev >> `"$adminLog`" 2>&1" `
+        -WorkingDirectory $root `
+        -WindowStyle Hidden
+    Wait-Http "$adminUrl/" 35 'Admin console'
 } catch {
     exit 1
 }
