@@ -5,6 +5,7 @@ import unittest
 import pandas as pd
 
 from dividend_update import (
+    completion_status,
     Instrument,
     classify_failure,
     normalize_dividend_events,
@@ -13,6 +14,16 @@ from dividend_update import (
 
 
 class DividendUpdateTest(unittest.TestCase):
+    def test_completion_status_distinguishes_confirmed_empty_history(self):
+        self.assertEqual(completion_status([]), "no_data")
+        self.assertEqual(completion_status([{"event_id": "one"}]), "completed")
+
+    def test_repeated_source_no_detail_becomes_explicit_no_data(self):
+        instrument = Instrument(1, "000001", "active")
+        error = "'NoneType' object is not subscriptable"
+        self.assertEqual(classify_failure(instrument, 1, error), "failed")
+        self.assertEqual(classify_failure(instrument, 2, error), "no_data")
+
     def test_converts_per_ten_share_ratios_to_per_share(self) -> None:
         self.assertEqual(per_ten_to_per_share(1.5), 0.15)
 
@@ -37,11 +48,11 @@ class DividendUpdateTest(unittest.TestCase):
             "no_data",
         )
 
-    def test_keeps_active_source_failure_retryable(self) -> None:
+    def test_confirms_active_source_no_detail_as_no_data_after_retry(self) -> None:
         instrument = Instrument(1, "688981", "active")
         self.assertEqual(
             classify_failure(instrument, 5, "'NoneType' object is not subscriptable"),
-            "failed",
+            "no_data",
         )
 
 

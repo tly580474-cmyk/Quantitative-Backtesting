@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "name": "申万一级行业月度估值动量轮动",
+  "transaction": true,
+  "params": {
+    "startDate": "2022-07-01",
+    "endDate": "2026-05-31",
+    "topIndustries": 5,
+    "maxIndustryWeight": 0.35,
+    "momentum3Weight": 0.3,
+    "momentum6Weight": 0.2,
+    "peWeight": 0.2,
+    "pbWeight": 0.15,
+    "dividendWeight": 0.15
+  },
+  "steps": [
+    {
+      "id": "build_industry_rotation",
+      "file": "../sql/build-sw-industry-rotation.sql"
+    },
+    {
+      "id": "portfolio_summary",
+      "file": "../sql/sw-industry-rotation-summary.sql",
+      "out": "sw-industry-rotation/portfolio-summary-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "portfolio_curve",
+      "file": "../sql/sw-industry-portfolio-curve.sql",
+      "out": "sw-industry-rotation/portfolio-curve-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "industry_return_curve",
+      "file": "../sql/sw-industry-return-curve.sql",
+      "out": "sw-industry-rotation/industry-return-curve-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "rotation_records",
+      "file": "../sql/sw-industry-rotation-records.sql",
+      "out": "sw-industry-rotation/rotation-records-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "monthly_selection",
+      "file": "../sql/sw-industry-monthly-selection.sql",
+      "out": "sw-industry-rotation/monthly-selection-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "valuation_percentiles",
+      "file": "../sql/sw-industry-valuation-percentiles.sql",
+      "out": "sw-industry-rotation/valuation-percentiles-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "coverage",
+      "file": "../sql/sw-industry-rotation-coverage.sql",
+      "out": "sw-industry-rotation/coverage-${startDate}-${endDate}.csv",
+      "format": "csv"
+    }
+  ]
+}

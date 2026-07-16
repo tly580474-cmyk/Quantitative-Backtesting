@@ -13,6 +13,19 @@ interface ExportTable {
   headers?: string[];
 }
 
+export interface MigrationManifestRow extends TableRow {
+  exportedAt: string;
+  source: string;
+  table: string;
+  rowCount: number;
+  checksumAlgorithm: string;
+  checksum: string;
+  minDate: string;
+  maxDate: string;
+  recordIdCount: number;
+  recordIdSample: string;
+}
+
 interface ApiExportPayload {
   datasets: unknown[];
   candlesByDataset: Record<string, unknown[]>;
@@ -224,6 +237,65 @@ function buildExportTables({
   ];
 }
 
+const DATE_FIELD_PATTERN = /(^|\.)(time|date|tradeDate|startTime|endTime|createdAt|updatedAt|completedAt)$/i;
+const encoder = new TextEncoder();
+
+function canonicalRow(row: TableRow): string {
+  return JSON.stringify(
+    Object.fromEntries(Object.keys(row).sort().map((key) => [key, row[key]])),
+  );
+}
+
+function fnv1a64(rows: TableRow[]): string {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  for (const row of rows) {
+    for (const byte of encoder.encode(`${canonicalRow(row)}\n`)) {
+      hash ^= BigInt(byte);
+      hash = BigInt.asUintN(64, hash * prime);
+    }
+  }
+  return hash.toString(16).padStart(16, '0');
+}
+
+function normalizeDateValue(value: CellValue): string | null {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+}
+
+export function buildMigrationManifest(
+  tables: ExportTable[],
+  source: 'api' | 'indexeddb',
+  exportedAt = new Date().toISOString(),
+): MigrationManifestRow[] {
+  return tables.map((table) => {
+    const dates = table.rows.flatMap((row) =>
+      Object.entries(row)
+        .filter(([key]) => DATE_FIELD_PATTERN.test(key))
+        .map(([, value]) => normalizeDateValue(value))
+        .filter((value): value is string => value != null),
+    ).sort();
+    const recordIds = Array.from(new Set(table.rows.flatMap((row) => {
+      const id = row.id ?? row.datasetId ?? row.resultId ?? row.strategyId;
+      return id == null || id === '' ? [] : [String(id)];
+    }))).sort();
+
+    return {
+      exportedAt,
+      source: source === 'indexeddb' ? 'indexeddb-readonly-migration' : 'mysql-api',
+      table: table.name,
+      rowCount: table.rows.length,
+      checksumAlgorithm: 'fnv1a64-canonical-row-v1',
+      checksum: fnv1a64(table.rows),
+      minDate: dates[0] ?? '',
+      maxDate: dates.length > 0 ? dates[dates.length - 1] : '',
+      recordIdCount: recordIds.length,
+      recordIdSample: recordIds.slice(0, 20).join(','),
+    };
+  });
+}
+
 function addTableSheet(workbook: XLSX.WorkBook, table: ExportTable): void {
   const headers = table.headers ?? Array.from(new Set(table.rows.flatMap((row) => Object.keys(row))));
   const sheet = XLSX.utils.json_to_sheet(table.rows, { header: headers, skipHeader: false });
@@ -306,6 +378,10 @@ export async function exportDatabaseToExcel(): Promise<string> {
     : await loadIndexedDbExportTables();
 
   const workbook = XLSX.utils.book_new();
+  addTableSheet(workbook, {
+    name: '迁移清单',
+    rows: buildMigrationManifest(tables, DATA_SOURCE),
+  });
   tables.forEach((table) => addTableSheet(workbook, table));
   const stamp = new Date().toISOString().slice(0, 10);
   const fileName = `量化回测数据库-${stamp}.xlsx`;

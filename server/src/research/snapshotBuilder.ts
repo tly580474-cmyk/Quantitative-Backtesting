@@ -138,25 +138,33 @@ const READ_INDEX_BAR_COLUMNS = `{
 
 const INDEX_SNAPSHOT_COLUMNS = [
   'snapshotId', 'indexCode', 'indexName', 'constituentDate', 'weightDate',
-  'sourceKey', 'sourceChecksum', 'fetchedAt', 'memberCount', 'weightSumPct', 'status',
+  'sourceKey', 'sourceChecksum', 'sourceUrl', 'sourceCapturedAt', 'sourceFileChecksum',
+  'weightMethod', 'anchorSnapshotId', 'validationSnapshotId', 'validationHalfL1Pct',
+  'fetchedAt', 'memberCount', 'weightSumPct', 'status',
 ] as const;
 
 const READ_INDEX_SNAPSHOT_COLUMNS = `{
   snapshotId: 'VARCHAR', indexCode: 'VARCHAR', indexName: 'VARCHAR',
   constituentDate: 'DATE', weightDate: 'DATE', sourceKey: 'VARCHAR',
-  sourceChecksum: 'VARCHAR', fetchedAt: 'TIMESTAMP', memberCount: 'BIGINT',
+  sourceChecksum: 'VARCHAR', sourceUrl: 'VARCHAR', sourceCapturedAt: 'TIMESTAMP',
+  sourceFileChecksum: 'VARCHAR', weightMethod: 'VARCHAR', anchorSnapshotId: 'VARCHAR',
+  validationSnapshotId: 'VARCHAR', validationHalfL1Pct: 'DOUBLE',
+  fetchedAt: 'TIMESTAMP', memberCount: 'BIGINT',
   weightSumPct: 'DOUBLE', status: 'VARCHAR'
 }`;
 
 const INDEX_MEMBER_COLUMNS = [
   'snapshotId', 'indexCode', 'indexName', 'constituentDate', 'weightDate',
-  'sourceKey', 'constituentCode', 'instrumentKey', 'constituentName',
+  'sourceKey', 'weightMethod', 'anchorSnapshotId', 'validationSnapshotId',
+  'validationHalfL1Pct', 'constituentCode', 'instrumentKey', 'constituentName',
   'constituentNameEn', 'exchange', 'exchangeEn', 'weightPct', 'rawCode',
 ] as const;
 
 const READ_INDEX_MEMBER_COLUMNS = `{
   snapshotId: 'VARCHAR', indexCode: 'VARCHAR', indexName: 'VARCHAR',
   constituentDate: 'DATE', weightDate: 'DATE', sourceKey: 'VARCHAR',
+  weightMethod: 'VARCHAR', anchorSnapshotId: 'VARCHAR',
+  validationSnapshotId: 'VARCHAR', validationHalfL1Pct: 'DOUBLE',
   constituentCode: 'VARCHAR', instrumentKey: 'BIGINT', constituentName: 'VARCHAR',
   constituentNameEn: 'VARCHAR', exchange: 'VARCHAR', exchangeEn: 'VARCHAR',
   weightPct: 'DOUBLE', rawCode: 'VARCHAR'
@@ -505,6 +513,12 @@ export async function buildResearchSnapshot(
                  DATE_FORMAT(constituent_date, '%Y-%m-%d') AS constituentDate,
                  DATE_FORMAT(weight_date, '%Y-%m-%d') AS weightDate,
                  source_key AS sourceKey, source_checksum AS sourceChecksum,
+                 source_url AS sourceUrl,
+                 DATE_FORMAT(source_captured_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS sourceCapturedAt,
+                 source_file_checksum AS sourceFileChecksum,
+                 weight_method AS weightMethod, anchor_snapshot_id AS anchorSnapshotId,
+                 validation_snapshot_id AS validationSnapshotId,
+                 validation_half_l1_pct AS validationHalfL1Pct,
                  DATE_FORMAT(fetched_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS fetchedAt,
                  member_count AS memberCount, weight_sum_pct AS weightSumPct, status
           FROM index_constituent_snapshots
@@ -529,7 +543,11 @@ export async function buildResearchSnapshot(
                  snapshot.index_name AS indexName,
                  DATE_FORMAT(snapshot.constituent_date, '%Y-%m-%d') AS constituentDate,
                  DATE_FORMAT(snapshot.weight_date, '%Y-%m-%d') AS weightDate,
-                 snapshot.source_key AS sourceKey, member.constituent_code AS constituentCode,
+                 snapshot.source_key AS sourceKey, snapshot.weight_method AS weightMethod,
+                 snapshot.anchor_snapshot_id AS anchorSnapshotId,
+                 snapshot.validation_snapshot_id AS validationSnapshotId,
+                 snapshot.validation_half_l1_pct AS validationHalfL1Pct,
+                 member.constituent_code AS constituentCode,
                  member.instrument_key AS instrumentKey, member.constituent_name AS constituentName,
                  member.constituent_name_en AS constituentNameEn, member.exchange,
                  member.exchange_en AS exchangeEn, member.weight_pct AS weightPct,

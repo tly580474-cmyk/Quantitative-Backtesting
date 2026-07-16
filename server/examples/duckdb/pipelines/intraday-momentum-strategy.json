@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "name": "高流动性个股多周期日内动量策略",
+  "transaction": true,
+  "params": {
+    "startDate": "2026-06-16",
+    "endDate": "2026-07-16",
+    "startCompact": 20260616,
+    "endCompact": 20260716,
+    "juneGlob": "D:/github_public_repo/所有股票的历史数据/1m_price_parquet/year=2026/202606*.parquet",
+    "julyGlob": "D:/github_public_repo/所有股票的历史数据/1m_price_parquet/year=2026/202607*.parquet",
+    "minAverageAmount20": 300000000,
+    "minMarketCap": 5000000000,
+    "maxMarketCap": 500000000000,
+    "maxPeTtm": 80,
+    "maxPb": 10,
+    "momentum5Threshold": 0.001,
+    "momentum15Threshold": 0.002,
+    "momentum30Threshold": 0.0035,
+    "tailMomentumThreshold": 0.003,
+    "minRollingAmplitude30": 0.005,
+    "maxRollingAmplitude30": 0.04,
+    "maxIntradayAmplitude": 0.08,
+    "maxDailySignals": 100,
+    "roundTripCostBps": 10
+  },
+  "steps": [
+    {
+      "id": "build_intraday_strategy",
+      "file": "../sql/build-intraday-momentum-strategy.sql"
+    },
+    {
+      "id": "strategy_summary",
+      "file": "../sql/intraday-strategy-summary.sql",
+      "out": "intraday-momentum/strategy-summary-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "daily_performance",
+      "file": "../sql/intraday-daily-performance.sql",
+      "out": "intraday-momentum/daily-performance-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "universe_coverage",
+      "file": "../sql/intraday-universe-coverage.sql",
+      "out": "intraday-momentum/universe-coverage-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "stock_summary",
+      "file": "../sql/intraday-stock-summary.sql",
+      "out": "intraday-momentum/stock-summary-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "all_signals",
+      "file": "../sql/intraday-trading-signals.sql",
+      "out": "intraday-momentum/trading-signals-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "signals_by_symbol",
+      "file": "../sql/intraday-trading-signals.sql",
+      "out": "intraday-momentum/by-symbol/${symbol}.csv",
+      "splitBy": "symbol",
+      "format": "csv"
+    }
+  ]
+}

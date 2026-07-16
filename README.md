@@ -169,10 +169,16 @@ npm run dev
 复制 `.env.example` 为 `.env`：
 
 ```dotenv
-# indexeddb：浏览器本地存储；api：后端/MySQL
-VITE_DATA_SOURCE=indexeddb
+# api：后端/MySQL，是唯一权威可写数据源
+VITE_DATA_SOURCE=api
 VITE_API_URL=http://localhost:3001
+VITE_ALLOW_INDEXEDDB_MIGRATION=false
 ```
+
+旧版本浏览器数据需要迁移时，可临时同时设置
+`VITE_DATA_SOURCE=indexeddb` 和 `VITE_ALLOW_INDEXEDDB_MIGRATION=true`。该模式只允许读取和
+导出，禁止新增、修改和删除；导出的 Excel 首张“迁移清单”记录各表行数、日期范围、
+记录 ID 样本和确定性 checksum。完成迁移后必须恢复 API 模式。
 
 ### 后端与 AI 配置
 
@@ -403,8 +409,8 @@ server/src/
 
 ## 数据与隐私说明
 
-- 默认 IndexedDB 模式下，导入行情和回测结果保存在当前浏览器；
-- 不同浏览器、域名和端口下的 IndexedDB 数据互不共享；
+- 默认 API 模式下，导入行情、策略和回测结果统一写入后端 MySQL；
+- IndexedDB 仅保留为显式启用的只读历史迁移源，不会在 MySQL 不可用时自动降级写入；
 - 自选股、置顶状态、评分结果、市场筛选条件/结果和热门板块快照保存在浏览器 Local Storage；
 - 服务端会在 `server/.cache/` 保存市场快照和热门板块缓存，刷新失败时可继续使用最近一次成功数据；
 - AI 请求会将当前股票的公开行情、K线、研报元数据和用户问题发送到配置的模型服务；

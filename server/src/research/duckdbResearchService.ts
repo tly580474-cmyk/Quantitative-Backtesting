@@ -42,11 +42,6 @@ export interface BuiltResearchQuery {
   fields: ResearchField[];
 }
 
-const MAX_CONCURRENT_RESEARCH_QUERIES = 2;
-const MAX_QUEUED_RESEARCH_QUERIES = 8;
-let activeResearchQueries = 0;
-const researchQueue: Array<(release: () => void) => void> = [];
-
 export async function getCurrentResearchSnapshot(root: string) {
   const current = await readCurrentSnapshot(resolve(root));
   if (!current) return null;
@@ -72,30 +67,24 @@ export async function queryResearchSnapshot(root: string, query: ResearchQuery) 
     join(snapshotRoot, current.manifest.snapshotId, 'bars', 'year=*', '*.parquet'),
   );
   const built = buildResearchQuery(parquetGlob, query);
-  const release = await acquireResearchSlot();
+  const session = await openManagedDuckDB({
+    label: 'research-query',
+    config: { threads: '4', max_memory: '1GB' },
+  });
   try {
-    const session = await openManagedDuckDB({ label: 'research-query',
-      config: { threads: '4', max_memory: '1GB' } });
-    try {
-      const { connection } = session;
-      try {
-        const startedAt = performance.now();
-        const reader = await connection.runAndReadAll(built.sql, built.values);
-        const rows = reader.getRowObjectsJson();
-        return {
-          snapshotId: current.manifest.snapshotId,
-          sourceVersion: current.manifest.sourceVersion,
-          fields: built.fields,
-          items: rows.slice(0, query.limit),
-          elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
-          truncated: rows.length > query.limit,
-        };
-      } finally {
-        await session.close();
-      }
-    } finally { await session.close(); }
+    const startedAt = performance.now();
+    const reader = await session.connection.runAndReadAll(built.sql, built.values);
+    const rows = reader.getRowObjectsJson();
+    return {
+      snapshotId: current.manifest.snapshotId,
+      sourceVersion: current.manifest.sourceVersion,
+      fields: built.fields,
+      items: rows.slice(0, query.limit),
+      elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
+      truncated: rows.length > query.limit,
+    };
   } finally {
-    release();
+    await session.close();
   }
 }
 
@@ -184,26 +173,4 @@ function normalizeDuckDbPath(path: string): string {
 
 function escapeSqlLiteral(value: string): string {
   return value.replaceAll("'", "''");
-}
-
-async function acquireResearchSlot(): Promise<() => void> {
-  if (activeResearchQueries < MAX_CONCURRENT_RESEARCH_QUERIES) {
-    activeResearchQueries += 1;
-    return releaseResearchSlot;
-  }
-  if (researchQueue.length >= MAX_QUEUED_RESEARCH_QUERIES) {
-    throw new Error('研究查询并发已满，请稍后重试');
-  }
-  return new Promise((resolveSlot) => {
-    researchQueue.push(resolveSlot);
-  });
-}
-
-function releaseResearchSlot(): void {
-  const next = researchQueue.shift();
-  if (next) {
-    next(releaseResearchSlot);
-    return;
-  }
-  activeResearchQueries = Math.max(0, activeResearchQueries - 1);
 }

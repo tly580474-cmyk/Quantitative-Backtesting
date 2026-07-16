@@ -11,6 +11,8 @@ interface CliOptions {
   codes?: string[];
   limit?: number;
   chunkRows?: number;
+  fallbackBatchRows?: number;
+  requireLocalInfile: boolean;
   batchId?: string;
   dryRun: boolean;
 }
@@ -34,6 +36,8 @@ async function main(): Promise<void> {
       codes: args.codes,
       limit: args.limit,
       chunkRows: args.chunkRows,
+      fallbackBatchRows: args.fallbackBatchRows,
+      requireLocalInfile: args.requireLocalInfile,
       batchId,
       dryRun: args.dryRun,
       cacheRoot: resolve('.cache/history-import'),
@@ -63,7 +67,9 @@ function parseArgs(argv: string[]): CliOptions {
   let codes: string[] | undefined;
   let limit: number | undefined;
   let chunkRows: number | undefined;
+  let fallbackBatchRows: number | undefined;
   let batchId: string | undefined;
+  let requireLocalInfile = false;
   let dryRun = false;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -77,6 +83,8 @@ function parseArgs(argv: string[]): CliOptions {
     else if (arg === '--codes') codes = next().split(',').filter(Boolean);
     else if (arg === '--limit') limit = positiveInteger(next(), arg);
     else if (arg === '--chunk-rows') chunkRows = positiveInteger(next(), arg);
+    else if (arg === '--fallback-batch-rows') fallbackBatchRows = positiveInteger(next(), arg);
+    else if (arg === '--require-local-infile') requireLocalInfile = true;
     else if (arg === '--batch-id') batchId = next();
     else if (arg === '--dry-run') dryRun = true;
     else if (arg === '--help') {
@@ -92,6 +100,8 @@ function parseArgs(argv: string[]): CliOptions {
   --codes        逗号分隔的证券代码
   --limit        最多处理多少个文件
   --chunk-rows   每个 LOAD DATA 分片行数（默认 50000）
+  --fallback-batch-rows  LOCAL INFILE 不可用时每批 REPLACE 行数（默认 1000）
+  --require-local-infile 禁止降级；local_infile 不可用时立即失败
   --batch-id     复用批次 ID 以继续未完成任务
   --dry-run      仅预检，不连接或写入数据库`);
       process.exit(0);
@@ -100,7 +110,16 @@ function parseArgs(argv: string[]): CliOptions {
     }
   }
   if (!sourceRoot) throw new Error('请通过 --source 或 STOCK_HISTORY_ROOT 指定历史数据根目录');
-  return { sourceRoot: resolve(sourceRoot), codes, limit, chunkRows, batchId, dryRun };
+  return {
+    sourceRoot: resolve(sourceRoot),
+    codes,
+    limit,
+    chunkRows,
+    fallbackBatchRows,
+    batchId,
+    requireLocalInfile,
+    dryRun,
+  };
 }
 
 function positiveInteger(value: string, label: string): number {

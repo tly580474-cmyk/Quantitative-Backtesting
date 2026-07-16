@@ -4,7 +4,14 @@ import { platform, release, totalmem } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import type { EnvConfig } from '../config.js';
+import {
+  buildDataCoverageMatrix,
+  readCoverageMatrixCache,
+  writeCoverageMatrixCache,
+} from '../research/dataCoverageMatrix.js';
 import { getDuckDBRuntimeStats } from '../research/duckdbRuntime.js';
+import { inspectMaterializedArtifacts } from '../research/materializedArtifactHealth.js';
+import { readCurrentSnapshot } from '../research/snapshotManifest.js';
 import { listAdminConfig } from './envConfig.js';
 
 export type HealthLevel = 'healthy' | 'warning' | 'critical' | 'disabled';
@@ -24,10 +31,11 @@ export async function collectAdminOverview(input: {
   envFilePath: string | URL;
 }) {
   const started = performance.now();
-  const [database, storage, tasks] = await Promise.all([
+  const [database, storage, tasks, governance] = await Promise.all([
     inspectDatabase(input.pool, input.dbOnline),
     inspectStorage(input.config),
     inspectTasks(input.pool, input.dbOnline),
+    inspectDataGovernance(input.pool, input.dbOnline, input.config),
   ]);
   const configuration = inspectConfiguration(input.config, input.envFilePath);
   const configItems = listAdminConfig({ ...input.config, ...process.env });
@@ -36,6 +44,7 @@ export async function collectAdminOverview(input: {
     ...database.checks,
     ...storage.checks,
     ...tasks.checks,
+    ...governance.checks,
   ];
   const criticalCount = checks.filter((item) => item.level === 'critical').length;
   const warningCount = checks.filter((item) => item.level === 'warning').length;
@@ -72,6 +81,7 @@ export async function collectAdminOverview(input: {
     database: database.summary,
     duckdb: getDuckDBRuntimeStats(),
     storage: storage.summary,
+    dataGovernance: governance.summary,
     tasks: tasks.summary,
     configuration: {
       configured: configItems.filter((item) => item.configured).length,
@@ -79,6 +89,99 @@ export async function collectAdminOverview(input: {
     },
     checks,
   };
+}
+
+async function inspectDataGovernance(pool: Pool, dbOnline: boolean, config: EnvConfig) {
+  const checks: DiagnosticCheck[] = [];
+  const snapshot = await readCurrentSnapshot(resolve(config.RESEARCH_SNAPSHOT_ROOT)).catch(() => null);
+  let minute: Record<string, unknown> | null = null;
+  try {
+    minute = JSON.parse(
+      await readFile(resolve(config.MINUTE_DATA_ROOT, 'manifest.json'), 'utf8'),
+    ) as Record<string, unknown>;
+  } catch {
+    minute = null;
+  }
+  const minuteYears = Array.isArray(minute?.years)
+    ? minute.years as Record<string, unknown>[]
+    : [];
+  const minuteLastDates = minuteYears
+    .map((item) => typeof item.lastDate === 'string' ? item.lastDate : null)
+    .filter((item): item is string => item !== null)
+    .sort();
+  const [coverage, materialized] = await Promise.all([
+    dbOnline
+      ? loadAdminCoverage(pool, config).catch((error) => {
+          checks.push({
+            id: 'data-coverage',
+            title: '数据覆盖矩阵',
+            level: 'warning',
+            summary: error instanceof Error ? error.message : '数据覆盖矩阵生成失败。',
+            resolution: '运行 npm run data:coverage 并检查数据库迁移、权限和分钟 manifest。',
+          });
+          return null;
+        })
+      : Promise.resolve(null),
+    inspectMaterializedArtifacts(
+      config.FACTOR_RESEARCH_ROOT,
+      snapshot?.manifest.snapshotId ?? null,
+    ).catch(() => null),
+  ]);
+  if (coverage) {
+    const failing = coverage.rows.filter((row) => row.status !== 'pass');
+    checks.push({
+      id: 'data-coverage',
+      title: '数据覆盖矩阵',
+      level: coverage.status === 'fail' ? 'critical' : coverage.status === 'warn' ? 'warning' : 'healthy',
+      summary: failing.length === 0
+        ? `${coverage.rows.length} 个数据域全部通过覆盖检查。`
+        : `${failing.length}/${coverage.rows.length} 个数据域未通过覆盖检查。`,
+      resolution: failing.length > 0 ? '查看管理台数据血缘区域，或运行 npm run data:coverage。' : undefined,
+    });
+  }
+  if (materialized && (materialized.stale > 0 || materialized.invalid > 0)) {
+    checks.push({
+      id: 'materialized-artifacts-stale',
+      title: 'DuckDB 持久研究结果',
+      level: materialized.invalid > 0 ? 'warning' : 'warning',
+      summary: `${materialized.stale} 个结果引用旧快照，${materialized.invalid} 个结果 manifest 无效。`,
+      resolution: '旧结果不会被当前快照复用；确认无研究引用后归档或清理对应 snapshot 目录。',
+    });
+  } else {
+    checks.push({
+      id: 'materialized-artifacts-stale',
+      title: 'DuckDB 持久研究结果',
+      level: 'healthy',
+      summary: '未发现过期或无效的持久因子物化结果。',
+    });
+  }
+  return {
+    checks,
+    summary: {
+      lineage: {
+        mysqlAuthoritativeDate: coverage?.authoritativeDate ?? null,
+        snapshotId: snapshot?.manifest.snapshotId ?? null,
+        snapshotCreatedAt: snapshot?.manifest.createdAt ?? null,
+        snapshotSourceVersion: snapshot?.manifest.sourceVersion ?? null,
+        snapshotMaxDate: snapshot?.manifest.maxDate ?? null,
+        minutePreparedAt: typeof minute?.preparedAt === 'string' ? minute.preparedAt : null,
+        minuteMaxDate: typeof minute?.lastDate === 'string'
+          ? minute.lastDate
+          : minuteLastDates[minuteLastDates.length - 1] ?? null,
+      },
+      coverage,
+      materialized,
+    },
+  };
+}
+
+async function loadAdminCoverage(pool: Pool, config: EnvConfig) {
+  const cachePath = resolve('.cache/data-coverage.json');
+  const cached = await readCoverageMatrixCache(cachePath, 15 * 60_000);
+  if (cached) return cached;
+  const matrix = await buildDataCoverageMatrix(pool, config.MINUTE_DATA_ROOT);
+  await writeCoverageMatrixCache(cachePath, matrix);
+  return matrix;
 }
 
 async function inspectDatabase(pool: Pool, dbOnline: boolean) {
@@ -253,31 +356,72 @@ async function inspectStorage(config: EnvConfig) {
 async function inspectTasks(pool: Pool, dbOnline: boolean) {
   const checks: DiagnosticCheck[] = [];
   if (!dbOnline) return { checks, summary: { syncJobs: {}, miningTasks: {} } };
-  const queryCounts = async (table: string) => {
+  const queryCounts = async (table: string, where = '') => {
     try {
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT status, COUNT(*) AS count FROM ${table} GROUP BY status`,
+        `SELECT status, COUNT(*) AS count FROM ${table} ${where} GROUP BY status`,
       );
       return Object.fromEntries(rows.map((row) => [String(row.status), Number(row.count)]));
     } catch {
       return {};
     }
   };
-  const [syncJobs, miningTasks] = await Promise.all([
+  const queryCount = async (sql: string) => {
+    try {
+      const [rows] = await pool.query<RowDataPacket[]>(sql);
+      return Number(rows[0]?.count ?? 0);
+    } catch {
+      return 0;
+    }
+  };
+  const [syncJobs, miningTasks, recentSyncFailures, recentMiningFailures] = await Promise.all([
     queryCounts('sync_jobs'),
-    queryCounts('factor_mining_tasks'),
+    queryCounts('factor_mining_tasks', 'WHERE deleted_at IS NULL AND archived_at IS NULL'),
+    queryCount(`
+      SELECT COUNT(*) AS count
+      FROM sync_jobs AS failed
+      WHERE failed.status='failed'
+        AND STR_TO_DATE(LEFT(failed.created_at, 19), '%Y-%m-%dT%H:%i:%s')
+            >= UTC_TIMESTAMP() - INTERVAL 24 HOUR
+        AND NOT EXISTS (
+          SELECT 1
+          FROM sync_jobs AS recovered
+          WHERE recovered.status='completed'
+            AND recovered.job_type=failed.job_type
+            AND recovered.created_at > failed.created_at
+            AND JSON_UNQUOTE(JSON_EXTRACT(recovered.request_snapshot, '$.runKey'))
+                = JSON_UNQUOTE(JSON_EXTRACT(failed.request_snapshot, '$.runKey'))
+        )
+    `),
+    queryCount(`
+      SELECT COUNT(*) AS count
+      FROM factor_mining_tasks
+      WHERE status='failed' AND deleted_at IS NULL AND archived_at IS NULL
+        AND STR_TO_DATE(LEFT(created_at, 19), '%Y-%m-%dT%H:%i:%s')
+            >= UTC_TIMESTAMP() - INTERVAL 24 HOUR
+    `),
   ]);
-  const failed = (syncJobs.failed ?? 0) + (miningTasks.failed ?? 0);
+  const failed = recentSyncFailures + recentMiningFailures;
   if (failed > 0) {
     checks.push({
       id: 'tasks-failed',
       title: '失败任务',
       level: 'warning',
-      summary: `当前历史记录中有 ${failed} 个失败任务。`,
+      summary: `最近 24 小时有 ${failed} 个失败任务。`,
       resolution: '查看同步任务或因子挖掘任务的错误信息，确认是否需要重试或归档。',
     });
   }
-  return { checks, summary: { syncJobs, miningTasks } };
+  return {
+    checks,
+    summary: {
+      syncJobs,
+      miningTasks,
+      recentFailures: {
+        syncJobs: recentSyncFailures,
+        miningTasks: recentMiningFailures,
+      },
+    },
+  };
 }
 
 function inspectConfiguration(config: EnvConfig, envFilePath: string | URL) {

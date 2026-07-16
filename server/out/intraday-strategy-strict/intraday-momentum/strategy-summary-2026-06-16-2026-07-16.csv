@@ -1,0 +1,2 @@
+tradingDays,averageDailyReturn,cumulativeReturn,maxDrawdown,rollingMomentumTrades,tailMomentumTrades,totalTrades,tradedSymbols,averageTradeReturn,tradeWinRate,averageWin,averageLoss,profitLossRatio,roundTripCostBps
+22,-0.0014076368286291459,-0.03055467810216883,-0.029477409646939567,7199,455,7654,953,-0.0008284500595202016,0.39482623464854977,0.00679105452812576,-0.005799551714068176,1.1709619748113393,10

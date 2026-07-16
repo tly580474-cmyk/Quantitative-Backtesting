@@ -1,0 +1,2 @@
+rebalanceMonth,benchmarkWeightDate,periodStartDate,periodEndDate,enhancedPortfolioReturn,constituentBenchmarkCumulativeReturn,officialIndexCumulativeReturn,constituentExcessReturn,officialIndexExcessReturn,activeShare,maxInitialAbsoluteWeightDeviationPct,initialActiveShare
+2026-07-01,2026-06-30,2026-07-01,2026-07-16,-0.05387072647793745,-0.05507221093472825,-0.0408209641059466,0.0012014844567908023,-0.013049762371990847,0.03871752776500548,0.2666430469155303,0.037900741874767725

@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "name": "沪深300动态权重指数增强与分钟超额贡献",
+  "transaction": true,
+  "params": {
+    "indexCode": "000300",
+    "rebalanceDate": "2026-06-30",
+    "startDate": "2026-07-01",
+    "endDate": "2026-07-16",
+    "tiltStrength": 0.35,
+    "minuteGlob": "D:/github_public_repo/所有股票的历史数据/1m_price_parquet/year=2026/202607*.parquet"
+  },
+  "steps": [
+    {
+      "id": "build_index_enhancement",
+      "file": "../sql/build-csi300-index-enhancement.sql"
+    },
+    {
+      "id": "monthly_rebalance_return",
+      "file": "../sql/csi300-monthly-rebalance-return.sql",
+      "out": "csi300-enhancement/monthly-rebalance-return-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "daily_performance",
+      "file": "../sql/csi300-daily-performance.sql",
+      "out": "csi300-enhancement/daily-performance-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "target_portfolio",
+      "file": "../sql/csi300-target-portfolio.sql",
+      "out": "csi300-enhancement/target-portfolio-${rebalanceDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "weight_deviation",
+      "file": "../sql/csi300-weight-deviation.sql",
+      "out": "csi300-enhancement/weight-deviation-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "intraday_excess_by_minute",
+      "file": "../sql/csi300-intraday-excess-by-minute.sql",
+      "out": "csi300-enhancement/intraday-excess-by-minute-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "intraday_excess_by_stock_day",
+      "file": "../sql/csi300-intraday-excess-by-stock-day.sql",
+      "out": "csi300-enhancement/intraday-excess-by-stock-day-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "intraday_excess_detail",
+      "file": "../sql/csi300-intraday-excess-detail.sql",
+      "out": "csi300-enhancement/intraday-excess-detail-${startDate}-${endDate}.csv",
+      "format": "csv"
+    }
+  ]
+}

@@ -54,9 +54,49 @@ export interface AdminOverview {
       manifestAvailable?: boolean | null;
     }>;
   };
+  dataGovernance: {
+    lineage: {
+      mysqlAuthoritativeDate: string | null;
+      snapshotId: string | null;
+      snapshotCreatedAt: string | null;
+      snapshotSourceVersion: string | null;
+      snapshotMaxDate: string | null;
+      minutePreparedAt: string | null;
+      minuteMaxDate: string | null;
+    };
+    coverage: {
+      status: 'pass' | 'warn' | 'fail';
+      checkedAt: string;
+      authoritativeDate: string | null;
+      rows: Array<{
+        key: string;
+        label: string;
+        status: 'pass' | 'warn' | 'fail';
+        rows: number;
+        covered: number;
+        total: number;
+        coverage: number;
+        minDate: string | null;
+        maxDate: string | null;
+        message: string;
+      }>;
+    } | null;
+    materialized: {
+      total: number;
+      current: number;
+      stale: number;
+      invalid: number;
+      staleBytes: number;
+      staleSnapshots: string[];
+    } | null;
+  };
   tasks: {
     syncJobs: Record<string, number>;
     miningTasks: Record<string, number>;
+    recentFailures?: {
+      syncJobs: number;
+      miningTasks: number;
+    };
   };
   configuration: {
     configured: number;

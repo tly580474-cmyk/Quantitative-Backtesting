@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="沪深300指数增强组合与日内分钟超额贡献研究报告">
+  <title>沪深300指数增强与日内超额贡献报告</title>
+  <style>
+    :root {
+      --navy: #0f2f5f;
+      --blue: #1e40af;
+      --blue-2: #3b82f6;
+      --amber: #d97706;
+      --green: #087f5b;
+      --red: #c2414b;
+      --ink: #172033;
+      --muted: #526079;
+      --line: #dbe3ef;
+      --soft: #eef4fb;
+      --paper: #ffffff;
+      --canvas: #f6f8fc;
+      --shadow: 0 12px 32px rgba(15, 47, 95, 0.08);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 85% -10%, rgba(59,130,246,.13), transparent 30rem),
+        var(--canvas);
+      font-family: "Fira Sans", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      font-size: 16px;
+      line-height: 1.62;
+    }
+    .shell { width: min(1220px, calc(100% - 32px)); margin: 0 auto; }
+    .hero {
+      margin: 24px auto 18px;
+      padding: 34px 38px;
+      color: white;
+      border-radius: 22px;
+      background:
+        linear-gradient(125deg, rgba(15,47,95,.98), rgba(30,64,175,.94)),
+        var(--navy);
+      box-shadow: 0 20px 44px rgba(15,47,95,.2);
+    }
+    .hero-grid { display: grid; grid-template-columns: 1.5fr .8fr; gap: 30px; align-items: end; }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: #bfd7ff;
+      font: 600 12px/1.4 "Fira Code", Consolas, monospace;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 0; max-width: 820px; font-size: clamp(30px, 5vw, 52px); line-height: 1.12; letter-spacing: -.035em; }
+    .hero p { max-width: 760px; margin: 18px 0 0; color: #dce9ff; }
+    .meta { display: grid; gap: 10px; font-size: 14px; }
+    .meta div { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,.18); }
+    .meta span:first-child { color: #bcd1f2; }
+    .notice {
+      margin: 18px 0;
+      padding: 16px 18px;
+      border: 1px solid #f2cf95;
+      border-left: 5px solid var(--amber);
+      border-radius: 12px;
+      background: #fff9ed;
+      color: #68430a;
+    }
+    .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 18px 0; }
+    .card, .panel {
+      background: rgba(255,255,255,.96);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+    }
+    .card { padding: 19px; }
+    .card .label { color: var(--muted); font-size: 13px; }
+    .card .value { margin-top: 7px; font: 700 clamp(24px, 3vw, 34px)/1.1 "Fira Code", Consolas, monospace; color: var(--navy); }
+    .card .hint { margin-top: 8px; font-size: 12px; color: var(--muted); }
+    .positive { color: var(--green) !important; }
+    .negative { color: var(--red) !important; }
+    .panel { margin: 18px 0; padding: 22px; }
+    .panel-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
+    h2 { margin: 0; color: var(--navy); font-size: 23px; line-height: 1.25; }
+    h3 { margin: 0 0 10px; color: var(--navy); font-size: 17px; }
+    .panel-head p, .muted { margin: 0; color: var(--muted); font-size: 13px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .chart {
+      width: 100%;
+      min-height: 310px;
+      display: block;
+      overflow: visible;
+      font-family: "Fira Code", Consolas, monospace;
+    }
+    .legend { display: flex; flex-wrap: wrap; gap: 16px; color: var(--muted); font-size: 12px; }
+    .legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; background: var(--legend); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+    table { width: 100%; min-width: 720px; border-collapse: collapse; background: white; font-size: 13px; }
+    th { position: sticky; top: 0; z-index: 1; padding: 11px 12px; text-align: left; color: #33425c; background: var(--soft); border-bottom: 1px solid var(--line); white-space: nowrap; }
+    td { padding: 10px 12px; border-bottom: 1px solid #edf1f6; white-space: nowrap; }
+    tbody tr:hover { background: #f8fbff; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .num { text-align: right; font-family: "Fira Code", Consolas, monospace; }
+    .code { color: var(--blue); font-family: "Fira Code", Consolas, monospace; font-weight: 600; }
+    .method { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; counter-reset: method; }
+    .method article { padding: 18px; border-radius: 13px; background: var(--soft); border: 1px solid #d7e4f3; }
+    .method article::before { counter-increment: method; content: "0" counter(method); display: block; margin-bottom: 8px; color: var(--blue); font: 700 13px "Fira Code", monospace; }
+    .files { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+    .file-link {
+      display: flex; justify-content: space-between; gap: 12px; align-items: center;
+      min-height: 48px; padding: 10px 13px; color: var(--blue); text-decoration: none;
+      border: 1px solid var(--line); border-radius: 10px; background: white;
+      transition: border-color .2s ease, background .2s ease;
+    }
+    .file-link:hover { border-color: var(--blue-2); background: #f4f8ff; }
+    .file-link:focus-visible { outline: 3px solid rgba(59,130,246,.35); outline-offset: 2px; }
+    footer { padding: 24px 0 40px; color: var(--muted); font-size: 12px; text-align: center; }
+    @media (max-width: 900px) {
+      .hero-grid, .grid-2 { grid-template-columns: 1fr; }
+      .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .method { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .shell { width: min(100% - 20px, 1220px); }
+      .hero { padding: 26px 20px; border-radius: 16px; }
+      .panel { padding: 16px; }
+      .kpis, .files { grid-template-columns: 1fr; }
+      .panel-head { align-items: flex-start; flex-direction: column; }
+      body { font-size: 16px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+    }
+    @media print {
+      body { background: white; }
+      .shell { width: 100%; }
+      .hero, .card, .panel { box-shadow: none; break-inside: avoid; }
+      .file-link { color: var(--ink); }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div class="hero-grid">
+        <div>
+          <p class="eyebrow">CSI 300 · INDEX ENHANCEMENT · INTRADAY ATTRIBUTION</p>
+          <h1>沪深300指数增强与日内超额贡献报告</h1>
+          <p>基于 2026-06-30 沪深300完整权重批次，以估值、120–20 日动量和低波动行业内评分构建增强组合，并使用全市场 1 分钟行情拆解个股日内超额贡献。</p>
+        </div>
+        <div class="meta" aria-label="报告元数据">
+          <div><span>权重基准日</span><strong>2026-06-30</strong></div>
+          <div><span>分析窗口</span><strong>2026-07-01 — 2026-07-16</strong></div>
+          <div><span>成分数量</span><strong>300</strong></div>
+          <div><span>分钟明细</span><strong>862,080 条</strong></div>
+        </div>
+      </div>
+    </header>
+
+    <aside class="notice">
+      <strong>数据范围说明：</strong>本地系统目前只有 2026-06-30 一份带完整权重的沪深300批次，以及 2026-07-15 的无权重成分名单。两份名单成分一致。本报告因此是 2026 年 7 月的可验证月内样本，不代表多年历史回测。
+    </aside>
+
+    <section class="kpis" aria-label="核心指标">
+      <article class="card">
+        <div class="label">增强组合收益</div>
+        <div class="value negative">-5.39%</div>
+        <div class="hint">复权成分组合，月内截至 07-16</div>
+      </article>
+      <article class="card">
+        <div class="label">成分重建基准收益</div>
+        <div class="value negative">-5.51%</div>
+        <div class="hint">基于 6 月 30 日权重并每日漂移</div>
+      </article>
+      <article class="card">
+        <div class="label">主口径累计超额</div>
+        <div class="value positive">+0.12%</div>
+        <div class="hint">增强组合减成分重建复权基准</div>
+      </article>
+      <article class="card">
+        <div class="label">初始主动份额</div>
+        <div class="value">3.79%</div>
+        <div class="hint">最大单股初始偏离 0.267pp</div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div><h2>月内累计表现</h2><p>复权增强组合、成分权重重建基准与官方沪深300价格指数。</p></div>
+        <div class="legend" aria-label="图例">
+          <span style="--legend:#1e40af">增强组合</span>
+          <span style="--legend:#087f5b">成分重建基准</span>
+          <span style="--legend:#d97706">官方价格指数</span>
+        </div>
+      </div>
+      <svg id="performance-chart" class="chart" viewBox="0 0 920 320" role="img" aria-label="月内累计收益折线图"></svg>
+    </section>
+
+    <section class="grid-2">
+      <article class="panel">
+        <div class="panel-head"><div><h2>初始权重偏离</h2><p>正值为超配，负值为低配，单位为百分点。</p></div></div>
+        <svg id="active-chart" class="chart" viewBox="0 0 660 420" role="img" aria-label="主要主动权重偏离条形图"></svg>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><h2>日内超额贡献个股</h2><p>将 12 个交易日分钟级主动权重贡献汇总到个股。</p></div></div>
+        <svg id="contribution-chart" class="chart" viewBox="0 0 660 420" role="img" aria-label="个股日内超额贡献条形图"></svg>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div><h2>2026-07-16 分时累计超额贡献</h2><p>仅统计开盘后的分钟收益，不包含隔夜跳空；停牌股票当日贡献为 0。</p></div>
+        <span class="muted">覆盖 299–300 只 / 分钟</span>
+      </div>
+      <svg id="intraday-chart" class="chart" viewBox="0 0 920 320" role="img" aria-label="最新交易日分时累计超额贡献折线图"></svg>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div><h2>每日组合表现</h2><p>主超额口径为增强组合减成分权重重建基准。</p></div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>日期</th><th class="num">增强累计</th><th class="num">成分基准</th><th class="num">官方指数</th><th class="num">主口径超额</th><th class="num">主动份额</th></tr></thead>
+          <tbody>
+  <tr>
+    <td>2026-07-01</td>
+    <td class="num">-0.23%</td>
+    <td class="num">-0.26%</td>
+    <td class="num">-0.28%</td>
+    <td class="num positive">+0.03%</td>
+    <td class="num">3.82%</td>
+  </tr>
+  <tr>
+    <td>2026-07-02</td>
+    <td class="num">-3.10%</td>
+    <td class="num">-3.20%</td>
+    <td class="num">-3.23%</td>
+    <td class="num positive">+0.09%</td>
+    <td class="num">3.85%</td>
+  </tr>
+  <tr>
+    <td>2026-07-03</td>
+    <td class="num">-2.47%</td>
+    <td class="num">-2.58%</td>
+    <td class="num">-2.62%</td>
+    <td class="num positive">+0.11%</td>
+    <td class="num">3.85%</td>
+  </tr>
+  <tr>
+    <td>2026-07-06</td>
+    <td class="num">-2.46%</td>
+    <td class="num">-2.59%</td>
+    <td class="num">-2.63%</td>
+    <td class="num positive">+0.13%</td>
+    <td class="num">3.86%</td>
+  </tr>
+  <tr>
+    <td>2026-07-07</td>
+    <td class="num">-3.47%</td>
+    <td class="num">-3.59%</td>
+    <td class="num">-3.63%</td>
+    <td class="num positive">+0.12%</td>
+    <td class="num">3.85%</td>
+  </tr>
+  <tr>
+    <td>2026-07-08</td>
+    <td class="num">-3.38%</td>
+    <td class="num">-3.49%</td>
+    <td class="num">-4.37%</td>
+    <td class="num positive">+0.11%</td>
+    <td class="num">3.85%</td>
+  </tr>
+  <tr>
+    <td>2026-07-09</td>
+    <td class="num">-1.81%</td>
+    <td class="num">-1.89%</td>
+    <td class="num">-1.94%</td>
+    <td class="num positive">+0.08%</td>
+    <td class="num">3.83%</td>
+  </tr>
+  <tr>
+    <td>2026-07-10</td>
+    <td class="num">-3.74%</td>
+    <td class="num">-3.85%</td>
+    <td class="num">-3.86%</td>
+    <td class="num positive">+0.11%</td>
+    <td class="num">3.86%</td>
+  </tr>
+  <tr>
+    <td>2026-07-13</td>
+    <td class="num">-5.46%</td>
+    <td class="num">-5.56%</td>
+    <td class="num">-5.58%</td>
+    <td class="num positive">+0.11%</td>
+    <td class="num">3.87%</td>
+  </tr>
+  <tr>
+    <td>2026-07-14</td>
+    <td class="num">-3.45%</td>
+    <td class="num">-3.53%</td>
+    <td class="num">-3.54%</td>
+    <td class="num positive">+0.09%</td>
+    <td class="num">3.85%</td>
+  </tr>
+  <tr>
+    <td>2026-07-15</td>
+    <td class="num">-3.61%</td>
+    <td class="num">-3.73%</td>
+    <td class="num">-3.74%</td>
+    <td class="num positive">+0.11%</td>
+    <td class="num">3.87%</td>
+  </tr>
+  <tr>
+    <td>2026-07-16</td>
+    <td class="num">-5.39%</td>
+    <td class="num">-5.51%</td>
+    <td class="num">-4.08%</td>
+    <td class="num positive">+0.12%</td>
+    <td class="num">3.87%</td>
+  </tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <article class="panel">
+        <div class="panel-head"><div><h2>主要超配与低配</h2><p>展示主动偏离绝对值较大的证券。</p></div></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>证券</th><th>行业</th><th class="num">基准</th><th class="num">目标</th><th class="num">偏离</th></tr></thead>
+            <tbody>
+  <tr>
+    <td><span class="code">300750</span> 宁德时代</td>
+    <td>电力设备</td>
+    <td class="num">3.675pp</td>
+    <td class="num">3.915pp</td>
+    <td class="num positive">+0.241pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">000333</span> 美的集团</td>
+    <td>家用电器</td>
+    <td class="num">1.299pp</td>
+    <td class="num">1.479pp</td>
+    <td class="num positive">+0.180pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">000651</span> 格力电器</td>
+    <td>家用电器</td>
+    <td class="num">0.594pp</td>
+    <td class="num">0.769pp</td>
+    <td class="num positive">+0.175pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">600150</span> 中国船舶</td>
+    <td>国防军工</td>
+    <td class="num">0.539pp</td>
+    <td class="num">0.695pp</td>
+    <td class="num positive">+0.156pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">002415</span> 海康威视</td>
+    <td>计算机</td>
+    <td class="num">0.443pp</td>
+    <td class="num">0.553pp</td>
+    <td class="num positive">+0.110pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">002371</span> 北方华创</td>
+    <td>电子</td>
+    <td class="num">1.354pp</td>
+    <td class="num">1.459pp</td>
+    <td class="num positive">+0.106pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">000725</span> 京东方Ａ</td>
+    <td>电子</td>
+    <td class="num">1.116pp</td>
+    <td class="num">1.221pp</td>
+    <td class="num positive">+0.105pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">688012</span> 中微公司</td>
+    <td>电子</td>
+    <td class="num">1.242pp</td>
+    <td class="num">1.343pp</td>
+    <td class="num positive">+0.101pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">300308</span> 中际旭创</td>
+    <td>通信</td>
+    <td class="num">5.008pp</td>
+    <td class="num">4.741pp</td>
+    <td class="num negative">-0.267pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">300502</span> 新易盛</td>
+    <td>通信</td>
+    <td class="num">2.992pp</td>
+    <td class="num">2.798pp</td>
+    <td class="num negative">-0.194pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">300059</span> 东方财富</td>
+    <td>非银金融</td>
+    <td class="num">0.912pp</td>
+    <td class="num">0.727pp</td>
+    <td class="num negative">-0.185pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">601899</span> 紫金矿业</td>
+    <td>有色金属</td>
+    <td class="num">1.465pp</td>
+    <td class="num">1.308pp</td>
+    <td class="num negative">-0.157pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">601288</span> 农业银行</td>
+    <td>银行</td>
+    <td class="num">0.617pp</td>
+    <td class="num">0.475pp</td>
+    <td class="num negative">-0.142pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">688256</span> 寒武纪</td>
+    <td>电子</td>
+    <td class="num">1.772pp</td>
+    <td class="num">1.630pp</td>
+    <td class="num negative">-0.142pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">600276</span> 恒瑞医药</td>
+    <td>医药生物</td>
+    <td class="num">0.822pp</td>
+    <td class="num">0.702pp</td>
+    <td class="num negative">-0.120pp</td>
+  </tr>
+  <tr>
+    <td><span class="code">600036</span> 招商银行</td>
+    <td>银行</td>
+    <td class="num">1.554pp</td>
+    <td class="num">1.462pp</td>
+    <td class="num negative">-0.092pp</td>
+  </tr></tbody>
+          </table>
+        </div>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><h2>日内贡献明细排名</h2><p>正负贡献各展示 8 只。</p></div></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>证券</th><th>行业</th><th class="num">累计日内超额贡献</th></tr></thead>
+            <tbody>
+  <tr>
+    <td><span class="code">688256</span> 寒武纪</td>
+    <td>电子</td>
+    <td class="num positive">+0.0247%</td>
+  </tr>
+  <tr>
+    <td><span class="code">300308</span> 中际旭创</td>
+    <td>通信</td>
+    <td class="num positive">+0.0221%</td>
+  </tr>
+  <tr>
+    <td><span class="code">603986</span> 兆易创新</td>
+    <td>电子</td>
+    <td class="num positive">+0.0208%</td>
+  </tr>
+  <tr>
+    <td><span class="code">000333</span> 美的集团</td>
+    <td>家用电器</td>
+    <td class="num positive">+0.0172%</td>
+  </tr>
+  <tr>
+    <td><span class="code">300502</span> 新易盛</td>
+    <td>通信</td>
+    <td class="num positive">+0.0157%</td>
+  </tr>
+  <tr>
+    <td><span class="code">000651</span> 格力电器</td>
+    <td>家用电器</td>
+    <td class="num positive">+0.0137%</td>
+  </tr>
+  <tr>
+    <td><span class="code">600176</span> 中国巨石</td>
+    <td>建筑材料</td>
+    <td class="num positive">+0.0131%</td>
+  </tr>
+  <tr>
+    <td><span class="code">601857</span> 中国石油</td>
+    <td>石油石化</td>
+    <td class="num positive">+0.0129%</td>
+  </tr>
+  <tr>
+    <td><span class="code">601899</span> 紫金矿业</td>
+    <td>有色金属</td>
+    <td class="num negative">-0.0335%</td>
+  </tr>
+  <tr>
+    <td><span class="code">600276</span> 恒瑞医药</td>
+    <td>医药生物</td>
+    <td class="num negative">-0.0178%</td>
+  </tr>
+  <tr>
+    <td><span class="code">600522</span> 中天科技</td>
+    <td>通信</td>
+    <td class="num negative">-0.0157%</td>
+  </tr>
+  <tr>
+    <td><span class="code">000725</span> 京东方Ａ</td>
+    <td>电子</td>
+    <td class="num negative">-0.0147%</td>
+  </tr>
+  <tr>
+    <td><span class="code">300750</span> 宁德时代</td>
+    <td>电力设备</td>
+    <td class="num negative">-0.0141%</td>
+  </tr>
+  <tr>
+    <td><span class="code">300408</span> 三环集团</td>
+    <td>电子</td>
+    <td class="num negative">-0.0141%</td>
+  </tr>
+  <tr>
+    <td><span class="code">601288</span> 农业银行</td>
+    <td>银行</td>
+    <td class="num negative">-0.0138%</td>
+  </tr>
+  <tr>
+    <td><span class="code">002714</span> 牧原股份</td>
+    <td>农林牧渔</td>
+    <td class="num negative">-0.0130%</td>
+  </tr></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div><h2>研究方法</h2><p>本报告强调可复核性，所有计算结果均可由附带 CSV 重建。</p></div></div>
+      <div class="method">
+        <article><h3>动态基准权重</h3><p>以 2026-06-30 官方成分权重为初值，按每只成分复权累计收益逐日漂移并重新归一化。停牌期间沿用最近可用价格。</p></article>
+        <article><h3>增强权重</h3><p>在申万一级行业内分别计算估值、120–20 日动量和低波动分位分数，按 35% / 40% / 25% 合成，再通过指数权重指数倾斜生成目标组合。</p></article>
+        <article><h3>分钟贡献</h3><p>以每日开盘前主动权重乘以个股分钟收益，得到个股分钟超额贡献；首分钟以当分钟开盘价为基准，因此不包含隔夜收益。</p></article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div><h2>口径限制与解释</h2></div></div>
+      <ul>
+        <li>主基准是按成分复权收益重建的组合，与官方沪深300价格指数并非相同收益口径。</li>
+        <li>截至 2026-07-16，增强组合相对成分重建基准超额为 <strong>+0.12%</strong>，相对官方价格指数为 <strong>-1.30%</strong>。</li>
+        <li>未计交易成本、冲击成本、涨跌停成交限制和最小交易单位。</li>
+        <li>当前只有一个完整权重批次，无法评估长期稳定性、年度换手和跨周期风险。</li>
+        <li>分钟贡献采用线性加总，适合归因展示；跨分钟复利与组合真实成交路径可能存在微小差异。</li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div><h2>数据文件</h2><p>链接均为相对路径，报告文件移动时请与 CSV 保持在同一目录。</p></div></div>
+      <div class="files">
+        <a class="file-link" href="monthly-rebalance-return-2026-07-01-2026-07-16.csv"><span>月度调仓收益</span><span class="code">monthly-rebalance-return-2026-07-01-2026-07-16.csv</span></a><a class="file-link" href="daily-performance-2026-07-01-2026-07-16.csv"><span>每日组合表现</span><span class="code">daily-performance-2026-07-01-2026-07-16.csv</span></a><a class="file-link" href="target-portfolio-2026-06-30.csv"><span>目标组合权重</span><span class="code">target-portfolio-2026-06-30.csv</span></a><a class="file-link" href="weight-deviation-2026-07-01-2026-07-16.csv"><span>每日权重偏离</span><span class="code">weight-deviation-2026-07-01-2026-07-16.csv</span></a><a class="file-link" href="intraday-excess-by-minute-2026-07-01-2026-07-16.csv"><span>分钟超额汇总</span><span class="code">intraday-excess-by-minute-2026-07-01-2026-07-16.csv</span></a><a class="file-link" href="intraday-excess-by-stock-day-2026-07-01-2026-07-16.csv"><span>股票日内贡献</span><span class="code">intraday-excess-by-stock-day-2026-07-01-2026-07-16.csv</span></a><a class="file-link" href="intraday-excess-detail-2026-07-01-2026-07-16.csv"><span>完整分钟明细</span><span class="code">intraday-excess-detail-2026-07-01-2026-07-16.csv</span></a>
+      </div>
+    </section>
+  </main>
+  <footer>沪深300指数增强研究报告 · 生成日期 2026-07-16 · 仅供研究与系统验证</footer>
+
+  <script>
+    const DATA = {"daily":[{"date":"07-01","enhanced":-0.002303100370189437,"constituent":-0.0025988398088546694,"official":-0.0027570590565669795,"excess":0.00029573943866523233},{"date":"07-02","enhanced":-0.031043464968447343,"constituent":-0.03195052227448658,"official":-0.03225417228904259,"excess":0.0009070573060392384},{"date":"07-03","enhanced":-0.02471831841365113,"constituent":-0.025820760209988025,"official":-0.026247363097236964,"excess":0.0011024417963368949},{"date":"07-06","enhanced":-0.02459245900620366,"constituent":-0.02586694495214059,"official":-0.026281549825144856,"excess":0.0012744859459369318},{"date":"07-07","enhanced":-0.034659091444280365,"constituent":-0.03586891568219708,"official":-0.03628418421417767,"excess":0.0012098242379167123},{"date":"07-08","enhanced":-0.0338185998804158,"constituent":-0.034875666468962896,"official":-0.04367052842626418,"excess":0.0010570665885470953},{"date":"07-09","enhanced":-0.01808403360474964,"constituent":-0.018925238047247994,"official":-0.019381863739746374,"excess":0.0008412044424983556},{"date":"07-10","enhanced":-0.03743994785410798,"constituent":-0.03849304437389234,"official":-0.03859078285595918,"excess":0.0010530965197843578},{"date":"07-13","enhanced":-0.054587198839398554,"constituent":-0.05564024122438871,"official":-0.055766597153653175,"excess":0.001053042384990155},{"date":"07-14","enhanced":-0.034451104898905016,"constituent":-0.03532443737842095,"official":-0.03543152700047647,"excess":0.0008733324795159314},{"date":"07-15","enhanced":-0.03614810866907903,"constituent":-0.037257615592289794,"official":-0.037386203443206756,"excess":0.001109506923210768},{"date":"07-16","enhanced":-0.05387072647793745,"constituent":-0.05507221093472825,"official":-0.0408209641059466,"excess":0.0012014844567908023}],"activeWeights":[{"label":"300750 宁德时代","value":0.24054863733630016},{"label":"000333 美的集团","value":0.17975510024986696},{"label":"000651 格力电器","value":0.174783993269796},{"label":"600150 中国船舶","value":0.15589283575423796},{"label":"002415 海康威视","value":0.10998788710314422},{"label":"002371 北方华创","value":0.1055430572305216},{"label":"000725 京东方Ａ","value":0.10475825202597777},{"label":"688012 中微公司","value":0.10061720724187206},{"label":"601857 中国石油","value":0.0783824897035541},{"label":"600919 江苏银行","value":0.07475007630575714},{"label":"300308 中际旭创","value":-0.2666430469155303},{"label":"300502 新易盛","value":-0.19379024503219844},{"label":"300059 东方财富","value":-0.18511409504319987},{"label":"601899 紫金矿业","value":-0.15709729156279328},{"label":"601288 农业银行","value":-0.14182880887345278},{"label":"688256 寒武纪","value":-0.1417459122096998},{"label":"600276 恒瑞医药","value":-0.12041022713877658},{"label":"600036 招商银行","value":-0.09211276559284243},{"label":"002050 三花智控","value":-0.07820107034392237},{"label":"603986 兆易创新","value":-0.07522721708763269}],"contributors":[{"label":"688256 寒武纪","value":0.0002468015122649345},{"label":"300308 中际旭创","value":0.0002211190918537717},{"label":"603986 兆易创新","value":0.000208468789789005},{"label":"000333 美的集团","value":0.0001717624209692964},{"label":"300502 新易盛","value":0.0001569032308765657},{"label":"000651 格力电器","value":0.00013694390243943987},{"label":"601899 紫金矿业","value":-0.00033470034668310367},{"label":"600276 恒瑞医药","value":-0.00017773379932540333},{"label":"600522 中天科技","value":-0.0001566474886172046},{"label":"000725 京东方Ａ","value":-0.00014699249188610938},{"label":"300750 宁德时代","value":-0.0001414018187148326},{"label":"300408 三环集团","value":-0.00014073348940032643}],"latestIntraday":[{"time":"09:31","value":-0.00004315711199647238,"covered":300},{"time":"09:32","value":-0.00004524261694078634,"covered":300},{"time":"09:33","value":0.00001586383657702637,"covered":300},{"time":"09:34","value":-0.000008362023450284844,"covered":300},{"time":"09:35","value":-0.000005888292979439486,"covered":300},{"time":"09:36","value":-0.000040729358931096836,"covered":300},{"time":"09:37","value":-0.0000799646104316574,"covered":300},{"time":"09:38","value":-0.00012863544421733844,"covered":300},{"time":"09:39","value":-0.00016433727023419152,"covered":300},{"time":"09:40","value":-0.00018056813753408848,"covered":300},{"time":"09:41","value":-0.00015277688647511532,"covered":300},{"time":"09:42","value":-0.00017044028054325524,"covered":300},{"time":"09:43","value":-0.0001718124958355235,"covered":300},{"time":"09:44","value":-0.0002065729428639166,"covered":300},{"time":"09:45","value":-0.00019031256914089277,"covered":300},{"time":"09:46","value":-0.00023939529250080203,"covered":300},{"time":"09:47","value":-0.00021327178663580292,"covered":300},{"time":"09:48","value":-0.0002226722199545091,"covered":300},{"time":"09:49","value":-0.0002252292568448834,"covered":300},{"time":"09:50","value":-0.00027359766314232826,"covered":300},{"time":"09:51","value":-0.00021164073670266342,"covered":300},{"time":"09:52","value":-0.0002665004989431423,"covered":300},{"time":"09:53","value":-0.00023722014535181195,"covered":300},{"time":"09:54","value":-0.00023545362294295535,"covered":300},{"time":"09:55","value":-0.0002627473645717306,"covered":300},{"time":"09:56","value":-0.0002994432802598587,"covered":300},{"time":"09:57","value":-0.0003293216281789165,"covered":300},{"time":"09:58","value":-0.00034730884069646844,"covered":300},{"time":"09:59","value":-0.00033165344876672404,"covered":300},{"time":"10:00","value":-0.0002936018060598759,"covered":300},{"time":"10:01","value":-0.0002675849113444325,"covered":300},{"time":"10:02","value":-0.0002846897401039537,"covered":300},{"time":"10:03","value":-0.000249985660382585,"covered":300},{"time":"10:04","value":-0.0002533931655100892,"covered":300},{"time":"10:05","value":-0.0002711998894342607,"covered":300},{"time":"10:06","value":-0.00028224992516935696,"covered":300},{"time":"10:07","value":-0.0002892422137643064,"covered":300},{"time":"10:08","value":-0.0003140974127997684,"covered":300},{"time":"10:09","value":-0.0003099789525271812,"covered":300},{"time":"10:10","value":-0.00031380091666435904,"covered":300},{"time":"10:11","value":-0.00031453468337272624,"covered":300},{"time":"10:12","value":-0.00031190174278272325,"covered":300},{"time":"10:13","value":-0.0003042894301064879,"covered":300},{"time":"10:14","value":-0.0003034745982780422,"covered":300},{"time":"10:15","value":-0.0003004896305274494,"covered":300},{"time":"10:16","value":-0.0003468467853300834,"covered":300},{"time":"10:17","value":-0.00034345934387121395,"covered":300},{"time":"10:18","value":-0.00033520446883582495,"covered":300},{"time":"10:19","value":-0.0003576383999161651,"covered":300},{"time":"10:20","value":-0.00030319166755704883,"covered":300},{"time":"10:21","value":-0.00029888937391864533,"covered":300},{"time":"10:22","value":-0.00029500996804131393,"covered":300},{"time":"10:23","value":-0.0002891112207470356,"covered":300},{"time":"10:24","value":-0.00028843659648674773,"covered":300},{"time":"10:25","value":-0.0002827121150586084,"covered":300},{"time":"10:26","value":-0.00029183996560914517,"covered":300},{"time":"10:27","value":-0.00025013550358440786,"covered":300},{"time":"10:28","value":-0.0002722768440690615,"covered":300},{"time":"10:29","value":-0.0002989077377926145,"covered":300},{"time":"10:30","value":-0.00029072992897999204,"covered":300},{"time":"10:31","value":-0.0002712184840066338,"covered":300},{"time":"10:32","value":-0.0002563603223666738,"covered":300},{"time":"10:33","value":-0.00024370153959089898,"covered":300},{"time":"10:34","value":-0.0002731402778282096,"covered":300},{"time":"10:35","value":-0.00025192655167981037,"covered":300},{"time":"10:36","value":-0.0002268462420556008,"covered":300},{"time":"10:37","value":-0.0002466716935493111,"covered":300},{"time":"10:38","value":-0.00024947343522456196,"covered":300},{"time":"10:39","value":-0.0002429301452433254,"covered":300},{"time":"10:40","value":-0.00020784248690754276,"covered":300},{"time":"10:41","value":-0.00021877183181849604,"covered":300},{"time":"10:42","value":-0.0002426233847816921,"covered":300},{"time":"10:43","value":-0.0002511947832176682,"covered":300},{"time":"10:44","value":-0.0002474331999355259,"covered":300},{"time":"10:45","value":-0.00027090022530850376,"covered":300},{"time":"10:46","value":-0.0002741202439175464,"covered":300},{"time":"10:47","value":-0.0002571949353053697,"covered":300},{"time":"10:48","value":-0.00026420968041907,"covered":300},{"time":"10:49","value":-0.0002792340400357148,"covered":300},{"time":"10:50","value":-0.0002896062254340677,"covered":300},{"time":"10:51","value":-0.00030095705368800616,"covered":300},{"time":"10:52","value":-0.00030891358833633073,"covered":300},{"time":"10:53","value":-0.0002819083101796577,"covered":300},{"time":"10:54","value":-0.00028739053413567536,"covered":300},{"time":"10:55","value":-0.0002821416795486198,"covered":300},{"time":"10:56","value":-0.00026416136754922115,"covered":300},{"time":"10:57","value":-0.00028283982860856317,"covered":300},{"time":"10:58","value":-0.0002818423394948856,"covered":300},{"time":"10:59","value":-0.0003031436808169595,"covered":300},{"time":"11:00","value":-0.00028516724614449315,"covered":300},{"time":"11:01","value":-0.0002775102218912266,"covered":300},{"time":"11:02","value":-0.00029566912282003635,"covered":300},{"time":"11:03","value":-0.00029752672523097114,"covered":300},{"time":"11:04","value":-0.0002866084157804532,"covered":300},{"time":"11:05","value":-0.0002568662074499811,"covered":300},{"time":"11:06","value":-0.0002550141607454167,"covered":300},{"time":"11:07","value":-0.0002553852631730173,"covered":300},{"time":"11:08","value":-0.0002405648532401949,"covered":300},{"time":"11:09","value":-0.0002614990661669634,"covered":300},{"time":"11:10","value":-0.00025068412571107646,"covered":300},{"time":"11:11","value":-0.0002481918127787189,"covered":300},{"time":"11:12","value":-0.0002266941377405292,"covered":300},{"time":"11:13","value":-0.00022303234465079316,"covered":300},{"time":"11:14","value":-0.0002242121849627237,"covered":300},{"time":"11:15","value":-0.00020295448033885456,"covered":300},{"time":"11:16","value":-0.0002056581792131723,"covered":300},{"time":"11:17","value":-0.0002100952790446494,"covered":300},{"time":"11:18","value":-0.00019281908033859344,"covered":300},{"time":"11:19","value":-0.00019885805667575724,"covered":300},{"time":"11:20","value":-0.00018106707923997445,"covered":300},{"time":"11:21","value":-0.0001567290032674689,"covered":300},{"time":"11:22","value":-0.0001846497535619624,"covered":300},{"time":"11:23","value":-0.0001654215094631114,"covered":300},{"time":"11:24","value":-0.00013865232718989032,"covered":300},{"time":"11:25","value":-0.00014499319435116767,"covered":300},{"time":"11:26","value":-0.00017377974328412003,"covered":300},{"time":"11:27","value":-0.000195208979298993,"covered":300},{"time":"11:28","value":-0.00018727939882530066,"covered":300},{"time":"11:29","value":-0.00020686575288760353,"covered":300},{"time":"11:30","value":-0.00021255620980347906,"covered":300},{"time":"13:01","value":-0.00018959561658105317,"covered":300},{"time":"13:02","value":-0.00018120525975528337,"covered":300},{"time":"13:03","value":-0.0001532828669700599,"covered":300},{"time":"13:04","value":-0.00018650582084443515,"covered":300},{"time":"13:05","value":-0.0001877722691505124,"covered":300},{"time":"13:06","value":-0.00020465852054921084,"covered":300},{"time":"13:07","value":-0.00018922396691543924,"covered":300},{"time":"13:08","value":-0.00015972946005079905,"covered":300},{"time":"13:09","value":-0.00015918464194697533,"covered":300},{"time":"13:10","value":-0.00016646287668445675,"covered":300},{"time":"13:11","value":-0.0001584414243015016,"covered":300},{"time":"13:12","value":-0.00015411057929632448,"covered":300},{"time":"13:13","value":-0.0001595336990045904,"covered":300},{"time":"13:14","value":-0.00017677502959365167,"covered":300},{"time":"13:15","value":-0.00018169207780878855,"covered":300},{"time":"13:16","value":-0.00016983573961989313,"covered":300},{"time":"13:17","value":-0.0001918409799902945,"covered":300},{"time":"13:18","value":-0.00018217616957460426,"covered":300},{"time":"13:19","value":-0.00022747610109288447,"covered":300},{"time":"13:20","value":-0.00023906461766435972,"covered":300},{"time":"13:21","value":-0.0002498243610270092,"covered":300},{"time":"13:22","value":-0.00021269206685647433,"covered":300},{"time":"13:23","value":-0.000202453957069347,"covered":300},{"time":"13:24","value":-0.0001922126739846528,"covered":300},{"time":"13:25","value":-0.00017753534608380534,"covered":300},{"time":"13:26","value":-0.00015358472230796313,"covered":300},{"time":"13:27","value":-0.0001636426983944011,"covered":300},{"time":"13:28","value":-0.0001599456968469244,"covered":300},{"time":"13:29","value":-0.00015279521678647677,"covered":300},{"time":"13:30","value":-0.00013965807273156244,"covered":300},{"time":"13:31","value":-0.000142900142714543,"covered":300},{"time":"13:32","value":-0.00013699764344553628,"covered":300},{"time":"13:33","value":-0.00012854615948807016,"covered":300},{"time":"13:34","value":-0.00015163764041538846,"covered":300},{"time":"13:35","value":-0.00015916144521602301,"covered":300},{"time":"13:36","value":-0.00012364089986830298,"covered":300},{"time":"13:37","value":-0.00011436650448941385,"covered":300},{"time":"13:38","value":-0.0001321594471297435,"covered":300},{"time":"13:39","value":-0.00013569057128625403,"covered":300},{"time":"13:40","value":-0.0001474745091387551,"covered":300},{"time":"13:41","value":-0.00013815979948626433,"covered":300},{"time":"13:42","value":-0.00015435050909890684,"covered":300},{"time":"13:43","value":-0.00015640633261043767,"covered":300},{"time":"13:44","value":-0.00014482823708461738,"covered":300},{"time":"13:45","value":-0.00014693999424234336,"covered":300},{"time":"13:46","value":-0.00014490300549031073,"covered":300},{"time":"13:47","value":-0.00013060620811044442,"covered":300},{"time":"13:48","value":-0.00013098752284842915,"covered":300},{"time":"13:49","value":-0.00012351908965529233,"covered":300},{"time":"13:50","value":-0.00012275070309245866,"covered":300},{"time":"13:51","value":-0.00012688288405230527,"covered":300},{"time":"13:52","value":-0.00016105541599141258,"covered":300},{"time":"13:53","value":-0.00015433116223676594,"covered":300},{"time":"13:54","value":-0.00016129203070958602,"covered":300},{"time":"13:55","value":-0.00015049301106344305,"covered":300},{"time":"13:56","value":-0.00014994254039247398,"covered":300},{"time":"13:57","value":-0.00014630530873083886,"covered":300},{"time":"13:58","value":-0.0001424876209804953,"covered":300},{"time":"13:59","value":-0.0001559762495631232,"covered":300},{"time":"14:00","value":-0.00015870664781680844,"covered":300},{"time":"14:01","value":-0.0001459868532684236,"covered":300},{"time":"14:02","value":-0.0001602253147890876,"covered":300},{"time":"14:03","value":-0.00013861703433499373,"covered":300},{"time":"14:04","value":-0.0001364857901114648,"covered":300},{"time":"14:05","value":-0.00015352219114391034,"covered":300},{"time":"14:06","value":-0.00018106093155722047,"covered":300},{"time":"14:07","value":-0.0001916880691056241,"covered":300},{"time":"14:08","value":-0.00019686704897305455,"covered":300},{"time":"14:09","value":-0.00016325038095004927,"covered":300},{"time":"14:10","value":-0.00016097376052944058,"covered":300},{"time":"14:11","value":-0.00015832004384791636,"covered":300},{"time":"14:12","value":-0.0001480340160593475,"covered":300},{"time":"14:13","value":-0.0001436493595411981,"covered":300},{"time":"14:14","value":-0.00014583218899240897,"covered":300},{"time":"14:15","value":-0.00015765278101502318,"covered":300},{"time":"14:16","value":-0.0001555909667588508,"covered":300},{"time":"14:17","value":-0.00014170137567544574,"covered":300},{"time":"14:18","value":-0.00014879300765826837,"covered":300},{"time":"14:19","value":-0.00014931103966603677,"covered":300},{"time":"14:20","value":-0.00014855690867183539,"covered":300},{"time":"14:21","value":-0.00016139087179899706,"covered":300},{"time":"14:22","value":-0.0001522326070765776,"covered":300},{"time":"14:23","value":-0.0001665739534071217,"covered":300},{"time":"14:24","value":-0.00016686643793957685,"covered":300},{"time":"14:25","value":-0.0001594520839254951,"covered":300},{"time":"14:26","value":-0.00015699138784201357,"covered":300},{"time":"14:27","value":-0.00015150047854354162,"covered":300},{"time":"14:28","value":-0.00012499990232855117,"covered":300},{"time":"14:29","value":-0.00014211875024517187,"covered":300},{"time":"14:30","value":-0.00013385974914064083,"covered":300},{"time":"14:31","value":-0.0001365309802430603,"covered":300},{"time":"14:32","value":-0.0001209612017642149,"covered":300},{"time":"14:33","value":-0.00012133658084280905,"covered":300},{"time":"14:34","value":-0.0001171914270040831,"covered":300},{"time":"14:35","value":-0.00010475542436395177,"covered":300},{"time":"14:36","value":-0.00010334828541489858,"covered":300},{"time":"14:37","value":-0.00009801909503709795,"covered":300},{"time":"14:38","value":-0.00010104699870781441,"covered":300},{"time":"14:39","value":-0.00008633755951696134,"covered":300},{"time":"14:40","value":-0.00010663836620892093,"covered":300},{"time":"14:41","value":-0.00012809764630301792,"covered":300},{"time":"14:42","value":-0.00010812297272212823,"covered":300},{"time":"14:43","value":-0.00012041111050189471,"covered":300},{"time":"14:44","value":-0.00010023592238044533,"covered":300},{"time":"14:45","value":-0.00009197465850301088,"covered":300},{"time":"14:46","value":-0.00008441823510346055,"covered":300},{"time":"14:47","value":-0.00007686009714279825,"covered":300},{"time":"14:48","value":-0.00007476092531564939,"covered":300},{"time":"14:49","value":-0.00006377801290851612,"covered":300},{"time":"14:50","value":-0.00007831230929861839,"covered":300},{"time":"14:51","value":-0.00007160538096742422,"covered":300},{"time":"14:52","value":-0.00006425539874487534,"covered":300},{"time":"14:53","value":-0.00009353086760937759,"covered":300},{"time":"14:54","value":-0.00011317033051004677,"covered":300},{"time":"14:55","value":-0.00012485654615654318,"covered":300},{"time":"14:56","value":-0.00013788379353619066,"covered":300},{"time":"14:57","value":-0.0001488675491199493,"covered":300},{"time":"14:58","value":-0.0001488675491199493,"covered":300},{"time":"14:59","value":-0.0001488675491199493,"covered":300},{"time":"15:00","value":-0.00014840734995686945,"covered":300}]};
+    const NS = "http://www.w3.org/2000/svg";
+    const colors = { enhanced:"#1e40af", constituent:"#087f5b", official:"#d97706", positive:"#087f5b", negative:"#c2414b", grid:"#dbe3ef", text:"#526079" };
+    const pct = value => (value * 100).toFixed(2) + "%";
+    const pp = value => (value >= 0 ? "+" : "") + value.toFixed(3) + "pp";
+
+    function lineChart(id, points, series, labelKey, valueFormatter) {
+      const svg = document.getElementById(id);
+      const width = 920, height = 320, left = 62, right = 24, top = 22, bottom = 44;
+      const values = points.flatMap(point => series.map(item => point[item.key]));
+      let min = Math.min(...values, 0), max = Math.max(...values, 0);
+      const padding = Math.max((max - min) * .12, .001);
+      min -= padding; max += padding;
+      const x = index => left + index * (width - left - right) / Math.max(points.length - 1, 1);
+      const y = value => top + (max - value) * (height - top - bottom) / (max - min || 1);
+      let markup = "";
+      for (let i = 0; i <= 5; i++) {
+        const value = min + (max - min) * i / 5;
+        const py = y(value);
+        markup += '<line x1="' + left + '" y1="' + py + '" x2="' + (width-right) + '" y2="' + py + '" stroke="' + colors.grid + '" stroke-width="1"/>';
+        markup += '<text x="' + (left-10) + '" y="' + (py+4) + '" text-anchor="end" fill="' + colors.text + '" font-size="11">' + valueFormatter(value) + '</text>';
+      }
+      points.forEach((point, index) => {
+        if (index % Math.ceil(points.length / 7) === 0 || index === points.length - 1) {
+          markup += '<text x="' + x(index) + '" y="' + (height-16) + '" text-anchor="middle" fill="' + colors.text + '" font-size="11">' + point[labelKey] + '</text>';
+        }
+      });
+      for (const item of series) {
+        const path = points.map((point,index) => (index ? "L" : "M") + x(index).toFixed(2) + " " + y(point[item.key]).toFixed(2)).join(" ");
+        markup += '<path d="' + path + '" fill="none" stroke="' + item.color + '" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>';
+        points.forEach((point,index) => {
+          markup += '<circle cx="' + x(index) + '" cy="' + y(point[item.key]) + '" r="3" fill="' + item.color + '"><title>' + point[labelKey] + " · " + item.name + " " + valueFormatter(point[item.key]) + '</title></circle>';
+        });
+      }
+      svg.innerHTML = markup;
+    }
+
+    function barChart(id, items, formatter) {
+      const svg = document.getElementById(id);
+      const width = 660, height = 420, left = 168, right = 42, top = 16, bottom = 20;
+      const maxAbs = Math.max(...items.map(item => Math.abs(item.value)), .0001);
+      const zero = left + (width-left-right)/2;
+      const scale = (width-left-right)/2/maxAbs;
+      const rowHeight = (height-top-bottom)/items.length;
+      let markup = '<line x1="' + zero + '" y1="' + top + '" x2="' + zero + '" y2="' + (height-bottom) + '" stroke="#94a3b8"/>';
+      items.forEach((item,index) => {
+        const y = top + index*rowHeight + 3;
+        const barWidth = Math.abs(item.value)*scale;
+        const x = item.value >= 0 ? zero : zero-barWidth;
+        const color = item.value >= 0 ? colors.positive : colors.negative;
+        markup += '<text x="' + (left-8) + '" y="' + (y+rowHeight*.56) + '" text-anchor="end" fill="' + colors.text + '" font-size="10">' + item.label + '</text>';
+        markup += '<rect x="' + x + '" y="' + y + '" width="' + Math.max(barWidth,1) + '" height="' + Math.max(rowHeight-6,5) + '" rx="3" fill="' + color + '"><title>' + item.label + " · " + formatter(item.value) + '</title></rect>';
+      });
+      svg.innerHTML = markup;
+    }
+
+    lineChart("performance-chart", DATA.daily, [
+      {key:"enhanced",name:"增强组合",color:colors.enhanced},
+      {key:"constituent",name:"成分重建基准",color:colors.constituent},
+      {key:"official",name:"官方价格指数",color:colors.official}
+    ], "date", pct);
+    barChart("active-chart", DATA.activeWeights, pp);
+    barChart("contribution-chart", DATA.contributors, value => (value*100).toFixed(4) + "%");
+    lineChart("intraday-chart", DATA.latestIntraday, [
+      {key:"value",name:"累计日内超额",color:colors.enhanced}
+    ], "time", value => (value*100).toFixed(3) + "%");
+  </script>
+</body>
+</html>

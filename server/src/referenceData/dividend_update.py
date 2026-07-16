@@ -42,6 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--retry-size", type=int, default=20)
     parser.add_argument("--refresh-size", type=int, default=20)
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--retry-now", action="store_true", help="ignore retry backoff for this run")
     parser.add_argument("--symbol", help="update one symbol without changing the backfill queue")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -64,6 +65,7 @@ def main() -> int:
                 max(0, args.batch_size),
                 max(0, args.retry_size),
                 max(0, args.refresh_size),
+                args.retry_now,
             )
         )
         if args.dry_run:
@@ -81,35 +83,16 @@ def main() -> int:
                 executor.submit(ak.stock_fhps_detail_em, symbol=item.instrument.symbol): item
                 for item in work_items
             }
-            fetched = []
             for future in as_completed(futures):
                 item = futures[future]
                 try:
-                    fetched.append((item, future.result(), None))
+                    result, failure = process_fetched_item(connection, item, future.result(), None)
                 except Exception as error:
-                    fetched.append((item, None, error))
-        for item, frame, fetch_error in fetched:
-            instrument = item.instrument
-            try:
-                if fetch_error is not None:
-                    raise fetch_error
-                assert frame is not None
-                events = normalize_dividend_events(frame, instrument)
-                publish_events(connection, instrument, events)
-                if item.task_key:
-                    mark_backfill(connection, item.task_key, instrument.instrument_key, "completed", None)
-                results.append({"symbol": instrument.symbol, "mode": item.mode, "events": len(events)})
-            except Exception as error:
-                message = str(error)[:1000]
-                status = classify_failure(instrument, item.attempts + 1, message)
-                if item.task_key:
-                    mark_backfill(connection, item.task_key, instrument.instrument_key, status, message)
-                failures.append({
-                    "symbol": instrument.symbol,
-                    "mode": item.mode,
-                    "status": status,
-                    "error": message,
-                })
+                    result, failure = process_fetched_item(connection, item, None, error)
+                if result is not None:
+                    results.append(result)
+                if failure is not None:
+                    failures.append(failure)
     finally:
         connection.close()
     print(json.dumps({
@@ -121,6 +104,49 @@ def main() -> int:
         "failures": failures[:20],
     }, ensure_ascii=False))
     return 0 if results or not failures else 2
+
+
+def process_fetched_item(
+    connection,
+    item: WorkItem,
+    frame: pd.DataFrame | None,
+    fetch_error: Exception | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    instrument = item.instrument
+    try:
+        if fetch_error is not None:
+            raise fetch_error
+        assert frame is not None
+        events = normalize_dividend_events(frame, instrument)
+        publish_events(connection, instrument, events)
+        status = completion_status(events)
+        if item.task_key:
+            mark_backfill(connection, item.task_key, instrument.instrument_key, status, None)
+        return {
+            "symbol": instrument.symbol,
+            "mode": item.mode,
+            "events": len(events),
+            "coverageStatus": status,
+        }, None
+    except Exception as error:
+        message = str(error)[:1000]
+        status = classify_failure(instrument, item.attempts + 1, message)
+        if item.task_key:
+            mark_backfill(connection, item.task_key, instrument.instrument_key, status, message)
+        if status == "no_data":
+            return {
+                "symbol": instrument.symbol,
+                "mode": item.mode,
+                "events": 0,
+                "coverageStatus": status,
+                "sourceMessage": message,
+            }, None
+        return None, {
+            "symbol": instrument.symbol,
+            "mode": item.mode,
+            "status": status,
+            "error": message,
+        }
 
 
 def normalize_dividend_events(frame: pd.DataFrame, instrument: Instrument) -> list[dict[str, Any]]:
@@ -306,10 +332,11 @@ def load_work_batch(
     backfill_size: int,
     retry_size: int,
     refresh_size: int,
+    retry_now: bool = False,
 ) -> list[WorkItem]:
     return [
         *load_new_backfill_batch(connection, backfill_size),
-        *load_retry_batch(connection, retry_size),
+        *load_retry_batch(connection, retry_size, retry_now),
         *load_refresh_batch(connection, refresh_size),
     ]
 
@@ -336,7 +363,7 @@ def load_new_backfill_batch(connection, batch_size: int) -> list[WorkItem]:
         ]
 
 
-def load_retry_batch(connection, retry_size: int) -> list[WorkItem]:
+def load_retry_batch(connection, retry_size: int, retry_now: bool = False) -> list[WorkItem]:
     if retry_size <= 0:
         return []
     with connection.cursor() as cursor:
@@ -347,12 +374,15 @@ def load_retry_batch(connection, retry_size: int) -> list[WorkItem]:
             INNER JOIN instruments AS instrument
               ON instrument.instrument_key=item.instrument_key
             WHERE item.task_key=%s AND item.status='failed'
-              AND TIMESTAMPDIFF(MINUTE, item.updated_at, UTC_TIMESTAMP()) >=
-                  LEAST(1440, POW(2, GREATEST(item.attempts-1, 0)) * 30)
+              AND (
+                %s
+                OR TIMESTAMPDIFF(MINUTE, item.updated_at, UTC_TIMESTAMP()) >=
+                   LEAST(1440, POW(2, GREATEST(item.attempts-1, 0)) * 30)
+              )
             ORDER BY item.updated_at, instrument.instrument_key
             LIMIT %s
             """,
-            (TASK_KEY, retry_size),
+            (TASK_KEY, 1 if retry_now else 0, retry_size),
         )
         return [
             WorkItem(
@@ -378,7 +408,7 @@ def load_refresh_batch(connection, refresh_size: int) -> list[WorkItem]:
               ON instrument.instrument_key=history.instrument_key
             LEFT JOIN reference_data_backfill_items AS refresh
               ON refresh.task_key=%s AND refresh.instrument_key=instrument.instrument_key
-            WHERE history.task_key=%s AND history.status='completed'
+            WHERE history.task_key=%s AND history.status IN ('completed', 'no_data')
               AND (
                 refresh.instrument_key IS NULL
                 OR (refresh.status='completed' AND refresh.updated_at<UTC_TIMESTAMP()-INTERVAL 30 DAY)
@@ -419,9 +449,13 @@ def load_symbol(connection, symbol: str | None) -> list[Instrument]:
 
 def classify_failure(instrument: Instrument, attempts: int, message: str) -> str:
     source_has_no_detail = "NoneType" in message and "subscriptable" in message
-    if instrument.status == "delisted" and source_has_no_detail and attempts >= 2:
+    if source_has_no_detail and attempts >= 2:
         return "no_data"
     return "failed"
+
+
+def completion_status(events: list[dict[str, Any]]) -> str:
+    return "completed" if events else "no_data"
 
 
 def mark_backfill(

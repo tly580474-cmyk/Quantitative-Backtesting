@@ -325,6 +325,59 @@ function OverviewSection({ overview }: { overview: AdminOverview }) {
         </Panel>
       </section>
 
+      <section className="dashboard-columns">
+        <Panel title="数据血缘" subtitle="MySQL → 研究快照 → 分钟数据湖" icon={<DatabaseOutlined />}>
+          <div className="resource-list">
+            <LineageRow
+              label="MySQL 权威日期"
+              value={overview.dataGovernance.lineage.mysqlAuthoritativeDate}
+            />
+            <LineageRow
+              label="研究快照"
+              value={overview.dataGovernance.lineage.snapshotMaxDate}
+              detail={overview.dataGovernance.lineage.snapshotId ?? undefined}
+            />
+            <LineageRow
+              label="分钟数据湖"
+              value={overview.dataGovernance.lineage.minuteMaxDate}
+              detail={overview.dataGovernance.lineage.minutePreparedAt ?? undefined}
+            />
+          </div>
+        </Panel>
+
+        <Panel title="覆盖率矩阵" subtitle="核心数据库与研究数据域覆盖情况" icon={<SafetyCertificateOutlined />}>
+          {overview.dataGovernance.coverage ? (
+            <div className="resource-list">
+              {overview.dataGovernance.coverage.rows.map((row) => (
+                <div className="resource-row" key={row.key}>
+                  <div>
+                    <strong>{row.label}</strong>
+                    <span>{row.message} · {row.minDate ?? '—'} ~ {row.maxDate ?? '—'}</span>
+                  </div>
+                  <StatusBadge
+                    level={row.status === 'pass' ? 'healthy' : row.status === 'warn' ? 'warning' : 'critical'}
+                    compact
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon={<WarningOutlined />} title="覆盖率不可用" description="MySQL 离线或覆盖检查执行失败。" />
+          )}
+        </Panel>
+      </section>
+
+      {overview.dataGovernance.materialized && (
+        <Panel title="持久研究结果" subtitle="按研究快照识别过期 DuckDB/Parquet 物化结果" icon={<HddOutlined />}>
+          <div className="task-tags">
+            <span><code>current</code>{overview.dataGovernance.materialized.current}</span>
+            <span><code>stale</code>{overview.dataGovernance.materialized.stale}</span>
+            <span><code>invalid</code>{overview.dataGovernance.materialized.invalid}</span>
+            <span><code>stale bytes</code>{formatBytes(overview.dataGovernance.materialized.staleBytes)}</span>
+          </div>
+        </Panel>
+      )}
+
       <Panel title="优先处理" subtitle="按严重程度汇总当前诊断结果" icon={<AlertOutlined />}>
         {overview.checks.filter((item) => item.level === 'critical' || item.level === 'warning').length === 0 ? (
           <EmptyState icon={<CheckCircleOutlined />} title="没有待处理问题" description="系统配置、数据库和数据目录均通过当前检查。" />
@@ -338,6 +391,26 @@ function OverviewSection({ overview }: { overview: AdminOverview }) {
         )}
       </Panel>
     </>
+  );
+}
+
+function LineageRow({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string | null;
+  detail?: string;
+}) {
+  return (
+    <div className="resource-row">
+      <div>
+        <strong>{label}</strong>
+        <span title={detail}>{value ?? '不可用'}{detail ? ` · ${detail}` : ''}</span>
+      </div>
+      <StatusBadge level={value ? 'healthy' : 'warning'} compact />
+    </div>
   );
 }
 

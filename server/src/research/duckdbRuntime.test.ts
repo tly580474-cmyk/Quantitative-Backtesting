@@ -69,4 +69,54 @@ describe('managed DuckDB runtime', () => {
       else process.env.DUCKDB_MAX_CONCURRENT = previous;
     }
   });
+
+  it('supports a persistent database while retaining managed temp isolation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'duckdb-runtime-persistent-'));
+    roots.push(root);
+    const database = join(root, 'research.duckdb');
+    const writer = await openManagedDuckDB({
+      label: 'persistent-writer',
+      database,
+      tempRoot: root,
+    });
+    await writer.connection.run('CREATE TABLE sample AS SELECT 42 AS value');
+    await writer.close();
+
+    const reader = await openManagedDuckDB({
+      label: 'persistent-reader',
+      database,
+      tempRoot: root,
+    });
+    try {
+      const result = await reader.connection.runAndReadAll('SELECT value FROM sample');
+      expect(Number(result.getRowObjectsJson()[0]?.value)).toBe(42);
+    } finally {
+      await reader.close();
+    }
+    expect(getDuckDBRuntimeStats()).toMatchObject({ active: 0, queued: 0 });
+  });
+
+  it('rejects excess queued sessions instead of allowing an unbounded backlog', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'duckdb-runtime-queue-limit-'));
+    roots.push(root);
+    const previousConcurrent = process.env.DUCKDB_MAX_CONCURRENT;
+    const previousQueued = process.env.DUCKDB_MAX_QUEUED;
+    process.env.DUCKDB_MAX_CONCURRENT = '1';
+    process.env.DUCKDB_MAX_QUEUED = '1';
+    const holder = await openManagedDuckDB({ label: 'queue-holder', tempRoot: root });
+    const waiting = openManagedDuckDB({ label: 'queue-waiting', tempRoot: root });
+    try {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+      await expect(openManagedDuckDB({ label: 'queue-rejected', tempRoot: root }))
+        .rejects.toThrow('DuckDB 任务队列已满');
+      await holder.close();
+      await (await waiting).close();
+    } finally {
+      await holder.close();
+      if (previousConcurrent === undefined) delete process.env.DUCKDB_MAX_CONCURRENT;
+      else process.env.DUCKDB_MAX_CONCURRENT = previousConcurrent;
+      if (previousQueued === undefined) delete process.env.DUCKDB_MAX_QUEUED;
+      else process.env.DUCKDB_MAX_QUEUED = previousQueued;
+    }
+  });
 });

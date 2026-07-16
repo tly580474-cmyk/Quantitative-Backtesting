@@ -1,0 +1,20 @@
+SELECT signalMonth,
+       signalDate,
+       entryDate,
+       exitDate,
+       rotationRank,
+       indexCode,
+       industryCode,
+       industryName,
+       compositeScore,
+       momentum3m,
+       momentum6m,
+       weightedPe,
+       weightedPb,
+       weightedDividendYield,
+       industryMarketCap,
+       equalWeight,
+       marketCapWeight,
+       monthlyIndustryReturn
+FROM sw_industry_rotation_selection
+ORDER BY signalMonth, rotationRank;

@@ -1,8 +1,9 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, extname, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { extname, resolve } from 'node:path';
 import type { DuckDBValue } from '@duckdb/node-api';
+import { writeTextOutputAtomic } from './researchOutput.js';
 
-export type OutputFormat = 'table' | 'json' | 'csv';
+export type OutputFormat = 'table' | 'json' | 'csv' | 'parquet';
 export type ParameterMap = Record<string, DuckDBValue>;
 
 export interface WorkflowStep {
@@ -12,6 +13,7 @@ export interface WorkflowStep {
   params?: Record<string, unknown>;
   out?: string;
   splitBy?: string;
+  partitionBy?: string[];
   format?: OutputFormat;
   print?: boolean;
 }
@@ -132,6 +134,21 @@ export async function readWorkflowFile(pathInput: string): Promise<WorkflowFile>
         throw new Error(
           `pipeline step ${step.id} 的 out 必须包含 \${${step.splitBy}} 路径变量`,
         );
+      }
+    }
+    if (step.partitionBy) {
+      if (!step.out) throw new Error(`pipeline step ${step.id} 使用 partitionBy 时必须配置 out`);
+      if (step.splitBy) {
+        throw new Error(`pipeline step ${step.id} 不能同时使用 splitBy 和 partitionBy`);
+      }
+      if (step.format !== 'parquet') {
+        throw new Error(`pipeline step ${step.id} 使用 partitionBy 时 format 必须为 parquet`);
+      }
+      if (
+        step.partitionBy.length === 0
+        || step.partitionBy.some((column) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(column))
+      ) {
+        throw new Error(`pipeline step ${step.id} partitionBy 列名无效`);
       }
     }
   }
@@ -273,25 +290,28 @@ export async function writeRows(
 ): Promise<string> {
   const path = resolve(pathInput);
   const format = inferOutputFormat(path, fallbackFormat);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, formatRows(rows, format), 'utf8');
-  return path;
+  if (format === 'parquet') {
+    throw new Error('Parquet 必须使用 DuckDB COPY 直接导出，不能从内存行集写入');
+  }
+  return writeTextOutputAtomic(path, formatRows(rows, format));
 }
 
 export function formatRows(rows: Record<string, unknown>[], format: OutputFormat): string {
+  if (format === 'parquet') throw new Error('Parquet 仅支持文件导出');
   if (format === 'json') return `${JSON.stringify(rows, null, 2)}\n`;
   if (format === 'csv') return toCsv(rows);
   return toTable(rows);
 }
 
 export function isOutputFormat(value: string): value is OutputFormat {
-  return value === 'table' || value === 'json' || value === 'csv';
+  return value === 'table' || value === 'json' || value === 'csv' || value === 'parquet';
 }
 
 export function inferOutputFormat(path: string, fallback: OutputFormat): OutputFormat {
   const ext = extname(path).toLowerCase();
   if (ext === '.json') return 'json';
   if (ext === '.csv') return 'csv';
+  if (ext === '.parquet') return 'parquet';
   return fallback;
 }
 

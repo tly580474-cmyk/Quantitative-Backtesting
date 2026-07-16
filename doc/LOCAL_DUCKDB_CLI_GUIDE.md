@@ -328,7 +328,20 @@ npm run duckdb -- query --format csv --sql "SELECT symbol, close FROM bars LIMIT
 npm run duckdb -- query --sql "SELECT * FROM bars LIMIT 1000" --out ./out/sample.csv
 ```
 
-当 `--out` 后缀为 `.csv` 或 `.json` 时，CLI 会自动推断格式。
+导出 Parquet：
+
+```powershell
+npm run duckdb -- query --sql "SELECT * FROM bars" --out ./out/all-bars.parquet
+```
+
+当 `--out` 后缀为 `.csv`、`.json` 或 `.parquet` 时，CLI 会自动推断格式。
+CSV 和 Parquet 文件使用 DuckDB 原生 `COPY` 直接写盘，不再先把全部结果读入
+Node.js 内存；JSON 和终端表格仍属于内存结果，适合较小数据集。
+
+带输出文件的 `pipeline` 和 `batch` 会在 `--out-dir` 自动生成
+`<任务名称>.manifest.json`。manifest 记录日线快照 ID、分钟湖 manifest 校验和、
+合并后的参数、各 SQL 的 SHA-256，以及每个输出文件或 Parquet 分区的行数、字节数和
+SHA-256。正式研究结果应将 manifest 与输出文件一起归档。
 
 ## 5. 常用参数
 
@@ -340,7 +353,7 @@ npm run duckdb -- query --sql "SELECT * FROM bars LIMIT 1000" --out ./out/sample
 | `--params-file` | JSON 参数对象，命令行参数优先 |
 | `--out`, `-o` | 写入结果文件 |
 | `--out-dir` | pipeline/batch 多文件输出根目录 |
-| `--format`, `-f` | `table`、`json`、`csv` |
+| `--format`, `-f` | `table`、`json`、`csv`、`parquet` |
 | `--transaction` | 在事务中执行多语句或完整 pipeline/batch |
 | `--dry-run` | 只显示步骤、SQL 和参数，不执行 |
 | `--echo-sql` | 执行时打印每条 SQL |
@@ -416,8 +429,23 @@ Pipeline 协议：
 - 参数优先级为 step 参数 → CLI 参数 → pipeline 顶层参数；
 - `out` 支持 `${parameter}` 路径模板；
 - `splitBy` 可以按查询结果列动态拆分文件，`out` 必须包含同名路径变量；
-- 每个 step 可以使用不同的 `csv`、`json` 或 `table` 格式；
+- `partitionBy` 配合 `format: "parquet"` 使用 DuckDB 原生分区导出，`out` 表示目录；
+- 每个 step 可以使用不同的 `csv`、`json`、`parquet` 或 `table` 格式；
 - `transaction=true` 时任一步骤失败都会回滚本次工作流创建的 DuckDB 对象。
+
+大型结果建议直接分区写 Parquet：
+
+```json
+{
+  "id": "returns_by_year_symbol",
+  "file": "../sql/adjusted-return-details.sql",
+  "out": "adjusted-return-details",
+  "format": "parquet",
+  "partitionBy": ["year", "symbol"]
+}
+```
+
+该方式只在 Node.js 中保留导出状态，不保留完整结果行集。
 
 例如把同一结果中的每只股票分别导出：
 
@@ -444,6 +472,52 @@ npm run duckdb -- pipeline `
 该工作流覆盖估值、12-1 月动量、近 12 个月现金分红、申万一级行业内分位标准化、
 五分层收益、月度 100 股选股池、行业分布、组合净值和按股票拆分的复权收益明细。
 默认从 2022 年开始，是因为当前申万行业有效期数据从 2021-07-30 起覆盖。
+
+沪深300指数增强与分钟超额归因示例：
+
+```powershell
+npm run duckdb -- pipeline `
+  --file ./examples/duckdb/pipelines/csi300-index-enhancement.json `
+  --out-dir ./out/index-enhancement-final `
+  --allow-unmanaged-parquet-glob `
+  --threads 8 `
+  --max-memory 6GB
+```
+
+该工作流使用最近一份完整沪深300权重批次，按成分复权收益生成每日漂移权重，以行业内
+估值、动量和低波动评分构建增强权重，并从本地 1 分钟 Parquet 湖导出分钟级主动贡献。
+当前已具备官方历史锚点和经双锚点误差验证的派生月度权重；示例仍应在产物 manifest
+中区分 `official` 与 `price_drift_verified`，不能把派生权重解释为官方发布值。
+
+高流动性个股日内动量策略示例：
+
+```powershell
+npm run duckdb -- pipeline `
+  --file ./examples/duckdb/pipelines/intraday-momentum-strategy.json `
+  --out-dir ./out/intraday-strategy-final `
+  --allow-unmanaged-parquet-glob `
+  --threads 8 `
+  --max-memory 6GB
+```
+
+该工作流每日使用前一交易日的 20 日平均成交额、PE、PB 和市值筛选股票池，计算
+5/15/30 分钟滚动动量、30 分钟振幅、日内振幅和 14:30 后尾盘动量。信号在下一分钟
+开盘成交，普通信号持有 15 分钟，尾盘信号持有至收盘；每只股票每天只保留最强信号，
+再选取全市场前 100 条，并按股票代码动态拆分 CSV。
+
+申万一级行业月度轮动示例：
+
+```powershell
+npm run duckdb -- pipeline `
+  --file ./examples/duckdb/pipelines/sw-industry-rotation.json `
+  --out-dir ./out/sw-industry-rotation-final `
+  --threads 8 `
+  --max-memory 6GB
+```
+
+该工作流使用申万一级行业 3/6 月动量，以及行业内个股总市值加权的隐含 PE、隐含 PB
+和近 12 个月股息率进行月末评分。每月选择前 5 个行业，在下月首个交易日调仓，并同时
+输出行业等权和行业市值加权组合、行业收益曲线、换仓记录和估值分位。
 
 ### 5.2 Batch：批量参数与多文件导出
 
@@ -1052,3 +1126,71 @@ npm run duckdb -- status --format json
 - 分红空值、指数权重空值和估值空值均有业务含义，不要无条件使用 `COALESCE(..., 0)`。
 - 指数成分查询应指定 `snapshotId` 或有效日期，避免混合多个来源批次。
 - 研究快照通过 `current.json` 原子发布；不要手工把 CLI 指向尚未验证的临时目录。
+
+## 15. P2 导出安全与扫描预估
+
+所有 CSV、JSON、Parquet 和研究 manifest 先写入同目录的随机 `.partial` 路径，完成后
+再原子重命名。目标文件已存在、被 Excel 占用或在落盘瞬间发生竞争时，不覆盖原文件，
+而是自动生成 UTC 时间戳文件名：
+
+```text
+result.csv
+result-20260716T150552Z.csv
+```
+
+query、recipe、minute、pipeline 和 batch 在执行前输出候选扫描文件数、manifest 行数
+上界和文件字节数。示例：
+
+```text
+扫描预估：scope=bars; files=33; rows=17,085,354; bytes=958 MB。
+```
+
+这是根据发布 manifest 计算的候选上界，DuckDB 谓词下推后的实际扫描量可能更小。
+
+`splitBy` 和 `--split-by-symbol` 默认最多生成 1,000 个文件：
+
+```powershell
+npm run duckdb -- pipeline --file .\pipeline.json --max-output-files 2000
+```
+
+超过上限时任务会在写文件前失败。大规模明细优先使用 pipeline 的 `partitionBy` Parquet
+输出，不建议长期保存数千个 CSV 小文件。
+
+原始 SQL 中的 Parquet 通配符默认被阻断，因为它不受正式发布 manifest 的文件清单
+约束。优先使用 CLI 已注册视图或 `minute` 命令。确需研究外部临时湖时必须显式授权：
+
+```powershell
+npm run duckdb -- query --file .\external-lake.sql --allow-unmanaged-parquet-glob
+```
+
+SQL 校验和仍会写入研究产物 manifest。对申万行业视图的参数化查询还会检查 `startDate`
+是否早于行业归属和行业行情的共同支持边界，越界时直接失败，禁止当前行业回填历史。
+
+## 16. Parquet 小文件压实与产物生命周期
+
+合并一组同结构或可按名称对齐的 Parquet 文件：
+
+```powershell
+cd server
+npm run parquet:compact -- `
+  --input ".\out\signals\*.parquet" `
+  --out ".\out\compact\signals.parquet"
+```
+
+压实后继续按列分区：
+
+```powershell
+npm run parquet:compact -- `
+  --input ".\out\signals\*.parquet" `
+  --out ".\out\compact\signals" `
+  --partition-by tradeDate
+```
+
+清理异常退出遗留的 `.partial` 文件或目录，默认只报告、不执行删除：
+
+```powershell
+npm run research:artifacts:prune -- --root .\out --partial-hours 24 --dry-run
+```
+
+确认报告中的绝对路径均位于目标输出目录后，移除 `--dry-run` 执行。命令拒绝对文件系统
+根目录运行，也不会删除正式 CSV、JSON、Parquet 或 manifest。

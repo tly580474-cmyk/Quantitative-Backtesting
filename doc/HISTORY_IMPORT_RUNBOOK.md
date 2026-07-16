@@ -67,8 +67,21 @@ npm run import:history -- --batch-id <batchId> --limit 10
 
 ## MySQL LOCAL INFILE
 
-最快路径使用 `LOAD DATA LOCAL INFILE`。如果 MySQL 服务端未启用，导入器会自动降级为
-每批 1,000 行的 `REPLACE`，功能不受影响，但全量导入会更慢。
+最快路径使用 `LOAD DATA LOCAL INFILE`。导入器启动时预检 `@@GLOBAL.local_infile`。
+如果 MySQL 服务端未启用，默认降级为每批 1,000 行的 `REPLACE`，最终 JSON 的
+`importMode` 会明确记录 `local_infile`、`batched_replace` 或 `mixed`。
+
+正式全量导入建议禁止降级：
+
+```powershell
+npm run import:history -- --require-local-infile
+```
+
+需要使用降级路径时，可显式调整批大小：
+
+```powershell
+npm run import:history -- --fallback-batch-rows 2000
+```
 
 正式全量演练前，应在受控环境评估并启用 `local_infile`。客户端只允许 MySQL 读取
 导入器刚生成的指定临时分片，拒绝其他路径。

@@ -131,6 +131,15 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     restartRequired: true,
   },
   {
+    key: 'DUCKDB_MAX_QUEUED',
+    label: 'DuckDB 等待队列上限',
+    category: 'runtime',
+    description: '超过并发上限后允许排队的 DuckDB 任务数量。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+  },
+  {
     key: 'DUCKDB_MAX_TEMP_SIZE',
     label: 'DuckDB 临时空间上限',
     category: 'runtime',
@@ -236,6 +245,12 @@ function validateEnvValue(key: string, value: string): void {
     const concurrency = Number(value);
     if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) {
       throw new Error('DUCKDB_MAX_CONCURRENT 必须是 1 到 8 的整数');
+    }
+  }
+  if (key === 'DUCKDB_MAX_QUEUED') {
+    const queued = Number(value);
+    if (!Number.isInteger(queued) || queued < 0 || queued > 100) {
+      throw new Error('DUCKDB_MAX_QUEUED 必须是 0 到 100 的整数');
     }
   }
   if (key === 'DUCKDB_MAX_TEMP_SIZE' && !/^\d+(?:\.\d+)?(?:KB|MB|GB|TB)$/i.test(value)) {

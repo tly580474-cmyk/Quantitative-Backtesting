@@ -28,7 +28,7 @@ import {
   SyncOutlined,
 } from '@ant-design/icons';
 import { apiFetch } from '@/api/client';
-import { DATA_SOURCE } from '@/api/config';
+import { DATA_SOURCE, INDEXEDDB_MIGRATION_MODE } from '@/api/config';
 import { getRepository } from '@/api/useRepository';
 import { WorkbenchPanel } from '@/components/WorkbenchPanel';
 import { exportDatabaseToExcel } from '@/db/databaseExport';
@@ -653,18 +653,20 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
                   >
                     打开
                   </Button>
-                  <Popconfirm
-                    title="确定删除此数据集？"
-                    description="数据集及其全部 K 线将被永久删除。"
-                    okText="删除"
-                    cancelText="取消"
-                    okButtonProps={{ danger: true }}
-                    onConfirm={() => handleDelete(dataset.id)}
-                  >
-                    <Button type="text" danger icon={<DeleteOutlined />}>
-                      删除
-                    </Button>
-                  </Popconfirm>
+                  {!INDEXEDDB_MIGRATION_MODE && (
+                    <Popconfirm
+                      title="确定删除此数据集？"
+                      description="数据集及其全部 K 线将被永久删除。"
+                      okText="删除"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => handleDelete(dataset.id)}
+                    >
+                      <Button type="text" danger icon={<DeleteOutlined />}>
+                        删除
+                      </Button>
+                    </Popconfirm>
+                  )}
                 </div>
               </div>
             ))}
@@ -873,6 +875,15 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
           </Button>
         </div>
       </header>
+
+      {INDEXEDDB_MIGRATION_MODE && (
+        <Alert
+          type="warning"
+          showIcon
+          message="IndexedDB 只读迁移模式"
+          description="当前仅允许查看和导出历史浏览器数据，所有新增、修改和删除操作均已禁用。导出后请恢复 MySQL/API 模式。"
+        />
+      )}
 
       <div className="data-library-workbench">
         <aside className="data-library-sidebar">

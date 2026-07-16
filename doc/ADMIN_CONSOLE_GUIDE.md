@@ -14,6 +14,9 @@
 - 研究快照、分钟数据湖、因子报告和因子挖掘运行时目录；
 - 研究数据所在磁盘的容量与使用率；
 - 行情同步和自动因子挖掘任务状态统计；
+- MySQL、研究快照和分钟数据湖的日期血缘对账；
+- 日线、估值、复权、分红、行业、指数和分钟数据覆盖率矩阵；
+- 按快照识别过期或无效的 DuckDB/Parquet 持久研究结果；
 - 常见配置缺失和失败任务诊断；
 - 数据库、大模型、行情源和 DuckDB 常用配置维护；
 - API Key、Token 和密码脱敏展示。
@@ -103,7 +106,35 @@ npm run admin:preview
 - Tushare Token；
 - DuckDB 并发与临时空间上限。
 
-## 7. 安全边界
+## 7. 数据血缘与覆盖率
+
+管理台“运行总览”展示以下链路：
+
+```text
+MySQL 权威最大交易日
+  → 当前研究快照 snapshotId / sourceVersion / maxDate
+  → 分钟湖 preparedAt / lastDate
+```
+
+覆盖率矩阵与 `cd server; npm run data:coverage` 使用同一套检查逻辑。任何数据域出现
+`warning` 或 `critical` 时，会同时进入管理台的“优先处理”和“问题诊断”区域。
+覆盖结果写入 15 分钟缓存，避免每次刷新管理台都扫描千万级日线表；缓存过期后会自动
+重算。
+
+持久因子物化结果按 `snapshot=<snapshotId>` 隔离。管理台不会把旧快照结果标记为当前
+结果，会单独统计 `stale`、`invalid` 和可回收空间，避免过期物化表被误用。
+
+确认旧物化结果不再使用后，可先预览再归档：
+
+```powershell
+cd server
+npm run factor:materializations:archive -- --dry-run
+npm run factor:materializations:archive
+```
+
+归档只把旧 `snapshot=<id>` 目录移出活动 `factor-values`，不会删除文件。
+
+## 8. 安全边界
 
 - CORS 只允许本机 `localhost` 和 `127.0.0.1` 来源；
 - 所有受保护接口要求 `Authorization: Bearer <token>`；

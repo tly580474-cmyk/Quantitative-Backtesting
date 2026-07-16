@@ -11,6 +11,7 @@ export interface ManagedDuckDBSession {
 
 export interface OpenManagedDuckDBOptions {
   label: string;
+  database?: string;
   config?: Record<string, string>;
   tempRoot?: string;
 }
@@ -29,7 +30,7 @@ export async function openManagedDuckDB(
   const tempDirectory = await mkdtemp(join(root, `${label}-`));
   let instance: DuckDBInstance | undefined;
   try {
-    instance = await DuckDBInstance.create(':memory:', {
+    instance = await DuckDBInstance.create(options.database ?? ':memory:', {
       access_mode: 'READ_WRITE',
       max_temp_directory_size: process.env.DUCKDB_MAX_TEMP_SIZE ?? '50GB',
       ...options.config,
@@ -66,12 +67,25 @@ export async function openManagedDuckDB(
   }
 }
 
-export function getDuckDBRuntimeStats(): { active: number; queued: number; limit: number } {
-  return { active: activeSessions, queued: waiters.length, limit: concurrencyLimit() };
+export function getDuckDBRuntimeStats(): {
+  active: number;
+  queued: number;
+  limit: number;
+  queueLimit: number;
+} {
+  return {
+    active: activeSessions,
+    queued: waiters.length,
+    limit: concurrencyLimit(),
+    queueLimit: queueLimit(),
+  };
 }
 
 async function acquireSlot(): Promise<() => void> {
   if (activeSessions >= concurrencyLimit()) {
+    if (waiters.length >= queueLimit()) {
+      throw new Error(`DuckDB 任务队列已满（最多 ${queueLimit()} 个等待任务）`);
+    }
     await new Promise<void>((resolveWaiter) => waiters.push(resolveWaiter));
   } else {
     activeSessions += 1;
@@ -89,6 +103,11 @@ async function acquireSlot(): Promise<() => void> {
 function concurrencyLimit(): number {
   const parsed = Number.parseInt(process.env.DUCKDB_MAX_CONCURRENT ?? '2', 10);
   return Number.isFinite(parsed) ? Math.min(8, Math.max(1, parsed)) : 2;
+}
+
+function queueLimit(): number {
+  const parsed = Number.parseInt(process.env.DUCKDB_MAX_QUEUED ?? '8', 10);
+  return Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 8;
 }
 
 function normalizePath(path: string): string {

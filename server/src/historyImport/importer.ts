@@ -19,6 +19,8 @@ export interface HistoryImportOptions {
   codes?: string[];
   limit?: number;
   chunkRows?: number;
+  fallbackBatchRows?: number;
+  requireLocalInfile?: boolean;
   dryRun?: boolean;
   batchId?: string;
   cacheRoot: string;
@@ -64,6 +66,8 @@ interface ExistingBatchRow extends RowDataPacket {
 const DEFAULT_CHUNK_ROWS = 50_000;
 const SOURCE_DIRECTORY = '不复权';
 let localInfileAvailable = true;
+let fallbackUsed = false;
+let localInfileUsed = false;
 
 export async function discoverHistoryFiles(options: HistoryImportOptions): Promise<string[]> {
   const directory = resolve(options.sourceRoot, SOURCE_DIRECTORY);
@@ -158,6 +162,7 @@ export async function importStockHistory(
   importedRows: number;
   failedFiles: number;
   dryRun: boolean;
+  importMode: 'dry_run' | 'local_infile' | 'batched_replace' | 'mixed';
 }> {
   const files = await discoverHistoryFiles(options);
   if (files.length === 0) throw new Error('没有找到待导入的不复权 CSV');
@@ -187,9 +192,22 @@ export async function importStockHistory(
       importedRows: rows,
       failedFiles: 0,
       dryRun: true,
+      importMode: 'dry_run',
     };
   }
   if (!pool) throw new Error('正式导入需要 MySQL 连接池');
+  localInfileAvailable = await detectLocalInfile(pool);
+  fallbackUsed = false;
+  localInfileUsed = false;
+  if (!localInfileAvailable && options.requireLocalInfile) {
+    throw new Error(
+      'MySQL local_infile=OFF，但本次导入要求 --require-local-infile；'
+      + '请启用受控 LOCAL INFILE 后重试。',
+    );
+  }
+  if (!localInfileAvailable) {
+    console.warn('\n[history-import] MySQL local_infile=OFF，将使用可审计的批量 REPLACE 降级路径。');
+  }
 
   await recoverFailedImportFiles(pool);
   await upsertBatch(pool, batchId, sourceRoot, snapshot, files.length);
@@ -230,7 +248,14 @@ export async function importStockHistory(
           imported = summary.rows === 0
             ? 0
             : await loadHistoryFile(
-              pool, summary, instrument.instrumentKey, batchId, chunkRows, options.cacheRoot,
+              pool,
+              summary,
+              instrument.instrumentKey,
+              batchId,
+              chunkRows,
+              options.cacheRoot,
+              Math.max(100, options.fallbackBatchRows ?? 1_000),
+              options.requireLocalInfile ?? false,
             );
           await recordQualityWarnings(pool, instrument.id, summary);
           await markFileCompleted(pool, batchId, summary, imported);
@@ -292,7 +317,15 @@ export async function importStockHistory(
     status: 'completed',
   });
   return {
-    batchId, files: files.length, completedFiles, importedRows, failedFiles, dryRun: false,
+    batchId,
+    files: files.length,
+    completedFiles,
+    importedRows,
+    failedFiles,
+    dryRun: false,
+    importMode: fallbackUsed && localInfileUsed
+      ? 'mixed'
+      : fallbackUsed ? 'batched_replace' : 'local_infile',
   };
 }
 
@@ -303,6 +336,8 @@ async function loadHistoryFile(
   batchId: string,
   chunkRows: number,
   cacheRoot: string,
+  fallbackBatchRows: number,
+  requireLocalInfile: boolean,
 ): Promise<number> {
   const cacheDir = resolve(cacheRoot, batchId);
   await mkdir(cacheDir, { recursive: true });
@@ -333,12 +368,12 @@ async function loadHistoryFile(
         'instrument_key', 'trade_date', 'open', 'high', 'low', 'close',
         'previous_close', 'volume', 'amount', 'turnover_rate_pct',
         'source_key', 'source_version', 'fetched_at',
-      ]);
+      ], fallbackBatchRows, requireLocalInfile);
       await loadTsv(connection, metricsPath, 'daily_stock_metrics', [
         'instrument_key', 'trade_date', 'total_shares', 'float_shares',
         'total_market_cap', 'float_market_cap', 'pe_ttm', 'pb', 'ps_ttm',
         'volume_ratio', 'is_st', 'is_limit_up',
-      ]);
+      ], fallbackBatchRows, requireLocalInfile);
       await connection.commit();
       imported += bars.length;
     } catch (error) {
@@ -383,10 +418,13 @@ async function loadTsv(
   filePath: string,
   table: 'daily_bars_v2' | 'daily_stock_metrics',
   columns: string[],
+  fallbackBatchRows: number,
+  requireLocalInfile: boolean,
 ): Promise<void> {
   const expected = resolve(filePath);
   if (!localInfileAvailable) {
-    await loadTsvWithBatchedReplace(connection, expected, table, columns);
+    fallbackUsed = true;
+    await loadTsvWithBatchedReplace(connection, expected, table, columns, fallbackBatchRows);
     return;
   }
   try {
@@ -404,12 +442,17 @@ async function loadTsv(
         return createReadStream(expected);
       },
     });
+    localInfileUsed = true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!message.includes('Loading local data is disabled')) throw error;
+    if (requireLocalInfile) {
+      throw new Error(`LOCAL INFILE 在执行阶段不可用，已拒绝降级：${message}`);
+    }
     localInfileAvailable = false;
+    fallbackUsed = true;
     console.warn('\n[history-import] MySQL LOCAL INFILE 未启用，降级为批量 REPLACE。');
-    await loadTsvWithBatchedReplace(connection, expected, table, columns);
+    await loadTsvWithBatchedReplace(connection, expected, table, columns, fallbackBatchRows);
   }
 }
 
@@ -418,6 +461,7 @@ async function loadTsvWithBatchedReplace(
   filePath: string,
   table: 'daily_bars_v2' | 'daily_stock_metrics',
   columns: string[],
+  batchRows: number,
 ): Promise<void> {
   const input = createReadStream(filePath, { encoding: 'utf8' });
   const lines = createInterface({ input, crlfDelay: Infinity });
@@ -437,9 +481,15 @@ async function loadTsvWithBatchedReplace(
   for await (const line of lines) {
     if (!line) continue;
     batch.push(line.split('\t').map((value) => value === '\\N' ? null : value));
-    if (batch.length >= 1_000) await flush();
+    if (batch.length >= batchRows) await flush();
   }
   await flush();
+}
+
+async function detectLocalInfile(pool: Pool): Promise<boolean> {
+  const [rows] = await pool.query<RowDataPacket[]>('SELECT @@GLOBAL.local_infile AS enabled');
+  const value = rows[0]?.enabled;
+  return value === 1 || value === '1' || String(value).toUpperCase() === 'ON';
 }
 
 async function upsertInstrument(
