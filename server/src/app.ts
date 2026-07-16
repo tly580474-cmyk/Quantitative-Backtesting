@@ -162,6 +162,11 @@ async function main(): Promise<void> {
   }, {
     historyReadMode: config.HISTORY_STORE_READ_MODE,
     snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
+    minuteDataRoot: config.MINUTE_DATA_ROOT,
+    minuteQueryMaxRows: Math.max(
+      241,
+      parseInt(config.MINUTE_QUERY_MAX_ROWS, 10) || 100000,
+    ),
     researchQueryMaxRows: Math.max(
       1,
       parseInt(config.RESEARCH_QUERY_MAX_ROWS, 10) || 10000,

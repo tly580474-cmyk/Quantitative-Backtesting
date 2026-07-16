@@ -99,6 +99,11 @@ export interface KlinePoint {
   high: number;
   low: number;
   volume: number;
+  amount?: number;
+  previousClose?: number | null;
+  change?: number | null;
+  changePct?: number | null;
+  isTradable?: boolean;
   /** Daily turnover rate in percentage points; 0.41 means 0.41%. */
   turnoverRatePct?: number;
 }

@@ -1,4 +1,6 @@
 node_modules/
+__pycache__/
+*.pyc
 dist/
 logs/
 .vite/
@@ -15,7 +17,9 @@ server/.cache/history-import/
 server/data/research-snapshots/
 server/data/backups/
 server/data/factor-research/
+server/data/minute-data/
 server/.tmp/
+server/.logs/
 .claude/
 .workbuddy/
 *.tsbuildinfo

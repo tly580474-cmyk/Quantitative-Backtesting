@@ -47,6 +47,7 @@ import {
 import { buildResearchSnapshot } from '../research/snapshotBuilder.js';
 import { getResearchSnapshotFreshness } from '../research/snapshotFreshness.js';
 import { verifyCurrentResearchSnapshot } from '../research/snapshotVerifier.js';
+import { getMinuteDataCatalog, queryMinuteBars } from '../minuteData/minuteDataService.js';
 
 const candlesQuerySchema = z.object({
   startDate: z.string().optional(),
@@ -106,12 +107,16 @@ export function registerMarketDataRoutes(
   storageConfig: {
     historyReadMode: HistoryReadMode;
     snapshotRoot: string;
+    minuteDataRoot: string;
+    minuteQueryMaxRows: number;
     researchQueryMaxRows: number;
     pool?: Pool;
     config?: EnvConfig;
   } = {
     historyReadMode: 'prefer-v2',
     snapshotRoot: './data/research-snapshots',
+    minuteDataRoot: './data/minute-data',
+    minuteQueryMaxRows: 100000,
     researchQueryMaxRows: 10000,
   },
 ): void {
@@ -246,15 +251,54 @@ export function registerMarketDataRoutes(
     const query = z.object({
       period: z.enum(['intraday', 'day', 'week', 'year']).default('day'),
       adjustmentMode: z.enum(['none', 'qfq', 'hfq']).default('qfq'),
+      tradeDate: z.string().date().optional(),
     }).safeParse(req.query);
     if (!query.success) return reply.status(400).send({ message: '不支持的 K 线周期' });
     try {
       const items = query.data.period === 'intraday'
-        ? await fetchStockIntraday(req.params.code)
+        ? query.data.tradeDate
+          ? (await queryMinuteBars(storageConfig.minuteDataRoot, {
+            code: req.params.code,
+            startDate: query.data.tradeDate,
+            endDate: query.data.tradeDate,
+            limit: Math.min(1000, storageConfig.minuteQueryMaxRows),
+            includeZeroVolume: true,
+          })).items
+          : await fetchStockIntraday(req.params.code)
         : await fetchStockKline(req.params.code, query.data.period, 320, query.data.adjustmentMode);
       return reply.send({ period: query.data.period, adjustmentMode: query.data.adjustmentMode, items });
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : 'K 线获取失败' });
+    }
+  });
+
+  app.get('/api/market-data/minute/catalog', async (_req, reply) => {
+    try {
+      return reply.send(await getMinuteDataCatalog(storageConfig.minuteDataRoot));
+    } catch (error) {
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '分钟数据目录读取失败' });
+    }
+  });
+
+  app.get<{ Params: { code: string } }>('/api/market-data/stocks/:code/minute', async (req, reply) => {
+    const query = z.object({
+      startDate: z.string().date(),
+      endDate: z.string().date().optional(),
+      limit: z.coerce.number().int().min(1).max(storageConfig.minuteQueryMaxRows).default(10000),
+      includeZeroVolume: z.enum(['true', 'false']).default('true').transform((value) => value === 'true'),
+    }).safeParse(req.query);
+    if (!query.success) return reply.status(400).send({ message: '分钟行情查询参数无效' });
+    try {
+      return reply.send(await queryMinuteBars(storageConfig.minuteDataRoot, {
+        code: req.params.code,
+        startDate: query.data.startDate,
+        endDate: query.data.endDate ?? query.data.startDate,
+        limit: query.data.limit,
+        includeZeroVolume: query.data.includeZeroVolume,
+      }));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '历史分钟行情查询失败' });
     }
   });
 

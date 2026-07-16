@@ -1,0 +1,6 @@
+pandas>=2.0
+pyarrow>=14.0
+pymysql>=1.1
+mootdx>=0.11.7
+requests>=2.32
+tushare>=1.4
