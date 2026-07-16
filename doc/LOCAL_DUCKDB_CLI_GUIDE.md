@@ -290,7 +290,7 @@ adjusted_price = raw_price × factor + priceOffset
 npm run duckdb -- query --sql "SELECT tradeDate, open, high, low, close, change, changePercent, volume, amount FROM index_bars WHERE indexCode='000300' ORDER BY tradeDate DESC LIMIT 20"
 ```
 
-增量抓取批次的第一行没有批次内前收盘价，因此源字段 `change`、`changePercent` 可能为 `NULL`。需要稳定比较某日涨跌幅时，应在完整指数历史上使用 `LAG(close)` 重新计算，再过滤目标日期：
+增量更新器会从数据库读取前一交易日收盘价，并自动修复已有的非首日空涨跌幅。每个指数历史第一行因为不存在前收盘价，`change`、`changePercent` 保持 `NULL`。需要独立复核某日涨跌幅时，可以在完整指数历史上使用 `LAG(close)` 重新计算，再过滤目标日期：
 
 ```powershell
 npm run duckdb -- query --sql "WITH returns AS (SELECT indexCode, indexName, tradeDate, close, 100 * (close / LAG(close) OVER (PARTITION BY indexCode ORDER BY tradeDate) - 1) AS calculatedChangePercent FROM index_bars) SELECT indexCode, indexName, close, calculatedChangePercent FROM returns WHERE tradeDate='2026-07-16' ORDER BY calculatedChangePercent DESC"
@@ -343,6 +343,8 @@ npm run reference:status
 ```
 
 单只股票没有结果可能表示尚未轮到回补，不应直接解释为该公司从未分红。
+
+全市场当前报告期接口会提高最新方案的覆盖速度，单股明细接口负责补齐更早历史。两类来源按业务键合并，因此查询结果不会因为来源不同重复展示同一分红方案。
 
 ### 7.6 联合查询示例
 
@@ -562,6 +564,7 @@ npm run snapshot:schedule:register
 ```text
 index:update
   → index:constituents:update
+  → dividend:current:update
   → dividend:update
   → snapshot:build
   → snapshot:verify
@@ -624,7 +627,7 @@ npm run snapshot:verify
 npm run duckdb -- status --format json
 ```
 
-- `reference:status`：分红回补完成/失败/剩余数量，以及指数行情和成分快照覆盖；
+- `reference:status`：分红从未处理、待重试、终态无数据、完成及刷新数量，以及指数行情和成分快照覆盖；
 - `snapshot:freshness`：MySQL 股票日线与当前研究快照是否一致；
 - `snapshot:verify`：逐文件核对行数、文件大小和 SHA-256；
 - `duckdb status`：显示当前 `current.json` 指向的已发布版本。

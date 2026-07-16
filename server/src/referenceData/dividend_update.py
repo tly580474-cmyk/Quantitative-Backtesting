@@ -18,17 +18,29 @@ import pymysql
 
 
 TASK_KEY = "dividend-history-akshare-em"
+REFRESH_TASK_KEY = "dividend-refresh-akshare-em"
 
 
 @dataclass(frozen=True)
 class Instrument:
     instrument_key: int
     symbol: str
+    status: str = "active"
+
+
+@dataclass(frozen=True)
+class WorkItem:
+    instrument: Instrument
+    task_key: str
+    mode: str
+    attempts: int = 0
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Recoverable A-share dividend history updater")
     parser.add_argument("--batch-size", type=int, default=200)
+    parser.add_argument("--retry-size", type=int, default=20)
+    parser.add_argument("--refresh-size", type=int, default=20)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--symbol", help="update one symbol without changing the backfill queue")
     parser.add_argument("--dry-run", action="store_true")
@@ -41,51 +53,70 @@ def main() -> int:
     connection = open_database()
     results = []
     failures = []
+    deduplicated = 0
     try:
-        instruments = (
-            load_symbol(connection, args.symbol)
-            if args.symbol else load_backfill_batch(connection, max(1, args.batch_size))
+        if not args.dry_run:
+            deduplicated = deduplicate_business_events(connection)
+        work_items = (
+            [WorkItem(item, "", "probe") for item in load_symbol(connection, args.symbol)]
+            if args.symbol else load_work_batch(
+                connection,
+                max(0, args.batch_size),
+                max(0, args.retry_size),
+                max(0, args.refresh_size),
+            )
         )
         if args.dry_run:
             print(json.dumps({
                 "status": "planned",
-                "symbols": [item.symbol for item in instruments],
-                "count": len(instruments),
+                "items": [
+                    {"symbol": item.instrument.symbol, "mode": item.mode}
+                    for item in work_items
+                ],
+                "count": len(work_items),
             }, ensure_ascii=False))
             return 0
-        with ThreadPoolExecutor(max_workers=min(max(1, args.workers), max(1, len(instruments)))) as executor:
+        with ThreadPoolExecutor(max_workers=min(max(1, args.workers), max(1, len(work_items)))) as executor:
             futures = {
-                executor.submit(ak.stock_fhps_detail_em, symbol=instrument.symbol): instrument
-                for instrument in instruments
+                executor.submit(ak.stock_fhps_detail_em, symbol=item.instrument.symbol): item
+                for item in work_items
             }
             fetched = []
             for future in as_completed(futures):
-                instrument = futures[future]
+                item = futures[future]
                 try:
-                    fetched.append((instrument, future.result(), None))
+                    fetched.append((item, future.result(), None))
                 except Exception as error:
-                    fetched.append((instrument, None, error))
-        for instrument, frame, fetch_error in fetched:
+                    fetched.append((item, None, error))
+        for item, frame, fetch_error in fetched:
+            instrument = item.instrument
             try:
                 if fetch_error is not None:
                     raise fetch_error
                 assert frame is not None
                 events = normalize_dividend_events(frame, instrument)
                 publish_events(connection, instrument, events)
-                if not args.symbol:
-                    mark_backfill(connection, instrument.instrument_key, "completed", None)
-                results.append({"symbol": instrument.symbol, "events": len(events)})
+                if item.task_key:
+                    mark_backfill(connection, item.task_key, instrument.instrument_key, "completed", None)
+                results.append({"symbol": instrument.symbol, "mode": item.mode, "events": len(events)})
             except Exception as error:
                 message = str(error)[:1000]
-                if not args.symbol:
-                    mark_backfill(connection, instrument.instrument_key, "failed", message)
-                failures.append({"symbol": instrument.symbol, "error": message})
+                status = classify_failure(instrument, item.attempts + 1, message)
+                if item.task_key:
+                    mark_backfill(connection, item.task_key, instrument.instrument_key, status, message)
+                failures.append({
+                    "symbol": instrument.symbol,
+                    "mode": item.mode,
+                    "status": status,
+                    "error": message,
+                })
     finally:
         connection.close()
     print(json.dumps({
         "status": "ready" if not failures else "partial",
         "completed": len(results),
         "failed": len(failures),
+        "deduplicated": deduplicated,
         "itemSamples": results[:20],
         "failures": failures[:20],
     }, ensure_ascii=False))
@@ -141,6 +172,29 @@ def publish_events(connection, instrument: Instrument, events: list[dict[str, An
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     with connection.cursor() as cursor:
         for event in events:
+            existing = find_business_event(cursor, event)
+            if existing:
+                cursor.execute(
+                    """
+                    UPDATE dividend_events
+                    SET disclosure_date=COALESCE(%s, disclosure_date),
+                        announcement_date=COALESCE(%s, announcement_date),
+                        record_date=COALESCE(%s, record_date),
+                        ex_date=COALESCE(%s, ex_date),
+                        latest_announcement_date=COALESCE(%s, latest_announcement_date),
+                        dividend_yield_raw=COALESCE(%s, dividend_yield_raw),
+                        plan_status=COALESCE(%s, plan_status),
+                        raw_plan=COALESCE(%s, raw_plan), fetched_at=%s
+                    WHERE event_id=%s
+                    """,
+                    (
+                        event["disclosure_date"], event["announcement_date"],
+                        event["record_date"], event["ex_date"],
+                        event["latest_announcement_date"], event["dividend_yield_raw"],
+                        event["plan_status"], event["raw_plan"], now, existing,
+                    ),
+                )
+                continue
             cursor.execute(
                 """
                 INSERT INTO dividend_events
@@ -168,48 +222,185 @@ def publish_events(connection, instrument: Instrument, events: list[dict[str, An
     connection.commit()
 
 
-def load_backfill_batch(connection, batch_size: int) -> list[Instrument]:
+def find_business_event(cursor, event: dict[str, Any]) -> str | None:
+    cursor.execute(
+        """
+        SELECT event_id
+        FROM dividend_events
+        WHERE instrument_key=%s AND report_period=%s
+          AND ex_date<=>%s
+          AND cash_dividend_per_share<=>%s
+          AND bonus_share_per_share<=>%s
+          AND transfer_share_per_share<=>%s
+        ORDER BY fetched_at DESC
+        LIMIT 1
+        """,
+        (
+            event["instrument_key"], event["report_period"], event["ex_date"],
+            event["cash_dividend_per_share"], event["bonus_share_per_share"],
+            event["transfer_share_per_share"],
+        ),
+    )
+    row = cursor.fetchone()
+    return None if not row else str(row[0])
+
+
+def deduplicate_business_events(connection) -> int:
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT instrument.instrument_key, instrument.symbol
+            SELECT instrument_key, report_period, ex_date, cash_dividend_per_share,
+                   bonus_share_per_share, transfer_share_per_share
+            FROM dividend_events
+            GROUP BY instrument_key, report_period, ex_date, cash_dividend_per_share,
+                     bonus_share_per_share, transfer_share_per_share
+            HAVING COUNT(*)>1
+            """
+        )
+        groups = cursor.fetchall()
+        removed = 0
+        for group in groups:
+            cursor.execute(
+                """
+                SELECT event_id, disclosure_date, announcement_date, record_date,
+                       latest_announcement_date, dividend_yield_raw, plan_status, raw_plan
+                FROM dividend_events
+                WHERE instrument_key=%s AND report_period=%s AND ex_date<=>%s
+                  AND cash_dividend_per_share<=>%s
+                  AND bonus_share_per_share<=>%s
+                  AND transfer_share_per_share<=>%s
+                ORDER BY (source_key='akshare:stock_fhps_detail_em') DESC,
+                         (raw_plan IS NOT NULL) DESC, fetched_at DESC
+                """,
+                group,
+            )
+            rows = cursor.fetchall()
+            keeper = rows[0]
+            merged = [
+                next((row[index] for row in rows if row[index] is not None), None)
+                for index in range(1, 8)
+            ]
+            cursor.execute(
+                """
+                UPDATE dividend_events
+                SET disclosure_date=%s, announcement_date=%s, record_date=%s,
+                    latest_announcement_date=%s, dividend_yield_raw=%s,
+                    plan_status=%s, raw_plan=%s
+                WHERE event_id=%s
+                """,
+                (*merged, keeper[0]),
+            )
+            duplicate_ids = [row[0] for row in rows[1:]]
+            placeholders = ",".join(["%s"] * len(duplicate_ids))
+            cursor.execute(
+                f"DELETE FROM dividend_events WHERE event_id IN ({placeholders})",
+                duplicate_ids,
+            )
+            removed += len(duplicate_ids)
+    connection.commit()
+    return removed
+
+
+def load_work_batch(
+    connection,
+    backfill_size: int,
+    retry_size: int,
+    refresh_size: int,
+) -> list[WorkItem]:
+    return [
+        *load_new_backfill_batch(connection, backfill_size),
+        *load_retry_batch(connection, retry_size),
+        *load_refresh_batch(connection, refresh_size),
+    ]
+
+
+def load_new_backfill_batch(connection, batch_size: int) -> list[WorkItem]:
+    if batch_size <= 0:
+        return []
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT instrument.instrument_key, instrument.symbol, instrument.status
             FROM instruments AS instrument
             LEFT JOIN reference_data_backfill_items AS item
               ON item.task_key=%s AND item.instrument_key=instrument.instrument_key
-            WHERE instrument.type='stock'
-              AND (item.status IS NULL OR item.status<>'completed')
-            ORDER BY (item.status='failed'), instrument.instrument_key
+            WHERE instrument.type='stock' AND item.instrument_key IS NULL
+            ORDER BY instrument.instrument_key
             LIMIT %s
             """,
             (TASK_KEY, batch_size),
         )
-        instruments = [Instrument(int(key), str(symbol).zfill(6)) for key, symbol in cursor.fetchall()]
-        remaining = batch_size - len(instruments)
-        if remaining > 0:
-            selected_keys = [item.instrument_key for item in instruments]
-            exclusion = ""
-            parameters: list[Any] = [TASK_KEY]
-            if selected_keys:
-                placeholders = ",".join(["%s"] * len(selected_keys))
-                exclusion = f" AND instrument.instrument_key NOT IN ({placeholders})"
-                parameters.extend(selected_keys)
-            parameters.append(remaining)
-            cursor.execute(
-                f"""
-                SELECT instrument.instrument_key, instrument.symbol
-                FROM instruments AS instrument
-                INNER JOIN reference_data_backfill_items AS item
-                  ON item.task_key=%s AND item.instrument_key=instrument.instrument_key
-                WHERE instrument.type='stock' AND item.status='completed'{exclusion}
-                ORDER BY item.updated_at, instrument.instrument_key
-                LIMIT %s
-                """,
-                parameters,
+        return [
+            WorkItem(Instrument(int(key), str(symbol).zfill(6), str(status)), TASK_KEY, "backfill")
+            for key, symbol, status in cursor.fetchall()
+        ]
+
+
+def load_retry_batch(connection, retry_size: int) -> list[WorkItem]:
+    if retry_size <= 0:
+        return []
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT instrument.instrument_key, instrument.symbol, instrument.status, item.attempts
+            FROM reference_data_backfill_items AS item
+            INNER JOIN instruments AS instrument
+              ON instrument.instrument_key=item.instrument_key
+            WHERE item.task_key=%s AND item.status='failed'
+              AND TIMESTAMPDIFF(MINUTE, item.updated_at, UTC_TIMESTAMP()) >=
+                  LEAST(1440, POW(2, GREATEST(item.attempts-1, 0)) * 30)
+            ORDER BY item.updated_at, instrument.instrument_key
+            LIMIT %s
+            """,
+            (TASK_KEY, retry_size),
+        )
+        return [
+            WorkItem(
+                Instrument(int(key), str(symbol).zfill(6), str(status)),
+                TASK_KEY,
+                "retry",
+                int(attempts),
             )
-            instruments.extend(
-                Instrument(int(key), str(symbol).zfill(6)) for key, symbol in cursor.fetchall()
+            for key, symbol, status, attempts in cursor.fetchall()
+        ]
+
+
+def load_refresh_batch(connection, refresh_size: int) -> list[WorkItem]:
+    if refresh_size <= 0:
+        return []
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT instrument.instrument_key, instrument.symbol, instrument.status,
+                   COALESCE(refresh.attempts, 0)
+            FROM reference_data_backfill_items AS history
+            INNER JOIN instruments AS instrument
+              ON instrument.instrument_key=history.instrument_key
+            LEFT JOIN reference_data_backfill_items AS refresh
+              ON refresh.task_key=%s AND refresh.instrument_key=instrument.instrument_key
+            WHERE history.task_key=%s AND history.status='completed'
+              AND (
+                refresh.instrument_key IS NULL
+                OR (refresh.status='completed' AND refresh.updated_at<UTC_TIMESTAMP()-INTERVAL 30 DAY)
+                OR (refresh.status='failed' AND TIMESTAMPDIFF(MINUTE, refresh.updated_at, UTC_TIMESTAMP()) >=
+                    LEAST(1440, POW(2, GREATEST(refresh.attempts-1, 0)) * 30))
+              )
+            ORDER BY
+              CASE WHEN refresh.status='failed' THEN 0 WHEN refresh.instrument_key IS NULL THEN 1 ELSE 2 END,
+              refresh.updated_at, instrument.instrument_key
+            LIMIT %s
+            """,
+            (REFRESH_TASK_KEY, TASK_KEY, refresh_size),
+        )
+        return [
+            WorkItem(
+                Instrument(int(key), str(symbol).zfill(6), str(status)),
+                REFRESH_TASK_KEY,
+                "refresh",
+                int(attempts),
             )
-        return instruments
+            for key, symbol, status, attempts in cursor.fetchall()
+        ]
 
 
 def load_symbol(connection, symbol: str | None) -> list[Instrument]:
@@ -217,16 +408,29 @@ def load_symbol(connection, symbol: str | None) -> list[Instrument]:
         return []
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT instrument_key, symbol FROM instruments WHERE symbol=%s AND type='stock' LIMIT 1",
+            "SELECT instrument_key, symbol, status FROM instruments WHERE symbol=%s AND type='stock' LIMIT 1",
             (symbol.zfill(6),),
         )
         row = cursor.fetchone()
         if not row:
             raise RuntimeError(f"unknown stock symbol: {symbol}")
-        return [Instrument(int(row[0]), str(row[1]).zfill(6))]
+        return [Instrument(int(row[0]), str(row[1]).zfill(6), str(row[2]))]
 
 
-def mark_backfill(connection, instrument_key: int, status: str, error: str | None) -> None:
+def classify_failure(instrument: Instrument, attempts: int, message: str) -> str:
+    source_has_no_detail = "NoneType" in message and "subscriptable" in message
+    if instrument.status == "delisted" and source_has_no_detail and attempts >= 2:
+        return "no_data"
+    return "failed"
+
+
+def mark_backfill(
+    connection,
+    task_key: str,
+    instrument_key: int,
+    status: str,
+    error: str | None,
+) -> None:
     with connection.cursor() as cursor:
         cursor.execute(
             """
@@ -237,7 +441,7 @@ def mark_backfill(connection, instrument_key: int, status: str, error: str | Non
               status=VALUES(status), attempts=attempts+1, last_error=VALUES(last_error),
               updated_at=VALUES(updated_at)
             """,
-            (TASK_KEY, instrument_key, status, error),
+            (task_key, instrument_key, status, error),
         )
     connection.commit()
 

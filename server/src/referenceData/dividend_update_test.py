@@ -4,7 +4,12 @@ import unittest
 
 import pandas as pd
 
-from dividend_update import Instrument, normalize_dividend_events, per_ten_to_per_share
+from dividend_update import (
+    Instrument,
+    classify_failure,
+    normalize_dividend_events,
+    per_ten_to_per_share,
+)
 
 
 class DividendUpdateTest(unittest.TestCase):
@@ -24,6 +29,20 @@ class DividendUpdateTest(unittest.TestCase):
         self.assertEqual(events[0]["cash_dividend_per_share"], 0.2)
         self.assertEqual(events[0]["transfer_share_per_share"], 0.1)
         self.assertIsNone(events[0]["ex_date"])
+
+    def test_marks_repeat_delisted_no_data_as_terminal(self) -> None:
+        instrument = Instrument(1, "000003", "delisted")
+        self.assertEqual(
+            classify_failure(instrument, 2, "'NoneType' object is not subscriptable"),
+            "no_data",
+        )
+
+    def test_keeps_active_source_failure_retryable(self) -> None:
+        instrument = Instrument(1, "688981", "active")
+        self.assertEqual(
+            classify_failure(instrument, 5, "'NoneType' object is not subscriptable"),
+            "failed",
+        )
 
 
 if __name__ == "__main__":

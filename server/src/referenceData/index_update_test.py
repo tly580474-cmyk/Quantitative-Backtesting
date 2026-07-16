@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from index_update import canonical_checksum, validate_index_frame
+from index_update import apply_previous_close, canonical_checksum, validate_index_frame
 
 
 class IndexUpdateTest(unittest.TestCase):
@@ -37,6 +37,27 @@ class IndexUpdateTest(unittest.TestCase):
         rows = [("2026-07-14", 1.0), ("2026-07-15", 2.0)]
         self.assertEqual(canonical_checksum(rows), canonical_checksum(rows))
         self.assertNotEqual(canonical_checksum(rows), canonical_checksum(list(reversed(rows))))
+
+    def test_applies_previous_close_to_incremental_first_row(self) -> None:
+        frame = pd.DataFrame([{
+            "tradeDate": "2026-07-16",
+            "close": 99.0,
+            "change": None,
+            "changePercent": None,
+        }])
+        result = apply_previous_close(frame, 100.0)
+        self.assertEqual(result.iloc[0]["change"], -1.0)
+        self.assertEqual(result.iloc[0]["changePercent"], -1.0)
+
+    def test_keeps_first_return_missing_without_previous_close(self) -> None:
+        frame = pd.DataFrame([{
+            "tradeDate": "2026-07-16",
+            "close": 99.0,
+            "change": None,
+            "changePercent": None,
+        }])
+        result = apply_previous_close(frame, None)
+        self.assertIsNone(result.iloc[0]["change"])
 
 
 if __name__ == "__main__":

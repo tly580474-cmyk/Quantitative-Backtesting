@@ -77,6 +77,7 @@ npm run duckdb -- query --sql "SELECT reportPeriod, exDate, cashDividendPerShare
 ```powershell
 npm run index:update
 npm run index:constituents:update
+npm run dividend:current:update
 npm run dividend:update
 npm run snapshot:build
 npm run snapshot:verify
@@ -95,7 +96,7 @@ npm run index:backfill -- --end-date 20260715
 npm run dividend:probe
 ```
 
-`reference:status` 会显示分红回补完成数、失败数、剩余数，以及指数行情和成分快照覆盖范围。
+`reference:status` 会分别显示分红从未处理、待重试、终态无数据、完成和轮换刷新数量，以及指数行情和成分快照覆盖范围。
 
 ## 5. 自动更新
 
@@ -124,7 +125,14 @@ server/.logs/research-snapshot/research-update.log
 
 指数成分接口设置请求超时。若第三方接口临时不可用但数据库已有已发布批次，任务保留已有批次并记录警告，不会删除历史数据。
 
-分红回补每晚默认处理 200 只证券，使用 8 路受控并发。单只证券失败会记录到 `reference_data_backfill_items`，不会回滚其他成功证券；新证券处理完后会继续重试失败项。
+分红更新分成两条链路：
+
+- `dividend:current:update` 按当前可用报告期读取全市场方案，每天更新最新公告、登记日、除权日和方案状态；
+- `dividend:update` 使用单股明细接口继续历史回补，每轮默认处理 200 只未抓取证券、20 只到期失败项和 20 只旧记录轮换刷新项。
+
+历史回补使用 8 路受控并发。失败项采用指数退避，单只证券失败不会回滚其他成功证券。已退市证券连续两次得到明确的上游无明细错误后标记为 `no_data`，不再无限重试；活跃证券仍保持可重试状态。
+
+全市场接口和单股明细接口可能返回同一业务事件。发布前按“证券、报告期、除权日、现金分红、送股、转增”业务键合并，优先补全公告日期、方案状态和原始方案文本，不会因为来源指纹不同而保留重复事件。
 
 ## 6. 质量约束
 
@@ -133,6 +141,7 @@ server/.logs/research-snapshot/research-update.log
 - 指数权重必须非负，权重合计应接近 100%；
 - 指数成员必须映射到证券主表，无法映射时不得伪造内部键；
 - 分红比例不得为负，空值不得转换成 0；
+- 分红业务键重复数必须为 0；
 - 复权参数必须同时保留 `factor` 和 `priceOffset`；
 - 同一来源校验和不变时不得创建重复来源批次；
 - 任一快照文件校验失败时不得切换当前版本指针。

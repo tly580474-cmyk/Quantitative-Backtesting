@@ -69,7 +69,15 @@ def main() -> int:
             if not args.full and dataset and dataset["end_time"]:
                 start_date = next_date(str(dataset["end_time"]))
             if start_date > args.end_date:
-                results.append({"symbol": symbol, "status": "up-to-date", "endDate": dataset["end_time"]})
+                repaired = 0 if args.dry_run or not dataset else repair_missing_index_returns(
+                    connection, dataset["id"]
+                )
+                results.append({
+                    "symbol": symbol,
+                    "status": "up-to-date",
+                    "endDate": dataset["end_time"],
+                    "repairedReturns": repaired,
+                })
                 continue
             try:
                 frame = fetch_index_frame_with_retry(definition, start_date, args.end_date)
@@ -85,8 +93,21 @@ def main() -> int:
                 failures.append({"symbol": symbol, "error": str(error)[:500]})
                 continue
             if frame.empty:
-                results.append({"symbol": symbol, "status": "no-new-bars", "startDate": start_date})
+                repaired = 0 if args.dry_run or not dataset else repair_missing_index_returns(
+                    connection, dataset["id"]
+                )
+                results.append({
+                    "symbol": symbol,
+                    "status": "no-new-bars",
+                    "startDate": start_date,
+                    "repairedReturns": repaired,
+                })
                 continue
+            previous_close = (
+                load_previous_close(connection, dataset["id"], str(frame.iloc[0]["tradeDate"]))
+                if dataset else None
+            )
+            frame = apply_previous_close(frame, previous_close)
             validate_index_frame(frame, definition.code)
             if args.dry_run:
                 results.append({
@@ -106,6 +127,10 @@ def main() -> int:
                 "minDate": frame.iloc[0]["tradeDate"],
                 "maxDate": frame.iloc[-1]["tradeDate"],
             })
+        if not args.dry_run:
+            repaired_other = repair_all_missing_index_returns(connection)
+            if repaired_other:
+                results.append({"status": "derived-returns-repaired", "rows": repaired_other})
     finally:
         connection.close()
     print(json.dumps({
@@ -157,13 +182,96 @@ def fetch_index_frame(definition: IndexDefinition, start_date: str, end_date: st
     frame["tradeDate"] = pd.to_datetime(frame["tradeDate"], errors="raise").dt.strftime("%Y-%m-%d")
     for column in ("open", "high", "low", "close", "volume", "amount"):
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    frame = frame.sort_values("tradeDate").drop_duplicates(
+        "tradeDate", keep="last"
+    ).reset_index(drop=True)
     previous = frame["close"].shift(1)
     frame["change"] = frame["close"] - previous
     frame["changePercent"] = frame["change"] / previous * 100
     return frame[[
         "tradeDate", "open", "high", "low", "close", "volume", "amount",
         "change", "changePercent",
-    ]].sort_values("tradeDate").drop_duplicates("tradeDate", keep="last").reset_index(drop=True)
+    ]]
+
+
+def apply_previous_close(frame: pd.DataFrame, previous_close: float | None) -> pd.DataFrame:
+    if frame.empty or previous_close is None:
+        return frame
+    if not math.isfinite(previous_close) or previous_close <= 0:
+        raise RuntimeError("previous index close is invalid")
+    result = frame.copy()
+    first = result.index[0]
+    change = float(result.at[first, "close"]) - previous_close
+    result.at[first, "change"] = change
+    result.at[first, "changePercent"] = change / previous_close * 100
+    return result
+
+
+def load_previous_close(connection, dataset_id: str, trade_date: str) -> float | None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT close
+            FROM candles
+            WHERE dataset_id=%s AND time<%s
+            ORDER BY time DESC
+            LIMIT 1
+            """,
+            (dataset_id, trade_date),
+        )
+        row = cursor.fetchone()
+        return None if not row else float(row[0])
+
+
+def repair_missing_index_returns(connection, dataset_id: str) -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT current.time, current.close, previous.close
+            FROM candles AS current
+            INNER JOIN candles AS previous
+              ON previous.dataset_id=current.dataset_id
+             AND previous.time=(
+               SELECT MAX(candidate.time)
+               FROM candles AS candidate
+               WHERE candidate.dataset_id=current.dataset_id
+                 AND candidate.time<current.time
+             )
+            WHERE current.dataset_id=%s
+              AND (current.`change` IS NULL OR current.change_percent IS NULL)
+            ORDER BY current.time
+            """,
+            (dataset_id,),
+        )
+        missing = cursor.fetchall()
+        updates = []
+        for trade_date, close, previous_close in missing:
+            change = float(close) - float(previous_close)
+            updates.append((change, change / float(previous_close) * 100, dataset_id, trade_date))
+        if updates:
+            cursor.executemany(
+                """
+                UPDATE candles
+                SET `change`=%s, change_percent=%s
+                WHERE dataset_id=%s AND time=%s
+                """,
+                updates,
+            )
+    connection.commit()
+    return len(updates)
+
+
+def repair_all_missing_index_returns(connection) -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id
+            FROM market_datasets
+            WHERE asset_type='index' AND timeframe='1d'
+            """
+        )
+        dataset_ids = [str(row[0]) for row in cursor.fetchall()]
+    return sum(repair_missing_index_returns(connection, dataset_id) for dataset_id in dataset_ids)
 
 
 def validate_index_frame(frame: pd.DataFrame, symbol: str) -> None:
