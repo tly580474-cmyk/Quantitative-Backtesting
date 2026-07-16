@@ -128,6 +128,74 @@ export const referenceDataBackfillItems = mysqlTable('reference_data_backfill_it
   taskStatusIdx: index('idx_rdbi_task_status').on(table.taskKey, table.status, table.instrumentKey),
 }));
 
+export const swIndustryDefinitions = mysqlTable('sw_industry_definitions', {
+  taxonomyKey: varchar('taxonomy_key', { length: 32 }).notNull(),
+  industryCode: varchar('industry_code', { length: 12 }).notNull(),
+  industryName: varchar('industry_name', { length: 128 }).notNull(),
+  industryLevel: int('industry_level', { unsigned: true }).notNull(),
+  parentCode: varchar('parent_code', { length: 12 }),
+  indexCode: varchar('index_code', { length: 12 }),
+  sourceKey: varchar('source_key', { length: 64 }).notNull(),
+  sourceVersion: varchar('source_version', { length: 64 }).notNull(),
+  fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.taxonomyKey, table.industryCode] }),
+  taxonomyIndexUnique: uniqueIndex('idx_sid_taxonomy_index').on(table.taxonomyKey, table.indexCode),
+  parentIdx: index('idx_sid_parent').on(table.taxonomyKey, table.parentCode),
+  levelIdx: index('idx_sid_level').on(table.taxonomyKey, table.industryLevel),
+}));
+
+export const swIndustryMemberships = mysqlTable('sw_industry_memberships', {
+  taxonomyKey: varchar('taxonomy_key', { length: 32 }).notNull(),
+  symbol: varchar('symbol', { length: 20 }).notNull(),
+  instrumentKey: int('instrument_key', { unsigned: true }),
+  level1Code: varchar('level1_code', { length: 12 }).notNull(),
+  level2Code: varchar('level2_code', { length: 12 }).notNull(),
+  level3Code: varchar('level3_code', { length: 12 }).notNull(),
+  effectiveFrom: datetime('effective_from', { mode: 'string' }).notNull(),
+  effectiveTo: datetime('effective_to', { mode: 'string' }),
+  sourceKey: varchar('source_key', { length: 64 }).notNull(),
+  sourceVersion: varchar('source_version', { length: 64 }).notNull(),
+  sourceUpdatedAt: datetime('source_updated_at', { mode: 'string' }),
+  fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.taxonomyKey, table.symbol, table.effectiveFrom] }),
+  instrumentEffectiveIdx: index('idx_sim_instrument_effective').on(
+    table.instrumentKey, table.effectiveFrom, table.effectiveTo,
+  ),
+  level1EffectiveIdx: index('idx_sim_level1_effective').on(
+    table.taxonomyKey, table.level1Code, table.effectiveFrom,
+  ),
+  level3EffectiveIdx: index('idx_sim_level3_effective').on(
+    table.taxonomyKey, table.level3Code, table.effectiveFrom,
+  ),
+}));
+
+export const swIndustryDailyBars = mysqlTable('sw_industry_daily_bars', {
+  taxonomyKey: varchar('taxonomy_key', { length: 32 }).notNull(),
+  indexCode: varchar('index_code', { length: 12 }).notNull(),
+  industryCode: varchar('industry_code', { length: 12 }).notNull(),
+  industryName: varchar('industry_name', { length: 128 }).notNull(),
+  tradeDate: date('trade_date', { mode: 'string' }).notNull(),
+  open: double('open').notNull(),
+  high: double('high').notNull(),
+  low: double('low').notNull(),
+  close: double('close').notNull(),
+  change: double('change'),
+  changePercent: double('change_percent'),
+  volumeRaw: double('volume_raw'),
+  amountRaw: double('amount_raw'),
+  sourceKey: varchar('source_key', { length: 64 }).notNull(),
+  sourceVersion: varchar('source_version', { length: 64 }).notNull(),
+  fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.taxonomyKey, table.indexCode, table.tradeDate] }),
+  tradeDateIdx: index('idx_sib_trade_date').on(table.tradeDate),
+  industryDateIdx: index('idx_sib_industry_date').on(
+    table.taxonomyKey, table.industryCode, table.tradeDate,
+  ),
+}));
+
 // ─── strategy_configs ────────────────────────────────────────────
 export const strategyConfigs = mysqlTable('strategy_configs', {
   id: varchar('id', { length: 36 }).primaryKey(),

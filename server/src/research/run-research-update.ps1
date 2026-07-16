@@ -37,6 +37,7 @@ Set-Location -LiteralPath $serverRoot
 try {
   Invoke-ResearchCommand -ScriptName 'index:update'
   Invoke-ResearchCommand -ScriptName 'index:constituents:update'
+  Invoke-ResearchCommand -ScriptName 'sw-industry:update'
   Invoke-ResearchCommand -ScriptName 'dividend:current:update'
   Invoke-ResearchCommand -ScriptName 'dividend:update'
   Invoke-ResearchCommand -ScriptName 'snapshot:build'

@@ -190,6 +190,22 @@ async function registerSnapshotView(
     `);
     views.push('dividend_events');
   }
+  for (const [datasetName, viewName] of [
+    ['sw_industry_definitions', 'sw_industry_definitions'],
+    ['sw_industry_memberships', 'sw_industry_memberships'],
+    ['sw_industry_bars', 'sw_industry_bars'],
+  ] as const) {
+    const dataset = current.manifest.datasets?.find((item) => item.name === datasetName);
+    if (!dataset) continue;
+    const path = normalizeDuckDbPath(
+      join(snapshotRoot, current.manifest.snapshotId, dataset.relativePath),
+    );
+    await connection.run(`
+      CREATE OR REPLACE VIEW ${viewName} AS
+      SELECT * FROM read_parquet('${escapeSqlLiteral(path)}')
+    `);
+    views.push(viewName);
+  }
   return {
     snapshotId: current.manifest.snapshotId,
     parquetGlob,

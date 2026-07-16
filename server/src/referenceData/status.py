@@ -91,6 +91,50 @@ def main() -> int:
                 """,
             )
             missing_index_returns = int(cursor.fetchone()["rowsCount"])
+            cursor.execute(
+                """
+                SELECT industry_level AS level, COUNT(*) AS count
+                FROM sw_industry_definitions
+                WHERE taxonomy_key='SW2021'
+                GROUP BY industry_level
+                ORDER BY industry_level
+                """,
+            )
+            sw_levels = {f"L{row['level']}": int(row["count"]) for row in cursor.fetchall()}
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS events, COUNT(DISTINCT symbol) AS symbols,
+                       SUM(instrument_key IS NOT NULL) AS mappedEvents,
+                       MIN(effective_from) AS minDate, MAX(effective_from) AS maxDate
+                FROM sw_industry_memberships
+                WHERE taxonomy_key='SW2021'
+                """,
+            )
+            sw_memberships = cursor.fetchone()
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS rowsCount, COUNT(DISTINCT index_code) AS industries,
+                       MIN(trade_date) AS minDate, MAX(trade_date) AS maxDate
+                FROM sw_industry_daily_bars
+                WHERE taxonomy_key='SW2021'
+                """,
+            )
+            sw_bars = cursor.fetchone()
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS total,
+                       SUM(EXISTS(
+                         SELECT 1
+                         FROM sw_industry_memberships AS membership
+                         WHERE membership.taxonomy_key='SW2021'
+                           AND membership.instrument_key=instrument.instrument_key
+                           AND membership.effective_to IS NULL
+                       )) AS covered
+                FROM instruments AS instrument
+                WHERE instrument.type='stock' AND instrument.status='active'
+                """,
+            )
+            sw_coverage = cursor.fetchone()
         print(json.dumps({
             "status": "ready",
             "dividendBackfill": {
@@ -106,6 +150,13 @@ def main() -> int:
             "dividendEvents": dividends,
             "indexBars": {**index_bars, "missingDerivedReturns": missing_index_returns},
             "indexConstituents": constituents,
+            "swIndustry": {
+                "taxonomy": "SW2021",
+                "definitions": sw_levels,
+                "memberships": sw_memberships,
+                "bars": sw_bars,
+                "activeCoverage": sw_coverage,
+            },
         }, ensure_ascii=False, default=str))
         return 0
     finally:

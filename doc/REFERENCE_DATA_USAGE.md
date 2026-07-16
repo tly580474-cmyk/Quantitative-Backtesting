@@ -13,6 +13,9 @@
 | `index_constituents` | 指数成分明细与权重 |
 | `index_constituents_scd` | 按来源推导的成分有效期视图 |
 | `dividend_events` | 分红、送股和转增事件 |
+| `sw_industry_definitions` | SW2021 行业代码、名称、层级、父级和一级行业指数代码 |
+| `sw_industry_memberships` | 股票一级、二级、三级申万行业归属及有效区间 |
+| `sw_industry_bars` | 31 个申万一级行业历史日线 |
 
 DuckDB 只读取已通过校验并由 `current.json` 指向的 Parquet 快照。MySQL 仍是权威事实层。
 
@@ -60,6 +63,18 @@ npm run duckdb -- query --sql "SELECT constituentCode, constituentName, weightPc
 npm run duckdb -- query --sql "SELECT reportPeriod, exDate, cashDividendPerShare, bonusSharePerShare, transferSharePerShare, planStatus FROM dividend_events WHERE symbol='002155' ORDER BY reportPeriod DESC"
 ```
 
+查询湖南黄金当前申万行业：
+
+```powershell
+npm run duckdb -- query --sql "SELECT level1Name, level2Name, level3Name, effectiveFrom, effectiveTo FROM sw_industry_memberships WHERE symbol='002155' AND effectiveTo IS NULL"
+```
+
+查询湖南黄金所属一级行业某日行情：
+
+```powershell
+npm run duckdb -- query --sql "SELECT membership.symbol, membership.level1Name, bar.tradeDate, bar.close, bar.changePercent FROM sw_industry_memberships AS membership JOIN sw_industry_bars AS bar ON bar.taxonomyKey=membership.taxonomyKey AND bar.indexCode=membership.level1IndexCode WHERE membership.symbol='002155' AND membership.effectiveTo IS NULL AND bar.tradeDate='2026-07-15'"
+```
+
 ## 3. 数据日期口径
 
 `constituentDate`、`weightDate` 和 `fetchedAt` 含义不同：
@@ -77,6 +92,7 @@ npm run duckdb -- query --sql "SELECT reportPeriod, exDate, cashDividendPerShare
 ```powershell
 npm run index:update
 npm run index:constituents:update
+npm run sw-industry:update
 npm run dividend:current:update
 npm run dividend:update
 npm run snapshot:build
@@ -111,6 +127,7 @@ npm run snapshot:schedule:register
 ```text
 指数行情增量
   → 指数成分与权重批次抓取
+  → 申万行业定义、归属与行情更新
   → 分红历史分片回补
   → 股票日线、复权和参考数据快照构建
   → 文件大小、行数和 SHA-256 校验
@@ -140,6 +157,10 @@ server/.logs/research-snapshot/research-update.log
 - 指数 OHLC 必须满足价格区间约束；
 - 指数权重必须非负，权重合计应接近 100%；
 - 指数成员必须映射到证券主表，无法映射时不得伪造内部键；
+- SW2021 一级、二级、三级定义数量必须分别为 31、134、346；
+- 当前申万行业归属必须覆盖全部活跃股票，北交所只能使用在线完整历史源；
+- 同一股票的申万行业有效区间不得重叠；
+- 申万行业行情 OHLC 必须满足价格区间约束，非首日涨跌幅不得为空；
 - 分红比例不得为负，空值不得转换成 0；
 - 分红业务键重复数必须为 0；
 - 复权参数必须同时保留 `factor` 和 `priceOffset`；

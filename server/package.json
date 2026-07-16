@@ -26,6 +26,8 @@
     "dividend:update": "python src/referenceData/dividend_update.py --batch-size 200 --retry-size 20 --refresh-size 20 --workers 8",
     "dividend:probe": "python src/referenceData/dividend_update.py --symbol 002155",
     "reference:status": "python src/referenceData/status.py",
+    "sw-industry:update": "python src/referenceData/sw_industry_update.py",
+    "sw-industry:dry-run": "python src/referenceData/sw_industry_update.py --dry-run",
     "snapshot:benchmark": "tsx src/research/benchmarkCli.ts",
     "duckdb": "tsx src/research/duckdbCli.ts",
     "minute:prepare": "python src/minuteData/prepare.py --start-year 2010 --end-year 2026",

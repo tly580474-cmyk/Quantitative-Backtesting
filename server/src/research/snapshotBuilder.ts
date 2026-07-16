@@ -180,6 +180,49 @@ const READ_DIVIDEND_EVENT_COLUMNS = `{
   sourceKey: 'VARCHAR', sourceFingerprint: 'VARCHAR', fetchedAt: 'TIMESTAMP'
 }`;
 
+const SW_INDUSTRY_DEFINITION_COLUMNS = [
+  'taxonomyKey', 'taxonomyStart', 'industryCode', 'industryName', 'industryLevel',
+  'parentCode', 'indexCode', 'sourceKey', 'sourceVersion', 'fetchedAt',
+] as const;
+
+const READ_SW_INDUSTRY_DEFINITION_COLUMNS = `{
+  taxonomyKey: 'VARCHAR', taxonomyStart: 'DATE', industryCode: 'VARCHAR',
+  industryName: 'VARCHAR', industryLevel: 'BIGINT', parentCode: 'VARCHAR',
+  indexCode: 'VARCHAR', sourceKey: 'VARCHAR', sourceVersion: 'VARCHAR',
+  fetchedAt: 'TIMESTAMP'
+}`;
+
+const SW_INDUSTRY_MEMBERSHIP_COLUMNS = [
+  'taxonomyKey', 'instrumentKey', 'market', 'symbol', 'name',
+  'level1Code', 'level1Name', 'level1IndexCode',
+  'level2Code', 'level2Name', 'level3Code', 'level3Name',
+  'effectiveFrom', 'effectiveTo', 'sourceKey', 'sourceVersion',
+  'sourceUpdatedAt', 'fetchedAt',
+] as const;
+
+const READ_SW_INDUSTRY_MEMBERSHIP_COLUMNS = `{
+  taxonomyKey: 'VARCHAR', instrumentKey: 'BIGINT', market: 'VARCHAR',
+  symbol: 'VARCHAR', name: 'VARCHAR', level1Code: 'VARCHAR',
+  level1Name: 'VARCHAR', level1IndexCode: 'VARCHAR', level2Code: 'VARCHAR',
+  level2Name: 'VARCHAR', level3Code: 'VARCHAR', level3Name: 'VARCHAR',
+  effectiveFrom: 'TIMESTAMP', effectiveTo: 'TIMESTAMP', sourceKey: 'VARCHAR',
+  sourceVersion: 'VARCHAR', sourceUpdatedAt: 'TIMESTAMP', fetchedAt: 'TIMESTAMP'
+}`;
+
+const SW_INDUSTRY_BAR_COLUMNS = [
+  'taxonomyKey', 'indexCode', 'industryCode', 'industryName', 'tradeDate',
+  'open', 'high', 'low', 'close', 'change', 'changePercent',
+  'volumeRaw', 'amountRaw', 'sourceKey', 'sourceVersion', 'fetchedAt',
+] as const;
+
+const READ_SW_INDUSTRY_BAR_COLUMNS = `{
+  taxonomyKey: 'VARCHAR', indexCode: 'VARCHAR', industryCode: 'VARCHAR',
+  industryName: 'VARCHAR', tradeDate: 'DATE', open: 'DOUBLE', high: 'DOUBLE',
+  low: 'DOUBLE', close: 'DOUBLE', change: 'DOUBLE', changePercent: 'DOUBLE',
+  volumeRaw: 'DOUBLE', amountRaw: 'DOUBLE', sourceKey: 'VARCHAR',
+  sourceVersion: 'VARCHAR', fetchedAt: 'TIMESTAMP'
+}`;
+
 interface SnapshotSourceSummary extends RowDataPacket {
   rowsCount: number | string;
   instrumentCount: number | string;
@@ -277,6 +320,9 @@ export async function buildResearchSnapshot(
   const indexSnapshotSummary = await readIndexSnapshotSummary(pool);
   const indexMemberSummary = await readIndexMemberSummary(pool);
   const dividendSummary = await readDividendSummary(pool);
+  const swDefinitionSummary = await readSwDefinitionSummary(pool);
+  const swMembershipSummary = await readSwMembershipSummary(pool);
+  const swBarSummary = await readSwBarSummary(pool);
   const snapshotId = options.snapshotId
     ?? `${sourceVersion}-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`;
   const staging = join(root, `.building-${snapshotId}-${randomUUID().slice(0, 8)}`);
@@ -307,6 +353,18 @@ export async function buildResearchSnapshot(
     current?.manifest.datasets?.find((item) => item.name === 'dividend_events'),
     dividendSummary,
   );
+  const swDefinitionsCurrent = isDatasetCurrent(
+    current?.manifest.datasets?.find((item) => item.name === 'sw_industry_definitions'),
+    swDefinitionSummary,
+  );
+  const swMembershipsCurrent = isDatasetCurrent(
+    current?.manifest.datasets?.find((item) => item.name === 'sw_industry_memberships'),
+    swMembershipSummary,
+  );
+  const swBarsCurrent = isDatasetCurrent(
+    current?.manifest.datasets?.find((item) => item.name === 'sw_industry_bars'),
+    swBarSummary,
+  );
   if (
     !options.full
     && current
@@ -317,6 +375,9 @@ export async function buildResearchSnapshot(
     && indexSnapshotsCurrent
     && indexMembersCurrent
     && dividendsCurrent
+    && swDefinitionsCurrent
+    && swMembershipsCurrent
+    && swBarsCurrent
   ) {
     onProgress('当前研究快照已与 MySQL 年度摘要一致，无需生成新快照');
     return current.manifest;
@@ -520,6 +581,102 @@ export async function buildResearchSnapshot(
       datasets.push(dividendDataset);
       onProgress(`分红事件完成：${dividendDataset.rows.toLocaleString()} 行`);
     }
+    if (Number(swDefinitionSummary.rowsCount) > 0) {
+      const dataset = await exportReferenceDataset(
+        config,
+        staging,
+        'sw_industry_definitions',
+        SW_INDUSTRY_DEFINITION_COLUMNS,
+        READ_SW_INDUSTRY_DEFINITION_COLUMNS,
+        `
+          SELECT taxonomy_key AS taxonomyKey, '2021-07-30' AS taxonomyStart,
+                 industry_code AS industryCode, industry_name AS industryName,
+                 industry_level AS industryLevel, parent_code AS parentCode,
+                 index_code AS indexCode, source_key AS sourceKey,
+                 source_version AS sourceVersion,
+                 DATE_FORMAT(fetched_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS fetchedAt
+          FROM sw_industry_definitions
+          WHERE taxonomy_key='SW2021'
+          ORDER BY industry_level, industry_code
+        `,
+        'taxonomyStart',
+        swDefinitionSummary,
+      );
+      datasets.push(dataset);
+      onProgress(`申万行业定义完成：${dataset.rows.toLocaleString()} 行`);
+    }
+    if (Number(swMembershipSummary.rowsCount) > 0) {
+      const dataset = await exportReferenceDataset(
+        config,
+        staging,
+        'sw_industry_memberships',
+        SW_INDUSTRY_MEMBERSHIP_COLUMNS,
+        READ_SW_INDUSTRY_MEMBERSHIP_COLUMNS,
+        `
+          SELECT membership.taxonomy_key AS taxonomyKey,
+                 membership.instrument_key AS instrumentKey,
+                 instrument.market, membership.symbol,
+                 COALESCE(instrument.name, membership.symbol) AS name,
+                 membership.level1_code AS level1Code,
+                 level1.industry_name AS level1Name,
+                 level1.index_code AS level1IndexCode,
+                 membership.level2_code AS level2Code,
+                 level2.industry_name AS level2Name,
+                 membership.level3_code AS level3Code,
+                 level3.industry_name AS level3Name,
+                 DATE_FORMAT(membership.effective_from, '%Y-%m-%dT%H:%i:%s.%fZ') AS effectiveFrom,
+                 DATE_FORMAT(membership.effective_to, '%Y-%m-%dT%H:%i:%s.%fZ') AS effectiveTo,
+                 membership.source_key AS sourceKey,
+                 membership.source_version AS sourceVersion,
+                 DATE_FORMAT(membership.source_updated_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS sourceUpdatedAt,
+                 DATE_FORMAT(membership.fetched_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS fetchedAt
+          FROM sw_industry_memberships AS membership
+          LEFT JOIN instruments AS instrument
+            ON instrument.instrument_key=membership.instrument_key
+          INNER JOIN sw_industry_definitions AS level1
+            ON level1.taxonomy_key=membership.taxonomy_key
+           AND level1.industry_code=membership.level1_code
+          INNER JOIN sw_industry_definitions AS level2
+            ON level2.taxonomy_key=membership.taxonomy_key
+           AND level2.industry_code=membership.level2_code
+          INNER JOIN sw_industry_definitions AS level3
+            ON level3.taxonomy_key=membership.taxonomy_key
+           AND level3.industry_code=membership.level3_code
+          WHERE membership.taxonomy_key='SW2021'
+          ORDER BY membership.symbol, membership.effective_from
+        `,
+        'effectiveFrom',
+        swMembershipSummary,
+      );
+      datasets.push(dataset);
+      onProgress(`申万行业归属完成：${dataset.rows.toLocaleString()} 行`);
+    }
+    if (Number(swBarSummary.rowsCount) > 0) {
+      const dataset = await exportReferenceDataset(
+        config,
+        staging,
+        'sw_industry_bars',
+        SW_INDUSTRY_BAR_COLUMNS,
+        READ_SW_INDUSTRY_BAR_COLUMNS,
+        `
+          SELECT taxonomy_key AS taxonomyKey, index_code AS indexCode,
+                 industry_code AS industryCode, industry_name AS industryName,
+                 DATE_FORMAT(trade_date, '%Y-%m-%d') AS tradeDate,
+                 open, high, low, close, \`change\`,
+                 change_percent AS changePercent, volume_raw AS volumeRaw,
+                 amount_raw AS amountRaw, source_key AS sourceKey,
+                 source_version AS sourceVersion,
+                 DATE_FORMAT(fetched_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS fetchedAt
+          FROM sw_industry_daily_bars
+          WHERE taxonomy_key='SW2021'
+          ORDER BY index_code, trade_date
+        `,
+        'tradeDate',
+        swBarSummary,
+      );
+      datasets.push(dataset);
+      onProgress(`申万行业行情完成：${dataset.rows.toLocaleString()} 行`);
+    }
 
     const rowCount = partitions.reduce((sum, partition) => sum + partition.rows, 0);
     const expectedRows = Number(summary.rowsCount);
@@ -629,6 +786,40 @@ async function readDividendSummary(pool: Pool): Promise<ReferenceDatasetSummary>
            DATE_FORMAT(MAX(report_period), '%Y-%m-%d') AS maxDate,
            DATE_FORMAT(MAX(fetched_at), '%Y-%m-%dT%H:%i:%s.%fZ') AS sourceVersion
     FROM dividend_events
+  `);
+  return normalizeReferenceSummary(rows[0]);
+}
+
+async function readSwDefinitionSummary(pool: Pool): Promise<ReferenceDatasetSummary> {
+  const [rows] = await pool.query<ReferenceDatasetSummary[]>(`
+    SELECT COUNT(*) AS rowsCount, '2021-07-30' AS minDate, '2021-07-30' AS maxDate,
+           MAX(source_version) AS sourceVersion
+    FROM sw_industry_definitions
+    WHERE taxonomy_key='SW2021'
+  `);
+  return normalizeReferenceSummary(rows[0]);
+}
+
+async function readSwMembershipSummary(pool: Pool): Promise<ReferenceDatasetSummary> {
+  const [rows] = await pool.query<ReferenceDatasetSummary[]>(`
+    SELECT COUNT(*) AS rowsCount,
+           DATE_FORMAT(MIN(effective_from), '%Y-%m-%d') AS minDate,
+           DATE_FORMAT(MAX(effective_from), '%Y-%m-%d') AS maxDate,
+           MAX(source_version) AS sourceVersion
+    FROM sw_industry_memberships
+    WHERE taxonomy_key='SW2021'
+  `);
+  return normalizeReferenceSummary(rows[0]);
+}
+
+async function readSwBarSummary(pool: Pool): Promise<ReferenceDatasetSummary> {
+  const [rows] = await pool.query<ReferenceDatasetSummary[]>(`
+    SELECT COUNT(*) AS rowsCount,
+           DATE_FORMAT(MIN(trade_date), '%Y-%m-%d') AS minDate,
+           DATE_FORMAT(MAX(trade_date), '%Y-%m-%d') AS maxDate,
+           MAX(source_version) AS sourceVersion
+    FROM sw_industry_daily_bars
+    WHERE taxonomy_key='SW2021'
   `);
   return normalizeReferenceSummary(rows[0]);
 }
