@@ -1,0 +1,3 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-04-01,2026-04-30,2026-05-06,2026-06-01,SZ,301658,首航新能,630000,电力设备,2,2738,false,-0.32116182572614105,41.98915671761119,41.57017060529735,35.54475127583172,-0.14494574455024722,m2-4f41a561bd2dc413a713
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SZ,301658,首航新能,630000,电力设备,1,3303,false,-0.49958847736625517,35.90388222924358,35.54475127583172,27.01,-0.24011284281048928,m2-4f41a561bd2dc413a713

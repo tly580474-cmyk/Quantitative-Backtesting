@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,300210,森远股份,760000,环保,1,2904,false,-0.571830985915493,3.56,3.54,3.7,0.04519774011299438,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,300210,森远股份,760000,环保,1,2816,false,-0.518840579710145,3.68,3.7,3.8,0.027027027027026973,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,300210,森远股份,760000,环保,1,2962,false,-0.5771428571428572,3.97,3.8,3.2,-0.1578947368421052,m2-4f41a561bd2dc413a713

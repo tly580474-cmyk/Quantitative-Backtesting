@@ -1,0 +1,3 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-04-01,2026-04-30,2026-05-06,2026-06-01,SZ,301501,恒鑫生活,360000,轻工制造,2,2473,false,-0.256,33.05802160878463,33.29514697756404,29.125692576526063,-0.12522709101862695,m2-4f41a561bd2dc413a713
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SZ,301501,恒鑫生活,360000,轻工制造,1,3304,false,-0.5,29.422099287500327,29.125692576526063,25.98,-0.10800404379263906,m2-4f41a561bd2dc413a713

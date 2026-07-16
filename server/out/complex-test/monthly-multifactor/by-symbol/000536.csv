@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,000536,华映科技,270000,电子,1,2863,false,-0.5488000000000001,2.19,2.19,2.21,0.009132420091324311,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,000536,华映科技,270000,电子,1,2786,false,-0.5023622047244095,2.21,2.21,2.07,-0.06334841628959287,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,000536,华映科技,270000,电子,1,2940,false,-0.5654901960784314,2.08,2.07,1.82,-0.12077294685990325,m2-4f41a561bd2dc413a713

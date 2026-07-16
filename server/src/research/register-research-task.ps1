@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $serverRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
 $runner = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'run-research-update.ps1')).Path
-$argument = "-NoProfile -ExecutionPolicy Bypass -File `"$runner`""
+$argument = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runner`""
 $action = New-ScheduledTaskAction `
   -Execute $powershell `
   -Argument $argument `

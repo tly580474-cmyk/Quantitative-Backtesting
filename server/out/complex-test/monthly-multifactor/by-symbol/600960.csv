@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SH,600960,渤海汽车,280000,汽车,2,2145,false,-0.2766467065868264,3.63,3.65,3.66,0.00273972602739736,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SH,600960,渤海汽车,280000,汽车,2,2078,false,-0.261904761904762,3.66,3.66,3.53,-0.03551912568306015,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SH,600960,渤海汽车,280000,汽车,2,2048,false,-0.23976608187134507,3.53,3.53,3.04,-0.13881019830028318,m2-4f41a561bd2dc413a713

@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SH,603389,亚振家居,360000,轻工制造,4,1243,false,-0.04897959183673467,5.03,5.16,5.3,0.027131782945736482,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SH,603389,亚振家居,360000,轻工制造,4,1193,false,-0.034042553191489355,5.27,5.3,5.61,0.05849056603773595,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SH,603389,亚振家居,360000,轻工制造,3,1359,false,-0.0804123711340207,5.61,5.61,4.42,-0.21212121212121215,m2-4f41a561bd2dc413a713

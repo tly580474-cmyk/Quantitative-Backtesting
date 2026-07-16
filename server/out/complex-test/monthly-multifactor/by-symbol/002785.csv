@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,002785,万里石,610000,建筑材料,2,2245,false,-0.30526315789473685,25.39,25.46,25.1,-0.014139827179890041,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,002785,万里石,610000,建筑材料,2,2156,false,-0.28275862068965524,25.6,25.1,21.21,-0.15498007968127492,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,002785,万里石,610000,建筑材料,2,2230,false,-0.288135593220339,21.07,21.21,22.8,0.074964639321075,m2-4f41a561bd2dc413a713

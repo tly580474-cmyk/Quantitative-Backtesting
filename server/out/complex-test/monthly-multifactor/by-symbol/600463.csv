@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SH,600463,空港股份,430000,房地产,3,1693,false,-0.1566265060240964,8.8,8.78,8.49,-0.03302961275626415,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SH,600463,空港股份,430000,房地产,3,1531,false,-0.12289156626506026,8.47,8.49,10.11,0.19081272084805634,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SH,600463,空港股份,430000,房地产,3,1515,false,-0.12,9.64,10.11,6.9,-0.3175074183976261,m2-4f41a561bd2dc413a713

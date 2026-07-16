@@ -1,0 +1,3 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-04-01,2026-04-30,2026-05-06,2026-06-01,SZ,301616,浙江华业,640000,机械设备,3,1844,false,-0.14146341463414636,44.60375308367996,44.890582080965615,38.25395252308032,-0.14784013149830233,m2-4f41a561bd2dc413a713
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SZ,301616,浙江华业,640000,机械设备,3,1966,false,-0.12,38.2440618680015,38.25395252308032,33.59,-0.12192080073990652,m2-4f41a561bd2dc413a713

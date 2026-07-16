@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,002114,罗平锌电,240000,有色金属,2,2228,false,-0.29900990099009905,7.26,7.34,8.48,0.15531335149863779,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,002114,罗平锌电,240000,有色金属,2,1975,false,-0.23137254901960785,8.5,8.48,7.84,-0.07547169811320764,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,002114,罗平锌电,240000,有色金属,3,1922,false,-0.21165048543689324,7.92,7.84,6.14,-0.21683673469387754,m2-4f41a561bd2dc413a713

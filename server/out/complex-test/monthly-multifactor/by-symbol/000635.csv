@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,000635,英 力 特,220000,基础化工,5,29,true,0.6373540856031129,9.17,9.38,9.4,0.002132196162046851,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,000635,英 力 特,220000,基础化工,5,52,true,0.6140625000000001,9.36,9.4,9.81,0.043617021276595835,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,000635,英 力 特,220000,基础化工,5,216,false,0.33125000000000004,9.98,9.81,7.5,-0.23547400611620795,m2-4f41a561bd2dc413a713

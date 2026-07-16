@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SH,688051,佳华科技,710000,计算机,2,2520,false,-0.3958333333333333,41.01,40.93,42.71,0.04348888345956503,m2-4f41a561bd2dc413a713

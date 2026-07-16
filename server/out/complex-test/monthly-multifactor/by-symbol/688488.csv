@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SH,688488,艾迪药业,370000,医药生物,1,3140,false,-0.7894736842105263,13.9,13.56,12.88,-0.05014749262536866,m2-4f41a561bd2dc413a713

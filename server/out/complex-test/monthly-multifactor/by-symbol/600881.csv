@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SH,600881,亚泰集团,510000,综合,2,2067,false,-0.2571428571428572,3.02,2.94,3.01,0.023809523809523725,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SH,600881,亚泰集团,510000,综合,2,2060,false,-0.2571428571428572,3.01,3.01,3.1,0.029900332225913706,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SH,600881,亚泰集团,510000,综合,2,2338,false,-0.3142857142857143,3.13,3.1,2.51,-0.1903225806451614,m2-4f41a561bd2dc413a713

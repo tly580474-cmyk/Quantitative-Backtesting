@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-03-01,2026-03-31,2026-04-01,2026-05-06,SH,600029,南方航空,420000,交通运输,1,3187,false,-0.49514563106796117,5.65,5.78,5.45,-0.05709342560553632,m2-4f41a561bd2dc413a713
+2026-04-01,2026-04-30,2026-05-06,2026-06-01,SH,600029,南方航空,420000,交通运输,1,3512,false,-0.6923076923076923,5.41,5.45,5.44,-0.0018348623853210455,m2-4f41a561bd2dc413a713
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SH,600029,南方航空,420000,交通运输,1,3536,false,-0.6923076923076923,5.49,5.44,5.19,-0.045955882352941124,m2-4f41a561bd2dc413a713

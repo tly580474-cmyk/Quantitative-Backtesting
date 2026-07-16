@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-03-01,2026-03-31,2026-04-01,2026-05-06,SZ,002047,宝鹰股份,620000,建筑装饰,2,2271,false,-0.2263736263736264,4.91,5,5.15,0.030000000000000027,m2-4f41a561bd2dc413a713
+2026-04-01,2026-04-30,2026-05-06,2026-06-01,SZ,002047,宝鹰股份,620000,建筑装饰,2,2247,false,-0.20860215053763442,5.25,5.15,4.91,-0.04660194174757282,m2-4f41a561bd2dc413a713
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SZ,002047,宝鹰股份,620000,建筑装饰,2,2303,false,-0.18709677419354837,4.89,4.91,4.61,-0.06109979633401219,m2-4f41a561bd2dc413a713

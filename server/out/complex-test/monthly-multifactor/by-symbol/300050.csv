@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-03-01,2026-03-31,2026-04-01,2026-05-06,SZ,300050,世纪鼎利,730000,通信,1,3426,false,-0.6390243902439025,6.4,6.53,7.4,0.1332312404287903,m2-4f41a561bd2dc413a713
+2026-04-01,2026-04-30,2026-05-06,2026-06-01,SZ,300050,世纪鼎利,730000,通信,1,3225,false,-0.48780487804878053,7.3,7.4,7.13,-0.03648648648648656,m2-4f41a561bd2dc413a713
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SZ,300050,世纪鼎利,730000,通信,1,3171,false,-0.4341463414634147,7.17,7.13,5.92,-0.16970546984572232,m2-4f41a561bd2dc413a713

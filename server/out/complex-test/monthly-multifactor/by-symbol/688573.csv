@@ -1,0 +1,3 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2024-08-01,2024-08-30,2024-09-02,2024-10-08,SH,688573,信宇人,630000,电力设备,1,3192,false,-0.5578947368421052,14.08,14,19.93,0.4235714285714285,m2-4f41a561bd2dc413a713
+2024-09-01,2024-09-30,2024-10-08,2024-11-01,SH,688573,信宇人,630000,电力设备,1,3485,false,-0.6912,16.93,19.93,16.09,-0.19267436026091322,m2-4f41a561bd2dc413a713

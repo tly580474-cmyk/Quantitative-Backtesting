@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-03-01,2026-03-31,2026-04-01,2026-05-06,SH,688070,纵横股份,650000,国防军工,1,3007,false,-0.42500000000000004,46.94,47.37,45.7,-0.03525438040954176,m2-4f41a561bd2dc413a713
+2026-04-01,2026-04-30,2026-05-06,2026-06-01,SH,688070,纵横股份,650000,国防军工,1,3262,false,-0.5012345679012347,45.5,45.7,42.04,-0.08008752735229763,m2-4f41a561bd2dc413a713
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SH,688070,纵横股份,650000,国防军工,1,3309,false,-0.5024390243902439,41.43,42.04,37.2,-0.11512844909609887,m2-4f41a561bd2dc413a713

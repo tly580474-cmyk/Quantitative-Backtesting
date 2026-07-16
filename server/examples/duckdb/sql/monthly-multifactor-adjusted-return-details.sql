@@ -1,0 +1,20 @@
+SELECT signalMonth,
+       signalDate,
+       entryDate,
+       exitDate,
+       market,
+       symbol,
+       name,
+       level1Code,
+       level1Name,
+       factorLayer,
+       selectionRank,
+       selected,
+       compositeScore,
+       signalAdjustedClose,
+       entryAdjustedOpen,
+       exitAdjustedOpen,
+       adjustedMonthlyReturn,
+       factorVersion
+FROM multifactor_results
+ORDER BY symbol, signalMonth;

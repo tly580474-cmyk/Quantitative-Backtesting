@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SH,600281,华阳新材,240000,有色金属,2,2282,false,-0.3188118811881188,5.22,5.24,5.85,0.11641221374045796,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SH,600281,华阳新材,240000,有色金属,2,2183,false,-0.2901960784313725,5.84,5.85,5.18,-0.11452991452991457,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SH,600281,华阳新材,240000,有色金属,2,2298,false,-0.3048543689320388,5.22,5.18,4.04,-0.22007722007722008,m2-4f41a561bd2dc413a713

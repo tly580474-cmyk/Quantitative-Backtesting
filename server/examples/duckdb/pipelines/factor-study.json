@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "动量因子筛选与分组统计",
+  "transaction": true,
+  "params": {
+    "startDate": "2026-06-01",
+    "endDate": "2026-07-10",
+    "minAmount": 10000000
+  },
+  "steps": [
+    {
+      "id": "build_factor_universe",
+      "file": "../sql/build-factor-universe.sql"
+    },
+    {
+      "id": "group_summary",
+      "file": "../sql/factor-group-summary.sql",
+      "out": "factor-study/group-summary-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "top_candidates",
+      "file": "../sql/factor-top-candidates.sql",
+      "out": "factor-study/top-candidates-${endDate}.json",
+      "format": "json",
+      "print": true
+    }
+  ]
+}

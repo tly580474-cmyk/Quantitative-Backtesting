@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SH,603880,南卫股份,370000,医药生物,1,2967,false,-0.6098245614035089,6.13,6.13,6.22,0.014681892332789603,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SH,603880,南卫股份,370000,医药生物,1,2746,false,-0.4818505338078292,6.19,6.22,6.6,0.06109324758842449,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SH,603880,南卫股份,370000,医药生物,1,2838,false,-0.5048951048951049,6.63,6.6,5.03,-0.2378787878787878,m2-4f41a561bd2dc413a713

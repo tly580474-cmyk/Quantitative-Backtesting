@@ -1,0 +1,3 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-04-01,2026-04-30,2026-05-06,2026-06-01,SZ,301479,弘景光电,270000,电子,2,2714,false,-0.31513353115727005,80.58551909340902,85.34392712981672,68.51,-0.19724809598005277,m2-4f41a561bd2dc413a713
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SZ,301479,弘景光电,270000,电子,4,974,false,0.1142857142857143,68.93,68.51,60.5,-0.11691723835936363,m2-4f41a561bd2dc413a713

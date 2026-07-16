@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2023-11-01,2023-11-30,2023-12-01,2024-01-02,BJ,920970,大禹生物,110000,农林牧渔,1,3073,false,-0.5050847457627119,4.58,4.58,6.86,0.49781659388646293,m2-4f41a561bd2dc413a713
+2023-12-01,2023-12-29,2024-01-02,2024-02-01,BJ,920970,大禹生物,110000,农林牧渔,3,1621,false,-0.10000000000000003,6.87,6.86,6.63,-0.03352769679300294,m2-4f41a561bd2dc413a713
+2024-01-01,2024-01-31,2024-02-01,2024-03-01,BJ,920970,大禹生物,110000,农林牧渔,3,1599,false,-0.09508196721311485,6.6,6.63,6.41,-0.03318250377073906,m2-4f41a561bd2dc413a713

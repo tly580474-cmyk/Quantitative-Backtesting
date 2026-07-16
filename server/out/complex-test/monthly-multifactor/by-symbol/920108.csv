@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-02-01,2026-02-27,2026-03-02,2026-04-01,BJ,920108,宏海科技,330000,家用电器,1,3593,false,-0.6444444444444445,13.29,13.18,11.52,-0.12594840667678298,m2-4f41a561bd2dc413a713

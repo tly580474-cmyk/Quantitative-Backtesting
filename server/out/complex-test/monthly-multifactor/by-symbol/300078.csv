@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,300078,思创智联,710000,计算机,2,2114,false,-0.26875000000000004,6.24,5.99,6.81,0.1368948247078463,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,300078,思创智联,710000,计算机,2,2041,false,-0.2481675392670157,6.81,6.81,5.94,-0.1277533039647576,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,300078,思创智联,710000,计算机,2,2506,false,-0.36615384615384616,5.99,5.94,4.64,-0.21885521885521897,m2-4f41a561bd2dc413a713

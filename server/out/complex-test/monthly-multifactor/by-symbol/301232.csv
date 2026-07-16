@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2024-07-01,2024-07-31,2024-08-01,2024-09-02,SZ,301232,飞沃科技,630000,电力设备,2,2829,false,-0.40916030534351144,19.441421564231018,19.49861687769155,17.03206898470601,-0.12649860800165402,m2-4f41a561bd2dc413a713

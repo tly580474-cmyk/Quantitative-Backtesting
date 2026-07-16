@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,000815,美利云,360000,轻工制造,2,2311,false,-0.32653061224489793,6.36,6.42,12.4,0.9314641744548287,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,000815,美利云,360000,轻工制造,2,1949,false,-0.225531914893617,12.89,12.4,14.7,0.18548387096774177,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,000815,美利云,360000,轻工制造,3,1927,false,-0.21237113402061852,15.2,14.7,10.06,-0.31564625850340133,m2-4f41a561bd2dc413a713

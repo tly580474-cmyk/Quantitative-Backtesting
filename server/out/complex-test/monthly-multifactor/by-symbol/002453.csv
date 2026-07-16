@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,002453,华软科技,220000,基础化工,3,1873,false,-0.20311284046692607,16.97,15.9,15.63,-0.016981132075471694,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,002453,华软科技,220000,基础化工,3,1747,false,-0.1796875,15.5,15.63,15.5,-0.008317338451695466,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,002453,华软科技,220000,基础化工,3,1825,false,-0.19374999999999998,15.5,15.5,10.91,-0.29612903225806453,m2-4f41a561bd2dc413a713

@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2024-04-01,2024-04-30,2024-05-06,2024-06-03,SZ,000695,滨海能源,360000,轻工制造,1,3684,false,-0.9412844036697248,8.62,8.7,8.24,-0.05287356321839065,m2-4f41a561bd2dc413a713
+2024-05-01,2024-05-31,2024-06-03,2024-07-01,SZ,000695,滨海能源,360000,轻工制造,1,3681,false,-0.9490909090909092,8.18,8.24,8.09,-0.01820388349514568,m2-4f41a561bd2dc413a713
+2024-07-01,2024-07-31,2024-08-01,2024-09-02,SZ,000695,滨海能源,630000,电力设备,1,3535,false,-0.752671755725191,9.5,9.48,10.43,0.10021097046413496,m2-4f41a561bd2dc413a713

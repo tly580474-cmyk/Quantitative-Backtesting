@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,002413,雷科防务,650000,国防军工,4,700,false,0.12,6.11,6,6.2,0.03333333333333344,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,002413,雷科防务,650000,国防军工,4,1192,false,-0.03333333333333341,6.19,6.2,5.57,-0.1016129032258064,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,002413,雷科防务,650000,国防军工,3,1575,false,-0.13333333333333336,5.58,5.57,4.56,-0.18132854578096957,m2-4f41a561bd2dc413a713

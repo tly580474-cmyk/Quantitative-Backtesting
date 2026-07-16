@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,300397,天和防务,650000,国防军工,1,2918,false,-0.5811764705882353,12.72,13.1,14.96,0.14198473282442747,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,300397,天和防务,650000,国防军工,1,2831,false,-0.523809523809524,15.14,14.96,12.14,-0.18850267379679142,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,300397,天和防务,650000,国防军工,2,2492,false,-0.36190476190476195,12.14,12.14,9.38,-0.2273476112026359,m2-4f41a561bd2dc413a713

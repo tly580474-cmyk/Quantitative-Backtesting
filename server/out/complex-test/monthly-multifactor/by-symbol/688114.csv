@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2023-09-01,2023-09-28,2023-10-09,2023-11-01,SH,688114,华大智造,370000,医药生物,3,1665,false,-0.1311178247734139,74.88,74.42,82.44,0.10776672937382425,m2-4f41a561bd2dc413a713

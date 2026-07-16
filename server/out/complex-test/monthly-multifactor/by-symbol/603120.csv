@@ -1,0 +1,3 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-04-01,2026-04-30,2026-05-06,2026-06-01,SH,603120,肯特催化,220000,基础化工,1,3430,false,-0.6161616161616161,39.12,39.31,46.76,0.18951920630882713,m2-4f41a561bd2dc413a713
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SH,603120,肯特催化,220000,基础化工,1,3429,false,-0.5851851851851853,47.57,46.76,55.5,0.18691189050470491,m2-4f41a561bd2dc413a713

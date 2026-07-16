@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2025-01-01,2025-01-27,2025-02-05,2025-03-03,BJ,920363,莱赛激光,640000,机械设备,1,3667,false,-0.7258215962441315,11.713835899106499,11.830491863735014,15.096858873333508,0.2760973125395707,m2-4f41a561bd2dc413a713

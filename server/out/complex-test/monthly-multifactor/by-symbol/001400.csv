@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SZ,001400,江顺科技,640000,机械设备,5,197,false,0.415609756097561,110.12,110,116.39,0.05809090909090919,m2-4f41a561bd2dc413a713

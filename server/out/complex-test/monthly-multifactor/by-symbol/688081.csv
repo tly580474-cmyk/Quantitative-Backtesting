@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SH,688081,兴图新科,650000,国防军工,1,2680,false,-0.45411764705882357,15.869866027732236,16.141290463089724,16.469856884838258,0.02035564767884357,m2-4f41a561bd2dc413a713

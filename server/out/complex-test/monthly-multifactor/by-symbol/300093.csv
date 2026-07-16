@@ -1,0 +1,3 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-04-01,2026-04-30,2026-05-06,2026-06-01,SZ,300093,金刚光伏,630000,电力设备,4,1275,false,-0.02904564315352695,22.08,22.45,22,-0.020044543429844075,m2-4f41a561bd2dc413a713
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SZ,300093,金刚光伏,630000,电力设备,4,1445,false,-0.0041152263374485964,21.8,22,25.68,0.16727272727272724,m2-4f41a561bd2dc413a713

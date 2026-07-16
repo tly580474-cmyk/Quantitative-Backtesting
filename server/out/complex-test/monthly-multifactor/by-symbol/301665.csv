@@ -1,0 +1,3 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-04-01,2026-04-30,2026-05-06,2026-06-01,SZ,301665,泰禾股份,220000,基础化工,1,3330,false,-0.5407407407407407,26.954332504759968,27.29803731752297,22.908435851664095,-0.160802823104104,m2-4f41a561bd2dc413a713
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SZ,301665,泰禾股份,220000,基础化工,1,3206,false,-0.45185185185185184,22.91825598917161,22.908435851664095,20.95,-0.08548972371336439,m2-4f41a561bd2dc413a713

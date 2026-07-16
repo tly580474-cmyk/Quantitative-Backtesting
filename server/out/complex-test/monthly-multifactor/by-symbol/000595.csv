@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,000595,宝塔实业,640000,机械设备,2,2023,false,-0.2450511945392492,2.89,2.79,3.4,0.21863799283154117,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,000595,宝塔实业,640000,机械设备,2,2231,false,-0.3003389830508475,3.65,3.4,3.1,-0.08823529411764697,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,000595,宝塔实业,640000,机械设备,3,1811,false,-0.1893333333333333,3.11,3.1,2.89,-0.06774193548387097,m2-4f41a561bd2dc413a713

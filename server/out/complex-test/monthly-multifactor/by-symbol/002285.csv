@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,002285,世联行,430000,房地产,2,2481,false,-0.383132530120482,3.53,3.43,3.43,0,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,002285,世联行,430000,房地产,2,2335,false,-0.32530120481927716,3.41,3.43,4.7,0.370262390670554,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,002285,世联行,430000,房地产,1,2673,false,-0.4258823529411765,4.82,4.7,3.2,-0.3191489361702128,m2-4f41a561bd2dc413a713

@@ -1,0 +1,4 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,300197,节能铁汉,620000,建筑装饰,1,2899,false,-0.5681818181818182,2.67,2.72,2.83,0.04044117647058809,m2-4f41a561bd2dc413a713
+2022-02-01,2022-02-28,2022-03-01,2022-04-01,SZ,300197,节能铁汉,620000,建筑装饰,1,2923,false,-0.5772727272727274,2.83,2.83,2.67,-0.0565371024734983,m2-4f41a561bd2dc413a713
+2022-03-01,2022-03-31,2022-04-01,2022-05-05,SZ,300197,节能铁汉,620000,建筑装饰,1,2951,false,-0.5736263736263736,2.66,2.67,2.26,-0.15355805243445697,m2-4f41a561bd2dc413a713

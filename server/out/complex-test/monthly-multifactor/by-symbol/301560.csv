@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SZ,301560,众捷汽车,280000,汽车,1,2988,false,-0.35478260869565215,32.90977223700652,32.919745048677825,26.66,-0.1901516867588633,m2-4f41a561bd2dc413a713

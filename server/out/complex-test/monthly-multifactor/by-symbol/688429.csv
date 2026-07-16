@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2024-07-01,2024-07-31,2024-08-01,2024-09-02,SH,688429,时创能源,630000,电力设备,1,3410,false,-0.6442748091603054,16.67,16.68,15.4,-0.0767386091127098,m2-4f41a561bd2dc413a713

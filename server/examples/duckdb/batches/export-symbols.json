@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "批量导出股票月度行情",
+  "file": "../sql/symbol-monthly-history.sql",
+  "out": "symbol-history/${job}.csv",
+  "format": "csv",
+  "params": {
+    "startDate": "2025-01-01",
+    "endDate": "2026-07-16"
+  },
+  "jobs": [
+    {
+      "id": "002155",
+      "params": {
+        "symbol": "002155"
+      }
+    },
+    {
+      "id": "600519",
+      "params": {
+        "symbol": "600519"
+      }
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-01-01,2022-01-28,2022-02-07,2022-03-01,SZ,300165,天瑞仪器,640000,机械设备,4,1122,false,-0.017064846416382284,6.44,6.57,6.75,0.02739726027397249,m2-4f41a561bd2dc413a713

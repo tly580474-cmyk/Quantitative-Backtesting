@@ -5,7 +5,9 @@
 - 已发布的股票日线、估值、复权、分红、指数行情和指数成分研究快照；
 - 2010 年至今的 1 分钟行情湖，通过 `read_parquet(...)` 按日期直接读取。
 
-CLI 支持直接 SQL、SQL 文件、JSON/CSV 输出和持久 DuckDB 文件，适合临时研究、数据核验与批量导出。
+CLI 支持直接 SQL、参数化 SQL、多语句 SQL 文件、同连接多步骤 pipeline、批量 job、
+JSON/CSV 多文件输出、量化研究 recipe 和持久 DuckDB 文件，适合临时研究、复杂回测、
+数据核验与批量导出。
 
 数据职责边界：
 
@@ -17,6 +19,32 @@ MySQL / 在线数据源 / 分钟数据湖
 ```
 
 DuckDB 不是权威写入层。需要修正数据时应修正上游 MySQL、采集程序或 Parquet 发布流程，不应直接修改 CLI 临时视图。
+
+新版 CLI 的能力分层：
+
+```text
+query
+  → 原始 SQL、命名参数、多语句和事务
+
+pipeline / batch
+  → 同连接中间表、多步骤研究、批量参数集和多文件导出
+
+recipe
+  → 多因子计算、截面标准化、综合评分、因子分层和时序聚合
+```
+
+快速示例：
+
+```powershell
+# 参数化 SQL
+npm run duckdb -- query --sql 'SELECT * FROM bars WHERE symbol=$symbol' --param symbol=002155
+
+# 多因子筛选
+npm run duckdb -- recipe factor-screen --factor momentum_20 --factor volume_ratio_20 --top 50
+
+# 完整的“因子计算 → 筛选 → 分组统计 → 多文件导出”
+npm run duckdb -- pipeline --file ./examples/duckdb/pipelines/factor-study.json --out-dir ./out
+```
 
 ## 1. 入口位置
 
@@ -151,7 +179,19 @@ npm run duckdb -- status
 npm run duckdb -- schema
 ```
 
-该命令等价于 `DESCRIBE bars`。查看所有自动注册视图：
+该命令等价于 `DESCRIBE bars`。指定其他视图：
+
+```powershell
+npm run duckdb -- schema --view adjustment_factors
+```
+
+查看所有自动注册视图：
+
+```powershell
+npm run duckdb -- views
+```
+
+也可直接使用 SQL：
 
 ```powershell
 npm run duckdb -- query --sql "SHOW TABLES"
@@ -185,6 +225,61 @@ npm run duckdb -- query --sql "SELECT market, COUNT(*) AS rows FROM bars GROUP B
 
 ```powershell
 npm run duckdb -- query --file ./queries/latest-close.sql
+```
+
+SQL 文件现在可以包含多条语句。CLI 会在同一个 DuckDB 连接中顺序执行，并输出最后
+一条语句的结果：
+
+```sql
+CREATE OR REPLACE TEMP TABLE candidates AS
+SELECT * FROM bars WHERE tradeDate >= $startDate;
+
+DELETE FROM candidates WHERE amount < $minAmount;
+
+SELECT market, COUNT(*) AS candidates
+FROM candidates
+GROUP BY market;
+```
+
+```powershell
+npm run duckdb -- query --file ./queries/candidates.sql `
+  --param startDate=2026-01-01 `
+  --param minAmount=10000000 `
+  --transaction
+```
+
+命名参数使用 DuckDB 的 `$name` 语法。`--param` 可以重复：
+
+```powershell
+npm run duckdb -- query `
+  --sql 'SELECT * FROM bars WHERE symbol=$symbol AND tradeDate BETWEEN $startDate AND $endDate' `
+  --param symbol=002155 `
+  --param startDate=2026-01-01 `
+  --param endDate=2026-06-30
+```
+
+也可从 JSON 文件读取参数：
+
+```json
+{
+  "symbol": "002155",
+  "startDate": "2026-01-01",
+  "endDate": "2026-06-30",
+  "limit": 1000
+}
+```
+
+```powershell
+npm run duckdb -- query --file ./queries/history.sql --params-file ./params/history.json
+```
+
+命令行参数会覆盖参数文件中的同名值。参数值自动识别数字、`true`、`false` 和
+`null`；股票代码等需要保留前导零的值会继续作为字符串处理。
+
+查看执行计划和实际耗时：
+
+```powershell
+npm run duckdb -- query --file ./queries/history.sql --params-file ./params/history.json --explain
 ```
 
 分钟查询通常加 `--no-snapshot-view`，避免无关的日线快照注册：
@@ -241,13 +336,274 @@ npm run duckdb -- query --sql "SELECT * FROM bars LIMIT 1000" --out ./out/sample
 | --- | --- |
 | `--sql`, `-q` | 直接传入 SQL |
 | `--file` | 从文件读取 SQL |
+| `--param`, `-p` | `name=value` 命名参数，可重复 |
+| `--params-file` | JSON 参数对象，命令行参数优先 |
 | `--out`, `-o` | 写入结果文件 |
+| `--out-dir` | pipeline/batch 多文件输出根目录 |
 | `--format`, `-f` | `table`、`json`、`csv` |
+| `--transaction` | 在事务中执行多语句或完整 pipeline/batch |
+| `--dry-run` | 只显示步骤、SQL 和参数，不执行 |
+| `--echo-sql` | 执行时打印每条 SQL |
+| `--explain` | 对单条 query 执行 `EXPLAIN ANALYZE` |
+| `--continue-on-error` | batch 中单个 job 失败后继续执行 |
 | `--db` | DuckDB 数据库路径，默认 `:memory:` |
 | `--snapshot-root` | 日线研究快照目录 |
 | `--no-snapshot-view` | 不自动创建日线 `bars` 视图 |
 | `--threads` | DuckDB 线程数，默认 `4` |
 | `--max-memory` | DuckDB 内存上限，例如 `1GB` |
+
+### 5.1 Pipeline：同连接多步骤研究
+
+`pipeline` 用一个 JSON 文件描述多个步骤。所有步骤共享同一个 DuckDB 连接，因此
+前一步创建的临时表或视图可以被后续步骤直接使用。
+
+仓库内置示例：
+
+```text
+server/examples/duckdb/pipelines/factor-study.json
+```
+
+运行：
+
+```powershell
+npm run duckdb -- pipeline `
+  --file ./examples/duckdb/pipelines/factor-study.json `
+  --out-dir ./out `
+  --param startDate=2026-06-01 `
+  --param endDate=2026-07-10
+```
+
+示例工作流会依次执行：
+
+```text
+计算 20 日动量与未来 5 日收益
+  → 创建临时候选表
+  → 五分层收益统计
+  → 导出分组 CSV
+  → 导出最新截面候选 JSON
+```
+
+Pipeline 协议：
+
+```json
+{
+  "version": 1,
+  "name": "研究名称",
+  "transaction": true,
+  "params": {
+    "startDate": "2026-06-01"
+  },
+  "steps": [
+    {
+      "id": "prepare",
+      "file": "../sql/prepare.sql"
+    },
+    {
+      "id": "summary",
+      "sql": "SELECT * FROM prepared",
+      "out": "summary-${startDate}.csv",
+      "format": "csv",
+      "print": false
+    }
+  ]
+}
+```
+
+规则：
+
+- 每个 step 必须且只能提供 `sql` 或 `file`；
+- `file` 相对 pipeline JSON 所在目录解析；
+- 参数优先级为 step 参数 → CLI 参数 → pipeline 顶层参数；
+- `out` 支持 `${parameter}` 路径模板；
+- `splitBy` 可以按查询结果列动态拆分文件，`out` 必须包含同名路径变量；
+- 每个 step 可以使用不同的 `csv`、`json` 或 `table` 格式；
+- `transaction=true` 时任一步骤失败都会回滚本次工作流创建的 DuckDB 对象。
+
+例如把同一结果中的每只股票分别导出：
+
+```json
+{
+  "id": "returns_by_symbol",
+  "file": "../sql/adjusted-return-details.sql",
+  "out": "returns/by-symbol/${symbol}.csv",
+  "splitBy": "symbol",
+  "format": "csv"
+}
+```
+
+全市场月度多因子复杂回测示例：
+
+```powershell
+npm run duckdb -- pipeline `
+  --file ./examples/duckdb/pipelines/monthly-multifactor-backtest.json `
+  --out-dir ./out/complex-test `
+  --threads 8 `
+  --max-memory 6GB
+```
+
+该工作流覆盖估值、12-1 月动量、近 12 个月现金分红、申万一级行业内分位标准化、
+五分层收益、月度 100 股选股池、行业分布、组合净值和按股票拆分的复权收益明细。
+默认从 2022 年开始，是因为当前申万行业有效期数据从 2021-07-30 起覆盖。
+
+### 5.2 Batch：批量参数与多文件导出
+
+`batch` 适合使用同一 SQL 模板处理多个股票、日期或市场，并为每个 job 生成独立文件。
+
+仓库内置示例：
+
+```powershell
+npm run duckdb -- batch `
+  --file ./examples/duckdb/batches/export-symbols.json `
+  --out-dir ./out
+```
+
+批处理协议：
+
+```json
+{
+  "version": 1,
+  "file": "../sql/symbol-monthly-history.sql",
+  "out": "symbol-history/${job}.csv",
+  "format": "csv",
+  "params": {
+    "startDate": "2025-01-01",
+    "endDate": "2026-07-16"
+  },
+  "jobs": [
+    {
+      "id": "002155",
+      "params": { "symbol": "002155" }
+    },
+    {
+      "id": "600519",
+      "params": { "symbol": "600519" }
+    }
+  ]
+}
+```
+
+`${job}` 会替换成 job ID。单个 job 也可覆盖顶层 `sql`、`file`、`out`、`format`
+和参数。使用 `--continue-on-error` 时某个 job 失败不会阻止后续 job，但最终仍以
+非零退出码提示批次存在失败。
+
+### 5.3 量化研究 Recipe
+
+查看快捷研究入口：
+
+```powershell
+npm run duckdb -- recipes
+```
+
+查看可用于 recipe 的全部内置因子：
+
+```powershell
+npm run duckdb -- recipes --factors
+```
+
+#### 多因子筛选
+
+```powershell
+npm run duckdb -- recipe factor-screen `
+  --factor momentum_20 `
+  --factor volume_ratio_20 `
+  --weight momentum_20=2 `
+  --weight volume_ratio_20=1 `
+  --start 2026-01-01 `
+  --min-amount 10000000 `
+  --where "name NOT LIKE 'ST%'" `
+  --top 50 `
+  --out ./out/factor-screen.csv
+```
+
+该 recipe 自动完成：
+
+1. 每只股票的滚动因子计算；
+2. 每个交易日的截面 Z-Score；
+3. 根据因子方向和权重生成综合评分；
+4. 计算截面百分位；
+5. 按成交额和附加条件筛选。
+
+#### 因子分层回测
+
+```powershell
+npm run duckdb -- recipe factor-layer `
+  --factor momentum_20 `
+  --factor volume_ratio_20 `
+  --start 2025-01-01 `
+  --end 2026-06-30 `
+  --horizon 5 `
+  --layers 5 `
+  --min-amount 10000000
+```
+
+输出每层样本数、平均/中位未来收益、收益波动率、胜率、最差和最佳收益。交易口径为
+信号日之后下一交易日开盘进入、持有期末收盘退出。
+
+#### 时序 OHLCV 聚合
+
+```powershell
+npm run duckdb -- recipe timeseries `
+  --symbol 002155 `
+  --start 2020-01-01 `
+  --period month `
+  --rolling-window 6 `
+  --out ./out/002155-monthly.csv
+```
+
+`period` 支持 `week`、`month`、`quarter` 和 `year`。输出周期 OHLCV、成交额、
+平均换手率、交易日数、周期收益和聚合后的滚动均线。
+
+Recipe 可以通过 `--market`、`--symbol`、`--start`、`--end`、`--where`、
+`--min-amount` 等参数继续收窄股票池。使用 `--dry-run` 可先检查生成的 SQL 和绑定参数。
+
+### 5.4 分钟数据快捷聚合
+
+复杂分钟查询不再需要手写 `read_parquet(...)`、交易所后缀、月份文件通配符和时间桶。
+例如查询 `688656` 与 `601899` 在 2026-06-16 至 2026-07-16 的全部 5 分钟行情：
+
+```powershell
+npm run duckdb -- minute `
+  --symbol 688656 `
+  --symbol 601899 `
+  --start 2026-06-16 `
+  --end 2026-07-16 `
+  --interval 5m `
+  --out ./out/688656-601899-5m.csv
+```
+
+查询最近 30 个自然日时可以省略日期：
+
+```powershell
+npm run duckdb -- minute `
+  --symbol 688656,601899 `
+  --days 30 `
+  --interval 5m `
+  --out ./out/688656-601899-latest-5m.csv
+```
+
+分别导出每只股票：
+
+```powershell
+npm run duckdb -- minute `
+  --symbol 688656,601899 `
+  --days 30 `
+  --interval 5m `
+  --split-by-symbol `
+  --out-dir ./out
+```
+
+CLI 会自动完成：
+
+1. 将裸代码转换为 `688656.SH`、`601899.SH` 等分钟湖代码；
+2. 根据日期范围只扫描涉及月份的 Parquet 文件；
+3. 将字符串时间安全转换为 DuckDB `TIMESTAMP`；
+4. 按上午、下午交易时段分别编号，不跨午休聚合；
+5. 默认排除旧数据源额外包含的 09:30 集合竞价分钟，使 240/241 根来源口径一致；
+6. 输出 `barStart`、`barEnd`、OHLCV、成交额、`sourceMinutes` 和 `completeBar`。
+
+`completeBar=true` 表示该 K 线包含完整的分钟数量。需要保留 09:30 分钟时添加
+`--include-auction`。支持的周期为 `1m`、`5m`、`10m`、`15m`、`30m`、`60m`
+和 `120m`。分钟湖路径默认读取 `MINUTE_DATA_ROOT`，也可用 `--minute-root` 覆盖。
 
 ## 6. 日线查询示例
 
@@ -669,6 +1025,11 @@ npm run duckdb -- status --format json
 | 现象 | 常见原因 | 处理方式 |
 | --- | --- | --- |
 | `未知命令：--sql` | 忘记写 `query` 子命令 | 使用 `npm run duckdb -- query --sql "..."` |
+| `参数格式无效` | `--param` 没有使用 `name=value` | 例如 `--param symbol=002155`，参数名只能包含字母、数字和下划线 |
+| `Failed to retrieve bind parameter index` | SQL 参数名与传入参数不一致，或使用旧版 CLI | 确认 SQL 使用 `$name`；新版 CLI 会自动过滤当前语句未使用的全局参数 |
+| pipeline 找不到 SQL 文件 | `file` 路径误按当前终端目录理解 | pipeline/batch 内的相对路径以 JSON 文件所在目录为基准 |
+| batch 部分文件未生成 | 某个 job 参数或 SQL 执行失败 | 查看 stderr 中的 job ID；需要继续其他任务时添加 `--continue-on-error` |
+| recipe 扫描范围过大 | 未提供日期或股票池过滤 | `factor-screen` 默认只预热并分析最新截面；分层研究建议显式设置 `--start`、`--end` 和 `--min-amount` |
 | 找不到 `bars` | 尚未发布快照或快照根目录错误 | 检查 `--snapshot-root`、进程环境变量和 `src/config.ts` 默认值，再运行 `snapshot:build` 和 `snapshot:verify` |
 | 找不到某个参考视图 | 当前快照不包含对应数据集 | 查看 `duckdb status` 的 `datasets`，重新构建快照 |
 | 股票日线日期落后 | MySQL 日线尚未终态或快照未重建 | 先确认上游日线，再运行 `snapshot:freshness` |

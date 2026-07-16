@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-08-01,2022-08-31,2022-09-01,2022-10-10,SH,605069,正和生态,760000,环保,1,3001,false,-0.5858823529411765,10.43,10.53,9.28,-0.11870845204178537,m2-4f41a561bd2dc413a713

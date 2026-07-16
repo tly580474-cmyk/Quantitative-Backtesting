@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2026-05-01,2026-05-29,2026-06-01,2026-07-01,SZ,301662,宏工科技,630000,电力设备,3,2066,false,-0.1390946502057613,99.7910963554768,100.00397187522495,101.32,0.013159758558560553,m2-4f41a561bd2dc413a713

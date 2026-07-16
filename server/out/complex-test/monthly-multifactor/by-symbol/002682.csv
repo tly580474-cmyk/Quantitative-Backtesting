@@ -1,0 +1,2 @@
+signalMonth,signalDate,entryDate,exitDate,market,symbol,name,level1Code,level1Name,factorLayer,selectionRank,selected,compositeScore,signalAdjustedClose,entryAdjustedOpen,exitAdjustedOpen,adjustedMonthlyReturn,factorVersion
+2022-04-01,2022-04-29,2022-05-05,2022-06-01,SZ,002682,龙洲股份,420000,交通运输,3,1300,false,-0.0556701030927835,3.77,3.72,4.42,0.18817204301075252,m2-4f41a561bd2dc413a713

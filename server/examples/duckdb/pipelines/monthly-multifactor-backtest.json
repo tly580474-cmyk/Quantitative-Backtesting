@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "name": "全市场 A 股月度多因子行业中性选股回测",
+  "transaction": true,
+  "params": {
+    "startDate": "2022-01-01",
+    "endDate": "2026-05-31",
+    "minAmount": 10000000,
+    "poolSize": 100,
+    "layers": 5,
+    "valueWeight": 0.4,
+    "momentumWeight": 0.4,
+    "dividendWeight": 0.2
+  },
+  "steps": [
+    {
+      "id": "build_monthly_multifactor_backtest",
+      "file": "../sql/build-monthly-multifactor-backtest.sql"
+    },
+    {
+      "id": "coverage_diagnostics",
+      "file": "../sql/monthly-multifactor-coverage.sql",
+      "out": "monthly-multifactor/coverage-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "layer_returns_monthly",
+      "file": "../sql/monthly-multifactor-layer-returns.sql",
+      "out": "monthly-multifactor/layer-returns-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "layer_summary",
+      "file": "../sql/monthly-multifactor-layer-summary.sql",
+      "out": "monthly-multifactor/layer-summary-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "portfolio_monthly",
+      "file": "../sql/monthly-multifactor-portfolio-monthly.sql",
+      "out": "monthly-multifactor/portfolio-monthly-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "portfolio_summary",
+      "file": "../sql/monthly-multifactor-portfolio-summary.sql",
+      "out": "monthly-multifactor/portfolio-summary-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "industry_distribution",
+      "file": "../sql/monthly-multifactor-industry-distribution.sql",
+      "out": "monthly-multifactor/industry-distribution-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "monthly_selection_pool",
+      "file": "../sql/monthly-multifactor-selection-pool.sql",
+      "out": "monthly-multifactor/selection-pool-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "all_adjusted_return_details",
+      "file": "../sql/monthly-multifactor-adjusted-return-details.sql",
+      "out": "monthly-multifactor/adjusted-return-details-${startDate}-${endDate}.csv",
+      "format": "csv"
+    },
+    {
+      "id": "adjusted_return_details_by_symbol",
+      "file": "../sql/monthly-multifactor-adjusted-return-details.sql",
+      "out": "monthly-multifactor/by-symbol/${symbol}.csv",
+      "splitBy": "symbol",
+      "format": "csv"
+    }
+  ]
+}
