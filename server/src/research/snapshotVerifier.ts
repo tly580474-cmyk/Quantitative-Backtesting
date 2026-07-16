@@ -46,6 +46,39 @@ export async function verifyCurrentResearchSnapshot(root: string) {
         sha256: checksum,
       });
     }
+    for (const dataset of current.manifest.datasets ?? []) {
+      const path = join(
+        snapshotRoot,
+        current.manifest.snapshotId,
+        dataset.relativePath,
+      );
+      const [fileStat, checksum] = await Promise.all([
+        stat(path),
+        sha256File(path),
+      ]);
+      if (fileStat.size !== dataset.bytes) {
+        throw new Error(`${dataset.relativePath} 文件大小不一致`);
+      }
+      if (checksum !== dataset.sha256) {
+        throw new Error(`${dataset.relativePath} SHA-256 不一致`);
+      }
+      const reader = await connection.runAndReadAll(`
+        SELECT COUNT(*) AS rows
+        FROM read_parquet('${escapeSqlPath(path)}')
+      `);
+      const rows = Number(
+        (reader.getRowObjectsJson()[0] as Record<string, unknown> | undefined)?.rows ?? 0,
+      );
+      if (rows !== dataset.rows) {
+        throw new Error(`${dataset.relativePath} 行数不一致`);
+      }
+      files.push({
+        relativePath: dataset.relativePath,
+        rows,
+        bytes: fileStat.size,
+        sha256: checksum,
+      });
+    }
   } finally {
     await session.close();
   }

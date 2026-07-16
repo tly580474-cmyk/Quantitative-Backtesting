@@ -54,6 +54,80 @@ export const candles = mysqlTable('candles', {
   timeIdx: index('idx_candles_time').on(table.time),
 }));
 
+export const indexConstituentSnapshots = mysqlTable('index_constituent_snapshots', {
+  snapshotId: varchar('snapshot_id', { length: 36 }).primaryKey(),
+  indexCode: varchar('index_code', { length: 20 }).notNull(),
+  indexName: varchar('index_name', { length: 255 }).notNull(),
+  constituentDate: date('constituent_date', { mode: 'string' }).notNull(),
+  weightDate: date('weight_date', { mode: 'string' }),
+  sourceKey: varchar('source_key', { length: 64 }).notNull(),
+  sourceChecksum: varchar('source_checksum', { length: 64 }).notNull(),
+  fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+  memberCount: int('member_count', { unsigned: true }).notNull(),
+  weightSumPct: double('weight_sum_pct'),
+  status: varchar('status', { length: 16 }).notNull().default('published'),
+}, (table) => ({
+  versionUnique: uniqueIndex('idx_ics_version').on(
+    table.indexCode,
+    table.constituentDate,
+    table.sourceKey,
+    table.sourceChecksum,
+  ),
+  indexDateIdx: index('idx_ics_index_date').on(table.indexCode, table.constituentDate),
+}));
+
+export const indexConstituentMembers = mysqlTable('index_constituent_members', {
+  snapshotId: varchar('snapshot_id', { length: 36 }).notNull(),
+  constituentCode: varchar('constituent_code', { length: 20 }).notNull(),
+  instrumentKey: int('instrument_key', { unsigned: true }),
+  constituentName: varchar('constituent_name', { length: 255 }).notNull(),
+  constituentNameEn: varchar('constituent_name_en', { length: 255 }),
+  exchange: varchar('exchange', { length: 64 }),
+  exchangeEn: varchar('exchange_en', { length: 128 }),
+  weightPct: double('weight_pct'),
+  rawCode: varchar('raw_code', { length: 32 }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.snapshotId, table.constituentCode] }),
+  instrumentIdx: index('idx_icm_instrument').on(table.instrumentKey),
+  codeIdx: index('idx_icm_code').on(table.constituentCode),
+}));
+
+export const dividendEvents = mysqlTable('dividend_events', {
+  eventId: varchar('event_id', { length: 36 }).primaryKey(),
+  instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
+  reportPeriod: date('report_period', { mode: 'string' }).notNull(),
+  disclosureDate: date('disclosure_date', { mode: 'string' }),
+  announcementDate: date('announcement_date', { mode: 'string' }),
+  recordDate: date('record_date', { mode: 'string' }),
+  exDate: date('ex_date', { mode: 'string' }),
+  latestAnnouncementDate: date('latest_announcement_date', { mode: 'string' }),
+  cashDividendPerShare: double('cash_dividend_per_share'),
+  bonusSharePerShare: double('bonus_share_per_share'),
+  transferSharePerShare: double('transfer_share_per_share'),
+  dividendYieldRaw: double('dividend_yield_raw'),
+  planStatus: varchar('plan_status', { length: 32 }),
+  rawPlan: varchar('raw_plan', { length: 1000 }),
+  sourceKey: varchar('source_key', { length: 64 }).notNull(),
+  sourceFingerprint: varchar('source_fingerprint', { length: 64 }).notNull(),
+  fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+}, (table) => ({
+  sourceFingerprintUnique: uniqueIndex('idx_de_source_fingerprint').on(table.sourceFingerprint),
+  instrumentExDateIdx: index('idx_de_instrument_ex_date').on(table.instrumentKey, table.exDate),
+  reportPeriodIdx: index('idx_de_report_period').on(table.reportPeriod),
+}));
+
+export const referenceDataBackfillItems = mysqlTable('reference_data_backfill_items', {
+  taskKey: varchar('task_key', { length: 64 }).notNull(),
+  instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('pending'),
+  attempts: int('attempts', { unsigned: true }).notNull().default(0),
+  lastError: varchar('last_error', { length: 1000 }),
+  updatedAt: datetime('updated_at', { mode: 'string' }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.taskKey, table.instrumentKey] }),
+  taskStatusIdx: index('idx_rdbi_task_status').on(table.taskKey, table.status, table.instrumentKey),
+}));
+
 // ─── strategy_configs ────────────────────────────────────────────
 export const strategyConfigs = mysqlTable('strategy_configs', {
   id: varchar('id', { length: 36 }).primaryKey(),

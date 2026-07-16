@@ -33,6 +33,16 @@ const manifest: ResearchSnapshotManifest = {
       sha256: 'b',
     },
   ],
+  datasets: [{
+    name: 'adjustment_factors',
+    relativePath: 'adjustment_factors/data.parquet',
+    rows: 4,
+    bytes: 50,
+    minDate: '2025-01-01',
+    maxDate: '2026-01-01',
+    sha256: 'c',
+    sourceVersion: '2026-07-05T00:00:00.000Z',
+  }],
 };
 
 describe('snapshot manifest', () => {
@@ -48,5 +58,12 @@ describe('snapshot manifest', () => {
       snapshotId: 'snapshot-1',
       publishedAt: '2026-07-05T00:00:00.000Z',
     }, { ...manifest, rowCount: 4 }), /行数不一致/);
+  });
+
+  it('rejects duplicate reference dataset names', () => {
+    assert.throws(() => validateManifest({
+      snapshotId: 'snapshot-1',
+      publishedAt: '2026-07-05T00:00:00.000Z',
+    }, { ...manifest, datasets: [manifest.datasets![0], manifest.datasets![0]] }), /名称重复/);
   });
 });

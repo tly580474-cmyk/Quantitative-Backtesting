@@ -15,7 +15,20 @@ async function main(): Promise<void> {
       full: args.full,
       onProgress: (message) => console.log(`[snapshot] ${message}`),
     });
-    console.log(JSON.stringify(manifest, null, 2));
+    console.log(JSON.stringify({
+      status: 'ready',
+      snapshotId: manifest.snapshotId,
+      createdAt: manifest.createdAt,
+      rows: manifest.rowCount,
+      minDate: manifest.minDate,
+      maxDate: manifest.maxDate,
+      datasets: manifest.datasets?.map((dataset) => ({
+        name: dataset.name,
+        rows: dataset.rows,
+        minDate: dataset.minDate,
+        maxDate: dataset.maxDate,
+      })),
+    }, null, 2));
   } finally {
     await closePool(pool);
   }

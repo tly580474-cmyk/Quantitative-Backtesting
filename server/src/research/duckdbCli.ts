@@ -24,6 +24,7 @@ interface CliArgs {
 interface SnapshotContext {
   snapshotId: string;
   parquetGlob: string;
+  views: string[];
 }
 
 async function main(): Promise<void> {
@@ -50,6 +51,7 @@ async function main(): Promise<void> {
             minDate: current.manifest.minDate,
             maxDate: current.manifest.maxDate,
             partitions: current.manifest.partitions.length,
+            datasets: current.manifest.datasets?.length ?? 0,
           }]
         : [{ status: 'unavailable', snapshotRoot: resolve(args.snapshotRoot) }],
       args,
@@ -101,9 +103,97 @@ async function registerSnapshotView(
     SELECT *
     FROM read_parquet('${escapeSqlLiteral(parquetGlob)}', hive_partitioning = true)
   `);
+  const views = ['bars'];
+  await connection.run(`
+    CREATE OR REPLACE VIEW stock_valuations AS
+    SELECT instrumentKey, market, symbol, name, tradeDate, close,
+           totalMarketCap, floatMarketCap, peTtm, pb, psTtm
+    FROM bars
+  `);
+  views.push('stock_valuations');
+  const adjustmentFactors = current.manifest.datasets?.find(
+    (item) => item.name === 'adjustment_factors',
+  );
+  if (adjustmentFactors) {
+    const adjustmentPath = normalizeDuckDbPath(
+      join(snapshotRoot, current.manifest.snapshotId, adjustmentFactors.relativePath),
+    );
+    await connection.run(`
+      CREATE OR REPLACE VIEW adjustment_factors AS
+      SELECT *
+      FROM read_parquet('${escapeSqlLiteral(adjustmentPath)}')
+    `);
+    views.push('adjustment_factors');
+  }
+  const indexBars = current.manifest.datasets?.find((item) => item.name === 'index_bars');
+  if (indexBars) {
+    const indexBarsPath = normalizeDuckDbPath(
+      join(snapshotRoot, current.manifest.snapshotId, indexBars.relativePath),
+    );
+    await connection.run(`
+      CREATE OR REPLACE VIEW index_bars AS
+      SELECT *
+      FROM read_parquet('${escapeSqlLiteral(indexBarsPath)}')
+    `);
+    views.push('index_bars');
+  }
+  const indexSnapshots = current.manifest.datasets?.find(
+    (item) => item.name === 'index_constituent_snapshots',
+  );
+  if (indexSnapshots) {
+    const path = normalizeDuckDbPath(
+      join(snapshotRoot, current.manifest.snapshotId, indexSnapshots.relativePath),
+    );
+    await connection.run(`
+      CREATE OR REPLACE VIEW index_constituent_snapshots AS
+      SELECT * FROM read_parquet('${escapeSqlLiteral(path)}')
+    `);
+    views.push('index_constituent_snapshots');
+  }
+  const indexConstituents = current.manifest.datasets?.find(
+    (item) => item.name === 'index_constituents',
+  );
+  if (indexConstituents) {
+    const path = normalizeDuckDbPath(
+      join(snapshotRoot, current.manifest.snapshotId, indexConstituents.relativePath),
+    );
+    await connection.run(`
+      CREATE OR REPLACE VIEW index_constituents AS
+      SELECT * FROM read_parquet('${escapeSqlLiteral(path)}');
+
+      CREATE OR REPLACE VIEW index_constituents_scd AS
+      WITH versions AS (
+        SELECT snapshotId, indexCode, sourceKey, constituentDate AS effectiveFrom,
+               LEAD(constituentDate) OVER (
+                 PARTITION BY indexCode, sourceKey ORDER BY constituentDate, snapshotId
+               ) AS nextEffectiveFrom
+        FROM index_constituent_snapshots
+      )
+      SELECT member.*,
+             version.effectiveFrom,
+             version.nextEffectiveFrom - INTERVAL 1 DAY AS effectiveTo
+      FROM index_constituents AS member
+      INNER JOIN versions AS version USING (snapshotId, indexCode, sourceKey)
+    `);
+    views.push('index_constituents', 'index_constituents_scd');
+  }
+  const dividendEvents = current.manifest.datasets?.find(
+    (item) => item.name === 'dividend_events',
+  );
+  if (dividendEvents) {
+    const path = normalizeDuckDbPath(
+      join(snapshotRoot, current.manifest.snapshotId, dividendEvents.relativePath),
+    );
+    await connection.run(`
+      CREATE OR REPLACE VIEW dividend_events AS
+      SELECT * FROM read_parquet('${escapeSqlLiteral(path)}')
+    `);
+    views.push('dividend_events');
+  }
   return {
     snapshotId: current.manifest.snapshotId,
     parquetGlob,
+    views,
   };
 }
 
@@ -248,7 +338,7 @@ function printHelp(): void {
 命令：
   status      查看当前研究快照指针与 manifest 摘要
   schema      查看自动挂载的 bars 视图字段
-  query       执行 SQL。默认会把当前研究快照挂载为 bars 视图
+  query       执行 SQL。默认挂载 bars、stock_valuations 和已发布的参考数据视图
   help        显示帮助
 
 常用参数：

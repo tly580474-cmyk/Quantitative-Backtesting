@@ -13,6 +13,17 @@ export interface ResearchSnapshotPartition {
   sha256: string;
 }
 
+export interface ResearchSnapshotDataset {
+  name: string;
+  relativePath: string;
+  rows: number;
+  bytes: number;
+  minDate: string | null;
+  maxDate: string | null;
+  sha256: string;
+  sourceVersion: string | null;
+}
+
 export interface ResearchSnapshotManifest {
   schemaVersion: 1;
   snapshotId: string;
@@ -25,6 +36,7 @@ export interface ResearchSnapshotManifest {
   minDate: string;
   maxDate: string;
   partitions: ResearchSnapshotPartition[];
+  datasets?: ResearchSnapshotDataset[];
 }
 
 export interface CurrentSnapshotPointer {
@@ -63,6 +75,16 @@ export function validateManifest(
   const partitionRows = manifest.partitions.reduce((sum, item) => sum + item.rows, 0);
   if (partitionRows !== manifest.rowCount) {
     throw new Error(`研究快照行数不一致：manifest=${manifest.rowCount}, partitions=${partitionRows}`);
+  }
+  const datasetNames = new Set<string>();
+  for (const dataset of manifest.datasets ?? []) {
+    if (datasetNames.has(dataset.name)) {
+      throw new Error(`研究快照数据集名称重复：${dataset.name}`);
+    }
+    datasetNames.add(dataset.name);
+    if (dataset.rows < 0 || dataset.bytes < 0 || !dataset.relativePath.endsWith('.parquet')) {
+      throw new Error(`研究快照数据集元数据无效：${dataset.name}`);
+    }
   }
 }
 
