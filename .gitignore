@@ -26,3 +26,6 @@ server/.logs/
 *.tsbuildinfo
 新建 文本文档.txt
 000852perf (1).xlsx
+
+# 生成产物目录（含大体积 CSV，勿提交，避免超过 GitHub 100MB 限制）
+server/out/
