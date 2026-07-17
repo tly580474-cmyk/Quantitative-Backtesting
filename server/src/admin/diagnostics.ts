@@ -13,6 +13,7 @@ import { getDuckDBRuntimeStats } from '../research/duckdbRuntime.js';
 import { inspectMaterializedArtifacts } from '../research/materializedArtifactHealth.js';
 import { readCurrentSnapshot } from '../research/snapshotManifest.js';
 import { listAdminConfig } from './envConfig.js';
+import { metricsHistory } from './metricsHistory.js';
 
 export type HealthLevel = 'healthy' | 'warning' | 'critical' | 'disabled';
 
@@ -53,6 +54,20 @@ export async function collectAdminOverview(input: {
     : warningCount > 0 ? 'warning' : 'healthy';
   const memory = process.memoryUsage();
   const cpu = process.cpuUsage();
+  const duckdbStats = getDuckDBRuntimeStats();
+  const taskFailures = (tasks.summary.recentFailures?.syncJobs ?? 0)
+    + (tasks.summary.recentFailures?.miningTasks ?? 0);
+
+  metricsHistory.push({
+    timestamp: new Date().toISOString(),
+    rssBytes: memory.rss,
+    heapUsedBytes: memory.heapUsed,
+    databaseLatencyMs: database.summary.latencyMs,
+    duckdbActive: duckdbStats.active,
+    duckdbQueued: duckdbStats.queued,
+    diskUsedPercent: storage.summary.disk?.usedPercent ?? null,
+    taskFailures,
+  });
 
   return {
     generatedAt: new Date().toISOString(),
@@ -79,7 +94,7 @@ export async function collectAdminOverview(input: {
       cpuMicroseconds: cpu.user + cpu.system,
     },
     database: database.summary,
-    duckdb: getDuckDBRuntimeStats(),
+    duckdb: duckdbStats,
     storage: storage.summary,
     dataGovernance: governance.summary,
     tasks: tasks.summary,
@@ -88,6 +103,190 @@ export async function collectAdminOverview(input: {
       total: configItems.length,
     },
     checks,
+  };
+}
+
+export type AdminOverview = Awaited<ReturnType<typeof collectAdminOverview>>;
+
+export interface AdminHealthSnapshot {
+  generatedAt: string;
+  durationMs: number;
+  overall: HealthLevel;
+  counts: { critical: number; warning: number; healthy: number; disabled: number };
+  service: {
+    status: HealthLevel;
+    uptimeSeconds: number;
+    nodeVersion: string;
+    platform: string;
+    pid: number;
+    memory: {
+      rssBytes: number;
+      heapUsedBytes: number;
+      heapTotalBytes: number;
+      systemTotalBytes: number;
+    };
+    cpuMicroseconds: number;
+  };
+  database: {
+    status: HealthLevel;
+    latencyMs: number | null;
+    version: string | null;
+    threadsConnected: number | null;
+    threadsRunning: number | null;
+    maxConnections: number | null;
+  };
+  duckdb: ReturnType<typeof getDuckDBRuntimeStats>;
+}
+
+/**
+ * 轻量健康快照，供高频轮询使用（见 §2）。
+ * 只跑一次 SELECT VERSION() + statfs + process.memoryUsage + DuckDB stats。
+ * 不跑 storage 全扫、tasks 近 24h 失败查询、materialized 扫描、config 枚举。
+ */
+export async function collectAdminHealth(input: {
+  pool: Pool;
+  dbOnline: boolean;
+  config: EnvConfig;
+}): Promise<AdminHealthSnapshot> {
+  const started = performance.now();
+  const checks: DiagnosticCheck[] = [];
+
+  let database: AdminHealthSnapshot['database'];
+  if (!input.dbOnline) {
+    checks.push({
+      id: 'database-connection',
+      title: 'MySQL 连接',
+      level: 'critical',
+      summary: '服务启动时未能连接 MySQL。',
+    });
+    database = {
+      status: 'critical',
+      latencyMs: null,
+      version: null,
+      threadsConnected: null,
+      threadsRunning: null,
+      maxConnections: null,
+    };
+  } else {
+    const pingStart = performance.now();
+    try {
+      const [rows] = await input.pool.query<RowDataPacket[]>('SELECT VERSION() AS version');
+      const latencyMs = Math.round(performance.now() - pingStart);
+      checks.push({
+        id: 'database-connection',
+        title: 'MySQL 连接',
+        level: latencyMs > 1000 ? 'warning' : 'healthy',
+        summary: `连接正常，诊断查询耗时 ${latencyMs}ms。`,
+      });
+      database = {
+        status: latencyMs > 1000 ? 'warning' : 'healthy',
+        latencyMs,
+        version: String(rows[0]?.version ?? ''),
+        threadsConnected: null,
+        threadsRunning: null,
+        maxConnections: null,
+      };
+    } catch (error) {
+      checks.push({
+        id: 'database-connection',
+        title: 'MySQL 连接',
+        level: 'critical',
+        summary: error instanceof Error ? error.message : '数据库连接失败。',
+      });
+      database = {
+        status: 'critical',
+        latencyMs: null,
+        version: null,
+        threadsConnected: null,
+        threadsRunning: null,
+        maxConnections: null,
+      };
+    }
+  }
+
+  // 快速磁盘检查（单次 statfs，不做全目录扫描）
+  let diskUsedPercent: number | null = null;
+  try {
+    const info = await statfs(dirname(resolve(input.config.RESEARCH_SNAPSHOT_ROOT)));
+    const totalBytes = info.blocks * info.bsize;
+    const freeBytes = info.bavail * info.bsize;
+    diskUsedPercent = totalBytes > 0 ? (totalBytes - freeBytes) / totalBytes : 0;
+    if (diskUsedPercent >= 0.9) {
+      checks.push({
+        id: 'storage-disk',
+        title: '磁盘空间',
+        level: 'critical',
+        summary: `研究数据所在磁盘已使用 ${Math.round(diskUsedPercent * 100)}%。`,
+      });
+    } else if (diskUsedPercent >= 0.8) {
+      checks.push({
+        id: 'storage-disk',
+        title: '磁盘空间',
+        level: 'warning',
+        summary: `研究数据所在磁盘已使用 ${Math.round(diskUsedPercent * 100)}%。`,
+      });
+    }
+  } catch {
+    // 磁盘检查失败不影响健康快照
+  }
+
+  const duckdbStats = getDuckDBRuntimeStats();
+  if (duckdbStats.queued > 0) {
+    checks.push({
+      id: 'duckdb-queue',
+      title: 'DuckDB 查询队列',
+      level: 'warning',
+      summary: `${duckdbStats.queued} 个查询正在排队等待。`,
+    });
+  }
+
+  const criticalCount = checks.filter((item) => item.level === 'critical').length;
+  const warningCount = checks.filter((item) => item.level === 'warning').length;
+  const overall: HealthLevel = criticalCount > 0
+    ? 'critical'
+    : warningCount > 0 ? 'warning' : 'healthy';
+
+  const memory = process.memoryUsage();
+  const cpu = process.cpuUsage();
+
+  // 推送指标采样（高频轮询来源）
+  metricsHistory.push({
+    timestamp: new Date().toISOString(),
+    rssBytes: memory.rss,
+    heapUsedBytes: memory.heapUsed,
+    databaseLatencyMs: database.latencyMs,
+    duckdbActive: duckdbStats.active,
+    duckdbQueued: duckdbStats.queued,
+    diskUsedPercent,
+    taskFailures: 0,
+  });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    durationMs: Math.round(performance.now() - started),
+    overall,
+    counts: {
+      critical: criticalCount,
+      warning: warningCount,
+      healthy: checks.filter((item) => item.level === 'healthy').length,
+      disabled: checks.filter((item) => item.level === 'disabled').length,
+    },
+    service: {
+      status: 'healthy' as const,
+      uptimeSeconds: Math.round(process.uptime()),
+      nodeVersion: process.version,
+      platform: `${platform()} ${release()}`,
+      pid: process.pid,
+      memory: {
+        rssBytes: memory.rss,
+        heapUsedBytes: memory.heapUsed,
+        heapTotalBytes: memory.heapTotal,
+        systemTotalBytes: totalmem(),
+      },
+      cpuMicroseconds: cpu.user + cpu.system,
+    },
+    database,
+    duckdb: duckdbStats,
   };
 }
 
@@ -355,7 +554,7 @@ async function inspectStorage(config: EnvConfig) {
 
 async function inspectTasks(pool: Pool, dbOnline: boolean) {
   const checks: DiagnosticCheck[] = [];
-  if (!dbOnline) return { checks, summary: { syncJobs: {}, miningTasks: {} } };
+  if (!dbOnline) return { checks, summary: { syncJobs: {}, miningTasks: {}, recentFailures: { syncJobs: 0, miningTasks: 0 } } };
   const queryCounts = async (table: string, where = '') => {
     try {
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -366,41 +565,82 @@ async function inspectTasks(pool: Pool, dbOnline: boolean) {
       return {};
     }
   };
-  const queryCount = async (sql: string) => {
-    try {
-      const [rows] = await pool.query<RowDataPacket[]>(sql);
-      return Number(rows[0]?.count ?? 0);
-    } catch {
-      return 0;
-    }
-  };
-  const [syncJobs, miningTasks, recentSyncFailures, recentMiningFailures] = await Promise.all([
+
+  // §3 近 24h 失败任务查询重写：
+  // 去掉 STR_TO_DATE(LEFT(...)) 包裹，改用字符串直接比较（created_at 是 varchar(24) 存 ISO 格式，
+  // 与 cutoff 字符串比较可走 idx_sj_status_created 索引）。
+  // runKey 恢复判定下推到应用层，避免相关子查询逐行 JSON_EXTRACT。
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 19);
+
+  const [syncJobs, miningTasks, recentMiningFailures, failedRows, completedRows] = await Promise.all([
     queryCounts('sync_jobs'),
     queryCounts('factor_mining_tasks', 'WHERE deleted_at IS NULL AND archived_at IS NULL'),
-    queryCount(`
-      SELECT COUNT(*) AS count
-      FROM sync_jobs AS failed
-      WHERE failed.status='failed'
-        AND STR_TO_DATE(LEFT(failed.created_at, 19), '%Y-%m-%dT%H:%i:%s')
-            >= UTC_TIMESTAMP() - INTERVAL 24 HOUR
-        AND NOT EXISTS (
-          SELECT 1
-          FROM sync_jobs AS recovered
-          WHERE recovered.status='completed'
-            AND recovered.job_type=failed.job_type
-            AND recovered.created_at > failed.created_at
-            AND JSON_UNQUOTE(JSON_EXTRACT(recovered.request_snapshot, '$.runKey'))
-                = JSON_UNQUOTE(JSON_EXTRACT(failed.request_snapshot, '$.runKey'))
-        )
-    `),
-    queryCount(`
-      SELECT COUNT(*) AS count
-      FROM factor_mining_tasks
-      WHERE status='failed' AND deleted_at IS NULL AND archived_at IS NULL
-        AND STR_TO_DATE(LEFT(created_at, 19), '%Y-%m-%dT%H:%i:%s')
-            >= UTC_TIMESTAMP() - INTERVAL 24 HOUR
-    `),
+    // factor_mining_tasks 已有 idx_fmt_status_created(status, created_at)，直接字符串比较走索引
+    (async () => {
+      try {
+        const [rows] = await pool.query<RowDataPacket[]>(
+          `SELECT COUNT(*) AS count FROM factor_mining_tasks
+           WHERE status='failed' AND deleted_at IS NULL AND archived_at IS NULL
+             AND created_at >= ?`,
+          [cutoff],
+        );
+        return Number(rows[0]?.count ?? 0);
+      } catch {
+        return 0;
+      }
+    })(),
+    // 近 24h 失败的 sync_jobs（走索引 idx_sj_status_created）
+    (async () => {
+      try {
+        const [rows] = await pool.query<RowDataPacket[]>(
+          `SELECT request_snapshot, created_at FROM sync_jobs
+           WHERE status='failed' AND created_at >= ?`,
+          [cutoff],
+        );
+        return rows as Array<{ request_snapshot: unknown; created_at: string }>;
+      } catch {
+        return [];
+      }
+    })(),
+    // 近 24h 完成的 sync_jobs（用于恢复判定，走索引）
+    (async () => {
+      try {
+        const [rows] = await pool.query<RowDataPacket[]>(
+          `SELECT request_snapshot, created_at FROM sync_jobs
+           WHERE status='completed' AND created_at >= ?`,
+          [cutoff],
+        );
+        return rows as Array<{ request_snapshot: unknown; created_at: string }>;
+      } catch {
+        return [];
+      }
+    })(),
   ]);
+
+  // 应用层恢复判定：对每个失败任务，检查是否存在同 runKey 且更晚的 completed 任务
+  const completedRunKeyLatest = new Map<string, string>();
+  for (const row of completedRows) {
+    const runKey = extractRunKey(row.request_snapshot);
+    if (!runKey) continue;
+    const existing = completedRunKeyLatest.get(runKey);
+    if (!existing || row.created_at > existing) {
+      completedRunKeyLatest.set(runKey, row.created_at);
+    }
+  }
+  let recentSyncFailures = 0;
+  for (const failedRow of failedRows) {
+    const runKey = extractRunKey(failedRow.request_snapshot);
+    if (!runKey) {
+      // 没有 runKey 的失败任务无法被恢复，计入未恢复
+      recentSyncFailures += 1;
+      continue;
+    }
+    const latestCompleted = completedRunKeyLatest.get(runKey);
+    if (!latestCompleted || latestCompleted <= failedRow.created_at) {
+      recentSyncFailures += 1;
+    }
+  }
+
   const failed = recentSyncFailures + recentMiningFailures;
   if (failed > 0) {
     checks.push({
@@ -422,6 +662,13 @@ async function inspectTasks(pool: Pool, dbOnline: boolean) {
       },
     },
   };
+}
+
+/** 从 sync_jobs.request_snapshot 中安全提取 runKey。 */
+function extractRunKey(snapshot: unknown): string | null {
+  if (snapshot == null || typeof snapshot !== 'object') return null;
+  const value = (snapshot as Record<string, unknown>).runKey;
+  return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 function inspectConfiguration(config: EnvConfig, envFilePath: string | URL) {

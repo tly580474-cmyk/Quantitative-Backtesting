@@ -10,6 +10,15 @@ export interface AdminConfigDefinition {
   secret: boolean;
   editable: boolean;
   restartRequired: boolean;
+  /**
+   * 重启影响范围标签（见 §4.3）：
+   * - db：需后端全量重启
+   * - ai：需重启 AI Provider + 后端
+   * - runtime：需重启后端
+   * - market：部分即时、部分重启
+   * - access：需重启后端
+   */
+  restartScope: 'db' | 'ai' | 'runtime' | 'market' | 'access';
 }
 
 export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
@@ -21,6 +30,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: true,
     editable: false,
     restartRequired: true,
+    restartScope: 'access',
   },
   {
     key: 'DB_HOST',
@@ -30,6 +40,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: false,
     editable: true,
     restartRequired: true,
+    restartScope: 'db',
   },
   {
     key: 'DB_PORT',
@@ -39,6 +50,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: false,
     editable: true,
     restartRequired: true,
+    restartScope: 'db',
   },
   {
     key: 'DB_USER',
@@ -48,6 +60,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: false,
     editable: true,
     restartRequired: true,
+    restartScope: 'db',
   },
   {
     key: 'DB_PASSWORD',
@@ -57,6 +70,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: true,
     editable: true,
     restartRequired: true,
+    restartScope: 'db',
   },
   {
     key: 'DB_NAME',
@@ -66,6 +80,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: false,
     editable: true,
     restartRequired: true,
+    restartScope: 'db',
   },
   {
     key: 'AI_STRATEGY_ENABLED',
@@ -75,6 +90,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: false,
     editable: true,
     restartRequired: true,
+    restartScope: 'ai',
   },
   {
     key: 'OPENAI_API_KEY',
@@ -84,6 +100,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: true,
     editable: true,
     restartRequired: true,
+    restartScope: 'ai',
   },
   {
     key: 'OPENAI_BASE_URL',
@@ -93,6 +110,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: false,
     editable: true,
     restartRequired: true,
+    restartScope: 'ai',
   },
   {
     key: 'OPENAI_MODEL',
@@ -102,6 +120,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: false,
     editable: true,
     restartRequired: true,
+    restartScope: 'ai',
   },
   {
     key: 'MARKET_DATA_API_KEY',
@@ -111,6 +130,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: true,
     editable: true,
     restartRequired: true,
+    restartScope: 'market',
   },
   {
     key: 'TUSHARE_TOKEN',
@@ -120,6 +140,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: true,
     editable: true,
     restartRequired: true,
+    restartScope: 'market',
   },
   {
     key: 'DUCKDB_MAX_CONCURRENT',
@@ -129,6 +150,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: false,
     editable: true,
     restartRequired: true,
+    restartScope: 'runtime',
   },
   {
     key: 'DUCKDB_MAX_QUEUED',
@@ -138,6 +160,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: false,
     editable: true,
     restartRequired: true,
+    restartScope: 'runtime',
   },
   {
     key: 'DUCKDB_MAX_TEMP_SIZE',
@@ -147,6 +170,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     secret: false,
     editable: true,
     restartRequired: true,
+    restartScope: 'runtime',
   },
 ];
 

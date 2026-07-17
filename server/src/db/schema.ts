@@ -11,6 +11,7 @@ import {
   bigint,
   primaryKey,
 } from 'drizzle-orm/mysql-core';
+import { sql } from 'drizzle-orm';
 
 // ─── market_datasets ─────────────────────────────────────────────
 export const marketDatasets = mysqlTable('market_datasets', {
@@ -394,6 +395,11 @@ export const syncJobs = mysqlTable('sync_jobs', {
   status: varchar('status', { length: 16 }).notNull().default('pending'),
   providerId: varchar('provider_id', { length: 64 }).notNull(),
   requestSnapshot: json('request_snapshot').notNull(),
+  // §3 派生列：从 request_snapshot->>'$.runKey' 自动抽取，STORED 生成列，无需应用层维护
+  runKey: varchar('run_key', { length: 191 }).generatedAlwaysAs(
+    sql`JSON_UNQUOTE(JSON_EXTRACT(request_snapshot, '$.runKey'))`,
+    { mode: 'stored' },
+  ),
   totalItems: int('total_items').notNull().default(0),
   completedItems: int('completed_items').notNull().default(0),
   failedItems: int('failed_items').notNull().default(0),
@@ -403,6 +409,7 @@ export const syncJobs = mysqlTable('sync_jobs', {
 }, (table) => ({
   statusCreatedIdx: index('idx_sj_status_created').on(table.status, table.createdAt),
   typeIdx: index('idx_sj_type').on(table.jobType),
+  runKeyIdx: index('idx_sj_run_key').on(table.status, table.runKey, table.createdAt),
 }));
 
 // ─── Phase 5: sync_job_items ──────────────────────────────────────

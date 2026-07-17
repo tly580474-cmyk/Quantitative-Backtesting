@@ -16,10 +16,12 @@ const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
 };
 
+export type MarketCode = 'SH' | 'SZ' | 'BJ' | 'HK' | 'US' | 'JP' | 'KR';
+
 export interface StockSearchItem {
   code: string;
   name: string;
-  market: 'SH' | 'SZ' | 'BJ';
+  market: MarketCode;
   type: 'stock' | 'index' | 'etf';
 }
 
@@ -52,7 +54,11 @@ interface IndexDefinition {
   code: string;
   prefixed: string;
   name: string;
-  market: 'SH' | 'SZ';
+  market: MarketCode;
+  /** 行情数据源：腾讯支持 A 股、港股、美股指数；日经/KOSPI 走东方财富 */
+  source: 'tencent' | 'eastmoney';
+  /** 东方财富 secid，仅 source='eastmoney' 时使用 */
+  eastmoneySecid?: string;
 }
 
 export interface KlinePoint {
@@ -188,13 +194,27 @@ interface MarketUniverseItem {
 }
 
 const MARKET_INDEXES: IndexDefinition[] = [
-  { code: '000001', prefixed: 'sh000001', name: '上证指数', market: 'SH' },
-  { code: '399001', prefixed: 'sz399001', name: '深证成指', market: 'SZ' },
-  { code: '399006', prefixed: 'sz399006', name: '创业板指', market: 'SZ' },
-  { code: '000688', prefixed: 'sh000688', name: '科创50', market: 'SH' },
-  { code: '000300', prefixed: 'sh000300', name: '沪深300', market: 'SH' },
-  { code: '000905', prefixed: 'sh000905', name: '中证500', market: 'SH' },
-  { code: '000852', prefixed: 'sh000852', name: '中证1000', market: 'SH' },
+  // A 股核心指数
+  { code: '000001', prefixed: 'sh000001', name: '上证指数', market: 'SH', source: 'tencent' },
+  { code: '399001', prefixed: 'sz399001', name: '深证成指', market: 'SZ', source: 'tencent' },
+  { code: '399006', prefixed: 'sz399006', name: '创业板指', market: 'SZ', source: 'tencent' },
+  { code: '000688', prefixed: 'sh000688', name: '科创50', market: 'SH', source: 'tencent' },
+  { code: '000300', prefixed: 'sh000300', name: '沪深300', market: 'SH', source: 'tencent' },
+  { code: '000905', prefixed: 'sh000905', name: '中证500', market: 'SH', source: 'tencent' },
+  { code: '000852', prefixed: 'sh000852', name: '中证1000', market: 'SH', source: 'tencent' },
+  // 新增中证指数
+  { code: '932000', prefixed: '', name: '中证2000', market: 'SH', source: 'eastmoney', eastmoneySecid: '2.932000' },
+  { code: '000510', prefixed: 'sh000510', name: '中证A500', market: 'SH', source: 'tencent' },
+  { code: '000985', prefixed: 'sh000985', name: '中证全指', market: 'SH', source: 'tencent' },
+  // 港股指数
+  { code: 'HSI', prefixed: 'hkHSI', name: '恒生指数', market: 'HK', source: 'tencent' },
+  // 美股指数
+  { code: 'NDX', prefixed: 'usNDX', name: '纳斯达克100', market: 'US', source: 'tencent' },
+  { code: 'SPX', prefixed: 'usINX', name: '标普500', market: 'US', source: 'tencent' },
+  { code: 'DJIA', prefixed: 'usDJI', name: '道琼斯', market: 'US', source: 'tencent' },
+  // 亚太指数（腾讯不支持，走东方财富）
+  { code: 'N225', prefixed: '', name: '日经225', market: 'JP', source: 'eastmoney', eastmoneySecid: '100.N225' },
+  { code: 'KS11', prefixed: '', name: '韩国KOSPI', market: 'KR', source: 'eastmoney', eastmoneySecid: '100.KS11' },
 ];
 
 let eastmoneyQueue: Promise<void> = Promise.resolve();
@@ -225,16 +245,41 @@ function normalizeCode(input: string): string {
   return match[1];
 }
 
-function resolveSecurity(input: string): { code: string; market: 'SH' | 'SZ' | 'BJ'; prefixed: string } {
+/** 国际指数代码查找表：前端传入的 instrumentCode → 腾讯 prefixed / 东方财富 secid */
+const INTERNATIONAL_INDEX_LOOKUP: Record<string, { prefixed: string; market: MarketCode; eastmoneySecid?: string }> = {
+  hkhsi: { prefixed: 'hkHSI', market: 'HK' },
+  usndx: { prefixed: 'usNDX', market: 'US' },
+  usinx: { prefixed: 'usINX', market: 'US' },
+  usdji: { prefixed: 'usDJI', market: 'US' },
+  ft932000: { prefixed: '', market: 'SH', eastmoneySecid: '2.932000' },
+  ftn225: { prefixed: '', market: 'JP', eastmoneySecid: '100.N225' },
+  ftks11: { prefixed: '', market: 'KR', eastmoneySecid: '100.KS11' },
+};
+
+function resolveSecurity(input: string): { code: string; market: MarketCode; prefixed: string; eastmoneySecid?: string } {
   const value = input.trim().toLowerCase();
+
+  // 国际指数代码（hkHSI / usNDX / ftN225 等）
+  const intl = INTERNATIONAL_INDEX_LOOKUP[value];
+  if (intl) {
+    // 从原始输入中提取 code（如 hkHSI → HSI, usNDX → NDX）
+    const codeMatch = input.trim().match(/^(?:hk|us|ft)(.+)$/i);
+    return {
+      code: codeMatch ? codeMatch[1].toUpperCase() : input.trim().toUpperCase(),
+      market: intl.market,
+      prefixed: intl.prefixed,
+      eastmoneySecid: intl.eastmoneySecid,
+    };
+  }
+
   const prefixMatch = value.match(/^(sh|sz|bj)(\d{6})$/);
   const suffixMatch = value.match(/^(\d{6})\.(sh|sz|bj)$/);
   if (prefixMatch) {
-    const market = prefixMatch[1].toUpperCase() as 'SH' | 'SZ' | 'BJ';
+    const market = prefixMatch[1].toUpperCase() as MarketCode;
     return { code: prefixMatch[2], market, prefixed: `${prefixMatch[1]}${prefixMatch[2]}` };
   }
   if (suffixMatch) {
-    const market = suffixMatch[2].toUpperCase() as 'SH' | 'SZ' | 'BJ';
+    const market = suffixMatch[2].toUpperCase() as MarketCode;
     return { code: suffixMatch[1], market, prefixed: `${suffixMatch[2]}${suffixMatch[1]}` };
   }
   const code = normalizeCode(input);
@@ -253,7 +298,9 @@ function prefixOf(code: string): string {
   return market === 'SH' ? `sh${code}` : market === 'BJ' ? `bj${code}` : `sz${code}`;
 }
 
-function inferType(code: string, market = marketOf(code)): 'stock' | 'index' | 'etf' {
+function inferType(code: string, market: MarketCode = marketOf(code)): 'stock' | 'index' | 'etf' {
+  // 国际市场代码均为指数
+  if (market === 'HK' || market === 'US' || market === 'JP' || market === 'KR') return 'index';
   if ((market === 'SH' && code.startsWith('000')) || (market === 'SZ' && code.startsWith('399'))) return 'index';
   if (/^(1[568]|5[168])/.test(code)) return 'etf';
   return 'stock';
@@ -381,21 +428,85 @@ export async function fetchStockQuote(input: string, withProfile = true): Promis
 }
 
 export async function fetchMarketIndexQuotes(): Promise<StockQuote[]> {
-  const text = await fetchText(`${TENCENT_QUOTE_URL}${MARKET_INDEXES.map((item) => item.prefixed).join(',')}`, 'gbk');
-  return MARKET_INDEXES.flatMap((item) => {
-    const pattern = new RegExp(`v_${item.prefixed}="([\\s\\S]*?)";`);
-    const values = text.match(pattern)?.[1]?.split('~') ?? [];
-    if (values.length < 53 || !values[1]) return [];
-    return [parseTencentQuote(values, {
+  const tencentIndices = MARKET_INDEXES.filter((item) => item.source === 'tencent' && item.prefixed);
+  const eastmoneyIndices = MARKET_INDEXES.filter((item) => item.source === 'eastmoney' && item.eastmoneySecid);
+
+  // 1. 批量拉取腾讯支持的指数（A 股 + 港股 + 美股）
+  const tencentQuotes: StockQuote[] = [];
+  if (tencentIndices.length > 0) {
+    const text = await fetchText(
+      `${TENCENT_QUOTE_URL}${tencentIndices.map((item) => item.prefixed).join(',')}`,
+      'gbk',
+    );
+    for (const item of tencentIndices) {
+      const pattern = new RegExp(`v_${item.prefixed}="([\\s\\S]*?)";`);
+      const values = text.match(pattern)?.[1]?.split('~') ?? [];
+      // 国际指数字段数可能少于 A 股，放宽到 35（确保有 price/change/high/low）
+      if (values.length < 35 || !values[1]) continue;
+      tencentQuotes.push(parseTencentQuote(values, {
+        code: item.code,
+        name: item.name,
+        market: item.market,
+        type: 'index' as const,
+        industry: '大盘指数',
+        listDate: null,
+        source: ['腾讯财经'],
+      }));
+    }
+  }
+
+  // 2. 逐个拉取东方财富指数（日经/KOSPI）
+  const eastmoneyQuotes = await Promise.all(
+    eastmoneyIndices.map((item) => fetchEastmoneyIndexQuote(item)),
+  );
+
+  return [...tencentQuotes, ...eastmoneyQuotes.filter((q): q is StockQuote => q !== null)];
+}
+
+/** 通过东方财富 API 获取单个国际指数行情 */
+async function fetchEastmoneyIndexQuote(item: IndexDefinition): Promise<StockQuote | null> {
+  if (!item.eastmoneySecid) return null;
+  try {
+    const params = new URLSearchParams({
+      fltt: '2',
+      invt: '2',
+      fields: 'f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170,f171',
+      secid: item.eastmoneySecid,
+    });
+    const response = await eastmoneyGet(EASTMONEY_INFO_URL, params, 'https://quote.eastmoney.com/');
+    const data = (await response.json() as { data?: Record<string, unknown> }).data;
+    if (!data) return null;
+    return {
       code: item.code,
       name: item.name,
       market: item.market,
-      type: 'index',
+      type: 'index' as const,
+      price: numberOrNull(data.f43),
+      previousClose: numberOrNull(data.f60),
+      open: numberOrNull(data.f46),
+      changeAmount: numberOrNull(data.f169),
+      changePct: numberOrNull(data.f170),
+      high: numberOrNull(data.f44),
+      low: numberOrNull(data.f45),
+      amountWan: numberOrNull(data.f48) != null ? numberOrNull(data.f48)! / 10000 : null,
+      turnoverPct: null,
+      peTtm: null,
+      amplitudePct: numberOrNull(data.f171),
+      floatMarketCapYi: null,
+      marketCapYi: null,
+      pb: null,
+      limitUp: null,
+      limitDown: null,
+      volumeRatio: null,
+      peStatic: null,
       industry: '大盘指数',
       listDate: null,
-      source: ['腾讯财经'],
-    })];
-  });
+      updatedAt: new Date().toISOString(),
+      source: ['东方财富'],
+    };
+  } catch {
+    return null;
+  }
 }
 
 function sentimentStatus(msi: number): Pick<MarketSentimentOverview, 'status' | 'statusLabel'> {
@@ -499,7 +610,7 @@ export function normalizeSinaTurnoverRatePct(value: unknown): number | null {
  * 若 akshare 未安装或接口不可用，抛出错误由调用方静默吞掉，退回到腾讯行情快照兜底。
  */
 async function fetchSinaTurnoverSeries(
-  security: { code: string; market: 'SH' | 'SZ' | 'BJ'; prefixed: string },
+  security: { code: string; market: MarketCode; prefixed: string },
 ): Promise<Map<string, number>> {
   const cacheKey = security.code;
   const now = Date.now();
@@ -1326,6 +1437,11 @@ export async function fetchStockKline(
   const security = resolveSecurity(input);
   const { prefixed } = security;
 
+  // 东方财富专属指数（日经/KOSPI）：腾讯不支持，直接走东方财富 K 线
+  if (security.eastmoneySecid) {
+    return fetchEastmoneyIndexKline(security.eastmoneySecid, period, count);
+  }
+
   // 前复权日 K 走东财（含 f61 换手率）+ 新浪补全的富链路；其余复权口径腾讯直接给出，跳过东财/新浪补全。
   const useRichPath = adjustmentMode === 'qfq'
     && period === 'day'
@@ -1437,6 +1553,48 @@ async function fetchEastmoneyDailyKline(input: string, count: number): Promise<K
   if (!response.ok) throw new Error(`东方财富 K 线接口 HTTP ${response.status}`);
   const payload = await response.json() as { data?: { klines?: unknown } };
   return parseEastmoneyDailyKlines(payload.data?.klines);
+}
+
+/** 通过东方财富 API 获取国际指数 K 线（日经/KOSPI） */
+async function fetchEastmoneyIndexKline(
+  secid: string,
+  period: 'day' | 'week' | 'year',
+  count: number,
+): Promise<KlinePoint[]> {
+  // 东方财富 klt 参数：101=日K, 102=周K, 103=月K（年K 用月K 聚合）
+  const klt = period === 'day' ? '101' : period === 'week' ? '102' : '103';
+  const lmt = period === 'year' ? '500' : String(Math.min(Math.max(count, 30), 800));
+  const params = new URLSearchParams({
+    secid,
+    fields1: 'f1,f2,f3,f4,f5,f6',
+    fields2: 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
+    klt,
+    fqt: '1',
+    end: '20500101',
+    lmt,
+  });
+  const response = await eastmoneyGet(EASTMONEY_KLINE_URL, params, 'https://quote.eastmoney.com/');
+  if (!response.ok) throw new Error(`东方财富 K 线接口 HTTP ${response.status}`);
+  const payload = await response.json() as { data?: { klines?: unknown } };
+  let points = parseEastmoneyDailyKlines(payload.data?.klines);
+  // 年 K 聚合：按年份分组取首日开盘、末日收盘、最高、最低
+  if (period === 'year' && points.length > 0) {
+    const yearly = new Map<string, KlinePoint>();
+    for (const point of points) {
+      const year = point.date.slice(0, 4);
+      const existing = yearly.get(year);
+      if (!existing) {
+        yearly.set(year, { ...point });
+      } else {
+        existing.high = Math.max(existing.high, point.high);
+        existing.low = Math.min(existing.low, point.low);
+        existing.close = point.close;
+        existing.volume += point.volume;
+      }
+    }
+    points = Array.from(yearly.values());
+  }
+  return points;
 }
 
 export function parseEastmoneyDailyKlines(input: unknown): KlinePoint[] {

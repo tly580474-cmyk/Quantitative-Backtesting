@@ -3,8 +3,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Pool } from 'mysql2/promise';
 import { z } from 'zod';
 import type { EnvConfig } from '../config.js';
-import { collectAdminOverview } from '../admin/diagnostics.js';
+import { collectAdminOverview, collectAdminHealth } from '../admin/diagnostics.js';
 import { listAdminConfig, updateEnvFile } from '../admin/envConfig.js';
+import { createOverviewCache } from '../admin/overviewCache.js';
+import { metricsHistory } from '../admin/metricsHistory.js';
 
 interface AdminRouteOptions {
   pool: Pool;
@@ -21,6 +23,9 @@ const updateConfigSchema = z.object({
 });
 
 export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOptions): void {
+  const overviewCacheTtl = Number.parseInt(options.config.ADMIN_OVERVIEW_CACHE_TTL_MS, 10);
+  const overviewCache = createOverviewCache(Number.isFinite(overviewCacheTtl) ? overviewCacheTtl : 10_000);
+
   app.get('/api/admin/auth/status', async () => ({
     enabled: options.config.ADMIN_API_TOKEN.trim().length > 0,
   }));
@@ -46,16 +51,40 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     authenticated: true,
   }));
 
-  app.get('/api/admin/overview', { preHandler: authorize }, async (_request, reply) => {
+  app.get('/api/admin/health', { preHandler: authorize }, async (_request, reply) => {
     try {
-      return reply.send(await collectAdminOverview(options));
+      return reply.send(await collectAdminHealth(options));
     } catch (error) {
+      app.log.error({ err: error }, 'Admin health collection failed');
+      return reply.status(503).send({
+        error: 'HEALTH_CHECK_FAILED',
+        message: error instanceof Error ? error.message : '健康检查失败',
+      });
+    }
+  });
+
+  app.get('/api/admin/overview', { preHandler: authorize }, async (_request, reply) => {
+    // §1 TTL 缓存：命中时直接返回，失效时重算；重算失败时降级返回陈旧帧
+    const cached = overviewCache.get(options.dbOnline);
+    if (cached) return reply.send(cached);
+    try {
+      const overview = await collectAdminOverview(options);
+      overviewCache.set(options.dbOnline, overview);
+      return reply.send(overview);
+    } catch (error) {
+      const stale = overviewCache.peek(options.dbOnline);
+      if (stale) return reply.send(stale);
       app.log.error({ err: error }, 'Admin overview collection failed');
       return reply.status(503).send({
         error: 'DIAGNOSTICS_FAILED',
         message: error instanceof Error ? error.message : '系统诊断失败',
       });
     }
+  });
+
+  app.get('/api/admin/metrics/history', { preHandler: authorize }, async (request, reply) => {
+    const since = (request.query as { since?: string })?.since;
+    return reply.send({ samples: metricsHistory.list(since) });
   });
 
   app.get('/api/admin/config', { preHandler: authorize }, async () => ({
@@ -77,6 +106,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       try {
         const updatedKeys = await updateEnvFile(options.envFilePath, parsed.data.updates);
         request.log.warn({ updatedKeys }, 'Admin configuration updated; restart required');
+        overviewCache.invalidate();
         return reply.send({
           updatedKeys,
           restartRequired: true,

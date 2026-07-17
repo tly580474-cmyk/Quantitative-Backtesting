@@ -14,20 +14,35 @@ import { klineCacheKey, marketDataCache } from './marketDataCache';
 import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
 import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem } from './types';
 import type { ImportResult } from '@/models';
+import { useCardDragReorder } from './useCardDragReorder';
 
 const { Text, Title } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
 const PINNED_WATCHLIST_KEY = 'quant-market-watchlist-pinned-v1';
 const MARKET_INDEX_SELECTION_KEY = 'quant-market-index-selection-v1';
 const MARKET_SENTIMENT_REFRESH_MS = 5 * 60_000;
-const MARKET_INDEX_OPTIONS: Array<{ key: string; code: string; name: string; market: StockSearchItem['market'] }> = [
-  { key: 'SH:000001', code: '000001', name: '上证指数', market: 'SH' },
-  { key: 'SZ:399001', code: '399001', name: '深证成指', market: 'SZ' },
-  { key: 'SZ:399006', code: '399006', name: '创业板指', market: 'SZ' },
-  { key: 'SH:000688', code: '000688', name: '科创50', market: 'SH' },
-  { key: 'SH:000300', code: '000300', name: '沪深300', market: 'SH' },
-  { key: 'SH:000905', code: '000905', name: '中证500', market: 'SH' },
-  { key: 'SH:000852', code: '000852', name: '中证1000', market: 'SH' },
+const MARKET_INDEX_OPTIONS: Array<{ key: string; code: string; name: string; market: StockSearchItem['market']; prefixed: string }> = [
+  // A 股核心指数
+  { key: 'SH:000001', code: '000001', name: '上证指数', market: 'SH', prefixed: 'sh000001' },
+  { key: 'SZ:399001', code: '399001', name: '深证成指', market: 'SZ', prefixed: 'sz399001' },
+  { key: 'SZ:399006', code: '399006', name: '创业板指', market: 'SZ', prefixed: 'sz399006' },
+  { key: 'SH:000688', code: '000688', name: '科创50', market: 'SH', prefixed: 'sh000688' },
+  { key: 'SH:000300', code: '000300', name: '沪深300', market: 'SH', prefixed: 'sh000300' },
+  { key: 'SH:000905', code: '000905', name: '中证500', market: 'SH', prefixed: 'sh000905' },
+  { key: 'SH:000852', code: '000852', name: '中证1000', market: 'SH', prefixed: 'sh000852' },
+  // 新增中证指数
+  { key: 'SH:932000', code: '932000', name: '中证2000', market: 'SH', prefixed: 'ft932000' },
+  { key: 'SH:000510', code: '000510', name: '中证A500', market: 'SH', prefixed: 'sh000510' },
+  { key: 'SH:000985', code: '000985', name: '中证全指', market: 'SH', prefixed: 'sh000985' },
+  // 港股指数
+  { key: 'HK:HSI', code: 'HSI', name: '恒生指数', market: 'HK', prefixed: 'hkHSI' },
+  // 美股指数
+  { key: 'US:NDX', code: 'NDX', name: '纳斯达克100', market: 'US', prefixed: 'usNDX' },
+  { key: 'US:SPX', code: 'SPX', name: '标普500', market: 'US', prefixed: 'usINX' },
+  { key: 'US:DJIA', code: 'DJIA', name: '道琼斯', market: 'US', prefixed: 'usDJI' },
+  // 亚太指数
+  { key: 'JP:N225', code: 'N225', name: '日经225', market: 'JP', prefixed: 'ftN225' },
+  { key: 'KR:KS11', code: 'KS11', name: '韩国KOSPI', market: 'KR', prefixed: 'ftKS11' },
 ];
 const DEFAULT_MARKET_INDEX_KEYS = MARKET_INDEX_OPTIONS.slice(0, 5).map((item) => item.key);
 const DEFAULT_WATCHLIST: StockSearchItem[] = [
@@ -140,8 +155,8 @@ function readMarketIndexSelection(): string[] {
 function marketIndexKey(item: Pick<StockQuote, 'market' | 'code'>) {
   return `${item.market}:${item.code}`;
 }
-function marketIndexInstrumentCode(item: Pick<StockSearchItem, 'market' | 'code'>) {
-  return `${item.market.toLowerCase()}${item.code}`;
+function marketIndexInstrumentCode(item: Pick<typeof MARKET_INDEX_OPTIONS[number], 'prefixed'>) {
+  return item.prefixed;
 }
 function fmt(value: number | null | undefined, digits = 2) {
   return value == null ? '—' : value.toLocaleString('zh-CN', { maximumFractionDigits: digits });
@@ -1093,6 +1108,15 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     const quote = indexQuotes.find((item) => marketIndexKey(item) === key);
     return quote ? [quote] : [];
   });
+  // 长按拖拽重排序
+  const {
+    draggingKey,
+    dropTargetKey,
+    isReordering,
+    handlePointerDown,
+    cancelLongPress,
+    shouldSuppressClick,
+  } = useCardDragReorder(selectedIndexKeys, setSelectedIndexKeys);
   const openIndexConfig = () => {
     setDraftIndexKeys([...selectedIndexKeys]);
     setIndexConfigOpen(true);
@@ -1123,11 +1147,23 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         <Tooltip title="刷新指数与市场概况"><Button icon={<ReloadOutlined />} loading={indexLoading || marketSentimentLoading} aria-label="刷新市场总览" onClick={() => { void loadIndexQuotes(); void loadMarketSentiment(false, true); }} /></Tooltip>
       </Space>
     </section>
-    <section className={`market-index-grid is-count-${visibleIndexQuotes.length}`} aria-label="当前交易日主要指数">
+    <section className={`market-index-grid is-count-${visibleIndexQuotes.length}${isReordering ? ' is-reordering' : ''}`} aria-label="当前交易日主要指数">
       {visibleIndexQuotes.map((item) => {
         const direction = (item.changePct ?? 0) > 0 ? 'up' : (item.changePct ?? 0) < 0 ? 'down' : '';
         const key = marketIndexKey(item);
-        return <button type="button" className="market-index-card" key={item.code} onClick={() => selectIndexQuote(item)} aria-label={`查看${item.name}行情`}>
+        const isDragging = draggingKey === key;
+        const isDropTarget = dropTargetKey === key;
+        return <button
+          type="button"
+          className={`market-index-card${isDragging ? ' is-dragging' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
+          key={item.code}
+          data-index-key={key}
+          onPointerDown={(e) => handlePointerDown(key, e)}
+          onPointerLeave={cancelLongPress}
+          onClick={() => { if (shouldSuppressClick()) return; selectIndexQuote(item); }}
+          aria-label={`查看${item.name}行情`}
+          style={{ touchAction: 'none' }}
+        >
           <span>{item.name}<small>{item.market}</small></span>
           <strong className={direction && `market-${direction}`}>{fmt(item.price)}</strong>
           <em className={direction && `market-${direction}`}>{signed(item.changeAmount)}　{signed(item.changePct)}%</em>
@@ -1142,6 +1178,12 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         <div><span>情绪 MSI</span><strong className={(marketSentiment?.msi ?? 0) >= 0 ? 'market-up' : 'market-down'}>{signed(marketSentiment?.msi)}</strong></div>
       </div>
     </section>
+    {visibleIndexQuotes.length > 1 && !isReordering && (
+      <p className="market-index-drag-hint" aria-hidden="true">长按指数卡片可拖拽换位</p>
+    )}
+    {isReordering && (
+      <p className="market-index-drag-hint is-active" role="status">拖拽到目标卡片上松开即可交换位置</p>
+    )}
     <section className="market-sentiment-section" aria-label="市场情绪与涨跌分布">
       <div className="market-dashboard-panel-head"><span><DashboardOutlined />市场概况</span><Tooltip title="刷新市场情绪"><Button size="small" type="text" icon={<ReloadOutlined />} loading={marketSentimentLoading} aria-label="刷新市场概况" onClick={() => void loadMarketSentiment(false, true)} /></Tooltip></div>
       <MarketSentimentPanel overview={marketSentiment} loading={marketSentimentLoading} onSelectStock={openInstrumentDetail} />

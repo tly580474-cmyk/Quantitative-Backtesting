@@ -39,6 +39,7 @@ export interface AdminOverview {
     active: number;
     queued: number;
     limit: number;
+    queueLimit: number;
   };
   storage: {
     disk: {
@@ -113,6 +114,33 @@ export interface AdminConfigItem {
   secret: boolean;
   editable: boolean;
   restartRequired: boolean;
+  restartScope: 'db' | 'ai' | 'runtime' | 'market' | 'access';
   configured: boolean;
   maskedValue: string | null;
+}
+
+/** 轻量健康快照（/api/admin/health），是 AdminOverview 的子集 */
+export interface AdminHealth {
+  generatedAt: string;
+  durationMs: number;
+  overall: HealthLevel;
+  counts: Record<HealthLevel, number>;
+  service: AdminOverview['service'];
+  database: AdminOverview['database'];
+  duckdb: AdminOverview['duckdb'];
+}
+
+export interface MetricSample {
+  timestamp: string;
+  rssBytes: number;
+  heapUsedBytes: number;
+  databaseLatencyMs: number | null;
+  duckdbActive: number;
+  duckdbQueued: number;
+  diskUsedPercent: number | null;
+  taskFailures: number;
+}
+
+export interface MetricsHistoryResponse {
+  samples: MetricSample[];
 }

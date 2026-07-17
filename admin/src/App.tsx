@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   AlertOutlined,
   CheckCircleOutlined,
@@ -8,6 +8,8 @@ import {
   CloudServerOutlined,
   DashboardOutlined,
   DatabaseOutlined,
+  EyeInvisibleOutlined,
+  EyeOutlined,
   HddOutlined,
   KeyOutlined,
   LockOutlined,
@@ -15,18 +17,21 @@ import {
   MenuOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
+  SearchOutlined,
   SettingOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import {
   AdminApiError,
   getAdminConfig,
+  getAdminHealth,
   getAdminOverview,
   getAdminStatus,
+  getMetricsHistory,
   updateAdminConfig,
   verifyAdminToken,
 } from './api';
-import type { AdminConfigItem, AdminOverview, DiagnosticCheck, HealthLevel } from './types';
+import type { AdminConfigItem, AdminHealth, AdminOverview, DiagnosticCheck, HealthLevel, MetricSample } from './types';
 
 type Section = 'overview' | 'diagnostics' | 'configuration';
 
@@ -38,6 +43,54 @@ const CATEGORY_LABELS: Record<AdminConfigItem['category'], string> = {
   market: '行情数据',
   runtime: '研究运行时',
 };
+
+const RESTART_SCOPE_LABELS: Record<AdminConfigItem['restartScope'], string> = {
+  db: '需重启后端 · 数据库',
+  ai: '需重启后端 · AI',
+  runtime: '需重启后端 · 运行时',
+  market: '部分即时 / 部分重启',
+  access: '需重启后端',
+};
+
+/** 前端实时校验，与 server/src/admin/envConfig.ts validateEnvValue 规则一致（见 §4.3） */
+function validateConfigValue(key: string, value: string): string | null {
+  if (['DB_HOST', 'DB_USER', 'DB_NAME', 'OPENAI_MODEL'].includes(key) && !value.trim()) {
+    return `${key} 不能为空`;
+  }
+  if (key === 'DB_PORT') {
+    const port = Number(value);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return 'DB_PORT 必须是 1 到 65535 的整数';
+    }
+  }
+  if (key === 'AI_STRATEGY_ENABLED' && !['true', 'false'].includes(value)) {
+    return 'AI_STRATEGY_ENABLED 只能是 true 或 false';
+  }
+  if (key === 'DUCKDB_MAX_CONCURRENT') {
+    const concurrency = Number(value);
+    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) {
+      return 'DUCKDB_MAX_CONCURRENT 必须是 1 到 8 的整数';
+    }
+  }
+  if (key === 'DUCKDB_MAX_QUEUED') {
+    const queued = Number(value);
+    if (!Number.isInteger(queued) || queued < 0 || queued > 100) {
+      return 'DUCKDB_MAX_QUEUED 必须是 0 到 100 的整数';
+    }
+  }
+  if (key === 'DUCKDB_MAX_TEMP_SIZE' && !/^\d+(?:\.\d+)?(?:KB|MB|GB|TB)$/i.test(value)) {
+    return 'DUCKDB_MAX_TEMP_SIZE 必须使用容量格式，例如 50GB';
+  }
+  if (key === 'OPENAI_BASE_URL' && value) {
+    try {
+      const url = new URL(value);
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+    } catch {
+      return 'OPENAI_BASE_URL 必须是有效的 HTTP 或 HTTPS 地址';
+    }
+  }
+  return null;
+}
 
 function App() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
@@ -116,15 +169,32 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
   const [section, setSection] = useState<Section>('overview');
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [config, setConfig] = useState<AdminConfigItem[]>([]);
+  const [metrics, setMetrics] = useState<MetricSample[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editing, setEditing] = useState<AdminConfigItem | null>(null);
   const [notice, setNotice] = useState('');
+  const [configSearch, setConfigSearch] = useState('');
+  const prevOverallRef = useRef<HealthLevel | null>(null);
 
-  const refresh = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
+  const notifyCritical = useCallback(() => {
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission === 'granted') {
+      new Notification('Quant Ops 告警', { body: '系统状态已转为 critical，请立即检查。' });
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission().then((perm) => {
+        if (perm === 'granted') {
+          new Notification('Quant Ops 告警', { body: '系统状态已转为 critical，请立即检查。' });
+        }
+      });
+    }
+  }, []);
+
+  // §2 全量刷新（页面加载 / 手动刷新时调用）
+  const refreshOverview = useCallback(async () => {
+    setLoading(true);
     setError('');
     try {
       const [nextOverview, nextConfig] = await Promise.all([
@@ -134,20 +204,65 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
       setOverview(nextOverview);
       setConfig(nextConfig);
       setLastRefresh(new Date());
+      prevOverallRef.current = nextOverview.overall;
     } catch (refreshError) {
       const message = refreshError instanceof Error ? refreshError.message : '刷新失败';
       setError(message);
       if (refreshError instanceof AdminApiError && refreshError.status === 401) onLogout();
     } finally {
-      if (!silent) setLoading(false);
+      setLoading(false);
     }
   }, [onLogout, token]);
 
+  // §2 轻量健康轮询（15 秒间隔，只调 /health）
+  const refreshHealth = useCallback(async (silent = false) => {
+    if (!silent) setError('');
+    try {
+      const health = await getAdminHealth(token);
+      setOverview((prev) => prev ? {
+        ...prev,
+        overall: health.overall,
+        counts: health.counts,
+        service: health.service,
+        database: health.database,
+        duckdb: health.duckdb,
+        generatedAt: health.generatedAt,
+        durationMs: health.durationMs,
+      } : prev);
+      setLastRefresh(new Date());
+      // §4.2 告警：overall 转为 critical 时发送浏览器通知
+      if (health.overall === 'critical' && prevOverallRef.current !== 'critical') {
+        notifyCritical();
+      }
+      prevOverallRef.current = health.overall;
+    } catch (refreshError) {
+      if (!silent) {
+        const message = refreshError instanceof Error ? refreshError.message : '刷新失败';
+        setError(message);
+      }
+      if (refreshError instanceof AdminApiError && refreshError.status === 401) onLogout();
+    }
+  }, [onLogout, token, notifyCritical]);
+
+  // §4.1 趋势数据刷新
+  const refreshMetrics = useCallback(async () => {
+    try {
+      const response = await getMetricsHistory(token);
+      setMetrics(response.samples);
+    } catch {
+      // 静默失败，不影响主流程
+    }
+  }, [token]);
+
   useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => void refresh(true), 15_000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
+    void refreshOverview();
+    const healthTimer = window.setInterval(() => void refreshHealth(true), 15_000);
+    const metricsTimer = window.setInterval(() => void refreshMetrics(), 30_000);
+    return () => {
+      window.clearInterval(healthTimer);
+      window.clearInterval(metricsTimer);
+    };
+  }, [refreshOverview, refreshHealth, refreshMetrics]);
 
   const navigate = (next: Section) => {
     setSection(next);
@@ -183,7 +298,7 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
         </nav>
         <div className="sidebar-meta">
           <span>自动刷新</span>
-          <strong>15 秒</strong>
+          <strong>15 秒 · 健康轮询</strong>
         </div>
       </aside>
 
@@ -203,7 +318,7 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
               <span>上次刷新</span>
               <strong>{lastRefresh ? lastRefresh.toLocaleTimeString('zh-CN', { hour12: false }) : '—'}</strong>
             </div>
-            <button className="secondary-button" disabled={loading} onClick={() => void refresh()}>
+            <button className="secondary-button" disabled={loading} onClick={() => void refreshOverview()}>
               <ReloadOutlined spin={loading} />
               <span>刷新</span>
             </button>
@@ -216,14 +331,25 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
         <div className="admin-content">
           {error && <InlineMessage level="critical">{error}</InlineMessage>}
           {notice && <InlineMessage level="warning" onClose={() => setNotice('')}>{notice}</InlineMessage>}
+          {/* §4.2 critical 常驻横幅 */}
+          {overview?.overall === 'critical' && (
+            <InlineMessage level="critical">
+              <AlertOutlined /> 系统当前处于 critical 状态，请立即检查下方诊断项。
+            </InlineMessage>
+          )}
           {loading && !overview ? (
             <DashboardSkeleton />
           ) : section === 'overview' ? (
-            overview && <OverviewSection overview={overview} />
+            overview && <OverviewSection overview={overview} metrics={metrics} onRefreshMetrics={() => void refreshMetrics()} />
           ) : section === 'diagnostics' ? (
             overview && <DiagnosticsSection checks={overview.checks} />
           ) : (
-            <ConfigurationSection items={config} onEdit={setEditing} />
+            <ConfigurationSection
+              items={config}
+              onEdit={setEditing}
+              search={configSearch}
+              onSearchChange={setConfigSearch}
+            />
           )}
         </div>
       </main>
@@ -236,7 +362,7 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
           onSaved={async (message) => {
             setEditing(null);
             setNotice(message);
-            await refresh(true);
+            await refreshHealth(true);
           }}
         />
       )}
@@ -244,7 +370,11 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
   );
 }
 
-function OverviewSection({ overview }: { overview: AdminOverview }) {
+function OverviewSection({ overview, metrics, onRefreshMetrics }: {
+  overview: AdminOverview;
+  metrics: MetricSample[];
+  onRefreshMetrics: () => void;
+}) {
   const connectionUsage = overview.database.maxConnections && overview.database.threadsConnected != null
     ? overview.database.threadsConnected / overview.database.maxConnections
     : null;
@@ -252,6 +382,14 @@ function OverviewSection({ overview }: { overview: AdminOverview }) {
     ? overview.service.memory.heapUsedBytes / overview.service.memory.heapTotalBytes
     : 0;
   const issueCount = overview.counts.critical + overview.counts.warning;
+
+  // §4.1 sparkline 数据提取
+  const rssData = metrics.map((m) => m.rssBytes);
+  const dbLatencyData = metrics.filter((m) => m.databaseLatencyMs != null).map((m) => m.databaseLatencyMs!);
+  const diskData = metrics.filter((m) => m.diskUsedPercent != null).map((m) => m.diskUsedPercent!);
+  const queueData = metrics.map((m) => m.duckdbQueued);
+  const heapData = metrics.map((m) => m.heapUsedBytes);
+  const sparkColor = 'var(--accent-primary)';
 
   return (
     <>
@@ -273,6 +411,7 @@ function OverviewSection({ overview }: { overview: AdminOverview }) {
           detail={`RSS 内存 · PID ${overview.service.pid}`}
           level="healthy"
           progress={heapUsage}
+          sparkline={<Sparkline data={rssData} color={sparkColor} />}
         />
         <MetricCard
           icon={<DatabaseOutlined />}
@@ -281,6 +420,7 @@ function OverviewSection({ overview }: { overview: AdminOverview }) {
           detail={overview.database.version ? `MySQL ${overview.database.version}` : '连接失败'}
           level={overview.database.status}
           progress={connectionUsage ?? undefined}
+          sparkline={<Sparkline data={dbLatencyData} color={sparkColor} />}
         />
         <MetricCard
           icon={<HddOutlined />}
@@ -290,6 +430,7 @@ function OverviewSection({ overview }: { overview: AdminOverview }) {
           level={overview.storage.disk && overview.storage.disk.usedPercent >= 0.9
             ? 'critical' : overview.storage.disk && overview.storage.disk.usedPercent >= 0.8 ? 'warning' : 'healthy'}
           progress={overview.storage.disk?.usedPercent}
+          sparkline={<Sparkline data={diskData} color={sparkColor} />}
         />
         <MetricCard
           icon={<ClockCircleOutlined />}
@@ -298,8 +439,33 @@ function OverviewSection({ overview }: { overview: AdminOverview }) {
           detail={overview.duckdb.queued > 0 ? `${overview.duckdb.queued} 个查询排队` : '当前无等待查询'}
           level={overview.duckdb.queued > 0 ? 'warning' : 'healthy'}
           progress={overview.duckdb.limit > 0 ? overview.duckdb.active / overview.duckdb.limit : 0}
+          sparkline={<Sparkline data={queueData} color={sparkColor} />}
         />
       </section>
+
+      {/* §4.1 最近 1 小时趋势 */}
+      {metrics.length >= 2 && (
+        <Panel title="最近 1 小时趋势" subtitle={`${metrics.length} 个采样点`} icon={<DashboardOutlined />}>
+          <div className="sparkline-grid">
+            <div className="sparkline-cell">
+              <span className="sparkline-label">RSS 内存</span>
+              <Sparkline data={rssData} color="var(--accent-primary)" width={200} height={40} />
+            </div>
+            <div className="sparkline-cell">
+              <span className="sparkline-label">堆使用</span>
+              <Sparkline data={heapData} color="var(--accent-primary)" width={200} height={40} />
+            </div>
+            <div className="sparkline-cell">
+              <span className="sparkline-label">磁盘使用率</span>
+              <Sparkline data={diskData} color="var(--status-warning)" width={200} height={40} />
+            </div>
+            <div className="sparkline-cell">
+              <span className="sparkline-label">DuckDB 队列</span>
+              <Sparkline data={queueData} color="var(--accent-primary)" width={200} height={40} />
+            </div>
+          </div>
+        </Panel>
+      )}
 
       <section className="dashboard-columns">
         <Panel title="数据基础设施" subtitle="关键目录与发布清单状态" icon={<HddOutlined />}>
@@ -451,18 +617,42 @@ function DiagnosticsSection({ checks }: { checks: DiagnosticCheck[] }) {
 function ConfigurationSection({
   items,
   onEdit,
+  search,
+  onSearchChange,
 }: {
   items: AdminConfigItem[];
   onEdit: (item: AdminConfigItem) => void;
+  search: string;
+  onSearchChange: (value: string) => void;
 }) {
   const categories = Object.keys(CATEGORY_LABELS) as AdminConfigItem['category'][];
+  const searchLower = search.trim().toLowerCase();
+  const matchesSearch = (item: AdminConfigItem) =>
+    !searchLower ||
+    item.label.toLowerCase().includes(searchLower) ||
+    item.key.toLowerCase().includes(searchLower) ||
+    item.description.toLowerCase().includes(searchLower);
   return (
     <>
+      <div className="config-search-bar">
+        <SearchOutlined />
+        <input
+          type="text"
+          placeholder="搜索配置项名称、键名或描述…"
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+        />
+        {search && (
+          <button className="icon-button" aria-label="清除搜索" onClick={() => onSearchChange('')}>
+            <CloseOutlined />
+          </button>
+        )}
+      </div>
       <InlineMessage level="warning">
         管理台不会返回密钥明文。修改会写入 server/.env，但已创建的数据库连接、AI Provider 和调度器需要重启后端才能完全生效。
       </InlineMessage>
       {categories.map((category) => {
-        const categoryItems = items.filter((item) => item.category === category);
+        const categoryItems = items.filter((item) => item.category === category && matchesSearch(item));
         if (categoryItems.length === 0) return null;
         return (
           <Panel
@@ -486,7 +676,9 @@ function ConfigurationSection({
                   </div>
                   <div className="config-value">
                     <span>{item.maskedValue ?? '未配置'}</span>
-                    <small>{item.restartRequired ? '重启后生效' : '立即生效'}</small>
+                    <small className={`scope-tag scope-${item.restartScope}`}>
+                      {item.restartRequired ? RESTART_SCOPE_LABELS[item.restartScope] : '立即生效'}
+                    </small>
                   </div>
                   <button className="secondary-button" disabled={!item.editable} onClick={() => onEdit(item)}>
                     {item.editable ? '更新' : '仅手动修改'}
@@ -515,9 +707,16 @@ function ConfigDialog({
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [showSecret, setShowSecret] = useState(false);
+  // §4.3 实时校验
+  const validationError = useMemo(
+    () => (value ? validateConfigValue(item.key, value) : null),
+    [item.key, value],
+  );
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (validationError) return;
     setSaving(true);
     setError('');
     try {
@@ -545,20 +744,37 @@ function ConfigDialog({
         </div>
         <form onSubmit={submit}>
           <label htmlFor="config-value">{item.secret ? '输入新密钥' : '输入新值'}</label>
-          <input
-            id="config-value"
-            autoFocus
-            type={item.secret ? 'password' : 'text'}
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            placeholder={item.secret ? '不会显示现有密钥' : item.maskedValue ?? ''}
-            autoComplete="off"
-          />
-          <p className="field-help">{item.description} 保存后需要重启后端。</p>
+          <div className="input-with-toggle">
+            <input
+              id="config-value"
+              autoFocus
+              type={item.secret && !showSecret ? 'password' : 'text'}
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              placeholder={item.secret ? '不会显示现有密钥' : item.maskedValue ?? ''}
+              autoComplete="off"
+              className={validationError ? 'input-error' : ''}
+            />
+            {item.secret && (
+              <button
+                type="button"
+                className="icon-button secret-toggle"
+                aria-label={showSecret ? '隐藏' : '显示'}
+                onClick={() => setShowSecret((prev) => !prev)}
+              >
+                {showSecret ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+              </button>
+            )}
+          </div>
+          {validationError && <p className="field-error">{validationError}</p>}
+          <p className="field-help">
+            {item.description}
+            {item.restartRequired && ` 保存后${RESTART_SCOPE_LABELS[item.restartScope]}。`}
+          </p>
           {error && <InlineMessage level="critical">{error}</InlineMessage>}
           <div className="dialog-actions">
             <button type="button" className="secondary-button" onClick={onClose}>取消</button>
-            <button type="submit" className="primary-button" disabled={saving || (!item.secret && !value.trim())}>
+            <button type="submit" className="primary-button" disabled={saving || (!!validationError) || (!item.secret && !value.trim())}>
               {saving ? '正在保存…' : '保存配置'}
             </button>
           </div>
@@ -622,6 +838,35 @@ function LoginScreen({
   );
 }
 
+function Sparkline({
+  data,
+  color,
+  width = 100,
+  height = 28,
+}: {
+  data: number[];
+  color: string;
+  width?: number;
+  height?: number;
+}) {
+  if (data.length < 2) return null;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const points = data
+    .map((value, i) => {
+      const x = (i / (data.length - 1)) * width;
+      const y = height - ((value - min) / range) * (height - 4) - 2;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+  return (
+    <svg className="sparkline" width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function MetricCard({
   icon,
   label,
@@ -629,6 +874,7 @@ function MetricCard({
   detail,
   level,
   progress,
+  sparkline,
 }: {
   icon: ReactNode;
   label: string;
@@ -636,6 +882,7 @@ function MetricCard({
   detail: string;
   level: HealthLevel;
   progress?: number;
+  sparkline?: ReactNode;
 }) {
   return (
     <article className="metric-card">
@@ -651,6 +898,7 @@ function MetricCard({
           <span className={`progress-fill level-${level}`} style={{ width: `${Math.min(1, Math.max(0, progress)) * 100}%` }} />
         </div>
       )}
+      {sparkline && <div className="metric-sparkline">{sparkline}</div>}
     </article>
   );
 }

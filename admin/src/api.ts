@@ -1,4 +1,4 @@
-import type { AdminConfigItem, AdminOverview } from './types';
+import type { AdminConfigItem, AdminHealth, AdminOverview, MetricsHistoryResponse } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3001';
 
@@ -26,6 +26,15 @@ export async function verifyAdminToken(token: string): Promise<void> {
 
 export async function getAdminOverview(token: string): Promise<AdminOverview> {
   return request('/api/admin/overview', {}, token);
+}
+
+export async function getAdminHealth(token: string): Promise<AdminHealth> {
+  return request('/api/admin/health', {}, token);
+}
+
+export async function getMetricsHistory(token: string, since?: string): Promise<MetricsHistoryResponse> {
+  const query = since ? `?since=${encodeURIComponent(since)}` : '';
+  return request(`/api/admin/metrics/history${query}`, {}, token);
 }
 
 export async function getAdminConfig(token: string): Promise<AdminConfigItem[]> {

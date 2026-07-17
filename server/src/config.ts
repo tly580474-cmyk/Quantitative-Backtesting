@@ -42,6 +42,8 @@ const envSchema = z.object({
 
   // Operations admin console. Empty means the admin API is disabled.
   ADMIN_API_TOKEN: z.string().default(''),
+  // Overview TTL cache (ms). 0 disables caching. See ADMIN_CONSOLE_OPTIMIZATION_PLAN §1.
+  ADMIN_OVERVIEW_CACHE_TTL_MS: z.string().default('10000'),
 
   PORT: z.string().default('3001'),
 });

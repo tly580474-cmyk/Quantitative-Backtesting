@@ -60,10 +60,12 @@ export interface DataQualityIssue {
   resolvedAt?: string;
 }
 
+export type MarketCode = 'SH' | 'SZ' | 'BJ' | 'HK' | 'US' | 'JP' | 'KR';
+
 export interface StockSearchItem {
   code: string;
   name: string;
-  market: 'SH' | 'SZ' | 'BJ';
+  market: MarketCode;
   type: 'stock' | 'index' | 'etf';
 }
 
