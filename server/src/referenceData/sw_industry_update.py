@@ -52,6 +52,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--skip-bars", action="store_true")
+    parser.add_argument(
+        "--bars-only",
+        action="store_true",
+        help="refresh daily bars from the stable trend endpoint using cached database definitions",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -62,41 +67,57 @@ def main() -> int:
     timeout = max(5.0, args.timeout)
     fetched_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    class_bytes = fetch_guarded_xls(CLASS_CODE_URL, timeout)
-    membership_bytes = fetch_guarded_xls(MEMBERSHIP_URL, timeout)
-    current_level1 = fetch_json(
-        f"{API_BASE}/current/",
-        {"page": 1, "page_size": 50, "indextype": "一级行业"},
-        timeout,
-    )["data"]["results"]
-    definitions = normalize_definitions(
-        pd.read_excel(io.BytesIO(class_bytes), dtype=str).fillna(""),
-        current_level1,
-    )
-    definition_version = hashlib.sha256(class_bytes).hexdigest()
-    membership_version = hashlib.sha256(membership_bytes).hexdigest()
-
     connection = open_database()
+    metadata_error = None
+    definition_version = None
+    membership_version = None
+    memberships = []
+    local_validation = None
     try:
-        instruments = load_instruments(connection)
-        memberships = normalize_memberships(
-            pd.read_excel(
-                io.BytesIO(membership_bytes),
-                dtype={"股票代码": str, "行业代码": str},
-            ),
-            definitions,
-            instruments,
-        )
-        validate_membership_coverage(memberships, instruments)
-        local_validation = validate_local_zip(Path(args.local_zip), memberships, definitions)
+        if args.bars_only:
+            definitions = load_cached_definitions(connection)
+        else:
+            try:
+                class_bytes = fetch_guarded_xls(CLASS_CODE_URL, timeout)
+                membership_bytes = fetch_guarded_xls(MEMBERSHIP_URL, timeout)
+                current_level1 = fetch_json(
+                    f"{API_BASE}/current/",
+                    {"page": 1, "page_size": 50, "indextype": "一级行业"},
+                    timeout,
+                )["data"]["results"]
+                definitions = normalize_definitions(
+                    pd.read_excel(io.BytesIO(class_bytes), dtype=str).fillna(""),
+                    current_level1,
+                )
+                definition_version = hashlib.sha256(class_bytes).hexdigest()
+                membership_version = hashlib.sha256(membership_bytes).hexdigest()
+                instruments = load_instruments(connection)
+                memberships = normalize_memberships(
+                    pd.read_excel(
+                        io.BytesIO(membership_bytes),
+                        dtype={"股票代码": str, "行业代码": str},
+                    ),
+                    definitions,
+                    instruments,
+                )
+                validate_membership_coverage(memberships, instruments)
+                local_validation = validate_local_zip(Path(args.local_zip), memberships, definitions)
+            except Exception as error:
+                # The official taxonomy/current endpoints occasionally publish empty or
+                # mojibake payloads while the independent trend endpoint remains healthy.
+                # Preserve the last validated taxonomy and still advance daily bars.
+                metadata_error = str(error)
+                definitions = load_cached_definitions(connection)
         bars = [] if args.skip_bars else fetch_all_bars(
             definitions,
             max(1, args.workers),
             timeout,
         )
         if not args.dry_run:
-            publish_definitions(connection, definitions, definition_version, fetched_at)
-            publish_memberships(connection, memberships, membership_version, fetched_at)
+            if metadata_error is None and not args.bars_only:
+                assert definition_version is not None and membership_version is not None
+                publish_definitions(connection, definitions, definition_version, fetched_at)
+                publish_memberships(connection, memberships, membership_version, fetched_at)
             if bars:
                 publish_bars(connection, bars, fetched_at)
     finally:
@@ -109,13 +130,15 @@ def main() -> int:
             "definitions": len(definitions),
             "levels": level_counts(definitions),
             "sourceVersion": definition_version,
+            "metadataFresh": metadata_error is None and not args.bars_only,
+            "warning": metadata_error,
         },
         "memberships": {
             "events": len(memberships),
             "symbols": len({item["symbol"] for item in memberships}),
             "mappedEvents": sum(item["instrument_key"] is not None for item in memberships),
-            "minEffectiveFrom": min(item["effective_from"] for item in memberships),
-            "maxEffectiveFrom": max(item["effective_from"] for item in memberships),
+            "minEffectiveFrom": min((item["effective_from"] for item in memberships), default=None),
+            "maxEffectiveFrom": max((item["effective_from"] for item in memberships), default=None),
             "sourceVersion": membership_version,
         },
         "bars": {
@@ -128,6 +151,33 @@ def main() -> int:
     }
     print(json.dumps(payload, ensure_ascii=False, default=str))
     return 0
+
+
+def load_cached_definitions(connection) -> list[dict[str, Any]]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT industry_code, industry_name, industry_level, parent_code, index_code
+            FROM sw_industry_definitions
+            WHERE taxonomy_key=%s
+            ORDER BY industry_level, industry_code
+            """,
+            (TAXONOMY_KEY,),
+        )
+        definitions = [
+            {
+                "industry_code": str(code),
+                "industry_name": str(name),
+                "industry_level": int(level),
+                "parent_code": None if parent is None else str(parent),
+                "index_code": None if index_code is None else str(index_code),
+            }
+            for code, name, level, parent, index_code in cursor.fetchall()
+        ]
+    level1 = [item for item in definitions if item["industry_level"] == 1 and item["index_code"]]
+    if len(level1) != 31:
+        raise RuntimeError(f"cached SW definitions are incomplete: {len(level1)}/31 level-1 indices")
+    return definitions
 
 
 def fetch_guarded_xls(url: str, timeout: float, attempts: int = 3) -> bytes:

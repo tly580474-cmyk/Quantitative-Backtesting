@@ -1,5 +1,6 @@
 param(
   [string]$TaskName = 'QuantBacktest-ResearchSnapshot',
+  [string]$MorningRetryAt = '08:30',
   [string]$At = '18:00',
   [string]$RetryAt = '18:30'
 )
@@ -14,6 +15,7 @@ $action = New-ScheduledTaskAction `
   -Argument $argument `
   -WorkingDirectory $serverRoot
 $triggers = @(
+  New-ScheduledTaskTrigger -Daily -At $MorningRetryAt
   New-ScheduledTaskTrigger -Daily -At $At
   New-ScheduledTaskTrigger -Daily -At $RetryAt
 )
@@ -33,4 +35,4 @@ Register-ScheduledTask `
   -Description 'Build, validate, and atomically publish the DuckDB research snapshot after market close.' `
   -Force | Out-Null
 
-Write-Output "Scheduled task '$TaskName' registered at $At and $RetryAt; working directory: $serverRoot"
+Write-Output "Scheduled task '$TaskName' registered at $MorningRetryAt, $At and $RetryAt; working directory: $serverRoot"

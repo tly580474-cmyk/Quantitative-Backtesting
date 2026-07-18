@@ -1,0 +1,28 @@
+{
+  "market": {
+    "metadata": { "recordcount": 1, "pagecount": 1 },
+    "data": [
+      {
+        "dqrq": "2026-07-17",
+        "zqdm": "000566",
+        "zqjc": "海南海药",
+        "cjje": "17.03",
+        "plyy": "日价格振幅达到17.65%",
+        "bz": "<a a-param='/ShowReport/data?CATALOGID=1842_detal&DQRQ=2026-07-17&ZQDM=000566&ZBDM=0902'>查看详情</a>"
+      }
+    ]
+  },
+  "detail": [
+    {
+      "metadata": { "tabkey": "tab1" },
+      "data": [{ "dqrq": "2026-07-17", "zqjc": "海南海药&nbsp;(000566)", "cjje": "1,703,510,157 元", "plyy": "日价格振幅达到17.65%" }]
+    },
+    {
+      "metadata": { "tabkey": "tab2" },
+      "data": [
+        { "mmlb": "买1", "zsmc": "机构专用", "mrje": "33,734,868", "mcje": "8,931,665" },
+        { "mmlb": "卖1", "zsmc": "深股通专用", "mrje": "16,148,057", "mcje": "67,784,893" }
+      ]
+    }
+  ]
+}

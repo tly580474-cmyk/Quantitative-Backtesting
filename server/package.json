@@ -38,6 +38,8 @@
     "reference:status": "python src/referenceData/status.py",
     "sw-industry:update": "python src/referenceData/sw_industry_update.py",
     "sw-industry:dry-run": "python src/referenceData/sw_industry_update.py --dry-run",
+    "sw-industry:bars:update": "python src/referenceData/sw_industry_update.py --bars-only",
+    "sw-industry:bars:dry-run": "python src/referenceData/sw_industry_update.py --bars-only --dry-run",
     "snapshot:benchmark": "tsx src/research/benchmarkCli.ts",
     "duckdb": "tsx src/research/duckdbCli.ts",
     "minute:prepare": "python src/minuteData/prepare.py --start-year 2010 --end-year 2026",

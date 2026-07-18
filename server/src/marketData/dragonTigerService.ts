@@ -2,8 +2,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eastmoneyDataCenterQuery } from './http/eastmoneyClient.js';
+import { fetchOfficialDragonTiger, fetchOfficialStockDragonTiger } from './http/officialDragonTigerClient.js';
 import { parseDragonTigerMarketRows, parseDragonTigerSeatRows } from './dragonTigerParsers.js';
-import type { DragonTigerMarketSnapshot, DragonTigerStockDetail } from './dragonTigerTypes.js';
+import type { DragonTigerMarketItem, DragonTigerMarketSnapshot, DragonTigerSeat, DragonTigerStockDetail } from './dragonTigerTypes.js';
 import {
   latestDragonTigerTradeDate,
   listDragonTigerByDate,
@@ -42,14 +43,26 @@ export async function getStockBillboard(
   const code = normalizeCode(inputCode);
   let records = options.dbOnline === false ? [] : await listDragonTigerStock(code, 8);
   if (options.force || !records.length) {
-    const response = await eastmoneyDataCenterQuery({
-      reportName: 'RPT_DAILYBILLBOARD_DETAILSNEW',
-      filter: `(SECURITY_CODE="${code}")`,
-      sortColumns: 'TRADE_DATE',
-      pageSize: 20,
-    });
-    const items = parseDragonTigerMarketRows(response.rows).slice(0, 8);
-    if (options.dbOnline !== false) await upsertDragonTigerBillboards(items);
+    let items: DragonTigerMarketItem[];
+    let officialSeats: DragonTigerSeat[] = [];
+    try {
+      const response = await eastmoneyDataCenterQuery({
+        reportName: 'RPT_DAILYBILLBOARD_DETAILSNEW',
+        filter: `(SECURITY_CODE="${code}")`,
+        sortColumns: 'TRADE_DATE',
+        pageSize: 20,
+      });
+      items = parseDragonTigerMarketRows(response.rows).slice(0, 8);
+      if (!items.length) throw new Error(`东财未返回 ${code} 龙虎榜数据`);
+    } catch {
+      const official = await fetchOfficialStockDragonTiger(code);
+      items = official.items.slice(0, 8);
+      officialSeats = official.seats;
+    }
+    if (options.dbOnline !== false) {
+      const ids = await upsertDragonTigerBillboards(items);
+      if (officialSeats.length) await upsertDragonTigerSeats(officialSeats, ids);
+    }
     records = options.dbOnline === false
       ? items.map((item, index) => ({ item, billboardId: -(index + 1) }))
       : await listDragonTigerStock(code, 8);
@@ -110,11 +123,27 @@ async function loadMarketBillboard(
       rows.push(...next.rows);
     }
     const items = parseDragonTigerMarketRows(rows);
+    if (!items.length) throw new Error(`东财未返回 ${date} 龙虎榜数据`);
     if (options.dbOnline !== false) await upsertDragonTigerBillboards(items);
     const result = snapshot(date, items, 'eastmoney');
     await writeCache(result);
     return remember(requestedDate ?? 'latest', result);
   } catch (error) {
+    try {
+      const official = await fetchOfficialDragonTiger(requestedDate);
+      if (official.items.length) {
+        if (options.dbOnline !== false) {
+          const ids = await upsertDragonTigerBillboards(official.items);
+          await upsertDragonTigerSeats(official.seats, ids);
+        }
+        const date = official.items[0]!.tradeDate;
+        const result = snapshot(date, official.items, 'sse+szse');
+        await writeCache(result);
+        return remember(requestedDate ?? 'latest', result);
+      }
+    } catch {
+      // Continue to the last known local snapshot below.
+    }
     const fallback = await readCache();
     if (fallback && (!requestedDate || fallback.tradeDate === requestedDate)) return remember(requestedDate ?? 'latest', { ...fallback, stale: true });
     throw error;
@@ -133,12 +162,21 @@ async function latestRemoteTradeDate(): Promise<string> {
 }
 
 async function fetchSeats(tradeId: string, tradeDate: string, code: string) {
-  const filter = `(TRADE_DATE='${tradeDate}')(SECURITY_CODE="${code}")(TRADE_ID="${tradeId}")`;
-  const [buy, sell] = await Promise.all([
-    eastmoneyDataCenterQuery({ reportName: 'RPT_BILLBOARD_DAILYDETAILSBUY', filter, sortColumns: 'BUY', pageSize: 10 }),
-    eastmoneyDataCenterQuery({ reportName: 'RPT_BILLBOARD_DAILYDETAILSSELL', filter, sortColumns: 'SELL', pageSize: 10 }),
-  ]);
-  return [...parseDragonTigerSeatRows(buy.rows.slice(0, 5), 'buy'), ...parseDragonTigerSeatRows(sell.rows.slice(0, 5), 'sell')];
+  try {
+    const filter = `(TRADE_DATE='${tradeDate}')(SECURITY_CODE="${code}")(TRADE_ID="${tradeId}")`;
+    const [buy, sell] = await Promise.all([
+      eastmoneyDataCenterQuery({ reportName: 'RPT_BILLBOARD_DAILYDETAILSBUY', filter, sortColumns: 'BUY', pageSize: 10 }),
+      eastmoneyDataCenterQuery({ reportName: 'RPT_BILLBOARD_DAILYDETAILSSELL', filter, sortColumns: 'SELL', pageSize: 10 }),
+    ]);
+    const seats = [...parseDragonTigerSeatRows(buy.rows.slice(0, 5), 'buy'), ...parseDragonTigerSeatRows(sell.rows.slice(0, 5), 'sell')];
+    if (seats.length) return seats;
+  } catch {
+    // The official event identity is preserved below, so seats cannot be attached
+    // to an unrelated Eastmoney event merely because the security/date match.
+  }
+  if (!tradeId.startsWith('sse:') && !tradeId.startsWith('szse:')) return [];
+  const official = await fetchOfficialStockDragonTiger(code, tradeDate);
+  return official.seats.filter((seat) => seat.tradeId === tradeId);
 }
 
 function snapshot(tradeDate: string, items: DragonTigerMarketSnapshot['items'], source: string): DragonTigerMarketSnapshot {

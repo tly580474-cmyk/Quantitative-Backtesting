@@ -1,0 +1,17 @@
+{
+  "pageHelp": {
+    "data": [
+      {
+        "secCode": "603118",
+        "secAbbr": "共进股份",
+        "tradeDate": "20260717",
+        "refType": "1",
+        "secTxAmount": "3196317914.00",
+        "branchNameB": "机构专用,沪股通专用",
+        "branchTxAmtB": "296418241.76,168564326.35",
+        "branchNameS": "沪股通专用,机构专用",
+        "branchTxAmtS": "130806188.62,89616443.95"
+      }
+    ]
+  }
+}

@@ -35,6 +35,33 @@ export function parseEastmoneyStockNews(jsonp: string, securityCode: string): Ma
   }));
 }
 
+export function parseClsTelegraph(data: unknown): MarketNewsItem[] {
+  const payload = data as { errno?: number; data?: { roll_data?: Array<Record<string, unknown>> } };
+  if (payload.errno != null && payload.errno !== 0) return [];
+  return (payload.data?.roll_data ?? []).flatMap((row) => {
+    const title = stripMarkup(text(row.title ?? row.brief));
+    if (!title) return [];
+    const stocks = Array.isArray(row.stock_list) ? row.stock_list as Array<Record<string, unknown>> : [];
+    const subjects = Array.isArray(row.subjects) ? row.subjects as Array<Record<string, unknown>> : [];
+    return [buildItem({
+      newsId: text(row.id) || hash(`${title}|${row.ctime}`),
+      sourceKey: 'cls',
+      sourceName: '财联社电报',
+      sourceTier: 'professional',
+      contentType: 'flash',
+      sourceUrl: optionalText(row.shareurl),
+      title,
+      summary: optionalText(stripMarkup(text(row.brief ?? row.content)).slice(0, 500)),
+      content: optionalText(stripMarkup(text(row.content)).slice(0, 4000)),
+      publishedAt: normalizeDateTime(row.ctime),
+      securityCode: stocks.length === 1 ? text(stocks[0]?.StockID).replace(/^(?:sh|sz|bj)/i, '') || undefined : undefined,
+      securityName: stocks.length === 1 ? optionalText(stocks[0]?.name) : undefined,
+      tags: subjects.map((item) => text(item.subject_name)).filter(Boolean).slice(0, 12),
+      raw: row,
+    })];
+  });
+}
+
 export function sortNewsByTimeAndPriority(items: MarketNewsItem[]): MarketNewsItem[] {
   return [...items].sort((a, b) => {
     const byTime = b.publishedAt.localeCompare(a.publishedAt);

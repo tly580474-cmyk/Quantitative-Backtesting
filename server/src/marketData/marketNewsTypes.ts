@@ -4,7 +4,7 @@ export type NewsContentType = 'flash' | 'article' | 'announcement' | 'irm';
 export interface MarketNewsItem {
   id?: number;
   newsId: string;
-  sourceKey: 'eastmoney_global' | 'eastmoney_stock' | 'cninfo' | 'sse' | 'szse';
+  sourceKey: 'eastmoney_global' | 'eastmoney_stock' | 'cls' | 'cninfo' | 'sse' | 'szse';
   sourceName: string;
   sourceTier: NewsSourceTier;
   contentType: NewsContentType;

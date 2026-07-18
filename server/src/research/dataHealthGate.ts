@@ -223,13 +223,21 @@ export function evaluateDataHealthGate(
     && references.swIndustry.barMaxDate !== null
     && references.swIndustry.barMaxDate >= authoritativeDate;
   const swReady = swCoverage >= 0.99 && swCurrent && references.swIndustry.industries > 0;
+  const swLagDays = authoritativeDate && references.swIndustry.barMaxDate
+    ? Math.max(0, (Date.parse(`${authoritativeDate}T00:00:00Z`) - Date.parse(`${references.swIndustry.barMaxDate}T00:00:00Z`)) / 86_400_000)
+    : Number.POSITIVE_INFINITY;
+  const swStatus: DataHealthStatus = swReady
+    ? 'pass'
+    : swCoverage >= 0.99 && references.swIndustry.industries > 0 && swLagDays <= 3 ? 'warn' : 'fail';
   checks.push({
     key: 'sw_industry',
-    status: swReady ? 'pass' : 'fail',
+    status: swStatus,
     message: swReady
       ? '申万行业成员覆盖与行业日线均满足回测门禁'
-      : '申万行业成员覆盖不足或行业日线落后于权威日线',
-    details: { ...references.swIndustry, activeCoverage: swCoverage },
+      : swStatus === 'warn'
+        ? `申万官方行业日线暂落后 ${swLagDays} 个自然日，已进入上游延迟重试窗口`
+        : '申万行业成员覆盖不足或行业日线明显落后于权威日线',
+    details: { ...references.swIndustry, activeCoverage: swCoverage, lagDays: swLagDays },
   });
 
   return {

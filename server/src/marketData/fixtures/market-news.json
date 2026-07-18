@@ -11,5 +11,20 @@
       }]
     }
   },
-  "stockJsonp": "jQuery_news({\"code\":0,\"result\":{\"cmsArticleWebOld\":[{\"code\":\"stock-688017-1\",\"title\":\"<em>688017</em> 个股新闻\",\"content\":\"新闻摘要\",\"date\":\"2026-07-18 08:00:00\",\"mediaName\":\"东方财富\",\"url\":\"https://stock.eastmoney.com/a/test.html\"}]}})"
+  "stockJsonp": "jQuery_news({\"code\":0,\"result\":{\"cmsArticleWebOld\":[{\"code\":\"stock-688017-1\",\"title\":\"<em>688017</em> 个股新闻\",\"content\":\"新闻摘要\",\"date\":\"2026-07-18 08:00:00\",\"mediaName\":\"东方财富\",\"url\":\"https://stock.eastmoney.com/a/test.html\"}]}})",
+  "cls": {
+    "errno": 0,
+    "data": {
+      "roll_data": [{
+        "id": 2430170,
+        "ctime": 1784354566,
+        "title": "财联社测试快讯",
+        "brief": "测试摘要",
+        "content": "测试正文",
+        "shareurl": "https://api3.cls.cn/share/article/2430170",
+        "stock_list": [{"StockID": "sh601728", "name": "中国电信"}],
+        "subjects": [{"subject_name": "人工智能"}]
+      }]
+    }
+  }
 }

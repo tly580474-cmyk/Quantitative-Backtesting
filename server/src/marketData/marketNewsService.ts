@@ -4,7 +4,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fetchCninfoAnnouncements, type MainlandMarket } from './http/cninfoClient.js';
 import { limitedFetchJson, limitedFetchText } from './http/eastmoneyClient.js';
-import { parseEastmoneyGlobalNews, parseEastmoneyStockNews, sortNewsByTimeAndPriority } from './marketNewsParsers.js';
+import { fetchClsTelegraph } from './http/clsClient.js';
+import { parseClsTelegraph, parseEastmoneyGlobalNews, parseEastmoneyStockNews, sortNewsByTimeAndPriority } from './marketNewsParsers.js';
 import type { MarketNewsItem, MarketNewsSnapshot, NewsSourceTier } from './marketNewsTypes.js';
 import { listMarketNews, upsertMarketNews } from './repositories/marketNewsRepository.js';
 
@@ -81,15 +82,21 @@ export async function getStockNews(
 }
 
 export async function refreshMarketNews(dbOnline = true, limit = 50): Promise<MarketNewsSnapshot> {
-  const data = await limitedFetchJson<unknown>(GLOBAL_NEWS_URL, {
-    client: 'web',
-    biz: 'web_724',
-    fastColumn: '102',
-    sortEnd: '',
-    pageSize: String(Math.max(20, limit)),
-    req_trace: randomUUID(),
-  }, 'https://kuaixun.eastmoney.com/');
-  const items = sortNewsByTimeAndPriority(parseEastmoneyGlobalNews(data));
+  const results = await Promise.allSettled([
+    limitedFetchJson<unknown>(GLOBAL_NEWS_URL, {
+      client: 'web', biz: 'web_724', fastColumn: '102', sortEnd: '',
+      pageSize: String(Math.max(20, limit)), req_trace: randomUUID(),
+    }, 'https://kuaixun.eastmoney.com/'),
+    fetchClsTelegraph(limit),
+  ]);
+  const items = sortNewsByTimeAndPriority([
+    ...(results[0].status === 'fulfilled' ? parseEastmoneyGlobalNews(results[0].value) : []),
+    ...(results[1].status === 'fulfilled' ? parseClsTelegraph(results[1].value) : []),
+  ]);
+  if (!items.length) {
+    const reasons = results.map((result) => result.status === 'rejected' ? String(result.reason) : '').filter(Boolean);
+    throw new Error(`市场新闻主备源均不可用：${reasons.join('; ')}`);
+  }
   if (dbOnline) await upsertMarketNews(items);
   const result = buildSnapshot(items);
   marketCache = { data: result, cachedAt: Date.now() };
