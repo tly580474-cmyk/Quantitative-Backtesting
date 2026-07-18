@@ -279,23 +279,34 @@ npm run backup:verify -- --path ./data/backups/<backup-id>
 npm run backup:restore-check -- --path ./data/backups/<backup-id> --database quant_backtest_restore_check --confirm-drop quant_backtest_restore_check --cleanup true
 ```
 
-## 14. 磁盘维护
+## 14. 自动保留与磁盘维护
 
-快照是不可变版本，新快照发布后旧快照目录不会自动删除。
+盘后任务在新快照通过 `snapshot:verify` 后自动执行安全清理。默认策略为：
 
-建议保留：
+- 始终保留 `current.json` 指向的当前快照。
+- 始终保留最近 7 个快照。
+- 最近 30 天每天至少保留 1 个快照。
+- 快照目录内存在 `.retain` 文件时永久保留，适合重要研究节点。
+- `.building-*`、manifest 缺失或校验失败的未知目录不会自动删除。
 
-- 当前快照。
-- 最近 1 份可回滚快照。
-- 重要研究节点对应的备份快照。
+配置项：
 
-删除旧快照前必须确认：
+```dotenv
+RESEARCH_SNAPSHOT_RETENTION_ENABLED=true
+RESEARCH_SNAPSHOT_RETAIN_LATEST=7
+RESEARCH_SNAPSHOT_RETAIN_DAILY_DAYS=30
+```
 
-1. `current.json` 没有指向待删除快照。
-2. 没有正在运行的因子研究任务读取该快照。
-3. 已完成必要备份。
+人工检查候选项时默认仅预览；只有显式传入 `--apply` 才会删除：
 
-不建议直接删除当前快照目录。
+```bash
+npm run snapshot:prune
+npm run snapshot:prune -- --apply
+```
+
+删除旧目录只会解除该版本的 NTFS 硬链接，不会破坏仍被其他快照引用的 Parquet 文件。
+
+定时任务启动前还会检查中国交易日。周末、`trading_calendar` 标记的休市日，以及日历缺失且当日权威日线不存在的日期都会安全跳过，不执行上游更新或快照构建。
 
 ## 15. 常见问题
 

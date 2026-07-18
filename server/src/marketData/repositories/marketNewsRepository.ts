@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import type { MarketNewsItem, NewsSourceTier } from '../marketNewsTypes.js';
+import { buildCanonicalNewsHash } from '../marketNewsDedup.js';
 
 const { marketNews } = schema;
 
@@ -100,7 +101,7 @@ function toDomain(row: typeof marketNews.$inferSelect): MarketNewsItem {
     securityName: row.securityName ?? undefined,
     industry: row.industry ?? undefined,
     tags: Array.isArray(row.tags) ? row.tags as string[] : undefined,
-    canonicalHash: row.canonicalHash,
+    canonicalHash: buildCanonicalNewsHash(row.title, fromMysqlUtc(row.publishedAt)),
     raw: row.raw ?? undefined,
   };
 }

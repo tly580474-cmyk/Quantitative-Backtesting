@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { parseLooseJson } from './http/looseJson.js';
+import { buildCanonicalNewsHash } from './marketNewsDedup.js';
 import { TIER_PRIORITY, type MarketNewsItem } from './marketNewsTypes.js';
 
 export function parseEastmoneyGlobalNews(data: unknown): MarketNewsItem[] {
@@ -70,8 +71,7 @@ export function sortNewsByTimeAndPriority(items: MarketNewsItem[]): MarketNewsIt
 }
 
 function buildItem(input: Omit<MarketNewsItem, 'canonicalHash'>): MarketNewsItem {
-  const bucket = input.publishedAt.slice(0, 16);
-  return { ...input, canonicalHash: hash(`${normalizeTitle(input.title)}|${bucket}|${input.securityCode ?? ''}`) };
+  return { ...input, canonicalHash: buildCanonicalNewsHash(input.title, input.publishedAt) };
 }
 
 function normalizeDateTime(value: unknown): string {
@@ -85,10 +85,6 @@ function normalizeDateTime(value: unknown): string {
   const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized);
   const parsed = new Date(hasZone ? normalized : `${normalized}+08:00`);
   return Number.isNaN(parsed.getTime()) ? new Date(0).toISOString() : parsed.toISOString();
-}
-
-function normalizeTitle(value: string): string {
-  return value.toLowerCase().replace(/[\s，。！？、；：,.!?;:'"“”‘’（）()【】\[\]-]/g, '');
 }
 
 function stripMarkup(value: string): string {

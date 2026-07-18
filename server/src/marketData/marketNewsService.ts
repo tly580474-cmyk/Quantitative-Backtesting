@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { fetchCninfoAnnouncements, type MainlandMarket } from './http/cninfoClient.js';
 import { limitedFetchJson, limitedFetchText } from './http/eastmoneyClient.js';
 import { fetchClsTelegraph } from './http/clsClient.js';
+import { buildCanonicalNewsHash, clusterMarketNews } from './marketNewsDedup.js';
 import { parseClsTelegraph, parseEastmoneyGlobalNews, parseEastmoneyStockNews, sortNewsByTimeAndPriority } from './marketNewsParsers.js';
 import type { MarketNewsItem, MarketNewsSnapshot, NewsSourceTier } from './marketNewsTypes.js';
 import { listMarketNews, upsertMarketNews } from './repositories/marketNewsRepository.js';
@@ -33,7 +34,7 @@ export async function getMarketNews(options: {
   }
   if (!options.force && options.dbOnline !== false) {
     const stored = await listMarketNews({ limit, tier: options.tier, before: options.before, beforeId: options.beforeId });
-    if (stored.length) return buildSnapshot(stored);
+    if (stored.length) return buildSnapshot(clusterMarketNews(stored), stored);
     // A cursor identifies an older database page. Refreshing the live first page here
     // would return duplicates and make cursor pagination loop forever.
     if (options.before) return buildSnapshot([]);
@@ -62,7 +63,7 @@ export async function getStockNews(
   if (!options.force && cached && Date.now() - cached.cachedAt < CACHE_MS) return cached.data;
   if (!options.force && options.dbOnline !== false) {
     const stored = await listMarketNews({ limit, securityCode: code });
-    if (stored.length) return rememberStock(code, buildSnapshot(stored));
+    if (stored.length) return rememberStock(code, buildSnapshot(clusterMarketNews(stored), stored));
   }
   const callback = `jQuery_news_${Date.now()}`;
   const param = JSON.stringify({
@@ -73,12 +74,12 @@ export async function getStockNews(
     limitedFetchText(STOCK_NEWS_URL, { params: { cb: callback, param }, referer: 'https://so.eastmoney.com/' }),
     fetchCninfoAnnouncements(code, inferMarket(code), Math.min(limit, 10)).catch(() => []),
   ]);
-  const items = sortNewsByTimeAndPriority([
+  const rawItems = sortNewsByTimeAndPriority([
     ...parseEastmoneyStockNews(stockText, code),
     ...announcements.map((item) => mapAnnouncement(item, code)),
   ]).slice(0, limit);
-  if (options.dbOnline !== false) await upsertMarketNews(items);
-  return rememberStock(code, buildSnapshot(items));
+  if (options.dbOnline !== false) await upsertMarketNews(rawItems);
+  return rememberStock(code, buildSnapshot(clusterMarketNews(rawItems), rawItems));
 }
 
 export async function refreshMarketNews(dbOnline = true, limit = 50): Promise<MarketNewsSnapshot> {
@@ -89,16 +90,16 @@ export async function refreshMarketNews(dbOnline = true, limit = 50): Promise<Ma
     }, 'https://kuaixun.eastmoney.com/'),
     fetchClsTelegraph(limit),
   ]);
-  const items = sortNewsByTimeAndPriority([
+  const rawItems = sortNewsByTimeAndPriority([
     ...(results[0].status === 'fulfilled' ? parseEastmoneyGlobalNews(results[0].value) : []),
     ...(results[1].status === 'fulfilled' ? parseClsTelegraph(results[1].value) : []),
   ]);
-  if (!items.length) {
+  if (!rawItems.length) {
     const reasons = results.map((result) => result.status === 'rejected' ? String(result.reason) : '').filter(Boolean);
     throw new Error(`市场新闻主备源均不可用：${reasons.join('; ')}`);
   }
-  if (dbOnline) await upsertMarketNews(items);
-  const result = buildSnapshot(items);
+  if (dbOnline) await upsertMarketNews(rawItems);
+  const result = buildSnapshot(clusterMarketNews(rawItems), rawItems);
   marketCache = { data: result, cachedAt: Date.now() };
   await writeCache(result);
   return result;
@@ -118,18 +119,18 @@ function mapAnnouncement(item: Awaited<ReturnType<typeof fetchCninfoAnnouncement
     publishedAt,
     securityCode: code,
     securityName: item.name || undefined,
-    canonicalHash: hash(`${normalizeTitle(title)}|${publishedAt.slice(0, 16)}|${code}`),
+    canonicalHash: buildCanonicalNewsHash(title, publishedAt),
     raw: item.raw,
   };
 }
 
-function buildSnapshot(items: MarketNewsItem[]): MarketNewsSnapshot {
-  const last = items.at(-1);
+function buildSnapshot(items: MarketNewsItem[], cursorItems: MarketNewsItem[] = items): MarketNewsSnapshot {
+  const last = cursorItems.at(-1);
   return {
     items,
     total: items.length,
     updatedAt: new Date().toISOString(),
-    sources: [...new Set(items.map((item) => item.sourceKey))],
+    sources: [...new Set(cursorItems.map((item) => item.sourceKey))],
     nextCursor: last ? { before: last.publishedAt, beforeId: last.id } : undefined,
   };
 }
@@ -167,10 +168,6 @@ function clampLimit(value?: number): number {
 function normalizePublishedAt(value: string): string {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? new Date(0).toISOString() : parsed.toISOString();
-}
-
-function normalizeTitle(value: string): string {
-  return value.toLowerCase().replace(/[\s，。！？、；：,.!?;:'"“”‘’（）()【】\[\]-]/g, '');
 }
 
 function hash(value: string): string {

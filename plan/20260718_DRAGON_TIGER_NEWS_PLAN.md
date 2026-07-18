@@ -207,7 +207,7 @@ CREATE TABLE IF NOT EXISTS market_news (
   industry VARCHAR(64) NULL,                -- 关联行业
   tags JSON NULL,                           -- 标签数组
   raw JSON NULL,                            -- 原始数据
-  canonical_hash CHAR(64) NOT NULL,         -- 规范标题+时间窗+证券，用于跨源聚合
+  canonical_hash CHAR(64) NOT NULL,         -- 规范标题+上海自然日，用于跨源聚合候选召回
   fetched_at DATETIME(3) NOT NULL,
   UNIQUE INDEX idx_mn_news_id (news_id, source_key),
   INDEX idx_mn_canonical (canonical_hash, published_at),
@@ -433,7 +433,7 @@ export function sortNewsByPriority(items: MarketNewsItem[]): MarketNewsItem[] {
 }
 ```
 
-跨源去重分两层：`news_id + source_key` 保证单源幂等；`canonical_hash` 只用于聚合同一事件的多个来源，保留原始来源记录并选最高等级来源作为主展示项。
+跨源去重分两层：`news_id + source_key` 保证单源幂等；`canonical_hash` 使用规范标题和上海自然日做候选召回，不把可能缺失的证券代码或精确分钟写入指纹。展示层再按 6 小时时间窗、标题二元组/最长公共片段及数字事实一致性做事件聚类，保留原始来源记录，并选来源等级更高、信息更完整的一条作为主展示项。
 
 ### 2.6 API 端点设计
 
@@ -837,6 +837,7 @@ interface MarketDataPageCache {
 3. 解析器均以真实响应 fixture 固化，并覆盖签名向量、事件金额、席位方向、机构席位识别和来源映射。
 4. 2026-07-18 实时验证：2026-07-17 官方龙虎榜取得 63 条事件、210 条席位，覆盖 `sse` 与 `szse`；财联社实时解析取得 20 条电报。
 5. 申万行业延迟调查与降级修复已完成，详见 `doc/20260718_SW_INDUSTRY_UPDATE_INCIDENT.md`。
+6. 市场新闻已增加跨媒体事件聚类：同一事件只展示一次，并通过“多个来源”标签保留来源追溯；证券识别差异和数分钟发布时间差不再造成重复，数字事实冲突的报道不会被合并。
 
 ### 尚未进入的 Phase 2 可选项
 

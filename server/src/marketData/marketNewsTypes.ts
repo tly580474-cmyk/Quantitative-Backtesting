@@ -1,6 +1,15 @@
 export type NewsSourceTier = 'official' | 'state_media' | 'professional' | 'aggregator' | 'self_media';
 export type NewsContentType = 'flash' | 'article' | 'announcement' | 'irm';
 
+export interface MarketNewsSource {
+  newsId: string;
+  sourceKey: MarketNewsItem['sourceKey'];
+  sourceName: string;
+  sourceTier: NewsSourceTier;
+  sourceUrl?: string;
+  publishedAt: string;
+}
+
 export interface MarketNewsItem {
   id?: number;
   newsId: string;
@@ -18,6 +27,8 @@ export interface MarketNewsItem {
   industry?: string;
   tags?: string[];
   canonicalHash: string;
+  sourceCount?: number;
+  relatedSources?: MarketNewsSource[];
   raw?: unknown;
 }
 

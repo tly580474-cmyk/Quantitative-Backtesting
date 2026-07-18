@@ -81,7 +81,7 @@ export default function MarketNewsPanel() {
           {items.map((item) => <article className="market-news-item" key={`${item.sourceKey}-${item.newsId}`}>
             <time dateTime={item.publishedAt}>{new Date(item.publishedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>
             <div>
-              <Space size={[6, 4]} wrap><Tag color={tierMeta[item.sourceTier].color}>{tierMeta[item.sourceTier].label}</Tag><Tag>{item.sourceName}</Tag>{item.securityCode && <Tag color="geekblue">{item.securityCode}</Tag>}</Space>
+              <Space size={[6, 4]} wrap><Tag color={tierMeta[item.sourceTier].color}>{tierMeta[item.sourceTier].label}</Tag><Tag>{item.sourceName}</Tag>{(item.sourceCount ?? 1) > 1 && <Tooltip title={`同一事件来源：${item.relatedSources?.map((source) => source.sourceName).join('、')}`}><Tag color="cyan">{item.sourceCount} 个来源</Tag></Tooltip>}{item.securityCode && <Tag color="geekblue">{item.securityCode}</Tag>}</Space>
               <h3>{item.sourceUrl ? <a href={item.sourceUrl} target="_blank" rel="noreferrer">{item.title}<LinkOutlined /></a> : item.title}</h3>
               {item.summary && <p>{item.summary}</p>}
             </div>
@@ -96,7 +96,19 @@ export default function MarketNewsPanel() {
 }
 
 function dedupe(items: MarketNewsItem[]): MarketNewsItem[] {
-  return [...new Map(items.map((item) => [`${item.sourceKey}:${item.newsId}`, item])).values()];
+  const groups = new Map<string, MarketNewsItem[]>();
+  for (const item of items) {
+    const key = item.canonicalHash || `${item.sourceKey}:${item.newsId}`;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups.values()].map((group) => {
+    if (group.length === 1) return group[0]!;
+    const sources = [...new Map(group.flatMap((item) => item.relatedSources ?? [{
+      newsId: item.newsId, sourceKey: item.sourceKey, sourceName: item.sourceName,
+      sourceTier: item.sourceTier, sourceUrl: item.sourceUrl, publishedAt: item.publishedAt,
+    }]).map((source) => [`${source.sourceKey}:${source.sourceName}`, source])).values()];
+    return { ...group[0]!, sourceCount: sources.length, relatedSources: sources };
+  }).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
 }
 
 function groupByDate(items: MarketNewsItem[]): Array<[string, MarketNewsItem[]]> {

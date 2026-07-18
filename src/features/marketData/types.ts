@@ -288,6 +288,16 @@ export interface MarketNewsItem {
   securityName?: string;
   industry?: string;
   tags?: string[];
+  canonicalHash: string;
+  sourceCount?: number;
+  relatedSources?: Array<{
+    newsId: string;
+    sourceKey: string;
+    sourceName: string;
+    sourceTier: NewsSourceTier;
+    sourceUrl?: string;
+    publishedAt: string;
+  }>;
 }
 
 export interface MarketNewsSnapshot {

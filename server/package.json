@@ -16,6 +16,8 @@
     "snapshot:publish": "tsx src/research/publishCli.ts",
     "snapshot:verify": "tsx src/research/verifyCli.ts",
     "snapshot:freshness": "tsx src/research/freshnessCli.ts",
+    "snapshot:prune": "tsx src/research/snapshotRetentionCli.ts",
+    "snapshot:schedule:check": "tsx src/research/scheduledResearchGuardCli.ts",
     "data:gate": "tsx src/research/dataHealthGateCli.ts",
     "data:coverage": "tsx src/research/dataCoverageMatrixCli.ts",
     "data:reconcile": "tsx src/research/dataReconciliationCli.ts",

@@ -13,7 +13,7 @@ export function buildClsSignature(params: Record<string, string>): string {
 export async function fetchClsTelegraph(limit = 50, lastTime = ''): Promise<unknown> {
   const params = {
     appName: 'CailianpressWeb', os: 'web', sv: '7.7.5', last_time: lastTime,
-    refresh_type: '1', rn: String(Math.max(1, Math.min(100, limit))),
+    refresh_type: '1', rn: String(Math.max(1, Math.min(50, limit))),
   };
   const target = new URL(CLS_URL);
   for (const [key, value] of Object.entries(params)) target.searchParams.set(key, value);
