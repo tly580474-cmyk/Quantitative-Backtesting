@@ -1,0 +1,15 @@
+{
+  "global": {
+    "data": {
+      "sortEnd": "1784348654077140",
+      "fastNewsList": [{
+        "code": "202607180001",
+        "title": "市场快讯测试标题",
+        "summary": "用于锁定东财全球资讯字段映射。",
+        "showTime": "2026-07-18 09:30:00",
+        "newsUrl": "https://finance.eastmoney.com/a/test.html"
+      }]
+    }
+  },
+  "stockJsonp": "jQuery_news({\"code\":0,\"result\":{\"cmsArticleWebOld\":[{\"code\":\"stock-688017-1\",\"title\":\"<em>688017</em> 个股新闻\",\"content\":\"新闻摘要\",\"date\":\"2026-07-18 08:00:00\",\"mediaName\":\"东方财富\",\"url\":\"https://stock.eastmoney.com/a/test.html\"}]}})"
+}

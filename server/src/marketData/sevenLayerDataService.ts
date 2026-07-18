@@ -2,19 +2,15 @@ import {
   fetchStockQuote,
   type StockQuote,
 } from './aStockDataService.js';
+import { fetchCninfoAnnouncements } from './http/cninfoClient.js';
+import { limitedFetchJson } from './http/eastmoneyClient.js';
+import { getStockBillboard } from './dragonTigerService.js';
+import { getStockNews } from './marketNewsService.js';
 
 const EASTMONEY_DATACENTER_URL = 'https://datacenter-web.eastmoney.com/api/data/v1/get';
 const EASTMONEY_SECURITIES_URL = 'https://datacenter.eastmoney.com/securities/api/data/v1/get';
 const EASTMONEY_PUSH2_URL = 'https://push2.eastmoney.com/api/qt';
 const EASTMONEY_PUSH2HIS_URL = 'https://push2his.eastmoney.com/api/qt';
-const CNINFO_SEARCH_URL = 'https://www.cninfo.com.cn/new/information/topSearch/query';
-const CNINFO_ANN_URL = 'https://www.cninfo.com.cn/new/hisAnnouncement/query';
-
-const BROWSER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
-  Accept: 'application/json,text/plain,*/*',
-  'X-Requested-With': 'XMLHttpRequest',
-};
 
 const INDUSTRY_ALIASES: Record<string, string[]> = {
   证券: ['证券', '券商', '券商概念', '证券公司'],
@@ -40,7 +36,7 @@ export interface SevenLayerRecord {
 }
 
 export interface SevenLayerSection {
-  key: 'signal' | 'capital' | 'fundamental' | 'announcement';
+  key: 'signal' | 'capital' | 'fundamental' | 'announcement' | 'news';
   title: string;
   status: SevenLayerStatus;
   summary: string;
@@ -73,18 +69,16 @@ interface SourceResult {
   error?: string;
 }
 
-let limitedQueue: Promise<void> = Promise.resolve();
-let limitedLastCall = 0;
-
 export async function fetchSevenLayerSnapshot(input: string): Promise<SevenLayerSnapshot> {
   const security = resolveSecurity(input);
   const quote = await fetchStockQuote(input).catch(() => null);
 
-  const [signals, capital, fundamentals, announcements] = await Promise.all([
+  const [signals, capital, fundamentals, announcements, news] = await Promise.all([
     loadSignalLayer(security, quote),
     loadCapitalLayer(security),
     loadFundamentalLayer(security),
     loadAnnouncementLayer(security),
+    loadNewsLayer(security),
   ]);
 
   const name = quote?.name ?? security.code;
@@ -99,6 +93,7 @@ export async function fetchSevenLayerSnapshot(input: string): Promise<SevenLayer
       buildSection('capital', '资金面', capital, '融资融券/大宗交易/股东户数/分钟资金流/120日资金流'),
       buildSection('fundamental', '基础数据', fundamentals, '公司画像/估值股本/核心财务/财报摘要'),
       buildSection('announcement', '公告', announcements, '巨潮公告检索'),
+      buildSection('news', '新闻', news, '东财个股新闻/巨潮公告聚合'),
     ],
   };
 }
@@ -118,6 +113,8 @@ export async function fetchSevenLayerSection(input: string, section: SevenLayerS
       return buildSection('fundamental', '基础数据', await loadFundamentalLayer(security), '公司画像/估值股本/核心财务/财报摘要');
     case 'announcement':
       return buildSection('announcement', '公告', await loadAnnouncementLayer(security), '巨潮公告检索');
+    case 'news':
+      return buildSection('news', '新闻', await loadNewsLayer(security), '东财个股新闻/巨潮公告聚合');
   }
 }
 
@@ -156,8 +153,18 @@ async function loadSignalLayer(security: SecurityRef, quote: StockQuote | null):
     }).then((data) => sectorFundRecords(dataToRows(data), quote))),
     source('东财北向资金', () => eastmoneyDataCenter('RPT_MUTUAL_STOCK_NORTHSTA', security.code, 'TRADE_DATE', 6)
       .then((rows) => mapRows('东财北向资金', rows, ['TRADE_DATE', 'SECURITY_NAME', 'HOLD_MARKET_CAP', 'HOLD_SHARES', 'ADD_MARKET_CAP']))),
-    source('东财龙虎榜', () => eastmoneyDataCenter('RPT_DAILYBILLBOARD_DETAILS', security.code, 'TRADE_DATE', 8)
-      .then((rows) => mapRows('东财龙虎榜', rows, ['TRADE_DATE', 'SECURITY_NAME_ABBR', 'EXPLANATION', 'NET_BUY_AMT', 'BILLBOARD_DEAL_AMT']))),
+    source('东财龙虎榜', async () => (await getStockBillboard(security.code, { includeLatestSeats: false })).records.map((record) => ({
+      source: '东财龙虎榜',
+      title: `${record.name} ${record.explanation}`,
+      date: record.tradeDate,
+      metrics: {
+        TRADE_ID: record.tradeId,
+        EXPLANATION: record.explanation,
+        NET_BUY_AMT: record.netBuyAmt,
+        BILLBOARD_DEAL_AMT: record.billboardDealAmt,
+      },
+      raw: record,
+    }))),
     source('东财解禁', () => eastmoneyDataCenter('RPT_LIFT_STAGE', security.code, 'LIFT_DATE', 8)
       .then((rows) => mapRows('东财解禁', rows, ['LIFT_DATE', 'SECURITY_NAME_ABBR', 'LIFT_MARKET_CAP', 'LIFT_NUM', 'FREE_SHARES_RATIO']))),
   ]);
@@ -205,71 +212,33 @@ async function loadFundamentalLayer(security: SecurityRef): Promise<SourceResult
 
 async function loadAnnouncementLayer(security: SecurityRef): Promise<SourceResult[]> {
   return Promise.all([
-    source('巨潮公告', async () => {
-      const cninfoStock = await resolveCninfoStock(security);
-      const params = new URLSearchParams({
-        stock: cninfoStock.stock,
-        searchkey: '',
-        category: '',
-        pageNum: '1',
-        pageSize: '10',
-        column: cninfoColumn(security.market),
-        tabName: 'fulltext',
-        seDate: '',
-        sortName: '',
-        sortType: '',
-        isHLtitle: 'true',
-      });
-      const response = await fetch(CNINFO_ANN_URL, {
-        method: 'POST',
-        headers: {
-          ...BROWSER_HEADERS,
-          Referer: cninfoStock.orgId
-            ? `https://www.cninfo.com.cn/new/disclosure/stock?stockCode=${security.code}&orgId=${cninfoStock.orgId}`
-            : 'https://www.cninfo.com.cn/new/disclosure/stock',
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        },
-        body: params,
-        signal: AbortSignal.timeout(18000),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json() as { announcements?: Array<Record<string, unknown>> };
-      return (data.announcements ?? []).slice(0, 10).map((row) => ({
+    source('巨潮公告', async () => (await fetchCninfoAnnouncements(security.code, security.market, 10)).map((item) => ({
         source: '巨潮公告',
-        title: stripMarkup(String(row.shortTitle ?? row.announcementTitle ?? row.title ?? '公告')),
-        date: formatCninfoDate(row.announcementTime),
-        url: row.adjunctUrl ? `https://static.cninfo.com.cn/${row.adjunctUrl}` : undefined,
-        metrics: pick(row, ['secCode', 'secName', 'announcementTypeName', 'adjunctType', 'announcementId']),
-        raw: row,
-      }));
-    }),
+        title: item.title,
+        date: item.publishedAt.slice(0, 10) || undefined,
+        url: item.url,
+        metrics: { secCode: item.code, secName: item.name, announcementTypeName: item.type, announcementId: item.id },
+        raw: item.raw,
+      }))),
   ]);
 }
 
-async function resolveCninfoStock(security: SecurityRef): Promise<{ stock: string; orgId?: string }> {
-  const params = new URLSearchParams({
-    keyWord: security.code,
-    maxNum: '10',
-  });
-  const response = await fetch(`${CNINFO_SEARCH_URL}?${params.toString()}`, {
-    method: 'POST',
-    headers: {
-      ...BROWSER_HEADERS,
-      Referer: 'https://www.cninfo.com.cn/new/disclosure/stock',
-    },
-    signal: AbortSignal.timeout(12000),
-  });
-  if (!response.ok) throw new Error(`巨潮证券检索 HTTP ${response.status}`);
-  const rows = await response.json() as Array<Record<string, unknown>>;
-  const matched = rows.find((row) => String(row.code ?? row.secCode ?? row.stockCode ?? '') === security.code);
-  const orgId = String(matched?.orgId ?? '');
-  return orgId ? { stock: `${security.code},${orgId}`, orgId } : { stock: security.code };
-}
-
-function cninfoColumn(market: SecurityRef['market']): string {
-  if (market === 'SH') return 'sse';
-  if (market === 'BJ') return 'bj';
-  return 'szse';
+async function loadNewsLayer(security: SecurityRef): Promise<SourceResult[]> {
+  return Promise.all([
+    source('市场资讯聚合', async () => (await getStockNews(security.code, { limit: 20 })).items.map((item) => ({
+      source: item.sourceName,
+      title: item.title,
+      date: item.publishedAt.slice(0, 10),
+      url: item.sourceUrl,
+      summary: item.summary,
+      metrics: {
+        sourceTier: item.sourceTier,
+        contentType: item.contentType,
+        publishedAt: item.publishedAt,
+      },
+      raw: item.raw,
+    })), 20),
+  ]);
 }
 
 async function source(name: string, run: () => Promise<SevenLayerRecord[]>, limit = 12): Promise<SourceResult> {
@@ -282,7 +251,7 @@ async function source(name: string, run: () => Promise<SevenLayerRecord[]>, limi
 }
 
 async function eastmoneyJson(url: string, params: Record<string, string>): Promise<any> {
-  return limitedFetchJson(url, params, 'https://quote.eastmoney.com/');
+  return limitedFetchJson<any>(url, params, 'https://quote.eastmoney.com/');
 }
 
 async function eastmoneyDataCenter(
@@ -293,7 +262,7 @@ async function eastmoneyDataCenter(
   filterColumn = 'SECURITY_CODE',
 ): Promise<Record<string, unknown>[]> {
   const filters = `(${filterColumn}="${code}")`;
-  const data = await limitedFetchJson(EASTMONEY_DATACENTER_URL, {
+  const data = await limitedFetchJson<any>(EASTMONEY_DATACENTER_URL, {
     reportName,
     columns: 'ALL',
     filter: filters,
@@ -313,7 +282,7 @@ async function eastmoneySecurityDataCenter(
   sortColumn: string,
   pageSize: number,
 ): Promise<Record<string, unknown>[]> {
-  const data = await limitedFetchJson(EASTMONEY_SECURITIES_URL, {
+  const data = await limitedFetchJson<any>(EASTMONEY_SECURITIES_URL, {
     reportName,
     columns: 'ALL',
     filter,
@@ -325,41 +294,6 @@ async function eastmoneySecurityDataCenter(
     client: 'PC',
   }, 'https://emweb.securities.eastmoney.com/');
   return Array.isArray(data?.result?.data) ? data.result.data : Array.isArray(data?.data) ? data.data : [];
-}
-
-async function limitedFetchJson(url: string, params: Record<string, string>, referer: string): Promise<any> {
-  const run = limitedQueue.then(async () => {
-    const wait = Math.max(0, 900 - (Date.now() - limitedLastCall));
-    if (wait > 0) await sleep(wait + Math.floor(Math.random() * 180));
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        const response = await fetch(`${url}?${new URLSearchParams(params).toString()}`, {
-          headers: { ...BROWSER_HEADERS, Referer: referer },
-          signal: AbortSignal.timeout(18000),
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const text = await response.text();
-        return parseLooseJson(text);
-      } catch (error) {
-        lastError = error;
-        if (attempt < 3) await sleep(450 * attempt + Math.floor(Math.random() * 180));
-      } finally {
-        limitedLastCall = Date.now();
-      }
-    }
-    throw lastError instanceof Error ? lastError : new Error('Eastmoney request failed');
-  });
-  limitedQueue = run.then(() => undefined, () => undefined);
-  return run;
-}
-
-function parseLooseJson(text: string): any {
-  const trimmed = text.trim();
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return JSON.parse(trimmed);
-  const match = trimmed.match(/^[^(]*\(([\s\S]*)\);?$/);
-  if (match) return JSON.parse(match[1]);
-  return JSON.parse(trimmed);
 }
 
 function mapRows(sourceName: string, rows: Record<string, unknown>[], preferredKeys: string[]): SevenLayerRecord[] {
@@ -511,17 +445,6 @@ function pick(row: Record<string, unknown>, keys: string[]): Record<string, unkn
   return Object.fromEntries(keys.filter((key) => row[key] != null).map((key) => [key, row[key]]));
 }
 
-function stripMarkup(value: string): string {
-  return value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-}
-
-function formatCninfoDate(value: unknown): string | undefined {
-  const num = Number(value);
-  if (Number.isFinite(num) && num > 0) return new Date(num).toISOString().slice(0, 10);
-  const text = String(value ?? '');
-  return text ? text.slice(0, 10) : undefined;
-}
-
 function formatEightDigitDate(value: unknown): string | undefined {
   const text = String(value ?? '');
   return /^\d{8}$/.test(text) ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6)}` : undefined;
@@ -538,8 +461,4 @@ function resolveSecurity(input: string): SecurityRef {
   const prefix = market === 'SH' ? 'sh' : market === 'BJ' ? 'bj' : 'sz';
   const secidPrefix = market === 'SH' ? '1' : '0';
   return { code, market, prefixed: `${prefix}${code}`, secid: `${secidPrefix}.${code}` };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

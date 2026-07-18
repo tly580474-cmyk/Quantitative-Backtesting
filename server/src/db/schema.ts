@@ -10,6 +10,7 @@ import {
   datetime,
   bigint,
   primaryKey,
+  text,
 } from 'drizzle-orm/mysql-core';
 import { sql } from 'drizzle-orm';
 
@@ -122,6 +123,102 @@ export const dividendEvents = mysqlTable('dividend_events', {
   sourceFingerprintUnique: uniqueIndex('idx_de_source_fingerprint').on(table.sourceFingerprint),
   instrumentExDateIdx: index('idx_de_instrument_ex_date').on(table.instrumentKey, table.exDate),
   reportPeriodIdx: index('idx_de_report_period').on(table.reportPeriod),
+}));
+
+export const dragonTigerBillboards = mysqlTable('dragon_tiger_billboards', {
+  id: bigint('id', { mode: 'number', unsigned: true }).autoincrement().primaryKey(),
+  tradeId: varchar('trade_id', { length: 64 }).notNull(),
+  tradeDate: date('trade_date', { mode: 'string' }).notNull(),
+  securityCode: varchar('security_code', { length: 10 }).notNull(),
+  securityName: varchar('security_name', { length: 64 }).notNull(),
+  exchange: varchar('exchange', { length: 4 }).notNull(),
+  explanation: varchar('explanation', { length: 500 }),
+  changeType: varchar('change_type', { length: 32 }),
+  netBuyAmt: double('net_buy_amt'),
+  buyAmt: double('buy_amt'),
+  sellAmt: double('sell_amt'),
+  billboardDealAmt: double('billboard_deal_amt'),
+  closePrice: double('close_price'),
+  changePct: double('change_pct'),
+  turnoverRate: double('turnover_rate'),
+  reasonCodes: json('reason_codes'),
+  sourceKey: varchar('source_key', { length: 32 }).notNull().default('eastmoney'),
+  sourceFingerprint: varchar('source_fingerprint', { length: 64 }).notNull(),
+  fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+}, (table) => ({
+  fingerprintUnique: uniqueIndex('idx_dtb_fingerprint').on(table.sourceFingerprint),
+  sourceTradeUnique: uniqueIndex('idx_dtb_source_trade').on(table.sourceKey, table.tradeId),
+  dateIdx: index('idx_dtb_date').on(table.tradeDate),
+  codeDateIdx: index('idx_dtb_code_date').on(table.securityCode, table.tradeDate),
+  netBuyIdx: index('idx_dtb_net_buy').on(table.tradeDate, table.netBuyAmt),
+}));
+
+export const dragonTigerSeats = mysqlTable('dragon_tiger_seats', {
+  id: bigint('id', { mode: 'number', unsigned: true }).autoincrement().primaryKey(),
+  billboardId: bigint('billboard_id', { mode: 'number', unsigned: true }).notNull()
+    .references(() => dragonTigerBillboards.id, { onDelete: 'cascade' }),
+  tradeId: varchar('trade_id', { length: 64 }).notNull(),
+  tradeDate: date('trade_date', { mode: 'string' }).notNull(),
+  securityCode: varchar('security_code', { length: 10 }).notNull(),
+  seatName: varchar('seat_name', { length: 255 }).notNull(),
+  seatSide: varchar('seat_side', { length: 8 }).notNull(),
+  operateDeptCode: varchar('operate_dept_code', { length: 64 }),
+  buyAmt: double('buy_amt'),
+  sellAmt: double('sell_amt'),
+  netAmt: double('net_amt'),
+  rank: int('seat_rank', { unsigned: true }).notNull(),
+  isInstitutional: int('is_institutional').notNull().default(0),
+  sourceKey: varchar('source_key', { length: 32 }).notNull().default('eastmoney'),
+  sourceFingerprint: varchar('source_fingerprint', { length: 64 }).notNull(),
+  fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+}, (table) => ({
+  fingerprintUnique: uniqueIndex('idx_dts_fingerprint').on(table.sourceFingerprint),
+  billboardIdx: index('idx_dts_billboard').on(table.billboardId),
+  dateCodeIdx: index('idx_dts_date_code').on(table.tradeDate, table.securityCode),
+  seatIdx: index('idx_dts_seat').on(table.seatName),
+  dateSeatIdx: index('idx_dts_date_seat').on(table.tradeDate, table.seatName),
+}));
+
+export const marketNews = mysqlTable('market_news', {
+  id: bigint('id', { mode: 'number', unsigned: true }).autoincrement().primaryKey(),
+  newsId: varchar('news_id', { length: 128 }).notNull(),
+  sourceKey: varchar('source_key', { length: 32 }).notNull(),
+  sourceName: varchar('source_name', { length: 64 }).notNull(),
+  sourceTier: varchar('source_tier', { length: 16 }).notNull(),
+  contentType: varchar('content_type', { length: 16 }).notNull(),
+  sourceUrl: varchar('source_url', { length: 1024 }),
+  title: varchar('title', { length: 500 }).notNull(),
+  summary: text('summary'),
+  content: text('content'),
+  publishedAt: datetime('published_at', { mode: 'string' }).notNull(),
+  securityCode: varchar('security_code', { length: 10 }),
+  securityName: varchar('security_name', { length: 64 }),
+  industry: varchar('industry', { length: 64 }),
+  tags: json('tags'),
+  raw: json('raw'),
+  canonicalHash: varchar('canonical_hash', { length: 64 }).notNull(),
+  fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+}, (table) => ({
+  newsSourceUnique: uniqueIndex('idx_mn_news_source').on(table.newsId, table.sourceKey),
+  canonicalIdx: index('idx_mn_canonical').on(table.canonicalHash, table.publishedAt),
+  publishedIdx: index('idx_mn_published').on(table.publishedAt, table.id),
+  tierIdx: index('idx_mn_tier').on(table.sourceTier, table.publishedAt),
+  sourceIdx: index('idx_mn_source').on(table.sourceKey, table.publishedAt),
+  codeIdx: index('idx_mn_code').on(table.securityCode, table.publishedAt),
+}));
+
+export const marketDataCollectorRuns = mysqlTable('market_data_collector_runs', {
+  runKey: varchar('run_key', { length: 191 }).primaryKey(),
+  jobType: varchar('job_type', { length: 32 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull(),
+  attempts: int('attempts', { unsigned: true }).notNull().default(1),
+  startedAt: datetime('started_at', { mode: 'string' }).notNull(),
+  finishedAt: datetime('finished_at', { mode: 'string' }),
+  errorMessage: varchar('error_message', { length: 1000 }),
+  details: json('details'),
+}, (table) => ({
+  jobStartedIdx: index('idx_mdcr_job_started').on(table.jobType, table.startedAt),
+  statusStartedIdx: index('idx_mdcr_status_started').on(table.status, table.startedAt),
 }));
 
 export const referenceDataBackfillItems = mysqlTable('reference_data_backfill_items', {

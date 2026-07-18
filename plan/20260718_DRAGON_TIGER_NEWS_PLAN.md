@@ -5,6 +5,7 @@
 > 状态：**可实施，须按本文 Phase 0 → Phase 1 顺序执行**
 > 范围：将个股龙虎榜改造为全市场龙虎榜；新增市场消息面（按来源分级）
 > 参考：[simonlin1212/a-stock-data](https://github.com/simonlin1212/a-stock-data) V3.4.0（10 层架构，43 端点，15 数据源）
+> 执行记录：2026-07-18 已完成 Phase 0、Phase 1 与 Phase 2 数据治理；官方龙虎榜备源及独立新闻备源保留在后续 Phase 2。
 
 ---
 
@@ -102,7 +103,8 @@ server/src/marketData/http/
 
 server/src/db/migrations/
 ├── 0025_dragon_tiger.sql          # 龙虎榜表
-└── 0026_market_news.sql           # 市场新闻表
+├── 0026_market_news.sql           # 市场新闻表
+└── 0027_market_data_collector_runs.sql # 采集运行键、重试与互斥状态
 
 server/src/routes/
 └── marketData.ts                  # 修改：新增端点
@@ -217,6 +219,10 @@ CREATE TABLE IF NOT EXISTS market_news (
 
 -- 新闻清理策略：由 marketNewsCleanup 分批删除；artifactLifecycle 仅清理文件产物，不参与 DB 清理
 ```
+
+#### 迁移 0027_market_data_collector_runs.sql
+
+采集任务运行键使用独立的不可变迁移保存，记录任务类型、状态、尝试次数、起止时间、错误与运行摘要；用于启动补采、多实例去重和最多三次失败重试。
 
 > Schema 约束：同股同日多原因上榜必须保留为多个事件；席位必须关联 `billboard_id/trade_id`。正式公告仍由公告数据源持有，`market_news` 只保存展示所需元数据或聚合引用，不复制并在 30 天后删除公告事实本身。
 
@@ -716,7 +722,7 @@ interface MarketDataPageCache {
 
 **目标**：完成龙虎榜全市场 + 新闻面的核心可用闭环
 
-1. **DB 迁移**：`0025_dragon_tiger.sql` + `0026_market_news.sql`
+1. **DB 迁移**：`0025_dragon_tiger.sql` + `0026_market_news.sql` + `0027_market_data_collector_runs.sql`
 2. **龙虎榜服务**：
    - `dragonTigerService.ts`：东财全市场接口 + 席位按需加载 + 内存/文件缓存 + 落库
    - `dragonTigerRepository.ts`：upsert + 查询
@@ -805,7 +811,7 @@ interface MarketDataPageCache {
 2. **龙虎榜个股委托**：`loadSignalLayer` 中的龙虎榜调用改为委托 `dragonTigerService`，需确保返回结构兼容现有 `SevenLayerRecord` 格式，避免前端 `metricPreview` 和 `METRIC_LABELS` 渲染异常
 3. **前端 NET_BUY_AMT 标签缺失**：现有前端缺少 `NET_BUY_AMT` 标签，需在 `METRIC_LABELS` 中补充 `{ NET_BUY_AMT: { label: '净买入额', unit: 'yuan' } }`
 4. **时区处理**：MySQL session 固定 UTC；`published_at/fetched_at` 写 UTC；龙虎榜 `trade_date` 始终表示北京时间交易日，不做 UTC 日期偏移；API 输出 ISO 8601，前端按 `Asia/Shanghai` 展示
-5. **迁移文件编号**：当前最新为 `0024_sync_jobs_run_key.sql`，新增为 `0025` 和 `0026`，严格顺序
+5. **迁移文件编号**：当前最新为 `0024_sync_jobs_run_key.sql`，新增为 `0025`、`0026` 和 `0027`，严格顺序且已应用迁移保持不可变
 6. **DuckDB 快照**：龙虎榜 Phase 1 不进快照，若 Phase 3 需做因子研究，需在 `snapshotBuilder.ts` 中新增龙虎榜字段导出
 
 ---

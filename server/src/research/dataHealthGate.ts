@@ -7,7 +7,8 @@ export type DataHealthStatus = 'pass' | 'warn' | 'fail';
 
 export interface DataHealthCheck {
   key: 'mysql_snapshot' | 'reference_snapshot' | 'minute_lake' | 'dividend_coverage'
-    | 'index_constituents' | 'sw_industry';
+    | 'index_constituents' | 'sw_industry' | 'dragon_tiger_freshness'
+    | 'market_news_collector_heartbeat' | 'market_news_source_success';
   status: DataHealthStatus;
   message: string;
   details: Record<string, unknown>;
@@ -43,6 +44,24 @@ export interface ReferenceSnapshotState {
   datasets: Record<string, { rows: number; maxDate: string | null }>;
 }
 
+export interface MarketCollectorState {
+  expectedTradingDate: string | null;
+  latestDragonTigerDate: string | null;
+  runs: Array<{
+    jobType: string;
+    status: 'running' | 'succeeded' | 'failed';
+    startedAt: string;
+    finishedAt: string | null;
+    consecutiveFailures: number;
+    errorMessage: string | null;
+  }>;
+  newsSources: Array<{
+    sourceKey: string;
+    latestPublishedAt: string | null;
+    latestFetchedAt: string | null;
+  }>;
+}
+
 export interface DataHealthGateReport {
   status: DataHealthStatus;
   checkedAt: string;
@@ -75,16 +94,31 @@ interface SwStateRow extends RowDataPacket {
   barRows: number | string;
 }
 
+interface CollectorRunRow extends RowDataPacket {
+  jobType: string;
+  status: 'running' | 'succeeded' | 'failed';
+  startedAt: string;
+  finishedAt: string | null;
+  errorMessage: string | null;
+}
+
+interface NewsSourceStateRow extends RowDataPacket {
+  sourceKey: string;
+  latestPublishedAt: string | null;
+  latestFetchedAt: string | null;
+}
+
 export async function getDataHealthGate(
   pool: Pool,
   snapshotRoot: string,
   minuteRoot: string,
 ): Promise<DataHealthGateReport> {
-  const [snapshot, minute, references, currentSnapshot] = await Promise.all([
+  const [snapshot, minute, references, currentSnapshot, collectors] = await Promise.all([
     getResearchSnapshotFreshness(pool, snapshotRoot),
     getMinuteDataCatalog(minuteRoot),
     readReferenceDataState(pool),
     readCurrentSnapshot(snapshotRoot),
+    readMarketCollectorState(pool),
   ]);
   const referenceSnapshot: ReferenceSnapshotState = {
     datasets: Object.fromEntries(
@@ -94,7 +128,7 @@ export async function getDataHealthGate(
       ]),
     ),
   };
-  return evaluateDataHealthGate(snapshot, minute, references, referenceSnapshot);
+  return evaluateDataHealthGate(snapshot, minute, references, referenceSnapshot, collectors);
 }
 
 export function evaluateDataHealthGate(
@@ -102,6 +136,8 @@ export function evaluateDataHealthGate(
   minute: Awaited<ReturnType<typeof getMinuteDataCatalog>>,
   references: ReferenceDataState,
   referenceSnapshot?: ReferenceSnapshotState,
+  collectors?: MarketCollectorState,
+  now = new Date(),
 ): DataHealthGateReport {
   const checks: DataHealthCheck[] = [];
   checks.push({
@@ -110,6 +146,8 @@ export function evaluateDataHealthGate(
     message: snapshot.message,
     details: { snapshot: snapshot.snapshot, mysql: snapshot.mysql, missingDates: snapshot.missingDates },
   });
+
+  if (collectors) checks.push(...evaluateMarketCollectorHealth(collectors, now));
 
   const referenceComparisons = [
     ['dividend_events', references.dividends.events, null],
@@ -200,6 +238,153 @@ export function evaluateDataHealthGate(
       : checks.some((check) => check.status === 'warn') ? 'warn' : 'pass',
     checkedAt: new Date().toISOString(),
     checks,
+  };
+}
+
+export function evaluateMarketCollectorHealth(
+  state: MarketCollectorState,
+  now = new Date(),
+): DataHealthCheck[] {
+  const shanghai = chinaClock(now);
+  const requiresToday = shanghai.weekday >= 1 && shanghai.weekday <= 5
+    && shanghai.minuteOfDay >= 18 * 60 + 30
+    && state.expectedTradingDate === shanghai.date;
+  const dragonCurrent = !requiresToday || state.latestDragonTigerDate === shanghai.date;
+  const dragon: DataHealthCheck = {
+    key: 'dragon_tiger_freshness',
+    status: dragonCurrent ? 'pass' : 'fail',
+    message: requiresToday
+      ? dragonCurrent ? `龙虎榜已覆盖交易日 ${shanghai.date}` : `龙虎榜尚未覆盖交易日 ${shanghai.date}`
+      : '当前不在交易日 18:30 后的龙虎榜强制检查窗口',
+    details: {
+      expectedTradingDate: state.expectedTradingDate,
+      latestTradeDate: state.latestDragonTigerDate,
+      checkedLocalTime: `${shanghai.date} ${String(Math.floor(shanghai.minuteOfDay / 60)).padStart(2, '0')}:${String(shanghai.minuteOfDay % 60).padStart(2, '0')}`,
+    },
+  };
+
+  const newsRun = state.runs.find((run) => run.jobType === 'market_news');
+  const heartbeatAt = newsRun?.finishedAt ?? newsRun?.startedAt ?? null;
+  const heartbeatAge = ageMinutes(heartbeatAt, now);
+  const heartbeatStatus: DataHealthStatus = heartbeatAge <= 10 && newsRun?.status !== 'failed'
+    ? 'pass'
+    : heartbeatAge <= 30 ? 'warn' : 'fail';
+  const heartbeat: DataHealthCheck = {
+    key: 'market_news_collector_heartbeat',
+    status: heartbeatStatus,
+    message: heartbeatAt
+      ? `新闻采集任务最近心跳距今 ${Math.round(heartbeatAge)} 分钟`
+      : '尚无新闻采集任务运行记录',
+    details: { ...newsRun, heartbeatAt, ageMinutes: heartbeatAge },
+  };
+
+  const freshestSource = state.newsSources.reduce<string | null>((latest, source) => {
+    if (!source.latestFetchedAt) return latest;
+    return latest === null || source.latestFetchedAt > latest ? source.latestFetchedAt : latest;
+  }, null);
+  const sourceAge = ageMinutes(freshestSource, now);
+  const sourceStatus: DataHealthStatus = sourceAge <= 10 ? 'pass' : sourceAge <= 30 ? 'warn' : 'fail';
+  const sources: DataHealthCheck = {
+    key: 'market_news_source_success',
+    status: sourceStatus,
+    message: freshestSource
+      ? `新闻来源最近成功抓取距今 ${Math.round(sourceAge)} 分钟`
+      : '尚无新闻来源成功抓取记录',
+    details: {
+      latestFetchedAt: freshestSource,
+      // Published time is evidence freshness, fetched time is collector health; keep both.
+      sources: state.newsSources,
+      collectorConsecutiveFailures: newsRun?.consecutiveFailures ?? 0,
+    },
+  };
+  return [dragon, heartbeat, sources];
+}
+
+export async function readMarketCollectorState(pool: Pool, now = new Date()): Promise<MarketCollectorState> {
+  const localDate = chinaClock(now).date;
+  const [[calendarRows], [dragonRows], [runRows], [sourceRows]] = await Promise.all([
+    pool.query<RowDataPacket[]>(`
+      SELECT DATE_FORMAT(MAX(trade_date), '%Y-%m-%d') AS expectedTradingDate
+      FROM trading_calendar
+      WHERE is_open=1 AND market IN ('CN', 'SH', 'SZ') AND trade_date <= ?
+    `, [localDate]),
+    pool.query<RowDataPacket[]>(`
+      SELECT DATE_FORMAT(MAX(trade_date), '%Y-%m-%d') AS latestDragonTigerDate
+      FROM dragon_tiger_billboards
+    `),
+    pool.query<CollectorRunRow[]>(`
+      SELECT job_type AS jobType, status,
+             DATE_FORMAT(started_at, '%Y-%m-%dT%H:%i:%s.000Z') AS startedAt,
+             DATE_FORMAT(finished_at, '%Y-%m-%dT%H:%i:%s.000Z') AS finishedAt,
+             error_message AS errorMessage
+      FROM market_data_collector_runs
+      WHERE job_type IN ('dragon_tiger', 'market_news')
+      ORDER BY started_at DESC
+      LIMIT 100
+    `),
+    pool.query<NewsSourceStateRow[]>(`
+      SELECT source_key AS sourceKey,
+             DATE_FORMAT(MAX(published_at), '%Y-%m-%dT%H:%i:%s.000Z') AS latestPublishedAt,
+             DATE_FORMAT(MAX(fetched_at), '%Y-%m-%dT%H:%i:%s.000Z') AS latestFetchedAt
+      FROM market_news
+      GROUP BY source_key
+    `),
+  ]);
+  const latestRuns = new Map<string, MarketCollectorState['runs'][number]>();
+  const failures = new Map<string, number>();
+  for (const row of runRows) {
+    if (!latestRuns.has(row.jobType)) {
+      latestRuns.set(row.jobType, {
+        jobType: row.jobType,
+        status: row.status,
+        startedAt: mysqlDateToIso(row.startedAt)!,
+        finishedAt: mysqlDateToIso(row.finishedAt),
+        consecutiveFailures: 0,
+        errorMessage: row.errorMessage,
+      });
+    }
+    if (!failures.has(row.jobType) || failures.get(row.jobType)! >= 0) {
+      if (row.status === 'failed') failures.set(row.jobType, (failures.get(row.jobType) ?? 0) + 1);
+      else failures.set(row.jobType, -1);
+    }
+  }
+  for (const run of latestRuns.values()) run.consecutiveFailures = Math.max(0, failures.get(run.jobType) ?? 0);
+  return {
+    expectedTradingDate: String(calendarRows[0]?.expectedTradingDate ?? '') || null,
+    latestDragonTigerDate: String(dragonRows[0]?.latestDragonTigerDate ?? '') || null,
+    runs: [...latestRuns.values()],
+    newsSources: sourceRows.map((row) => ({
+      sourceKey: row.sourceKey,
+      latestPublishedAt: mysqlDateToIso(row.latestPublishedAt),
+      latestFetchedAt: mysqlDateToIso(row.latestFetchedAt),
+    })),
+  };
+}
+
+function ageMinutes(value: string | null, now: Date): number {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? Math.max(0, (now.getTime() - timestamp) / 60_000) : Number.POSITIVE_INFINITY;
+}
+
+function mysqlDateToIso(value: string | Date | null): string | null {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (value.includes('T') && value.endsWith('Z')) return value;
+  return new Date(`${value.replace(' ', 'T')}Z`).toISOString();
+}
+
+function chinaClock(now: Date): { date: string; minuteOfDay: number; weekday: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23', weekday: 'short',
+  }).formatToParts(now);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday'));
+  return {
+    date: `${get('year')}-${get('month')}-${get('day')}`,
+    minuteOfDay: Number(get('hour')) * 60 + Number(get('minute')),
+    weekday,
   };
 }
 

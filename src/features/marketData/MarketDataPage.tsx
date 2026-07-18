@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { App, AutoComplete, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, Modal, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
-import { ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CheckOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, LineChartOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, SettingOutlined, StarFilled, StarOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CheckOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, LineChartOutlined, NotificationOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, SettingOutlined, StarFilled, StarOutlined, ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -10,6 +10,8 @@ import MarketKlineChart from './MarketKlineChart';
 import StockSelectionScore from './StockSelectionScore';
 import StockSelectionWorkspace from './StockSelectionWorkspace';
 import HotSectorPanel from './HotSectorPanel';
+import DragonTigerPanel from './DragonTigerPanel';
+import MarketNewsPanel from './MarketNewsPanel';
 import { klineCacheKey, marketDataCache } from './marketDataCache';
 import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
 import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem } from './types';
@@ -54,6 +56,7 @@ const SEVEN_LAYER_DEFS: Array<{ key: SevenLayerSection['key']; title: string; su
   { key: 'capital', title: '资金面', summary: '融资融券/大宗交易/股东户数/分钟资金流/120日资金流' },
   { key: 'fundamental', title: '基础数据', summary: '公司画像/估值股本/核心财务/财报摘要' },
   { key: 'announcement', title: '公告', summary: '巨潮公告检索' },
+  { key: 'news', title: '新闻', summary: '东财个股新闻/巨潮公告聚合' },
 ];
 const METRIC_LABELS: Record<string, { label: string; unit?: 'percent' | 'yuan' | 'shares' | 'text' | 'date' | 'number' }> = {
   f3: { label: '板块涨跌幅', unit: 'percent' },
@@ -65,8 +68,8 @@ const METRIC_LABELS: Record<string, { label: string; unit?: 'percent' | 'yuan' |
   DATE: { label: '日期' },
   SECURITY_NAME_ABBR: { label: '证券简称' },
   SECNAME: { label: '证券简称' },
-  EXPLANATION: { label: '上榜原因' },
-  BILLBOARD_DEAL_AMT: { label: '当日成交额', unit: 'yuan' },
+  EXPLANATION: { label: '上榜原因', unit: 'text' },
+  BILLBOARD_DEAL_AMT: { label: '龙虎榜成交额', unit: 'yuan' },
   RZYE: { label: '融资余额', unit: 'yuan' },
   RQYL: { label: '融券余量' },
   RZRQYE: { label: '融资融券余额', unit: 'yuan' },
@@ -74,6 +77,7 @@ const METRIC_LABELS: Record<string, { label: string; unit?: 'percent' | 'yuan' |
   HOLDER_NUM: { label: '股东户数' },
   HOLDER_NUM_RATIO: { label: '户数变化率', unit: 'percent' },
   AVG_MARKET_CAP: { label: '户均持股市值' },
+  NET_BUY_AMT: { label: '净买入额', unit: 'yuan' },
   date: { label: '日期' },
   mainNetIn: { label: '主力净流入', unit: 'yuan' },
   smallNetIn: { label: '小单净流入', unit: 'yuan' },
@@ -697,6 +701,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [indexLoading, setIndexLoading] = useState(false);
   const [marketSentiment, setMarketSentiment] = useState<MarketSentimentOverview | null>(() => marketDataCache.marketSentiment ?? null);
   const [marketSentimentLoading, setMarketSentimentLoading] = useState(false);
+  const [overviewTab, setOverviewTab] = useState<'sentiment' | 'hotSector' | 'dragonTiger' | 'news'>('sentiment');
   const [exporting, setExporting] = useState<'analysis' | 'excel' | null>(null);
   const [reports, setReports] = useState<ResearchReport[]>(() => marketDataCache.reports[initialSelectedCode] ?? []);
   const [reportsLoading, setReportsLoading] = useState(false);
@@ -1184,11 +1189,28 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     {isReordering && (
       <p className="market-index-drag-hint is-active" role="status">拖拽到目标卡片上松开即可交换位置</p>
     )}
-    <section className="market-sentiment-section" aria-label="市场情绪与涨跌分布">
-      <div className="market-dashboard-panel-head"><span><DashboardOutlined />市场概况</span><Tooltip title="刷新市场情绪"><Button size="small" type="text" icon={<ReloadOutlined />} loading={marketSentimentLoading} aria-label="刷新市场概况" onClick={() => void loadMarketSentiment(false, true)} /></Tooltip></div>
-      <MarketSentimentPanel overview={marketSentiment} loading={marketSentimentLoading} onSelectStock={openInstrumentDetail} />
+    <section className="market-intelligence-workspace" aria-label="市场情报工作台">
+      <div className="market-intelligence-tabs">
+        <div><strong>市场情报</strong><Text type="secondary">行情广度、板块热度、龙虎榜与实时消息</Text></div>
+        <Segmented
+          value={overviewTab}
+          onChange={(value) => setOverviewTab(value as typeof overviewTab)}
+          options={[
+            { value: 'sentiment', label: <span><DashboardOutlined /> 市场情绪</span> },
+            { value: 'hotSector', label: <span><FireOutlined /> 热门板块</span> },
+            { value: 'dragonTiger', label: <span><TrophyOutlined /> 龙虎榜</span> },
+            { value: 'news', label: <span><NotificationOutlined /> 市场资讯</span> },
+          ]}
+        />
+      </div>
+      {overviewTab === 'sentiment' && <section className="market-sentiment-section is-embedded" aria-label="市场情绪与涨跌分布">
+        <div className="market-dashboard-panel-head"><span><DashboardOutlined />市场概况</span><Tooltip title="刷新市场情绪"><Button size="small" type="text" icon={<ReloadOutlined />} loading={marketSentimentLoading} aria-label="刷新市场概况" onClick={() => void loadMarketSentiment(false, true)} /></Tooltip></div>
+        <MarketSentimentPanel overview={marketSentiment} loading={marketSentimentLoading} onSelectStock={openInstrumentDetail} />
+      </section>}
+      {overviewTab === 'hotSector' && <HotSectorPanel onSelectStock={openInstrumentDetail} />}
+      {overviewTab === 'dragonTiger' && <DragonTigerPanel onSelectStock={openInstrumentDetail} />}
+      {overviewTab === 'news' && <MarketNewsPanel />}
     </section>
-    <HotSectorPanel onSelectStock={openInstrumentDetail} />
     <section className="market-selection-section" aria-label="市场技术筛选">
       <StockSelectionWorkspace
         mode="screen"

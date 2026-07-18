@@ -10,6 +10,7 @@ import {
   writeCoverageMatrixCache,
 } from '../research/dataCoverageMatrix.js';
 import { getDuckDBRuntimeStats } from '../research/duckdbRuntime.js';
+import { evaluateMarketCollectorHealth, readMarketCollectorState } from '../research/dataHealthGate.js';
 import { inspectMaterializedArtifacts } from '../research/materializedArtifactHealth.js';
 import { readCurrentSnapshot } from '../research/snapshotManifest.js';
 import { listAdminConfig } from './envConfig.js';
@@ -308,7 +309,7 @@ async function inspectDataGovernance(pool: Pool, dbOnline: boolean, config: EnvC
     .map((item) => typeof item.lastDate === 'string' ? item.lastDate : null)
     .filter((item): item is string => item !== null)
     .sort();
-  const [coverage, materialized] = await Promise.all([
+  const [coverage, materialized, collectorState] = await Promise.all([
     dbOnline
       ? loadAdminCoverage(pool, config).catch((error) => {
           checks.push({
@@ -325,7 +326,20 @@ async function inspectDataGovernance(pool: Pool, dbOnline: boolean, config: EnvC
       config.FACTOR_RESEARCH_ROOT,
       snapshot?.manifest.snapshotId ?? null,
     ).catch(() => null),
+    dbOnline ? readMarketCollectorState(pool).catch(() => null) : Promise.resolve(null),
   ]);
+  const collectorHealth = collectorState ? evaluateMarketCollectorHealth(collectorState) : [];
+  for (const check of collectorHealth) {
+    checks.push({
+      id: check.key,
+      title: check.key === 'dragon_tiger_freshness'
+        ? '龙虎榜采集新鲜度'
+        : check.key === 'market_news_collector_heartbeat' ? '新闻采集心跳' : '新闻来源成功率',
+      level: check.status === 'pass' ? 'healthy' : check.status === 'warn' ? 'warning' : 'critical',
+      summary: check.message,
+      resolution: check.status === 'pass' ? undefined : '检查采集任务运行记录、外部数据源连通性与采集开关配置。',
+    });
+  }
   if (coverage) {
     const failing = coverage.rows.filter((row) => row.status !== 'pass');
     checks.push({
@@ -369,6 +383,13 @@ async function inspectDataGovernance(pool: Pool, dbOnline: boolean, config: EnvC
           : minuteLastDates[minuteLastDates.length - 1] ?? null,
       },
       coverage,
+      collectorHealth: collectorState ? {
+        status: collectorHealth.some((check) => check.status === 'fail')
+          ? 'fail' as const
+          : collectorHealth.some((check) => check.status === 'warn') ? 'warn' as const : 'pass' as const,
+        checks: collectorHealth,
+        state: collectorState,
+      } : null,
       materialized,
     },
   };
@@ -377,7 +398,7 @@ async function inspectDataGovernance(pool: Pool, dbOnline: boolean, config: EnvC
 async function loadAdminCoverage(pool: Pool, config: EnvConfig) {
   const cachePath = resolve('.cache/data-coverage.json');
   const cached = await readCoverageMatrixCache(cachePath, 15 * 60_000);
-  if (cached) return cached;
+  if (cached?.rows.some((row) => row.key === 'dragon_tiger')) return cached;
   const matrix = await buildDataCoverageMatrix(pool, config.MINUTE_DATA_ROOT);
   await writeCoverageMatrixCache(cachePath, matrix);
   return matrix;

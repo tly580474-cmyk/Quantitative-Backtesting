@@ -75,6 +75,7 @@ export async function buildDataCoverageMatrix(
     [dividendRows],
     [industryRows],
     [indexRows],
+    [dragonTigerRows],
   ] = await Promise.all([
     pool.query<CoverageSqlRow[]>(`
       SELECT COUNT(*) AS rowsCount,
@@ -162,6 +163,28 @@ export async function buildDataCoverageMatrix(
       FROM index_constituent_snapshots
       WHERE status='published'
     `),
+    pool.query<CoverageSqlRow[]>(`
+      WITH covered_days AS (
+        SELECT trade_date
+        FROM dragon_tiger_billboards
+        GROUP BY trade_date
+        HAVING COUNT(*) >= 10
+      )
+      SELECT
+        (SELECT COUNT(*) FROM dragon_tiger_billboards) AS rowsCount,
+        (SELECT COUNT(*) FROM covered_days) AS covered,
+        (
+          SELECT COUNT(DISTINCT calendar.trade_date)
+          FROM trading_calendar AS calendar
+          WHERE calendar.is_open=1
+            AND calendar.market IN ('CN', 'SH', 'SZ')
+            AND calendar.trade_date BETWEEN
+              DATE_FORMAT((SELECT MIN(trade_date) FROM covered_days), '%Y-%m-%d')
+              AND DATE_FORMAT((SELECT MAX(trade_date) FROM covered_days), '%Y-%m-%d')
+        ) AS total,
+        DATE_FORMAT((SELECT MIN(trade_date) FROM covered_days), '%Y-%m-%d') AS minDate,
+        DATE_FORMAT((SELECT MAX(trade_date) FROM covered_days), '%Y-%m-%d') AS maxDate
+    `),
   ]);
 
   const authoritativeDate = dailyRows[0]?.maxDate ?? null;
@@ -172,6 +195,7 @@ export async function buildDataCoverageMatrix(
     coverageRow('dividends', '分红历史状态', dividendRows[0], 1),
     coverageRow('sw_industry', '申万行业有效归属', industryRows[0], 0.99),
     indexCoverageRow(indexRows[0]),
+    coverageRow('dragon_tiger', '龙虎榜交易日覆盖', dragonTigerRows[0], 0.95),
     await minuteCoverageRow(minuteRootInput, authoritativeDate),
   ];
   return {

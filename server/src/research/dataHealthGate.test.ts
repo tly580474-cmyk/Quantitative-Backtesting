@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateDataHealthGate, type ReferenceDataState } from './dataHealthGate.js';
+import {
+  evaluateDataHealthGate,
+  evaluateMarketCollectorHealth,
+  type MarketCollectorState,
+  type ReferenceDataState,
+} from './dataHealthGate.js';
 
 const references: ReferenceDataState = {
   dividends: {
@@ -59,6 +64,45 @@ describe('data health gate', () => {
     );
     expect(report.status).toBe('pass');
     expect(report.checks.every((check) => check.status === 'pass')).toBe(true);
+  });
+
+  it('checks dragon tiger only after 18:30 on an open trading day', () => {
+    const state: MarketCollectorState = {
+      expectedTradingDate: '2026-07-20',
+      latestDragonTigerDate: '2026-07-17',
+      runs: [{
+        jobType: 'market_news', status: 'succeeded', startedAt: '2026-07-20T10:32:00.000Z',
+        finishedAt: '2026-07-20T10:32:10.000Z', consecutiveFailures: 0, errorMessage: null,
+      }],
+      newsSources: [{
+        sourceKey: 'eastmoney_global', latestPublishedAt: '2026-07-20T10:30:00.000Z',
+        latestFetchedAt: '2026-07-20T10:32:10.000Z',
+      }],
+    };
+    const before = evaluateMarketCollectorHealth(state, new Date('2026-07-20T10:20:00.000Z'));
+    expect(before.find((check) => check.key === 'dragon_tiger_freshness')?.status).toBe('pass');
+    const after = evaluateMarketCollectorHealth(state, new Date('2026-07-20T10:35:00.000Z'));
+    expect(after.find((check) => check.key === 'dragon_tiger_freshness')?.status).toBe('fail');
+  });
+
+  it('uses fetched time for collector health while retaining published time as evidence metadata', () => {
+    const checks = evaluateMarketCollectorHealth({
+      expectedTradingDate: '2026-07-17',
+      latestDragonTigerDate: '2026-07-17',
+      runs: [{
+        jobType: 'market_news', status: 'succeeded', startedAt: '2026-07-18T04:58:00.000Z',
+        finishedAt: '2026-07-18T04:58:05.000Z', consecutiveFailures: 0, errorMessage: null,
+      }],
+      newsSources: [{
+        sourceKey: 'eastmoney_global', latestPublishedAt: '2026-07-17T01:00:00.000Z',
+        latestFetchedAt: '2026-07-18T04:58:05.000Z',
+      }],
+    }, new Date('2026-07-18T05:00:00.000Z'));
+    expect(checks.find((check) => check.key === 'market_news_collector_heartbeat')?.status).toBe('pass');
+    const source = checks.find((check) => check.key === 'market_news_source_success');
+    expect(source?.status).toBe('pass');
+    expect((source?.details.sources as Array<{ latestPublishedAt: string }>)[0]?.latestPublishedAt)
+      .toBe('2026-07-17T01:00:00.000Z');
   });
 
   it('fails on stale minute data, ambiguous dividend gaps, and insufficient index history', () => {

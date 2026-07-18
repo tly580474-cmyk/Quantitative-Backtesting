@@ -82,6 +82,21 @@ export interface AdminOverview {
         message: string;
       }>;
     } | null;
+    collectorHealth: {
+      status: 'pass' | 'warn' | 'fail';
+      checks: Array<{
+        key: 'dragon_tiger_freshness' | 'market_news_collector_heartbeat' | 'market_news_source_success';
+        status: 'pass' | 'warn' | 'fail';
+        message: string;
+        details: Record<string, unknown>;
+      }>;
+      state: {
+        expectedTradingDate: string | null;
+        latestDragonTigerDate: string | null;
+        runs: Array<{ jobType: string; status: string; startedAt: string; finishedAt: string | null }>;
+        newsSources: Array<{ sourceKey: string; latestPublishedAt: string | null; latestFetchedAt: string | null }>;
+      };
+    } | null;
     materialized: {
       total: number;
       current: number;

@@ -531,6 +531,27 @@ function OverviewSection({ overview, metrics, onRefreshMetrics }: {
             <EmptyState icon={<WarningOutlined />} title="覆盖率不可用" description="MySQL 离线或覆盖检查执行失败。" />
           )}
         </Panel>
+
+        <Panel title="市场采集健康" subtitle="龙虎榜时点、新闻心跳与来源抓取" icon={<ClockCircleOutlined />}>
+          {overview.dataGovernance.collectorHealth ? (
+            <div className="resource-list">
+              {overview.dataGovernance.collectorHealth.checks.map((check) => (
+                <div className="resource-row" key={check.key}>
+                  <div>
+                    <strong>{check.key === 'dragon_tiger_freshness' ? '龙虎榜新鲜度' : check.key === 'market_news_collector_heartbeat' ? '新闻采集心跳' : '新闻来源成功率'}</strong>
+                    <span>{check.message}</span>
+                  </div>
+                  <StatusBadge
+                    level={check.status === 'pass' ? 'healthy' : check.status === 'warn' ? 'warning' : 'critical'}
+                    compact
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon={<WarningOutlined />} title="采集健康不可用" description="MySQL 离线或采集状态查询失败。" />
+          )}
+        </Panel>
       </section>
 
       {overview.dataGovernance.materialized && (

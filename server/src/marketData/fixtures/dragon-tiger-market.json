@@ -1,0 +1,42 @@
+{
+  "success": true,
+  "code": 0,
+  "result": {
+    "pages": 1,
+    "count": 2,
+    "data": [
+      {
+        "TRADE_DATE": "2026-07-17 00:00:00",
+        "TRADE_ID": "920305-20260717-A",
+        "SECURITY_CODE": "920305",
+        "SECURITY_NAME_ABBR": "开发科技",
+        "TRADE_MARKET_CODE": "069001001002",
+        "EXPLANATION": "日换手率达到30%的前5只证券",
+        "CHANGE_TYPE": "30",
+        "BILLBOARD_NET_AMT": 12345678.9,
+        "BILLBOARD_BUY_AMT": 32345678.9,
+        "BILLBOARD_SELL_AMT": 20000000,
+        "BILLBOARD_DEAL_AMT": 52345678.9,
+        "CLOSE_PRICE": 18.88,
+        "CHANGE_RATE": 12.34,
+        "TURNOVERRATE": 35.67
+      },
+      {
+        "TRADE_DATE": "2026-07-17 00:00:00",
+        "TRADE_ID": "920305-20260717-B",
+        "SECURITY_CODE": "920305",
+        "SECURITY_NAME_ABBR": "开发科技",
+        "TRADE_MARKET_CODE": "069001001002",
+        "EXPLANATION": "日价格振幅达到30%的前5只证券",
+        "CHANGE_TYPE": "31",
+        "BILLBOARD_NET_AMT": -345678.9,
+        "BILLBOARD_BUY_AMT": 10000000,
+        "BILLBOARD_SELL_AMT": 10345678.9,
+        "BILLBOARD_DEAL_AMT": 20345678.9,
+        "CLOSE_PRICE": 18.88,
+        "CHANGE_RATE": 12.34,
+        "TURNOVERRATE": 35.67
+      }
+    ]
+  }
+}

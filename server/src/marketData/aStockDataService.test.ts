@@ -43,6 +43,12 @@ describe('A-share stock quote service', () => {
     sz[32] = '0.36';
 
     vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
+      if (!String(url).includes('qt.gtimg.cn')) {
+        return new Response(JSON.stringify({ data: null }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       expect(String(url)).toContain('sh000001');
       expect(String(url)).toContain('sz399001');
       return new Response(

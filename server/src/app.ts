@@ -25,6 +25,8 @@ import { primaryProvider } from './marketData/providers/primaryProvider.js';
 import { tencentProvider } from './marketData/providers/tencentProvider.js';
 import { startScheduler } from './marketData/jobs/syncScheduler.js';
 import { startIndexDatasetScheduler } from './marketData/jobs/indexDatasetScheduler.js';
+import { startDragonTigerScheduler } from './marketData/jobs/dragonTigerScheduler.js';
+import { startMarketNewsScheduler } from './marketData/jobs/marketNewsScheduler.js';
 import { configureHistoryStorePolicy } from './marketData/repositories/historyStorePolicy.js';
 import { recoverInterruptedCandidateTests } from './factorResearch/candidates/candidateRepository.js';
 import { getDuckDBRuntimeStats } from './research/duckdbRuntime.js';
@@ -149,6 +151,21 @@ async function main(): Promise<void> {
         usUpdateTime: config.MARKET_US_INDEX_UPDATE_TIME,
       }, tencentProvider);
     }
+
+    if (config.DRAGON_TIGER_ENABLED === 'true') {
+      startDragonTigerScheduler({
+        syncTime: config.DRAGON_TIGER_SYNC_TIME,
+        recheckTime: config.DRAGON_TIGER_RECHECK_TIME,
+      });
+      console.log(`[DragonTiger] Collector started at ${config.DRAGON_TIGER_SYNC_TIME}/${config.DRAGON_TIGER_RECHECK_TIME}`);
+    }
+    if (config.MARKET_NEWS_ENABLED === 'true') {
+      startMarketNewsScheduler({
+        refreshIntervalMinutes: parseInt(config.MARKET_NEWS_REFRESH_INTERVAL_MINUTES, 10),
+        retentionDays: parseInt(config.MARKET_NEWS_RETENTION_DAYS, 10),
+      });
+      console.log(`[MarketNews] Collector started every ${config.MARKET_NEWS_REFRESH_INTERVAL_MINUTES} minute(s)`);
+    }
   }
 
   registerInstrumentRoutes(app, dbOnline, {
@@ -220,9 +237,13 @@ async function main(): Promise<void> {
     const { stopScheduler } = await import('./marketData/jobs/syncScheduler.js');
     const { stopIndexDatasetScheduler } = await import('./marketData/jobs/indexDatasetScheduler.js');
     const { stopMiningScheduler } = await import('./factorResearch/mining/miningScheduler.js');
+    const { stopDragonTigerScheduler } = await import('./marketData/jobs/dragonTigerScheduler.js');
+    const { stopMarketNewsScheduler } = await import('./marketData/jobs/marketNewsScheduler.js');
     stopScheduler();
     stopIndexDatasetScheduler();
     stopMiningScheduler();
+    stopDragonTigerScheduler();
+    stopMarketNewsScheduler();
     await app.close();
     closeDb();
     await closePool(pool);

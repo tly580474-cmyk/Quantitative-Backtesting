@@ -48,6 +48,8 @@ import { buildResearchSnapshot } from '../research/snapshotBuilder.js';
 import { getResearchSnapshotFreshness } from '../research/snapshotFreshness.js';
 import { verifyCurrentResearchSnapshot } from '../research/snapshotVerifier.js';
 import { getMinuteDataCatalog, queryMinuteBars } from '../minuteData/minuteDataService.js';
+import { getMarketBillboard, getStockBillboard } from '../marketData/dragonTigerService.js';
+import { getMarketNews, getStockNews } from '../marketData/marketNewsService.js';
 
 const candlesQuerySchema = z.object({
   startDate: z.string().optional(),
@@ -170,6 +172,71 @@ export function registerMarketDataRoutes(
     } catch (error) {
       req.log.error(error);
       return reply.status(502).send({ message: error instanceof Error ? error.message : '热门板块获取失败' });
+    }
+  });
+
+  app.get('/api/market-data/dragon-tiger/market', async (req, reply) => {
+    const query = z.object({
+      date: z.string().date().optional(),
+      force: z.enum(['true', 'false']).default('false'),
+    }).safeParse(req.query);
+    if (!query.success) return reply.status(400).send({ message: '龙虎榜查询参数无效' });
+    try {
+      return reply.send(await getMarketBillboard({ date: query.data.date, force: query.data.force === 'true', dbOnline }));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '龙虎榜获取失败' });
+    }
+  });
+
+  app.get<{ Params: { code: string } }>('/api/market-data/dragon-tiger/stocks/:code', async (req, reply) => {
+    const input = z.object({ code: z.string().regex(/\d{6}/), force: z.enum(['true', 'false']).default('false') })
+      .safeParse({ ...req.params, ...(req.query as object) });
+    if (!input.success) return reply.status(400).send({ message: '股票代码格式不正确' });
+    try {
+      return reply.send(await getStockBillboard(input.data.code, { force: input.data.force === 'true', dbOnline }));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '个股龙虎榜获取失败' });
+    }
+  });
+
+  app.get('/api/market-data/news/market', async (req, reply) => {
+    const query = z.object({
+      tier: z.enum(['official', 'state_media', 'professional', 'aggregator', 'self_media']).optional(),
+      limit: z.coerce.number().int().min(1).max(100).default(20),
+      before: z.string().datetime({ offset: true }).optional(),
+      beforeId: z.coerce.number().int().positive().optional(),
+      force: z.enum(['true', 'false']).default('false'),
+    }).safeParse(req.query);
+    if (!query.success) return reply.status(400).send({ message: '市场资讯查询参数无效' });
+    try {
+      return reply.send(await getMarketNews({
+        tier: query.data.tier,
+        limit: query.data.limit,
+        before: query.data.before,
+        beforeId: query.data.beforeId,
+        force: query.data.force === 'true',
+        dbOnline,
+      }));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '市场资讯获取失败' });
+    }
+  });
+
+  app.get<{ Params: { code: string } }>('/api/market-data/news/stocks/:code', async (req, reply) => {
+    const query = z.object({
+      code: z.string().regex(/\d{6}/),
+      limit: z.coerce.number().int().min(1).max(100).default(20),
+      force: z.enum(['true', 'false']).default('false'),
+    }).safeParse({ ...req.params, ...(req.query as object) });
+    if (!query.success) return reply.status(400).send({ message: '个股资讯查询参数无效' });
+    try {
+      return reply.send(await getStockNews(query.data.code, { limit: query.data.limit, force: query.data.force === 'true', dbOnline }));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '个股资讯获取失败' });
     }
   });
 
@@ -320,7 +387,7 @@ export function registerMarketDataRoutes(
   });
 
   app.get<{ Params: { code: string; section: string } }>('/api/market-data/stocks/:code/seven-layer/:section', async (req, reply) => {
-    const section = z.enum(['signal', 'capital', 'fundamental', 'announcement']).safeParse(req.params.section);
+    const section = z.enum(['signal', 'capital', 'fundamental', 'announcement', 'news']).safeParse(req.params.section);
     if (!section.success) return reply.status(400).send({ message: '不支持的数据源模块' });
     try {
       return reply.send(await fetchSevenLayerSection(req.params.code, section.data));

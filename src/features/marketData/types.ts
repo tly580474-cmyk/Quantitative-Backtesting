@@ -216,6 +216,89 @@ export interface HotSectorSnapshot {
   source: string;
 }
 
+export interface DragonTigerSeat {
+  tradeId: string;
+  tradeDate: string;
+  code: string;
+  side: 'buy' | 'sell';
+  rank: number;
+  operateDeptCode: string | null;
+  seatName: string;
+  buyAmt: number | null;
+  sellAmt: number | null;
+  netAmt: number | null;
+  isInstitutional: boolean;
+}
+
+export interface DragonTigerMarketItem {
+  tradeId: string;
+  tradeDate: string;
+  rank: number;
+  code: string;
+  name: string;
+  exchange: 'SH' | 'SZ' | 'BJ';
+  explanation: string;
+  changeType: string | null;
+  netBuyAmt: number | null;
+  buyAmt: number | null;
+  sellAmt: number | null;
+  billboardDealAmt: number | null;
+  closePrice: number | null;
+  changePct: number | null;
+  turnoverRate: number | null;
+  sourceKey: string;
+}
+
+export interface DragonTigerMarketSnapshot {
+  tradeDate: string;
+  items: DragonTigerMarketItem[];
+  total: number;
+  updatedAt: string;
+  source: string;
+  stale?: boolean;
+}
+
+export interface DragonTigerStockRecord extends DragonTigerMarketItem {
+  buySeats: DragonTigerSeat[];
+  sellSeats: DragonTigerSeat[];
+}
+
+export interface DragonTigerStockDetail {
+  code: string;
+  name: string;
+  records: DragonTigerStockRecord[];
+  updatedAt: string;
+}
+
+export type NewsSourceTier = 'official' | 'state_media' | 'professional' | 'aggregator' | 'self_media';
+
+export interface MarketNewsItem {
+  id?: number;
+  newsId: string;
+  sourceKey: string;
+  sourceName: string;
+  sourceTier: NewsSourceTier;
+  contentType: 'flash' | 'article' | 'announcement' | 'irm';
+  sourceUrl?: string;
+  title: string;
+  summary?: string;
+  content?: string;
+  publishedAt: string;
+  securityCode?: string;
+  securityName?: string;
+  industry?: string;
+  tags?: string[];
+}
+
+export interface MarketNewsSnapshot {
+  items: MarketNewsItem[];
+  total: number;
+  updatedAt: string;
+  sources: string[];
+  nextCursor?: { before: string; beforeId?: number };
+  stale?: boolean;
+}
+
 export interface SectorConstituent {
   rank: number;
   code: string;
@@ -338,7 +421,7 @@ export interface SevenLayerRecord {
 }
 
 export interface SevenLayerSection {
-  key: 'signal' | 'capital' | 'fundamental' | 'announcement';
+  key: 'signal' | 'capital' | 'fundamental' | 'announcement' | 'news';
   title: string;
   status: SevenLayerStatus;
   summary: string;

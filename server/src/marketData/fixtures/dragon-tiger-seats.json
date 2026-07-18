@@ -1,0 +1,22 @@
+{
+  "buy": [{
+    "TRADE_ID": "920305-20260717-A",
+    "TRADE_DATE": "2026-07-17 00:00:00",
+    "SECURITY_CODE": "920305",
+    "OPERATEDEPT_CODE": "0",
+    "OPERATEDEPT_NAME": "机构专用",
+    "BUY": 8000000,
+    "SELL": 1000000,
+    "NET": 7000000
+  }],
+  "sell": [{
+    "TRADE_ID": "920305-20260717-A",
+    "TRADE_DATE": "2026-07-17 00:00:00",
+    "SECURITY_CODE": "920305",
+    "OPERATEDEPT_CODE": "100001",
+    "OPERATEDEPT_NAME": "某证券营业部",
+    "BUY": 500000,
+    "SELL": 6000000,
+    "NET": -5500000
+  }]
+}
