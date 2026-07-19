@@ -15,6 +15,7 @@ import {
   LockOutlined,
   LogoutOutlined,
   MenuOutlined,
+  PoweroffOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
@@ -27,11 +28,14 @@ import {
   getAdminHealth,
   getAdminOverview,
   getAdminStatus,
+  getBackendRestartStatus,
   getMetricsHistory,
+  restartBackend,
   updateAdminConfig,
   verifyAdminToken,
+  waitForBackendRecovery,
 } from './api';
-import type { AdminConfigItem, AdminHealth, AdminOverview, DiagnosticCheck, HealthLevel, MetricSample } from './types';
+import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartStatus, DiagnosticCheck, HealthLevel, MetricSample } from './types';
 
 type Section = 'overview' | 'diagnostics' | 'configuration';
 
@@ -177,6 +181,9 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
   const [editing, setEditing] = useState<AdminConfigItem | null>(null);
   const [notice, setNotice] = useState('');
   const [configSearch, setConfigSearch] = useState('');
+  const [restartStatus, setRestartStatus] = useState<BackendRestartStatus | null>(null);
+  const [restartDialogOpen, setRestartDialogOpen] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const prevOverallRef = useRef<HealthLevel | null>(null);
 
   const notifyCritical = useCallback(() => {
@@ -197,12 +204,14 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
     setLoading(true);
     setError('');
     try {
-      const [nextOverview, nextConfig] = await Promise.all([
+      const [nextOverview, nextConfig, nextRestartStatus] = await Promise.all([
         getAdminOverview(token),
         getAdminConfig(token),
+        getBackendRestartStatus(token),
       ]);
       setOverview(nextOverview);
       setConfig(nextConfig);
+      setRestartStatus(nextRestartStatus);
       setLastRefresh(new Date());
       prevOverallRef.current = nextOverview.overall;
     } catch (refreshError) {
@@ -269,6 +278,37 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
     setSidebarOpen(false);
   };
 
+  const performRestart = async () => {
+    if (!overview || restarting) return;
+    setRestartDialogOpen(false);
+    setRestarting(true);
+    setError('');
+    setNotice('后端正在优雅关闭并重新启动，页面会自动等待服务恢复。');
+    try {
+      const previousPid = overview.service.pid;
+      await restartBackend(token);
+      const health = await waitForBackendRecovery(token, previousPid);
+      setOverview((current) => current ? {
+        ...current,
+        overall: health.overall,
+        counts: health.counts,
+        service: health.service,
+        database: health.database,
+        duckdb: health.duckdb,
+        generatedAt: health.generatedAt,
+        durationMs: health.durationMs,
+      } : current);
+      setNotice(`后端已恢复，新进程 PID ${health.service.pid}。`);
+      setLastRefresh(new Date());
+      await refreshOverview();
+    } catch (restartError) {
+      setError(restartError instanceof Error ? restartError.message : '后端重启失败');
+      setNotice('');
+    } finally {
+      setRestarting(false);
+    }
+  };
+
   return (
     <div className="admin-shell">
       <aside className={`admin-sidebar ${sidebarOpen ? 'is-open' : ''}`}>
@@ -318,6 +358,15 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
               <span>上次刷新</span>
               <strong>{lastRefresh ? lastRefresh.toLocaleTimeString('zh-CN', { hour12: false }) : '—'}</strong>
             </div>
+            <button
+              className="danger-button"
+              disabled={restarting || restartStatus?.available !== true}
+              title={restartStatus?.available ? '优雅重启后端服务' : restartStatus?.reason ?? '正在读取重启能力'}
+              onClick={() => setRestartDialogOpen(true)}
+            >
+              <PoweroffOutlined spin={restarting} />
+              <span>{restarting ? '重启中' : '重启后端'}</span>
+            </button>
             <button className="secondary-button" disabled={loading} onClick={() => void refreshOverview()}>
               <ReloadOutlined spin={loading} />
               <span>刷新</span>
@@ -366,6 +415,33 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
           }}
         />
       )}
+      {restartDialogOpen && overview && (
+        <RestartDialog
+          pid={overview.service.pid}
+          onCancel={() => setRestartDialogOpen(false)}
+          onConfirm={() => void performRestart()}
+        />
+      )}
+    </div>
+  );
+}
+
+function RestartDialog({ pid, onCancel, onConfirm }: { pid: number; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onCancel();
+    }}>
+      <section className="config-dialog restart-dialog" role="alertdialog" aria-modal="true" aria-labelledby="restart-dialog-title" aria-describedby="restart-dialog-description">
+        <div className="restart-dialog-icon"><PoweroffOutlined /></div>
+        <span className="eyebrow">Backend restart</span>
+        <h2 id="restart-dialog-title">确认重启后端？</h2>
+        <p id="restart-dialog-description">当前进程 PID {pid} 将先停止接收请求，关闭调度器和数据库连接，再由监督进程重新启动。预计短暂不可用 3—15 秒。</p>
+        <div className="restart-impact"><WarningOutlined /> 正在执行的后端请求可能中断，请确认当前没有重要导入或回测任务。</div>
+        <div className="dialog-actions">
+          <button type="button" className="secondary-button" onClick={onCancel}>取消</button>
+          <button type="button" className="danger-button" autoFocus onClick={onConfirm}><PoweroffOutlined />确认重启</button>
+        </div>
+      </section>
     </div>
   );
 }

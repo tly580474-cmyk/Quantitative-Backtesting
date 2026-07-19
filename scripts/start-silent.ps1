@@ -45,10 +45,11 @@ try {
 
     # Backend
     $backendLog = Join-Path $logDir 'backend.log'
-    Start-Process -FilePath 'cmd.exe' `
-        -ArgumentList '/c', "cd /d `"$serverRoot`" && npm run dev >> `"$backendLog`" 2>&1" `
+    $backendSupervisor = Join-Path $root 'scripts\backend-supervisor.ps1'
+    Start-Process -FilePath 'powershell.exe' `
+        -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $backendSupervisor `
         -WorkingDirectory $serverRoot `
-        -WindowStyle Hidden
+        -WindowStyle Hidden | Out-Null
     Wait-Http "$backendUrl/api/market-data/research-agent/status" 35 'Backend'
 
     # Frontend

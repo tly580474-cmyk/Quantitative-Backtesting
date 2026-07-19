@@ -24,6 +24,7 @@
     "research:artifacts:prune": "tsx src/research/artifactLifecycleCli.ts",
     "parquet:compact": "tsx src/research/parquetCompactCli.ts",
     "admin:diagnostics": "tsx src/admin/diagnosticsCli.ts",
+    "opinion:mail:send": "tsx src/services/marketOpinionPushCli.ts",
     "factor:materializations:archive": "tsx src/research/materializedArtifactArchiveCli.ts",
     "snapshot:schedule:register": "powershell -NoProfile -ExecutionPolicy Bypass -File src/research/register-research-task.ps1",
     "index:update": "python src/referenceData/index_update.py",
@@ -71,12 +72,15 @@
     "drizzle-orm": "^0.38.0",
     "drizzle-zod": "^0.7.0",
     "fastify": "^5.2.0",
+    "marked": "^16.4.2",
     "mysql2": "^3.13.0",
+    "nodemailer": "^7.0.13",
     "openai": "^5.6.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/nodemailer": "^7.0.12",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.9"

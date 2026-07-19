@@ -56,7 +56,11 @@ Assert-PortAvailable 5558 'frontend'
 Assert-PortAvailable 5559 'admin'
 
 if (-not (Test-HttpReady $backendUrl)) {
-    Start-HiddenCommand $serverRoot 'npm.cmd run start' 'backend.log'
+    $supervisor = Join-Path $root 'scripts\backend-supervisor.ps1'
+    Start-Process -FilePath 'powershell.exe' `
+        -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $supervisor `
+        -WorkingDirectory $serverRoot `
+        -WindowStyle Hidden | Out-Null
 }
 
 Push-Location $root

@@ -27,11 +27,16 @@ import { startScheduler } from './marketData/jobs/syncScheduler.js';
 import { startIndexDatasetScheduler } from './marketData/jobs/indexDatasetScheduler.js';
 import { startDragonTigerScheduler } from './marketData/jobs/dragonTigerScheduler.js';
 import { startMarketNewsScheduler } from './marketData/jobs/marketNewsScheduler.js';
+import { startMarketOpinionPushScheduler } from './marketData/jobs/marketOpinionPushScheduler.js';
+import { EmailSender } from './services/emailSender.js';
+import { MarketOpinionAgent } from './services/marketOpinionAgent.js';
+import { MarketOpinionPushService } from './services/marketOpinionPushService.js';
 import { configureHistoryStorePolicy } from './marketData/repositories/historyStorePolicy.js';
 import { recoverInterruptedCandidateTests } from './factorResearch/candidates/candidateRepository.js';
 import { getDuckDBRuntimeStats } from './research/duckdbRuntime.js';
 
 async function main(): Promise<void> {
+  let requestedExitCode = 0;
   const config = loadConfig();
   configureHistoryStorePolicy({
     readMode: config.HISTORY_STORE_READ_MODE,
@@ -60,6 +65,34 @@ async function main(): Promise<void> {
     'deepseek-v4-flash',
     'deepseek-v4-pro',
   ])];
+  const opinionPushTimes = {
+    morning: config.MARKET_OPINION_MORNING_TIME,
+    midday: config.MARKET_OPINION_MIDDAY_TIME,
+    close: config.MARKET_OPINION_CLOSE_TIME,
+  } as const;
+  const opinionRecipients = config.MAIL_TO.split(',').map((item) => item.trim()).filter(Boolean);
+  const opinionEmailSender = new EmailSender({
+    host: config.SMTP_HOST,
+    port: parseInt(config.SMTP_PORT, 10),
+    secure: config.SMTP_SECURE === 'true',
+    user: config.SMTP_USER,
+    password: config.SMTP_PASSWORD,
+    from: config.MAIL_FROM || config.SMTP_USER,
+    to: opinionRecipients,
+  });
+  const opinionPushService = new MarketOpinionPushService({
+    enabled: config.MARKET_OPINION_PUSH_ENABLED === 'true',
+    schedules: opinionPushTimes,
+    recipientCount: opinionRecipients.length,
+    agent: new MarketOpinionAgent(
+      aiConfigured ? config.OPENAI_API_KEY : '',
+      config.OPENAI_BASE_URL,
+      config.OPENAI_MODEL,
+      parseInt(config.OPENAI_TIMEOUT_MS, 10),
+    ),
+    email: opinionEmailSender,
+    model: config.OPENAI_MODEL,
+  });
 
   // ── MySQL Connection ────────────────────────────────────────
   console.log(`[DB] Connecting to MySQL at ${config.DB_HOST}:${config.DB_PORT}/${config.DB_NAME}...`);
@@ -166,6 +199,18 @@ async function main(): Promise<void> {
       });
       console.log(`[MarketNews] Collector started every ${config.MARKET_NEWS_REFRESH_INTERVAL_MINUTES} minute(s)`);
     }
+    if (config.MARKET_OPINION_PUSH_ENABLED === 'true') {
+      if (!aiConfigured || !opinionEmailSender.isConfigured()) {
+        console.warn('[MarketOpinionPush] Disabled: AI or SMTP configuration is incomplete.');
+      } else {
+        startMarketOpinionPushScheduler(opinionPushService, {
+          times: opinionPushTimes,
+          graceMinutes: Math.max(1, parseInt(config.MARKET_OPINION_PUSH_GRACE_MINUTES, 10) || 20),
+          weekdaysOnly: config.MARKET_OPINION_PUSH_WEEKDAYS_ONLY === 'true',
+        });
+        console.log(`[MarketOpinionPush] Scheduler started at ${Object.values(opinionPushTimes).join('/')}`);
+      }
+    }
   }
 
   registerInstrumentRoutes(app, dbOnline, {
@@ -191,7 +236,7 @@ async function main(): Promise<void> {
     ),
     pool,
     config,
-  });
+  }, opinionPushService);
   registerSyncJobRoutes(app, dbOnline);
   registerDataQualityRoutes(app, dbOnline);
   registerAdminRoutes(app, {
@@ -199,6 +244,13 @@ async function main(): Promise<void> {
     dbOnline,
     config,
     envFilePath: new URL('../.env', import.meta.url),
+    restart: {
+      available: process.env.QUANT_BACKEND_SUPERVISED === 'true',
+      request: () => {
+        requestedExitCode = 75;
+        process.kill(process.pid, 'SIGTERM');
+      },
+    },
   });
   registerFactorResearchRoutes(app, dbOnline, {
     snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
@@ -239,16 +291,18 @@ async function main(): Promise<void> {
     const { stopMiningScheduler } = await import('./factorResearch/mining/miningScheduler.js');
     const { stopDragonTigerScheduler } = await import('./marketData/jobs/dragonTigerScheduler.js');
     const { stopMarketNewsScheduler } = await import('./marketData/jobs/marketNewsScheduler.js');
+    const { stopMarketOpinionPushScheduler } = await import('./marketData/jobs/marketOpinionPushScheduler.js');
     stopScheduler();
     stopIndexDatasetScheduler();
     stopMiningScheduler();
     stopDragonTigerScheduler();
     stopMarketNewsScheduler();
+    stopMarketOpinionPushScheduler();
     await app.close();
     closeDb();
     await closePool(pool);
     console.log('[Server] Shutdown complete.');
-    process.exit(0);
+    process.exit(requestedExitCode);
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

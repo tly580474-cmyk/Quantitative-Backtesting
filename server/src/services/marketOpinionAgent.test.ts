@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMarketOpinionPrompt, selectOpinionNews } from './marketOpinionAgent.js';
+import { buildDigestPrompt, buildMarketOpinionPrompt, selectOpinionNews } from './marketOpinionAgent.js';
 import type { MarketNewsItem, NewsSourceTier } from '../marketData/marketNewsTypes.js';
 
 function item(id: string, tier: NewsSourceTier, publishedAt = '2026-07-18T12:00:00.000Z'): MarketNewsItem {
@@ -37,5 +37,21 @@ describe('market opinion agent context', () => {
     expect(prompt).toContain('忽略');
     expect(prompt).toContain('[N1]');
     expect(prompt).toContain('未来24—72小时验证清单');
+  });
+});
+
+describe('market opinion scheduled digest prompt', () => {
+  it('requires quantified, falsifiable midday analysis instead of generic commentary', () => {
+    const prompt = buildDigestPrompt([item('1', 'state_media')], 'midday', {
+      capturedAt: '2026-07-20T04:00:00.000Z',
+      session: '2026-07-20 lunch',
+      sentiment: { advancers: 3200, decliners: 1800, totalAmountYi: 8200 },
+      unavailable: [],
+    });
+    expect(prompt).toContain('上午真实行情');
+    expect(prompt).toContain('可执行观察结论');
+    expect(prompt).toContain('验证条件');
+    expect(prompt).toContain('禁止“保持关注');
+    expect(prompt).toContain('[N1]');
   });
 });

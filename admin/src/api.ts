@@ -1,4 +1,4 @@
-import type { AdminConfigItem, AdminHealth, AdminOverview, MetricsHistoryResponse } from './types';
+import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartResult, BackendRestartStatus, MetricsHistoryResponse } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3001';
 
@@ -51,6 +51,32 @@ export async function updateAdminConfig(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ updates }),
   }, token);
+}
+
+export async function getBackendRestartStatus(token: string): Promise<BackendRestartStatus> {
+  return request('/api/admin/restart/status', {}, token);
+}
+
+export async function restartBackend(token: string): Promise<BackendRestartResult> {
+  return request('/api/admin/restart', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  }, token);
+}
+
+export async function waitForBackendRecovery(token: string, previousPid: number, timeoutMs = 60_000): Promise<AdminHealth> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+    try {
+      const health = await getAdminHealth(token);
+      if (health.service.pid !== previousPid) return health;
+    } catch {
+      // A short network outage is expected while the old process releases the port.
+    }
+  }
+  throw new AdminApiError('后端未在 60 秒内恢复，请检查 logs/backend.log', 0, 'RESTART_TIMEOUT');
 }
 
 async function request<T>(

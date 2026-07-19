@@ -38,6 +38,7 @@ import { tencentProvider } from '../marketData/providers/tencentProvider.js';
 import { updateIndexDatasets } from '../marketData/jobs/indexDatasetUpdater.js';
 import { StockResearchAgent } from '../services/stockResearchAgent.js';
 import { MarketOpinionAgent, MARKET_OPINION_TIERS } from '../services/marketOpinionAgent.js';
+import type { MarketOpinionPushService } from '../services/marketOpinionPushService.js';
 import { fetchSevenLayerSection, fetchSevenLayerSnapshot } from '../marketData/sevenLayerDataService.js';
 import { fetchCachedHotSectors, fetchSectorConstituents } from '../marketData/hotSectorService.js';
 import type { HistoryReadMode } from '../marketData/repositories/historyStorePolicy.js';
@@ -122,6 +123,7 @@ export function registerMarketDataRoutes(
     minuteQueryMaxRows: 100000,
     researchQueryMaxRows: 10000,
   },
+  opinionPushService?: MarketOpinionPushService,
 ): void {
   const agent = new StockResearchAgent(
     agentConfig.apiKey,
@@ -255,6 +257,16 @@ export function registerMarketDataRoutes(
     workflow: ['三类新闻取证', '跨媒体事件去重', '主题与影响链提取', '共识和分歧核验', '风险与验证项'],
     latest: opinionAgent.getLatest(),
   }));
+
+  app.get('/api/market-data/news/opinion/push/status', async (_req, reply) => reply.send(
+    opinionPushService?.status() ?? {
+      enabled: false,
+      configured: false,
+      schedules: { morning: '09:00', midday: '12:00', close: '16:00' },
+      recipients: 0,
+      running: false,
+    },
+  ));
 
   app.post('/api/market-data/news/opinion', async (req, reply) => {
     const body = z.object({ model: z.string().optional(), force: z.boolean().default(false) }).safeParse(req.body ?? {});

@@ -122,8 +122,9 @@ try {
     Stop-ProjectListener 5558 'node_modules*vite'
     Start-Sleep -Milliseconds 500
 
-    Write-Step 'BE' "Starting watch server at $backendUrl"
-    $backendCommand = "title Quant-Backend && cd /d `"$serverRoot`" && npm run dev"
+    Write-Step 'BE' "Starting supervised server at $backendUrl"
+    $backendSupervisor = Join-Path $root 'scripts\backend-supervisor.ps1'
+    $backendCommand = "title Quant-Backend && cd /d `"$serverRoot`" && powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$backendSupervisor`""
     Start-Process -FilePath 'cmd.exe' -ArgumentList '/k', $backendCommand -WorkingDirectory $serverRoot
     Wait-Http "$backendUrl/api/market-data/research-agent/status" 35 'Backend'
     Warm-MarketSentiment

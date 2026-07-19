@@ -13,6 +13,10 @@ interface AdminRouteOptions {
   dbOnline: boolean;
   config: EnvConfig;
   envFilePath: string | URL;
+  restart?: {
+    available: boolean;
+    request: () => void;
+  };
 }
 
 const updateConfigSchema = z.object({
@@ -90,6 +94,27 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
   app.get('/api/admin/config', { preHandler: authorize }, async () => ({
     items: listAdminConfig({ ...options.config, ...process.env }),
   }));
+
+  app.get('/api/admin/restart/status', { preHandler: authorize }, async () => ({
+    available: options.restart?.available === true,
+    reason: options.restart?.available
+      ? null
+      : '当前后端不是由项目监督进程启动，请通过项目启动脚本重新启动后再使用快捷重启。',
+  }));
+
+  app.post('/api/admin/restart', { preHandler: authorize }, async (request, reply) => {
+    if (!options.restart?.available) {
+      return reply.status(409).send({
+        error: 'RESTART_UNAVAILABLE',
+        message: '当前运行方式不支持安全重启，请先使用项目启动脚本启动后端。',
+      });
+    }
+    const requestedAt = new Date().toISOString();
+    request.log.warn({ requestedAt }, 'Admin requested backend restart');
+    const timer = setTimeout(() => options.restart?.request(), 250);
+    timer.unref?.();
+    return reply.status(202).send({ accepted: true, requestedAt });
+  });
 
   app.put<{ Body: z.infer<typeof updateConfigSchema> }>(
     '/api/admin/config',

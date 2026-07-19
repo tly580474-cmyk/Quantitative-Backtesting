@@ -159,3 +159,13 @@ export interface MetricSample {
 export interface MetricsHistoryResponse {
   samples: MetricSample[];
 }
+
+export interface BackendRestartStatus {
+  available: boolean;
+  reason: string | null;
+}
+
+export interface BackendRestartResult {
+  accepted: boolean;
+  requestedAt: string;
+}
