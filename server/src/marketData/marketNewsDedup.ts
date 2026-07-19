@@ -29,6 +29,7 @@ export function sameNewsEvent(left: MarketNewsItem, right: MarketNewsItem): bool
   const rightTitle = normalizeEventTitle(right.title);
   if (!leftTitle || !rightTitle) return false;
   if (leftTitle === rightTitle) return distance <= EXACT_TITLE_WINDOW_MS;
+  if (left.sourceKey === right.sourceKey && left.sourceName === right.sourceName) return false;
   if (distance > EVENT_WINDOW_MS || Math.min(leftTitle.length, rightTitle.length) < 8) return false;
   if (hasConflictingNumericFacts(leftTitle, rightTitle)) return false;
   const commonRun = longestCommonSubstring(leftTitle, rightTitle);

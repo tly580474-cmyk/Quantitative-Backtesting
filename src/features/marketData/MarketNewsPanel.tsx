@@ -3,6 +3,7 @@ import { App, Button, Empty, Segmented, Space, Spin, Switch, Tag, Tooltip, Typog
 import { LinkOutlined, NotificationOutlined, ReloadOutlined } from '@ant-design/icons';
 import { apiFetch } from '../../api/client';
 import type { MarketNewsItem, MarketNewsSnapshot, NewsSourceTier } from './types';
+import MarketOpinionPanel from './MarketOpinionPanel';
 
 const { Text } = Typography;
 const STORAGE_KEY = 'quant-market-news-v1';
@@ -15,6 +16,15 @@ const tierMeta: Record<NewsSourceTier, { label: string; color?: string }> = {
   self_media: { label: '自媒体', color: undefined },
 };
 
+const viewOptions = [
+  { label: '全部', value: 'all' },
+  { label: '市场观点解读', value: 'opinion' },
+  { label: '官方', value: 'official' },
+  { label: '官媒', value: 'state_media' },
+  { label: '专业财经', value: 'professional' },
+  { label: '聚合', value: 'aggregator' },
+];
+
 function readSnapshot(): MarketNewsSnapshot | null {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as MarketNewsSnapshot | null; } catch { return null; }
 }
@@ -22,12 +32,14 @@ function readSnapshot(): MarketNewsSnapshot | null {
 export default function MarketNewsPanel() {
   const { message } = App.useApp();
   const [snapshot, setSnapshot] = useState<MarketNewsSnapshot | null>(readSnapshot);
-  const [tier, setTier] = useState<'all' | NewsSourceTier>('all');
+  const [tier, setTier] = useState<'all' | 'opinion' | NewsSourceTier>('all');
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const isOpinion = tier === 'opinion';
 
   const load = async (force = false, append = false) => {
+    if (isOpinion) return;
     append ? setLoadingMore(true) : setLoading(true);
     try {
       const params = new URLSearchParams({ limit: '30' });
@@ -52,9 +64,9 @@ export default function MarketNewsPanel() {
   };
 
   useEffect(() => { if (!snapshot) void load(false, false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (tier !== 'all' || snapshot) void load(false, false); }, [tier]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!isOpinion && (tier !== 'all' || snapshot)) void load(false, false); }, [tier]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!autoRefresh) return;
+    if (!autoRefresh || isOpinion) return;
     const timer = window.setInterval(() => void load(true, false), 3 * 60_000);
     return () => window.clearInterval(timer);
   }, [autoRefresh, tier, snapshot?.nextCursor?.before]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -63,17 +75,18 @@ export default function MarketNewsPanel() {
 
   return <section className="market-news-panel" aria-label="市场消息面">
     <div className="market-intelligence-toolbar">
-      <div><strong><NotificationOutlined /> 市场消息面</strong><Text type="secondary">按发布时间倒序，来源等级用于可信度标识</Text></div>
+      <div><strong><NotificationOutlined /> 市场消息面</strong><Text type="secondary">{isOpinion ? '智能体基于三类新闻证据生成结构化市场解读' : '按发布时间倒序，来源等级用于可信度标识'}</Text></div>
       <Space wrap>
         <Segmented
           value={tier}
           onChange={(value) => setTier(value as typeof tier)}
-          options={[{ label: '全部', value: 'all' }, ...Object.entries(tierMeta).map(([value, meta]) => ({ label: meta.label, value }))]}
+          options={viewOptions}
         />
-        <Tooltip title="每 3 分钟自动刷新"><Space size={4}><Switch size="small" checked={autoRefresh} onChange={setAutoRefresh} aria-label="自动刷新市场资讯" /><Text type="secondary">自动</Text></Space></Tooltip>
-        <Button icon={<ReloadOutlined />} loading={loading} aria-label="刷新市场资讯" onClick={() => void load(true, false)} />
+        {!isOpinion && <><Tooltip title="每 3 分钟自动刷新"><Space size={4}><Switch size="small" checked={autoRefresh} onChange={setAutoRefresh} aria-label="自动刷新市场资讯" /><Text type="secondary">自动</Text></Space></Tooltip>
+        <Button icon={<ReloadOutlined />} loading={loading} aria-label="刷新市场资讯" onClick={() => void load(true, false)} /></>}
       </Space>
     </div>
+    {isOpinion ? <MarketOpinionPanel /> : <>
     <Spin spinning={loading && !snapshot}>
       <div className="market-news-feed" aria-live="polite">
         {groups.map(([date, items]) => <div className="market-news-day" key={date}>
@@ -92,6 +105,7 @@ export default function MarketNewsPanel() {
     </Spin>
     {snapshot?.nextCursor && snapshot.items.length > 0 && <div className="market-news-more"><Button loading={loadingMore} onClick={() => void load(false, true)}>加载更多</Button></div>}
     {snapshot && <Text className="market-news-updated" type="secondary">更新于 {new Date(snapshot.updatedAt).toLocaleString('zh-CN')} · 来源 {snapshot.sources.join('、') || '—'}{snapshot.stale ? ' · 缓存数据' : ''}</Text>}
+    </>}
   </section>;
 }
 

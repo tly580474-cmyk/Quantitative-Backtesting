@@ -37,6 +37,7 @@ import {
 import { tencentProvider } from '../marketData/providers/tencentProvider.js';
 import { updateIndexDatasets } from '../marketData/jobs/indexDatasetUpdater.js';
 import { StockResearchAgent } from '../services/stockResearchAgent.js';
+import { MarketOpinionAgent, MARKET_OPINION_TIERS } from '../services/marketOpinionAgent.js';
 import { fetchSevenLayerSection, fetchSevenLayerSnapshot } from '../marketData/sevenLayerDataService.js';
 import { fetchCachedHotSectors, fetchSectorConstituents } from '../marketData/hotSectorService.js';
 import type { HistoryReadMode } from '../marketData/repositories/historyStorePolicy.js';
@@ -49,7 +50,7 @@ import { getResearchSnapshotFreshness } from '../research/snapshotFreshness.js';
 import { verifyCurrentResearchSnapshot } from '../research/snapshotVerifier.js';
 import { getMinuteDataCatalog, queryMinuteBars } from '../minuteData/minuteDataService.js';
 import { getMarketBillboard, getStockBillboard } from '../marketData/dragonTigerService.js';
-import { getMarketNews, getStockNews } from '../marketData/marketNewsService.js';
+import { getMarketNews, getMarketOpinionNews, getStockNews } from '../marketData/marketNewsService.js';
 
 const candlesQuerySchema = z.object({
   startDate: z.string().optional(),
@@ -123,6 +124,12 @@ export function registerMarketDataRoutes(
   },
 ): void {
   const agent = new StockResearchAgent(
+    agentConfig.apiKey,
+    agentConfig.baseURL,
+    agentConfig.model,
+    agentConfig.timeoutMs,
+  );
+  const opinionAgent = new MarketOpinionAgent(
     agentConfig.apiKey,
     agentConfig.baseURL,
     agentConfig.model,
@@ -237,6 +244,31 @@ export function registerMarketDataRoutes(
     } catch (error) {
       req.log.error(error);
       return reply.status(502).send({ message: error instanceof Error ? error.message : '个股资讯获取失败' });
+    }
+  });
+
+  app.get('/api/market-data/news/opinion/status', async (_req, reply) => reply.send({
+    configured: Boolean(agentConfig.apiKey),
+    currentModel: agentConfig.model,
+    availableModels: agentConfig.availableModels,
+    inputTiers: MARKET_OPINION_TIERS,
+    workflow: ['三类新闻取证', '跨媒体事件去重', '主题与影响链提取', '共识和分歧核验', '风险与验证项'],
+    latest: opinionAgent.getLatest(),
+  }));
+
+  app.post('/api/market-data/news/opinion', async (req, reply) => {
+    const body = z.object({ model: z.string().optional(), force: z.boolean().default(false) }).safeParse(req.body ?? {});
+    if (!body.success) return reply.status(400).send({ message: '市场观点解读参数无效' });
+    if (body.data.model && !agentConfig.availableModels.includes(body.data.model)) {
+      return reply.status(400).send({ message: '请求的模型不在允许列表中' });
+    }
+    if (!agentConfig.apiKey) return reply.status(503).send({ message: '请先在服务端配置 AI 模型与密钥' });
+    if (!dbOnline) return reply.status(503).send({ message: '数据库不可用，无法整理市场新闻上下文' });
+    try {
+      return reply.send(await opinionAgent.generate(await getMarketOpinionNews(), body.data.model, body.data.force));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '市场观点解读生成失败' });
     }
   });
 

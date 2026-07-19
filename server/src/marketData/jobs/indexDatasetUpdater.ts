@@ -14,6 +14,7 @@ const CN_INDEX_SYMBOLS = new Set([
   '932000', // 中证2000
   '000688', // 科创50
   '000680', // 科创综指
+  '000985', // 中证全指
 ]);
 
 const EASTMONEY_INDEX_SECIDS: Record<string, string> = {
@@ -24,6 +25,7 @@ const EASTMONEY_INDEX_SECIDS: Record<string, string> = {
   '932000': '2.932000',
   '000688': '1.000688',
   '000680': '1.000680',
+  '000985': '1.000985',
 };
 
 type DatasetRow = typeof marketDatasets.$inferSelect;

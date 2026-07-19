@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { fetchCninfoAnnouncements, type MainlandMarket } from './http/cninfoClient.js';
 import { limitedFetchJson, limitedFetchText } from './http/eastmoneyClient.js';
 import { fetchClsTelegraph } from './http/clsClient.js';
+import { fetchXinwenLianbo } from './http/xinwenLianboClient.js';
 import { buildCanonicalNewsHash, clusterMarketNews } from './marketNewsDedup.js';
 import { parseClsTelegraph, parseEastmoneyGlobalNews, parseEastmoneyStockNews, sortNewsByTimeAndPriority } from './marketNewsParsers.js';
 import type { MarketNewsItem, MarketNewsSnapshot, NewsSourceTier } from './marketNewsTypes.js';
@@ -89,10 +90,12 @@ export async function refreshMarketNews(dbOnline = true, limit = 50): Promise<Ma
       pageSize: String(Math.max(20, limit)), req_trace: randomUUID(),
     }, 'https://kuaixun.eastmoney.com/'),
     fetchClsTelegraph(limit),
+    fetchXinwenLianbo(),
   ]);
   const rawItems = sortNewsByTimeAndPriority([
     ...(results[0].status === 'fulfilled' ? parseEastmoneyGlobalNews(results[0].value) : []),
     ...(results[1].status === 'fulfilled' ? parseClsTelegraph(results[1].value) : []),
+    ...(results[2].status === 'fulfilled' ? results[2].value : []),
   ]);
   if (!rawItems.length) {
     const reasons = results.map((result) => result.status === 'rejected' ? String(result.reason) : '').filter(Boolean);
@@ -103,6 +106,12 @@ export async function refreshMarketNews(dbOnline = true, limit = 50): Promise<Ma
   marketCache = { data: result, cachedAt: Date.now() };
   await writeCache(result);
   return result;
+}
+
+export async function getMarketOpinionNews(): Promise<MarketNewsItem[]> {
+  const tiers: NewsSourceTier[] = ['state_media', 'professional', 'aggregator'];
+  const pages = await Promise.all(tiers.map((tier) => listMarketNews({ limit: 60, tier })));
+  return clusterMarketNews(sortNewsByTimeAndPriority(pages.flat()));
 }
 
 function mapAnnouncement(item: Awaited<ReturnType<typeof fetchCninfoAnnouncements>>[number], code: string): MarketNewsItem {

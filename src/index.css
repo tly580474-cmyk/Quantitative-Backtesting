@@ -3114,9 +3114,27 @@ body {
 .market-news-item p { max-width: 90ch; margin: 0; color: #475569; font-size: 13px; line-height: 1.65; }
 .market-news-more { display: flex; justify-content: center; padding: 0 16px 14px; }
 .market-news-updated { display: block; padding: 0 18px 14px; color: #475569 !important; font-size: 12px; }
+.market-opinion-panel { display: flex; min-height: 360px; flex-direction: column; gap: 16px; padding: 18px; background: linear-gradient(180deg, #f8fbff 0, #fff 220px); }
+.market-opinion-hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px; border: 1px solid #dbeafe; border-radius: 12px; background: #fff; box-shadow: 0 8px 24px rgba(30, 64, 175, .06); }
+.market-opinion-hero > div:first-child { display: flex; min-width: 0; flex-direction: column; gap: 7px; }
+.market-opinion-hero strong { color: #0f172a; font-size: 17px; }
+.market-opinion-hero > div:first-child > .ant-typography { max-width: 72ch; color: #475569; line-height: 1.6; }
+.market-opinion-workflow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.market-opinion-workflow span { display: flex; min-height: 48px; align-items: center; gap: 8px; padding: 9px 11px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #334155; font-size: 12px; }
+.market-opinion-workflow b { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; border-radius: 50%; background: #dbeafe; color: #1d4ed8; }
+.market-opinion-loading { display: flex; min-height: 220px; align-items: center; justify-content: center; gap: 12px; }
+.market-opinion-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.market-opinion-period { display: block; color: #475569 !important; font-size: 12px; }
+.market-opinion-report { padding: 20px 22px; border: 1px solid #dbe3ef; border-radius: 10px; background: #fff; color: #1e293b; font-size: 14px; line-height: 1.7; box-shadow: 0 8px 22px rgba(15, 23, 42, .05); }
+.market-opinion-evidence ol { margin: 0; padding-left: 22px; }
+.market-opinion-evidence li { margin: 8px 0; color: #334155; line-height: 1.55; }
+.market-opinion-evidence li .anticon { margin-left: 5px; font-size: 11px; }
 
 @media (max-width: 900px) {
   .market-intelligence-tabs, .market-intelligence-toolbar { align-items: flex-start; flex-direction: column; }
+  .market-opinion-hero, .market-opinion-meta { align-items: flex-start; flex-direction: column; }
+  .market-opinion-actions { width: 100%; }
+  .market-opinion-workflow { grid-template-columns: 1fr 1fr; }
   .market-intelligence-tabs .ant-segmented, .market-intelligence-toolbar > .ant-space { width: 100%; overflow-x: auto; }
   .dragon-tiger-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dragon-tiger-kpis .ant-statistic:nth-child(3) { border-top: 1px solid #e2e8f0; border-left: 0; }
@@ -3134,6 +3152,11 @@ body {
   .market-news-item { grid-template-columns: 48px minmax(0, 1fr); gap: 8px; }
   .market-news-item h3 { font-size: 16px; }
   .market-news-item p { font-size: 14px; }
+  .market-opinion-panel { padding: 12px; }
+  .market-opinion-hero { padding: 14px; }
+  .market-opinion-actions .ant-select, .market-opinion-actions .ant-btn { width: 100%; min-height: 44px; }
+  .market-opinion-workflow { grid-template-columns: 1fr; }
+  .market-opinion-report { padding: 16px; font-size: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -309,6 +309,38 @@ export interface MarketNewsSnapshot {
   stale?: boolean;
 }
 
+export interface MarketOpinionSource {
+  ref: string;
+  title: string;
+  sourceName: string;
+  sourceTier: NewsSourceTier;
+  sourceUrl?: string;
+  publishedAt: string;
+}
+
+export interface MarketOpinionReport {
+  content: string;
+  model: string;
+  generatedAt: string;
+  periodStart: string;
+  periodEnd: string;
+  newsCount: number;
+  sourceCount: number;
+  tierCounts: Partial<Record<NewsSourceTier, number>>;
+  sources: MarketOpinionSource[];
+  reasoningSummary: string[];
+  cached: boolean;
+}
+
+export interface MarketOpinionStatus {
+  configured: boolean;
+  currentModel: string;
+  availableModels: string[];
+  inputTiers: NewsSourceTier[];
+  workflow: string[];
+  latest: MarketOpinionReport | null;
+}
+
 export interface SectorConstituent {
   rank: number;
   code: string;

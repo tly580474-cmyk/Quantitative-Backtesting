@@ -4,10 +4,14 @@ import unittest
 
 import pandas as pd
 
-from index_update import apply_previous_close, canonical_checksum, validate_index_frame
+from index_update import TARGETS, apply_previous_close, canonical_checksum, validate_index_frame
 
 
 class IndexUpdateTest(unittest.TestCase):
+    def test_supports_csi_all_share(self) -> None:
+        self.assertEqual(TARGETS["000985"].provider_symbol, "000985")
+        self.assertEqual(TARGETS["000985"].source_file_name, "csindex:index-perf")
+
     def test_accepts_valid_ohlcv(self) -> None:
         frame = pd.DataFrame([{
             "tradeDate": "2026-07-15",

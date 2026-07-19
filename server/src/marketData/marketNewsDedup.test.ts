@@ -47,4 +47,12 @@ describe('market news event clustering', () => {
     expect(items).toHaveLength(1);
     expect(items[0]?.sourceCount).toBe(1);
   });
+
+  it('does not fuzzy-merge different sections published by the same program', () => {
+    const items = clusterMarketNews([
+      news({ newsId: 'section-1', sourceKey: 'xinwenlianbo', sourceName: '央视新闻联播文字稿（公开数据平台）', title: '让人工智能更好造福人类——世界人工智能大会主旨讲话引发热烈反响' }),
+      news({ newsId: 'section-2', sourceKey: 'xinwenlianbo', sourceName: '央视新闻联播文字稿（公开数据平台）', title: '多项首发技术和创新成果亮相世界人工智能大会' }),
+    ]);
+    expect(items).toHaveLength(2);
+  });
 });

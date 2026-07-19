@@ -18,7 +18,9 @@ const BASE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';
 const QUOTE_URL = 'https://qt.gtimg.cn/q=';
 const MAX_WINDOW_DAYS = 700;
 const MIN_REQUEST_INTERVAL_MS = 1800;
-const SH_INDEX_SYMBOLS = new Set(['000001', '000300', '000905', '000852', '000688', '000680', '932000']);
+const SH_INDEX_SYMBOLS = new Set([
+  '000001', '000300', '000905', '000852', '000688', '000680', '000985', '932000',
+]);
 
 type Adjustment = NonNullable<DailyCandleRequest['adjustment']>;
 

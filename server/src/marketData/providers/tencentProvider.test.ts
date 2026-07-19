@@ -68,6 +68,7 @@ describe('Tencent market data provider', () => {
     expect(toTencentCode('600519')).toBe('sh600519');
     expect(toTencentCode('000858')).toBe('sz000858');
     expect(toTencentCode('000001', 'SH')).toBe('sh000001');
+    expect(toTencentCode('000985')).toBe('sh000985');
     expect(toTencentCode('600519.SH')).toBe('sh600519');
   });
 

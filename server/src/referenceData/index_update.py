@@ -15,6 +15,7 @@ from typing import Any
 import akshare as ak
 import pandas as pd
 import pymysql
+import requests
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class IndexDefinition:
     code: str
     name: str
     provider_symbol: str
+    source_file_name: str = "akshare:stock_zh_index_daily_em"
 
 
 TARGETS = {
@@ -36,6 +38,12 @@ TARGETS = {
         IndexDefinition("932000", "中证2000", "csi932000"),
         IndexDefinition("000688", "科创50", "sh000688"),
         IndexDefinition("000680", "科创综指", "sh000680"),
+        IndexDefinition(
+            "000985",
+            "中证全指",
+            "000985",
+            "csindex:index-perf",
+        ),
     )
 }
 
@@ -160,6 +168,8 @@ def fetch_index_frame_with_retry(
 
 
 def fetch_index_frame(definition: IndexDefinition, start_date: str, end_date: str) -> pd.DataFrame:
+    if definition.source_file_name == "csindex:index-perf":
+        return fetch_csindex_official_frame(definition, start_date, end_date)
     raw = ak.stock_zh_index_daily_em(
         symbol=definition.provider_symbol,
         start_date=start_date.replace("-", ""),
@@ -191,6 +201,65 @@ def fetch_index_frame(definition: IndexDefinition, start_date: str, end_date: st
     return frame[[
         "tradeDate", "open", "high", "low", "close", "volume", "amount",
         "change", "changePercent",
+    ]]
+
+
+def fetch_csindex_official_frame(
+    definition: IndexDefinition,
+    start_date: str,
+    end_date: str,
+) -> pd.DataFrame:
+    response = requests.get(
+        "https://www.csindex.com.cn/csindex-home/perf/index-perf",
+        params={
+            "indexCode": definition.provider_symbol,
+            "startDate": start_date.replace("-", ""),
+            "endDate": end_date.replace("-", ""),
+        },
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://www.csindex.com.cn/",
+        },
+        timeout=60,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if str(payload.get("code")) != "200":
+        raise RuntimeError(f"CSI index API returned code={payload.get('code')}")
+    raw = pd.DataFrame(payload.get("data") or [])
+    if raw.empty:
+        return pd.DataFrame(columns=[
+            "tradeDate", "open", "high", "low", "close", "volume", "amount",
+            "change", "changePercent", "constituentCount",
+        ])
+    frame = raw.rename(columns={
+        "tradingVol": "volume",
+        "tradingValue": "amount",
+        "consNumber": "constituentCount",
+    }).copy()
+    frame["tradeDate"] = pd.to_datetime(
+        frame["tradeDate"], format="%Y%m%d", errors="raise"
+    ).dt.strftime("%Y-%m-%d")
+    for column in (
+        "open", "high", "low", "close", "volume", "amount", "constituentCount"
+    ):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    # The official endpoint also returns base-point and holiday reference rows
+    # without OHLC values. They are not exchange sessions and cannot be stored as candles.
+    frame = frame.dropna(subset=["open", "high", "low", "close", "volume", "amount"])
+    # CSI reports volume in shares and turnover in CNY 100m; the existing index
+    # candle contract stores Tencent/Eastmoney volume units and turnover in CNY.
+    frame["volume"] = frame["volume"] / 100
+    frame["amount"] = frame["amount"] * 100_000_000
+    frame = frame.sort_values("tradeDate").drop_duplicates(
+        "tradeDate", keep="last"
+    ).reset_index(drop=True)
+    previous = frame["close"].shift(1)
+    frame["change"] = frame["close"] - previous
+    frame["changePercent"] = frame["change"] / previous * 100
+    return frame[[
+        "tradeDate", "open", "high", "low", "close", "volume", "amount",
+        "change", "changePercent", "constituentCount",
     ]]
 
 
@@ -308,6 +377,7 @@ def upsert_index_frame(connection, dataset_id: str, definition: IndexDefinition,
             optional_float(row.changePercent),
             float(row.volume),
             float(row.amount),
+            optional_float(getattr(row, "constituentCount", None)),
         )
         for row in frame.itertuples(index=False)
     ]
@@ -315,25 +385,27 @@ def upsert_index_frame(connection, dataset_id: str, definition: IndexDefinition,
         if create:
             cursor.execute(
                 """
-                INSERT INTO market_datasets
+            INSERT INTO market_datasets
                   (id, symbol, asset_type, checksum, name, timeframe, start_time, end_time,
                    count, source_file_name, created_at, updated_at)
                 VALUES (%s, %s, 'index', %s, %s, '1d', %s, %s, 0,
-                        'akshare:stock_zh_index_daily_em', %s, %s)
+                        %s, %s, %s)
                 """,
                 (dataset_id, definition.code, f"pending-{dataset_id}", definition.name,
-                 frame.iloc[0]["tradeDate"], frame.iloc[-1]["tradeDate"], now, now),
+                 frame.iloc[0]["tradeDate"], frame.iloc[-1]["tradeDate"],
+                 definition.source_file_name, now, now),
             )
         cursor.executemany(
             """
             INSERT INTO candles
               (dataset_id, time, symbol, open, high, low, close, `change`, change_percent,
-               volume, turnover)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               volume, turnover, constituent_count)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
               open=VALUES(open), high=VALUES(high), low=VALUES(low), close=VALUES(close),
               `change`=VALUES(`change`), change_percent=VALUES(change_percent),
-              volume=VALUES(volume), turnover=VALUES(turnover)
+              volume=VALUES(volume), turnover=VALUES(turnover),
+              constituent_count=VALUES(constituent_count)
             """,
             rows,
         )
@@ -355,10 +427,11 @@ def upsert_index_frame(connection, dataset_id: str, definition: IndexDefinition,
             """
             UPDATE market_datasets
             SET name=%s, checksum=%s, start_time=%s, end_time=%s, count=%s,
-                source_file_name='akshare:stock_zh_index_daily_em', updated_at=%s
+                source_file_name=%s, updated_at=%s
             WHERE id=%s
             """,
-            (definition.name, checksum, min_date, max_date, count, now, dataset_id),
+            (definition.name, checksum, min_date, max_date, count,
+             definition.source_file_name, now, dataset_id),
         )
     connection.commit()
 
@@ -371,6 +444,8 @@ def canonical_checksum(rows: list[tuple[Any, ...]]) -> str:
 
 
 def optional_float(value: Any) -> float | None:
+    if value is None or pd.isna(value):
+        return None
     number = float(value)
     return number if math.isfinite(number) else None
 
