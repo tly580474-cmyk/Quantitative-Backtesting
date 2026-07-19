@@ -85,7 +85,7 @@ def main():
                         "f14": name,
                         "f3": to_float(row.get("changepercent")),
                         "f6": to_float(row.get("amount")),
-                        "f62": 0,
+                        "f62": None,
                     }
                 )
             time.sleep(0.45)

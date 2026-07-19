@@ -1,5 +1,7 @@
 import { fetchCachedMarketSentimentOverview, fetchMarketIndexQuotes } from '../marketData/aStockDataService.js';
 import { fetchCachedHotSectors } from '../marketData/hotSectorService.js';
+import { fetchCachedMarketCapitalFlow } from '../marketData/marketCapitalFlowService.js';
+import { getDataFreshness } from '../marketData/repositories/marketDataRepository.js';
 import { getMarketOpinionNews, refreshMarketNews } from '../marketData/marketNewsService.js';
 import { getChinaMarketSession } from '../marketData/jobs/marketSession.js';
 import { EmailSender, reportEmailHtml } from './emailSender.js';
@@ -110,20 +112,25 @@ function escapeMarkdownLabel(value: string): string {
   return value.replace(/([\\[\]*_`])/g, '\\$1');
 }
 
-async function buildMarketContext(now: Date): Promise<MarketOpinionMarketContext> {
+export async function buildMarketContext(now: Date): Promise<MarketOpinionMarketContext> {
   const session = getChinaMarketSession(now);
-  const [indices, sentiment, hotSectors] = await Promise.allSettled([
+  const freshness = await getDataFreshness().catch(() => null);
+  const dataTradeDate = freshness?.latestTradeDate ?? previousWeekday(session.tradeDate);
+  const [indices, sentiment, capitalFlow, hotSectors] = await Promise.allSettled([
     fetchMarketIndexQuotes(),
     fetchCachedMarketSentimentOverview(true),
+    fetchCachedMarketCapitalFlow(true, dataTradeDate),
     fetchCachedHotSectors(true),
   ]);
   const unavailable: string[] = [];
   if (indices.status === 'rejected') unavailable.push('指数行情');
   if (sentiment.status === 'rejected') unavailable.push('市场情绪与涨跌分布');
+  if (capitalFlow.status === 'rejected') unavailable.push('全市场主力资金');
   if (hotSectors.status === 'rejected') unavailable.push('热点板块');
   return {
     capturedAt: now.toISOString(),
     session: `${session.tradeDate} ${session.phase}`,
+    dataTradeDate,
     indices: indices.status === 'fulfilled' ? indices.value.map((item) => ({
       code: item.code, name: item.name, price: item.price, changePct: item.changePct,
       open: item.open, high: item.high, low: item.low, amountWan: item.amountWan, updatedAt: item.updatedAt,
@@ -138,18 +145,35 @@ async function buildMarketContext(now: Date): Promise<MarketOpinionMarketContext
       downLimit: sentiment.value.downLimit,
       totalAmountYi: sentiment.value.totalAmountYi,
       mainNetInYi: sentiment.value.mainNetInYi,
+      mainNetSampleCount: sentiment.value.mainNetSampleCount,
       msi: sentiment.value.msi,
       status: sentiment.value.statusLabel,
       structure: sentiment.value.structureLabel,
       divergence: sentiment.value.breadthIndexDivergence,
       notes: sentiment.value.notes,
     } : undefined,
-    hotSectors: hotSectors.status === 'fulfilled' ? hotSectors.value.items.slice(0, 10).map((item) => ({
-      rank: item.rank, code: item.code, name: item.name, changePct: item.changePct,
-      mainNetInYi: item.mainNetInYi, breadthPct: item.breadthPct, leadingStock: item.leadingStock, signals: item.signals,
-    })) : undefined,
+    capitalFlow: capitalFlow.status === 'fulfilled' ? capitalFlow.value : undefined,
+    hotSectors: hotSectors.status === 'fulfilled' ? {
+      dataTradeDate,
+      snapshotTime: hotSectors.value.updatedAt,
+      source: hotSectors.value.source,
+      stale: hotSectors.value.stale ?? false,
+      fallbackReason: hotSectors.value.fallbackReason,
+      items: hotSectors.value.items.slice(0, 10).map((item) => ({
+        rank: item.rank, code: item.code, name: item.name, type: item.type, changePct: item.changePct,
+        mainNetInYi: item.mainNetInYi, mainNetRatio: item.mainNetRatio, breadthPct: item.breadthPct,
+        leadingStock: item.leadingStock, signals: item.signals,
+      })),
+    } : undefined,
     unavailable,
   };
+}
+
+function previousWeekday(date: string): string {
+  const value = new Date(`${date}T00:00:00+08:00`);
+  do value.setUTCDate(value.getUTCDate() - 1);
+  while ([0, 6].includes(value.getUTCDay()));
+  return value.toISOString().slice(0, 10);
 }
 
 function buildSubject(kind: MarketOpinionDigestKind, context: MarketOpinionMarketContext): string {

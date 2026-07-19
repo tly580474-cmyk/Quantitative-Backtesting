@@ -37,6 +37,8 @@ export interface HotSectorSnapshot {
   updatedAt: string;
   total: number;
   source: string;
+  stale?: boolean;
+  fallbackReason?: string;
 }
 
 export interface SectorConstituent {
@@ -294,14 +296,23 @@ async function refreshHotSectors(): Promise<HotSectorSnapshot> {
 
 export async function fetchCachedHotSectors(force = false): Promise<HotSectorSnapshot> {
   if (!force && memoryCache && Date.now() - memoryCache.cachedAt < CACHE_MS) return memoryCache.data;
-  if (!force && !memoryCache) memoryCache = await readDiskCache();
+  if (!memoryCache) memoryCache = await readDiskCache();
   if (!force && memoryCache) {
     if (Date.now() - memoryCache.cachedAt >= CACHE_MS && !refreshInFlight) {
       void refreshHotSectors().catch(() => undefined);
     }
     return memoryCache.data;
   }
-  return refreshHotSectors();
+  try {
+    return await refreshHotSectors();
+  } catch (error) {
+    if (!memoryCache) throw error;
+    return {
+      ...memoryCache.data,
+      stale: true,
+      fallbackReason: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export async function fetchSectorConstituents(

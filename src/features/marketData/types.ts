@@ -422,7 +422,8 @@ export interface MarketSentimentOverview {
   flat: number;
   upLimit: number;
   downLimit: number;
-  mainNetInYi: number;
+  mainNetInYi: number | null;
+  mainNetSampleCount: number;
   totalAmountYi: number;
   volumeBaselineYi: number | null;
   northboundNetYi: number | null;

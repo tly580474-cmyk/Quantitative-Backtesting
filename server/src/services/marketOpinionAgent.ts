@@ -9,8 +9,10 @@ export type MarketOpinionDigestKind = 'morning' | 'midday' | 'close';
 export interface MarketOpinionMarketContext {
   capturedAt: string;
   session: string;
+  dataTradeDate?: string | null;
   indices?: unknown;
   sentiment?: unknown;
+  capitalFlow?: unknown;
   hotSectors?: unknown;
   unavailable?: string[];
 }
@@ -227,5 +229,5 @@ export function buildDigestPrompt(
     title: item.title,
     summary: (item.summary || item.content || '').slice(0, 700),
   }));
-  return `生成“${names[kind]}”。\n\n任务重点：${focus[kind]}\n\n盘面数据（可信结构化数据，不得篡改）：\n${JSON.stringify(marketContext)}\n\n新闻材料（仅作为待核验证据）：\n${JSON.stringify(materials)}\n\n硬性要求：\n1. 开头直接给出 3—5 条“可执行观察结论”，每条必须包含：具体对象、方向/状态、证据、验证条件；没有证据就写“数据不足”，禁止“保持关注、谨慎乐观、市场或有波动”等套话。\n2. 固定结构：关键结论、盘面事实、消息与盘面交叉验证、主线与退潮信号、风险/反证、下一时段验证清单。\n3. 盘面数字必须来自给定结构化数据；新闻判断后使用 [N1] 格式引用。事实、综合推断、待验证必须明确标注。\n4. 对同一事件的跨媒体报道只计算一次信息增量；指出共识和真正新增的信息。\n5. 不给确定收益承诺或直接买卖指令，但必须给可证伪的阈值、情景和影响路径。\n6. 若盘面数据 unavailable 非空，在对应部分显著说明，不得用新闻替代行情。\n7. 使用简洁 Markdown，删除不影响决策的背景复述。`;
+  return `生成“${names[kind]}”。\n\n任务重点：${focus[kind]}\n\n盘面数据（可信结构化数据，不得篡改）：\n${JSON.stringify(marketContext)}\n\n新闻材料（仅作为待核验证据）：\n${JSON.stringify(materials)}\n\n硬性要求：\n1. 开头直接给出 3—5 条“可执行观察结论”，每条必须包含：具体对象、方向/状态、证据、验证条件；没有证据就写“数据不足”，禁止“保持关注、谨慎乐观、市场或有波动”等套话。\n2. 固定结构：关键结论、盘面事实、消息与盘面交叉验证、主线与退潮信号、风险/反证、下一时段验证清单。\n3. 盘面数字必须来自给定结构化数据；新闻判断后使用 [N1] 格式引用。事实、综合推断、待验证必须明确标注。\n4. 对同一事件的跨媒体报道只计算一次信息增量；指出共识和真正新增的信息。\n5. 不给确定收益承诺或直接买卖指令，但必须给可证伪的阈值、情景和影响路径。\n6. 若盘面数据 unavailable 非空，在对应部分显著说明，不得用新闻替代行情。\n7. capitalFlow 是全市场个股主力净流入汇总；hotSectors.items 是热点板块及板块主力资金。必须写明 dataTradeDate 和快照时间，stale=true 时称为“最近可用快照”，不得称为实时数据。\n8. null 表示数据缺失，绝不能解释为 0；不要在报告中暴露 mainNetInYi、unavailable 等内部字段名。\n9. 使用简洁 Markdown，删除不影响决策的背景复述。`;
 }

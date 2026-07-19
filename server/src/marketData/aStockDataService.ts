@@ -127,7 +127,8 @@ export interface MarketSentimentOverview {
   flat: number;
   upLimit: number;
   downLimit: number;
-  mainNetInYi: number;
+  mainNetInYi: number | null;
+  mainNetSampleCount: number;
   totalAmountYi: number;
   volumeBaselineYi: number | null;
   northboundNetYi: number | null;
@@ -731,7 +732,7 @@ function parseTencentSentimentRows(text: string, universeByCode: Map<string, Mar
       f8: numberOrNull(values[38]),
       f10: numberOrNull(values[49]),
       f7: numberOrNull(values[43]),
-      f62: 0,
+      f62: null,
       f47: numberOrNull(values[47]),
       f48: numberOrNull(values[48]),
     });
@@ -901,7 +902,8 @@ export async function fetchStockKlineFromDb(
   }));
 }
 
-function buildMainNetInTrend(mainNetInYi: number): MarketSentimentOverview['mainNetInTrend'] {
+function buildMainNetInTrend(mainNetInYi: number | null): MarketSentimentOverview['mainNetInTrend'] {
+  if (mainNetInYi == null) return [];
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
   const labels = currentMinutes < 13 * 60
@@ -961,6 +963,7 @@ export function buildMarketBreadthSnapshot(rows: Array<Record<string, unknown>>)
   downLimit: number;
   totalAmountYuan: number;
   mainNetInYuan: number;
+  mainNetSampleCount: number;
   distribution: MarketBreadthBucket[];
 } {
   const bucketItems = new Map<MarketBreadthBucketKey, MarketBreadthStock[]>(
@@ -969,6 +972,7 @@ export function buildMarketBreadthSnapshot(rows: Array<Record<string, unknown>>)
   const seen = new Set<string>();
   let totalAmountYuan = 0;
   let mainNetInYuan = 0;
+  let mainNetSampleCount = 0;
 
   for (const row of rows) {
     const code = String(row.f12 ?? '').trim();
@@ -978,7 +982,11 @@ export function buildMarketBreadthSnapshot(rows: Array<Record<string, unknown>>)
     seen.add(code);
     const amountYuan = numberOrNull(row.f6);
     totalAmountYuan += amountYuan ?? 0;
-    mainNetInYuan += numberOrNull(row.f62) ?? 0;
+    const mainNetIn = numberOrNull(row.f62);
+    if (mainNetIn != null) {
+      mainNetInYuan += mainNetIn;
+      mainNetSampleCount += 1;
+    }
 
     const stock: MarketBreadthStock = {
       code,
@@ -1027,6 +1035,7 @@ export function buildMarketBreadthSnapshot(rows: Array<Record<string, unknown>>)
     downLimit: count(['downLimit']),
     totalAmountYuan,
     mainNetInYuan,
+    mainNetSampleCount,
     distribution,
   };
 }
@@ -1216,7 +1225,7 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
   const breadth = buildMarketBreadthSnapshot(rows);
   const {
     advancers, decliners, flat, upLimit, downLimit,
-    mainNetInYuan, totalAmountYuan,
+    mainNetInYuan, mainNetSampleCount, totalAmountYuan,
   } = breadth;
 
   const latestHs300 = hs300Kline.at(-1);
@@ -1245,7 +1254,8 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
     flat,
     upLimit,
     downLimit,
-    mainNetInYi: round(mainNetInYuan / 100000000),
+    mainNetInYi: mainNetSampleCount > 0 ? round(mainNetInYuan / 100000000) : null,
+    mainNetSampleCount,
     totalAmountYi: round(totalAmountYuan / 100000000),
     volumeBaselineYi: null,
     northboundNetYi: null,
@@ -1254,7 +1264,7 @@ export async function fetchMarketSentimentOverview(): Promise<MarketSentimentOve
     breakRate: null,
     ma5AbovePct: null,
     distribution: breadth.distribution,
-    mainNetInTrend: buildMainNetInTrend(round(mainNetInYuan / 100000000)),
+    mainNetInTrend: buildMainNetInTrend(mainNetSampleCount > 0 ? round(mainNetInYuan / 100000000) : null),
     ...calculation,
     ...status,
     notes: [
@@ -1283,7 +1293,8 @@ function buildPendingMarketSentimentOverview(): MarketSentimentOverview {
     flat: 0,
     upLimit: 0,
     downLimit: 0,
-    mainNetInYi: 0,
+    mainNetInYi: null,
+    mainNetSampleCount: 0,
     totalAmountYi: 0,
     volumeBaselineYi: null,
     northboundNetYi: null,
@@ -1294,7 +1305,7 @@ function buildPendingMarketSentimentOverview(): MarketSentimentOverview {
     distribution: [
       ...MARKET_BREADTH_BUCKETS.map((bucket) => ({ ...bucket, count: 0, items: [] })),
     ],
-    mainNetInTrend: buildMainNetInTrend(0),
+    mainNetInTrend: [],
     factors,
     msi: 0,
     breadthIndexDivergence: 0,
@@ -1319,6 +1330,7 @@ async function readMarketSentimentDiskCache(): Promise<{ data: MarketSentimentOv
       || parsed.data.modelVersion !== 2
       || typeof parsed.cachedAt !== 'number'
       || !Array.isArray(parsed.data.distribution)
+      || !Number.isFinite(parsed.data.mainNetSampleCount)
       || !parsed.data.distribution.every((bucket) => Array.isArray(bucket.items))
     ) return null;
     return { data: parsed.data, cachedAt: parsed.cachedAt };

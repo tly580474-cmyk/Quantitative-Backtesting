@@ -17,6 +17,16 @@ function row(code: string, name: string, changePct: number, extra: Record<string
 }
 
 describe('market breadth snapshot', () => {
+  it('distinguishes a missing main-fund field from a genuine zero value', () => {
+    const { f62: _omitted, ...missing } = row('600001', '缺失资金', 1);
+    const missingSnapshot = buildMarketBreadthSnapshot([missing]);
+    const zeroSnapshot = buildMarketBreadthSnapshot([row('600002', '零资金', 1, { f62: 0 })]);
+
+    expect(missingSnapshot.mainNetSampleCount).toBe(0);
+    expect(zeroSnapshot.mainNetSampleCount).toBe(1);
+    expect(zeroSnapshot.mainNetInYuan).toBe(0);
+  });
+
   it('uses exact daily limit prices instead of a universal 9.8% threshold', () => {
     const snapshot = buildMarketBreadthSnapshot([
       row('600001', '主板涨停', 10, { f2: 11, f47: 11, f48: 9 }),
