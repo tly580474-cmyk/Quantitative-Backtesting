@@ -59,5 +59,42 @@ describe('admin env config', () => {
     await expect(updateEnvFile(join(root, '.env'), {
       AI_STRATEGY_ENABLED: 'yes',
     })).rejects.toThrow('true 或 false');
+    await expect(updateEnvFile(join(root, '.env'), {
+      RESEARCH_SNAPSHOT_UPDATE_TIME: '25:00',
+    })).rejects.toThrow('HH:mm');
+  });
+
+  it('exposes schedule values as editable time fields', () => {
+    const items = listAdminConfig({
+      MARKET_DATA_SYNC_TIME: '15:30',
+      MARKET_CN_INDEX_UPDATE_TIME: '20:00',
+      MARKET_US_INDEX_UPDATE_TIME: '05:00',
+      MARKET_OPINION_MORNING_TIME: '09:00',
+      MARKET_OPINION_MIDDAY_TIME: '12:00',
+      MARKET_OPINION_CLOSE_TIME: '16:00',
+      RESEARCH_SNAPSHOT_UPDATE_TIME: '18:00',
+      RESEARCH_SNAPSHOT_RETRY_TIME: '18:30',
+      RESEARCH_SNAPSHOT_MORNING_RETRY_TIME: '08:30',
+      MINUTE_DATA_UPDATE_TIME: '16:30',
+      MINUTE_DATA_RETRY_TIME: '17:30',
+    });
+    for (const key of [
+      'MARKET_DATA_SYNC_TIME',
+      'MARKET_CN_INDEX_UPDATE_TIME',
+      'MARKET_US_INDEX_UPDATE_TIME',
+      'MARKET_OPINION_MORNING_TIME',
+      'MARKET_OPINION_MIDDAY_TIME',
+      'MARKET_OPINION_CLOSE_TIME',
+      'RESEARCH_SNAPSHOT_UPDATE_TIME',
+      'RESEARCH_SNAPSHOT_RETRY_TIME',
+      'RESEARCH_SNAPSHOT_MORNING_RETRY_TIME',
+      'MINUTE_DATA_UPDATE_TIME',
+      'MINUTE_DATA_RETRY_TIME',
+    ]) {
+      expect(items.find((item) => item.key === key)).toMatchObject({
+        editable: true,
+        inputType: 'time',
+      });
+    }
   });
 });

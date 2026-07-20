@@ -1,5 +1,41 @@
 import { describe, expect, it } from 'vitest';
-import { resolveIndexTargetDate } from './indexDatasetUpdater.js';
+import {
+  amountYuanToYi,
+  parseEastmoneyLatestIndexCandle,
+  resolveIndexTargetDate,
+} from './indexDatasetUpdater.js';
+
+describe('amountYuanToYi', () => {
+  it('converts provider amounts from yuan to the Candle 亿元 unit', () => {
+    expect(amountYuanToYi(686_333_877_873.84)).toBeCloseTo(6_863.3387787384, 10);
+    expect(amountYuanToYi(undefined)).toBeUndefined();
+  });
+});
+
+describe('parseEastmoneyLatestIndexCandle', () => {
+  it('maps the authoritative close snapshot without mixing Tencent units', () => {
+    expect(parseEastmoneyLatestIndexCandle({
+      f43: 342863,
+      f44: 364206,
+      f45: 338726,
+      f46: 364206,
+      f47: 237152349,
+      f48: 686333877873.84,
+      f57: '399006',
+      f60: 369246,
+      f168: 424,
+      f169: -26383,
+      f170: -715,
+    }, '2026-07-17', '399006')).toEqual(expect.objectContaining({
+      close: 3428.63,
+      change: -263.83,
+      changePercent: -7.15,
+      volume: 237152349,
+      turnover: 6863.3387787384,
+      turnoverRatePct: 4.24,
+    }));
+  });
+});
 
 describe('resolveIndexTargetDate', () => {
   it('uses the previous business day while the China market is open', () => {

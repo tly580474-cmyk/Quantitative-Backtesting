@@ -10,6 +10,7 @@ export interface AdminConfigDefinition {
   secret: boolean;
   editable: boolean;
   restartRequired: boolean;
+  inputType?: 'text' | 'time';
   /**
    * 重启影响范围标签（见 §4.3）：
    * - db：需后端全量重启
@@ -133,6 +134,39 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     restartScope: 'ai',
   },
   {
+    key: 'MARKET_OPINION_MORNING_TIME',
+    label: '观点早报推送时间',
+    category: 'ai',
+    description: '交易日早报的触发时间（上海时间）。若设置在 09:15 之后，报告会把实时盘面明确标记为当日竞价或盘中数据。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'ai',
+    inputType: 'time',
+  },
+  {
+    key: 'MARKET_OPINION_MIDDAY_TIME',
+    label: '观点午报推送时间',
+    category: 'ai',
+    description: '交易日午间观点报告的触发时间（上海时间）。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'ai',
+    inputType: 'time',
+  },
+  {
+    key: 'MARKET_OPINION_CLOSE_TIME',
+    label: '观点盘后总结时间',
+    category: 'ai',
+    description: '交易日盘后总结报告的触发时间（上海时间）。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'ai',
+    inputType: 'time',
+  },
+  {
     key: 'SMTP_USER',
     label: 'SMTP 账号',
     category: 'ai',
@@ -181,6 +215,94 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     editable: true,
     restartRequired: true,
     restartScope: 'market',
+  },
+  {
+    key: 'MARKET_DATA_SYNC_TIME',
+    label: 'MySQL 股票日线更新时间',
+    category: 'market',
+    description: '交易日收盘后写入 MySQL 日线的触发时间（北京时间）。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'market',
+    inputType: 'time',
+  },
+  {
+    key: 'MARKET_CN_INDEX_UPDATE_TIME',
+    label: 'A 股指数更新时间',
+    category: 'market',
+    description: 'A 股指数数据自动更新的触发时间（北京时间）。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'market',
+    inputType: 'time',
+  },
+  {
+    key: 'MARKET_US_INDEX_UPDATE_TIME',
+    label: '美股指数更新时间',
+    category: 'market',
+    description: '美股指数数据自动更新的触发时间（北京时间）。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'market',
+    inputType: 'time',
+  },
+  {
+    key: 'RESEARCH_SNAPSHOT_UPDATE_TIME',
+    label: 'DuckDB 研究快照主更新时间',
+    category: 'runtime',
+    description: '从 MySQL 构建并发布 Parquet/DuckDB 研究快照的主触发时间（北京时间）。保存后自动更新 Windows 计划任务。',
+    secret: false,
+    editable: true,
+    restartRequired: false,
+    restartScope: 'runtime',
+    inputType: 'time',
+  },
+  {
+    key: 'RESEARCH_SNAPSHOT_RETRY_TIME',
+    label: 'DuckDB 研究快照晚间重试时间',
+    category: 'runtime',
+    description: '研究快照晚间补偿重试的触发时间（北京时间）。保存后自动更新 Windows 计划任务。',
+    secret: false,
+    editable: true,
+    restartRequired: false,
+    restartScope: 'runtime',
+    inputType: 'time',
+  },
+  {
+    key: 'RESEARCH_SNAPSHOT_MORNING_RETRY_TIME',
+    label: 'DuckDB 研究快照次晨重试时间',
+    category: 'runtime',
+    description: '研究快照次日早晨补偿重试的触发时间（北京时间）。保存后自动更新 Windows 计划任务。',
+    secret: false,
+    editable: true,
+    restartRequired: false,
+    restartScope: 'runtime',
+    inputType: 'time',
+  },
+  {
+    key: 'MINUTE_DATA_UPDATE_TIME',
+    label: '分钟数据湖主更新时间',
+    category: 'runtime',
+    description: '分钟 Parquet 数据湖盘后更新的主触发时间（北京时间）。保存后自动更新 Windows 计划任务。',
+    secret: false,
+    editable: true,
+    restartRequired: false,
+    restartScope: 'runtime',
+    inputType: 'time',
+  },
+  {
+    key: 'MINUTE_DATA_RETRY_TIME',
+    label: '分钟数据湖重试时间',
+    category: 'runtime',
+    description: '分钟 Parquet 数据湖盘后补偿重试的触发时间（北京时间）。保存后自动更新 Windows 计划任务。',
+    secret: false,
+    editable: true,
+    restartRequired: false,
+    restartScope: 'runtime',
+    inputType: 'time',
   },
   {
     key: 'DUCKDB_MAX_CONCURRENT',
@@ -293,6 +415,9 @@ function serializeEnvValue(value: string): string {
 }
 
 function validateEnvValue(key: string, value: string): void {
+  if (key.endsWith('_TIME') && !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+    throw new Error(`${key} 必须使用 HH:mm 格式，例如 18:30`);
+  }
   if (['DB_HOST', 'DB_USER', 'DB_NAME', 'OPENAI_MODEL'].includes(key) && !value.trim()) {
     throw new Error(`${key} 不能为空`);
   }

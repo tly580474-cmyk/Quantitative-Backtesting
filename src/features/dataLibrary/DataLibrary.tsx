@@ -10,7 +10,6 @@ import {
   Modal,
   Pagination,
   Popconfirm,
-  Progress,
   Select,
   Skeleton,
   Space,
@@ -38,11 +37,9 @@ import { useDataLibraryViewStore } from '@/stores/useDataLibraryViewStore';
 import { getDatasetAssetType, type DatasetAssetType } from './datasetAssetType';
 import { fetchHistoryCandles } from './historyBar';
 import { fetchAdjustedDatasets, exportAdjustedKlinesToExcel } from '@/features/marketData/exportMarketData';
-import type { SyncJob } from '../marketData/types';
 
 const { Text, Title } = Typography;
 const STOCK_SYNC_TIME = '15:30';
-const STOCK_SYNC_POLL_MS = 3000;
 
 interface DataLibraryProps {
   onOpen?: () => void;
@@ -115,13 +112,9 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
   const [openingInstrumentId, setOpeningInstrumentId] = useState<string | null>(null);
   const [exportingInstrumentId, setExportingInstrumentId] = useState<string | null>(null);
   const [updatingGroup, setUpdatingGroup] = useState<IndexDatasetUpdateResult['group'] | null>(null);
-  const [stockSyncJob, setStockSyncJob] = useState<SyncJob | null>(null);
-  const [stockSyncLoading, setStockSyncLoading] = useState(false);
   const [startingStockSync, setStartingStockSync] = useState(false);
   const stockRequestRef = useRef(0);
   const industryRequestRef = useRef(0);
-  const stockSyncRequestRef = useRef(0);
-  const lastObservedStockSyncIdRef = useRef<string | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const savedScrollTopRef = useRef(useDataLibraryViewStore.getState().scrollTop);
   const setCandles = useCandleStore((state) => state.setCandles);
@@ -134,56 +127,6 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
   useEffect(() => {
     void refresh();
   }, []);
-
-  const loadLatestStockSyncJob = useCallback(async (silent = false) => {
-    if (DATA_SOURCE !== 'api') return;
-    const requestId = ++stockSyncRequestRef.current;
-    if (!silent) setStockSyncLoading(true);
-    try {
-      const result = await apiFetch<{ items: SyncJob[]; total: number }>(
-        '/api/sync/jobs?jobType=incremental&limit=1',
-      );
-      if (stockSyncRequestRef.current !== requestId) return;
-      const nextJob = result.items[0] ?? null;
-      setStockSyncJob((previous) => {
-        const wasRunning = previous?.status === 'pending' || previous?.status === 'running';
-        const isTerminal = nextJob?.status === 'completed' || nextJob?.status === 'failed' || nextJob?.status === 'cancelled';
-        const justFinished = nextJob && previous?.id === nextJob.id && wasRunning && isTerminal;
-        if (justFinished) {
-          setStockRefreshKey((value) => value + 1);
-          if (nextJob.status === 'completed') {
-            message.success('个股行情更新完成，已刷新列表');
-          } else if (nextJob.status === 'failed') {
-            message.warning('个股行情更新结束，但存在失败项');
-          }
-        }
-        if (nextJob?.id && lastObservedStockSyncIdRef.current == null) {
-          lastObservedStockSyncIdRef.current = nextJob.id;
-        }
-        return nextJob;
-      });
-    } catch (error) {
-      if (!silent) {
-        message.error(error instanceof Error ? error.message : '同步进度加载失败');
-      }
-    } finally {
-      if (stockSyncRequestRef.current === requestId) setStockSyncLoading(false);
-    }
-  }, [message]);
-
-  useEffect(() => {
-    void loadLatestStockSyncJob(true);
-  }, [loadLatestStockSyncJob]);
-
-  useEffect(() => {
-    if (DATA_SOURCE !== 'api') return;
-    const isRunning = stockSyncJob?.status === 'pending' || stockSyncJob?.status === 'running';
-    if (!isRunning) return;
-    const timer = window.setInterval(() => {
-      void loadLatestStockSyncJob(true);
-    }, STOCK_SYNC_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [loadLatestStockSyncJob, stockSyncJob?.status]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -483,107 +426,16 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
     }
     setStartingStockSync(true);
     try {
-      const result = await apiFetch<{ jobId: string }>('/api/sync/incremental', {
+      await apiFetch<{ jobId: string }>('/api/sync/incremental', {
         method: 'POST',
         body: JSON.stringify({}),
       });
-      message.success('已提交个股行情更新任务');
-      lastObservedStockSyncIdRef.current = result.jobId;
-      const now = new Date().toISOString();
-      setStockSyncJob({
-        id: result.jobId,
-        jobType: 'incremental',
-        status: 'pending',
-        providerId: '',
-        requestSnapshot: { trigger: 'manual' },
-        totalItems: 0,
-        completedItems: 0,
-        failedItems: 0,
-        createdAt: now,
-      });
-      void loadLatestStockSyncJob(true);
+      message.success('已提交个股行情更新任务，可在后台管理页查看实时进度');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '个股行情更新提交失败');
     } finally {
       setStartingStockSync(false);
     }
-  };
-
-  const renderStockSyncProgress = () => {
-    const job = stockSyncJob;
-    const processed = job ? job.completedItems + job.failedItems : 0;
-    const percent = job && job.totalItems > 0
-      ? Math.min(100, Math.round((processed / job.totalItems) * 100))
-      : 0;
-    const running = job?.status === 'pending' || job?.status === 'running';
-    const statusText = job
-      ? job.status === 'completed'
-        ? '已完成'
-        : job.status === 'failed'
-          ? '有失败项'
-          : job.status === 'cancelled'
-            ? '已取消'
-            : job.totalItems > 0
-              ? '更新中'
-              : '准备中'
-      : '暂无任务';
-    const progressStatus = job?.status === 'failed'
-      ? 'exception'
-      : job?.status === 'completed'
-        ? 'success'
-        : 'active';
-
-    return (
-      <div className="data-library-stock-sync" aria-live="polite">
-        <div className="data-library-stock-sync-main">
-          <div className="data-library-stock-sync-head">
-            <Space size={8} wrap>
-              <Text strong>盘后更新</Text>
-              <Tag color="blue">每日 {STOCK_SYNC_TIME}</Tag>
-              <Tag color={job?.status === 'failed' ? 'red' : running ? 'processing' : 'default'}>
-                {statusText}
-              </Tag>
-            </Space>
-          </div>
-          <Progress
-            percent={percent}
-            status={progressStatus}
-            size="small"
-            showInfo={false}
-          />
-          <div className="data-library-stock-sync-meta">
-            <Text type="secondary">
-              {job && job.totalItems > 0
-                ? `${processed.toLocaleString()} / ${job.totalItems.toLocaleString()}，成功 ${job.completedItems.toLocaleString()}，失败 ${job.failedItems.toLocaleString()}`
-                : stockSyncLoading ? '正在读取同步进度' : '等待盘后更新任务'}
-            </Text>
-            {job?.createdAt && (
-              <Text type="secondary">
-                最近任务：{new Date(job.createdAt).toLocaleString('zh-CN')}
-              </Text>
-            )}
-          </div>
-        </div>
-        <div className="data-library-stock-sync-actions">
-          <Button
-            icon={<DownloadOutlined />}
-            loading={startingStockSync}
-            disabled={running || startingStockSync}
-            onClick={handleStockIncrementalUpdate}
-          >
-            更新个股行情
-          </Button>
-          <Button
-            size="small"
-            icon={<SyncOutlined />}
-            loading={stockSyncLoading}
-            onClick={() => loadLatestStockSyncJob(false)}
-          >
-            刷新进度
-          </Button>
-        </div>
-      </div>
-    );
   };
 
   const renderDatasetList = (assetType: DatasetAssetType) => {
@@ -681,7 +533,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
       <div className="data-library-section-head">
         <div>
           <Text strong>个股行情数据</Text>
-          <Text type="secondary">MySQL 全量历史库 · 服务端分页读取 · 统一下午 {STOCK_SYNC_TIME} 更新</Text>
+          <Text type="secondary">MySQL 全量历史库 · 服务端分页读取 · 每日 {STOCK_SYNC_TIME} 后台更新</Text>
         </div>
         <div className="data-library-stock-controls">
           <div className="data-library-stock-filters" aria-label="个股列表筛选">
@@ -707,11 +559,17 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
           <Space size={6} wrap>
             <Tag color="blue">不复权</Tag>
             <Text type="secondary">共 {stockTotal.toLocaleString()} 只证券</Text>
+            <Button
+              icon={<DownloadOutlined />}
+              loading={startingStockSync}
+              disabled={startingStockSync}
+              onClick={handleStockIncrementalUpdate}
+            >
+              更新个股行情
+            </Button>
           </Space>
         </div>
       </div>
-
-      {renderStockSyncProgress()}
 
       <div className="data-library-industry-bar">
         <div>

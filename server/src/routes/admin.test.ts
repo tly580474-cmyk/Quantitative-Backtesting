@@ -78,6 +78,26 @@ describe('admin routes', () => {
     await app.close();
   });
 
+  it('exposes minute-lake and daily K-line progress only to authenticated admins', async () => {
+    process.env.ADMIN_API_TOKEN = 'test-admin-token';
+    const app = Fastify();
+    registerAdminRoutes(app, {
+      pool: {} as Pool,
+      dbOnline: false,
+      config: loadConfig(),
+      envFilePath: '.env',
+    });
+    const rejected = await app.inject({ method: 'GET', url: '/api/admin/data-update-progress' });
+    expect(rejected.statusCode).toBe(401);
+    const accepted = await app.inject({
+      method: 'GET', url: '/api/admin/data-update-progress',
+      headers: { authorization: 'Bearer test-admin-token' },
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json().items.map((item: { key: string }) => item.key)).toEqual(['minute_lake', 'daily_kline']);
+    await app.close();
+  });
+
   it('accepts a supervised restart and schedules it after the response', async () => {
     vi.useFakeTimers();
     process.env.ADMIN_API_TOKEN = 'test-admin-token';

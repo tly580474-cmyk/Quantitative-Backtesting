@@ -3,6 +3,12 @@ import { getDb, schema } from '../../db/index.js';
 import type { TencentMarketDataProvider } from '../providers/tencentProvider.js';
 
 const { marketDatasets, candles, syncJobs } = schema;
+const YUAN_PER_YI = 100_000_000;
+const RECONCILIATION_LOOKBACK_DAYS = 7;
+
+export function amountYuanToYi(amount: number | undefined): number | undefined {
+  return amount == null ? undefined : amount / YUAN_PER_YI;
+}
 
 const CN_INDEX_SYMBOLS = new Set([
   '000001', // 上证指数
@@ -19,6 +25,8 @@ const CN_INDEX_SYMBOLS = new Set([
 
 const EASTMONEY_INDEX_SECIDS: Record<string, string> = {
   '000001': '1.000001',
+  '399001': '0.399001',
+  '399006': '0.399006',
   '000300': '1.000300',
   '000905': '1.000905',
   '000852': '1.000852',
@@ -75,7 +83,12 @@ export async function updateIndexDatasets(
   const details: IndexDatasetUpdateResult['details'] = [];
 
   for (const dataset of datasets) {
-    const fromDate = options.force ? targetDate : addDays(dataset.endTime, 1);
+    // Refetch a short overlap so an unfinished same-day bar can be corrected
+    // after the provider publishes its final close.
+    const fromDate = addDays(
+      options.force ? targetDate : dataset.endTime,
+      -RECONCILIATION_LOOKBACK_DAYS,
+    );
     if (fromDate > targetDate) {
       details.push({
         datasetId: dataset.id,
@@ -94,7 +107,7 @@ export async function updateIndexDatasets(
       const fresh = nextCandles
         .filter((item) => (
           item.time <= targetDate
-          && (options.force ? item.time >= fromDate : item.time > dataset.endTime)
+          && item.time >= fromDate
         ))
         .sort((a, b) => a.time.localeCompare(b.time));
 
@@ -163,70 +176,104 @@ async function fetchChinaIndexCandles(
   startDate: string,
   endDate: string,
 ) {
-  try {
-    const providerRows = await provider.fetchDailyCandles({
-      symbols: [symbol],
-      startDate,
-      endDate,
-      adjustment: 'none',
-    });
-    const rows = providerRows.map((item) => ({
+  const providerRows = await provider.fetchDailyCandles({
+    symbols: [symbol],
+    startDate,
+    endDate,
+    adjustment: 'none',
+  });
+  const sortedRows = [...providerRows].sort((a, b) => a.date.localeCompare(b.date));
+  const fallbackRows = sortedRows.map((item, index) => {
+    const previousClose = item.previousClose ?? sortedRows[index - 1]?.close;
+    const change = previousClose == null ? undefined : item.close - previousClose;
+    const isLatest = item.date === endDate;
+    return {
       time: item.date,
       symbol,
       open: item.open,
       high: item.high,
       low: item.low,
       close: item.close,
-      volume: item.volume,
-      turnoverRatePct: item.turnoverRatePct,
-    }));
-    if (rows.length > 0) return rows;
+      // Preserve previously reconciled Eastmoney market fields on overlap
+      // rows. Only the newest Tencent row is eligible as an emergency fallback.
+      volume: isLatest ? item.volume : undefined,
+      turnover: isLatest ? amountYuanToYi(item.turnover) : undefined,
+      turnoverRatePct: isLatest ? item.turnoverRatePct : undefined,
+      change,
+      changePercent: change == null || previousClose === 0
+        ? undefined
+        : change / previousClose * 100,
+    };
+  });
+  try {
+    const latest = await fetchEastmoneyLatestIndexCandle(symbol, endDate);
+    if (fallbackRows.some((row) => row.time === latest.time)) {
+      return fallbackRows.map((row) => row.time === latest.time ? latest : row);
+    }
+    return [...fallbackRows, latest].sort((a, b) => a.time.localeCompare(b.time));
   } catch {
-    // Tencent is preferred for non-blocking A-share data, but several CSI
-    // indices are intermittently unavailable there or need non-obvious market
-    // prefixes. Fall through to Eastmoney for the small existing-dataset set.
+    return fallbackRows;
   }
-  return fetchEastmoneyIndexCandles(symbol, startDate, endDate);
 }
 
-async function fetchEastmoneyIndexCandles(symbol: string, startDate: string, endDate: string) {
+interface EastmoneyIndexQuote {
+  f43?: number;
+  f44?: number;
+  f45?: number;
+  f46?: number;
+  f47?: number;
+  f48?: number;
+  f57?: string;
+  f60?: number;
+  f168?: number;
+  f169?: number;
+  f170?: number;
+}
+
+export function parseEastmoneyLatestIndexCandle(
+  data: EastmoneyIndexQuote,
+  time: string,
+  symbol: string,
+) {
+  const values = [data.f46, data.f44, data.f45, data.f43];
+  if (data.f57 !== symbol || values.some((value) => !Number.isFinite(value))) {
+    throw new Error(`东方财富 ${symbol} 收盘快照无效`);
+  }
+  return {
+    time,
+    symbol,
+    open: data.f46! / 100,
+    high: data.f44! / 100,
+    low: data.f45! / 100,
+    close: data.f43! / 100,
+    volume: data.f47,
+    turnover: amountYuanToYi(data.f48),
+    turnoverRatePct: data.f168 == null ? undefined : data.f168 / 100,
+    change: data.f169 == null ? undefined : data.f169 / 100,
+    changePercent: data.f170 == null ? undefined : data.f170 / 100,
+  };
+}
+
+async function fetchEastmoneyLatestIndexCandle(symbol: string, time: string) {
   const secid = EASTMONEY_INDEX_SECIDS[symbol];
-  if (!secid) return [];
+  if (!secid) throw new Error(`缺少 ${symbol} 的东方财富代码`);
   const params = new URLSearchParams({
     secid,
-    fields1: 'f1,f2,f3,f4,f5,f6',
-    fields2: 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
-    klt: '101',
-    fqt: '0',
-    beg: startDate.replaceAll('-', ''),
-    end: endDate.replaceAll('-', ''),
+    fields: 'f43,f44,f45,f46,f47,f48,f57,f60,f168,f169,f170',
   });
-  const payload = await fetchJsonWithRetry<{ data?: { klines?: string[] } }>(`https://push2his.eastmoney.com/api/qt/stock/kline/get?${params.toString()}`, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
-      Referer: 'https://quote.eastmoney.com/',
-      Accept: 'application/json',
+  const payload = await fetchJsonWithRetry<{ data?: EastmoneyIndexQuote }>(
+    `https://push2.eastmoney.com/api/qt/stock/get?${params.toString()}`,
+    {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
+        Referer: 'https://quote.eastmoney.com/',
+        Accept: 'application/json',
+      },
     },
-  }, '东方财富指数接口');
-  return (payload.data?.klines ?? []).flatMap((row) => {
-    const [time, open, close, high, low, volume, turnover, _amplitude, changePercent, change] = row.split(',');
-    const values = [open, close, high, low].map(Number);
-    if (!time || values.some((value) => !Number.isFinite(value))) return [];
-    return [{
-      time,
-      symbol,
-      open: values[0],
-      high: values[2],
-      low: values[3],
-      close: values[1],
-      change: Number(change),
-      changePercent: Number(changePercent),
-      volume: Number(volume) || 0,
-      turnover: Number(turnover) || undefined,
-      turnoverRatePct: undefined,
-      constituentCount: undefined,
-    }];
-  });
+    '东方财富指数收盘快照',
+  );
+  if (!payload.data) throw new Error(`东方财富 ${symbol} 暂无收盘快照`);
+  return parseEastmoneyLatestIndexCandle(payload.data, time, symbol);
 }
 
 async function fetchNasdaq100Candles(startDate: string, endDate: string) {
@@ -300,10 +347,12 @@ async function appendDatasetCandles(
           high: row.high,
           low: row.low,
           close: row.close,
-          volume: row.volume,
-          turnover: row.turnover,
-          turnoverRatePct: row.turnoverRatePct,
+          ...(row.volume == null ? {} : { volume: row.volume }),
+          ...(row.turnover == null ? {} : { turnover: row.turnover }),
+          ...(row.turnoverRatePct == null ? {} : { turnoverRatePct: row.turnoverRatePct }),
           constituentCount: row.constituentCount,
+          ...(row.change == null ? {} : { change: row.change }),
+          ...(row.changePercent == null ? {} : { changePercent: row.changePercent }),
         },
       });
     }
@@ -329,6 +378,9 @@ async function appendDatasetCandles(
       endTime: endTime ?? dataset.endTime,
       count: Number(count ?? dataset.count),
       checksum,
+      sourceFileName: CN_INDEX_SYMBOLS.has(dataset.symbol)
+        ? 'tencent+eastmoney:reconciled'
+        : dataset.sourceFileName,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(marketDatasets.id, dataset.id));

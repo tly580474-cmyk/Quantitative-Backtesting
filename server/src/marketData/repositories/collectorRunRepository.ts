@@ -50,6 +50,29 @@ export async function finishCollectorRun(
   }).where(eq(marketDataCollectorRuns.runKey, runKey));
 }
 
+export async function updateCollectorRunDetails(runKey: string, details: Record<string, unknown>): Promise<void> {
+  await getDb().update(marketDataCollectorRuns).set({ details }).where(and(
+    eq(marketDataCollectorRuns.runKey, runKey),
+    eq(marketDataCollectorRuns.status, 'running'),
+  ));
+}
+
+export async function expireStaleCollectorRuns(jobType: string, olderThanMinutes: number): Promise<number> {
+  const cutoff = new Date(Date.now() - Math.max(1, olderThanMinutes) * 60_000)
+    .toISOString().replace('T', ' ').replace('Z', '');
+  const result = await getDb().update(marketDataCollectorRuns).set({
+    status: 'failed',
+    finishedAt: mysqlUtcNow(),
+    errorMessage: '采集任务超过最大执行时间，已自动终止',
+  }).where(and(
+    eq(marketDataCollectorRuns.jobType, jobType),
+    eq(marketDataCollectorRuns.status, 'running'),
+    lt(marketDataCollectorRuns.startedAt, cutoff),
+  ));
+  const packet = result[0] as { affectedRows?: number };
+  return Number(packet.affectedRows ?? 0);
+}
+
 export async function latestCollectorRuns(): Promise<CollectorRun[]> {
   const latest = getDb().select({
     jobType: marketDataCollectorRuns.jobType,

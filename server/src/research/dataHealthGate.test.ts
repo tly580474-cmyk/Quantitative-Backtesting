@@ -105,6 +105,24 @@ describe('data health gate', () => {
       .toBe('2026-07-17T01:00:00.000Z');
   });
 
+  it('does not report a fresh heartbeat when old collector runs are still stuck', () => {
+    const checks = evaluateMarketCollectorHealth({
+      expectedTradingDate: '2026-07-20',
+      latestDragonTigerDate: '2026-07-20',
+      runs: [{
+        jobType: 'market_news', status: 'running', startedAt: '2026-07-20T10:59:30.000Z',
+        finishedAt: null, consecutiveFailures: 0, staleRunningCount: 4, errorMessage: null,
+      }],
+      newsSources: [{
+        sourceKey: 'cls', latestPublishedAt: '2026-07-20T10:59:00.000Z',
+        latestFetchedAt: '2026-07-20T10:59:30.000Z',
+      }],
+    }, new Date('2026-07-20T11:00:00.000Z'));
+    const heartbeat = checks.find((check) => check.key === 'market_news_collector_heartbeat');
+    expect(heartbeat?.status).toBe('fail');
+    expect(heartbeat?.message).toContain('4 个超时任务');
+  });
+
   it('fails on stale minute data, ambiguous dividend gaps, and insufficient index history', () => {
     const report = evaluateDataHealthGate(
       {

@@ -8,6 +8,7 @@ import {
   CloudServerOutlined,
   DashboardOutlined,
   DatabaseOutlined,
+  DownloadOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
   HddOutlined,
@@ -29,13 +30,17 @@ import {
   getAdminOverview,
   getAdminStatus,
   getBackendRestartStatus,
+  getDataUpdateProgress,
+  getDatabaseBackupExport,
   getMetricsHistory,
   restartBackend,
+  startDatabaseBackupExport,
+  downloadDatabaseBackupExport,
   updateAdminConfig,
   verifyAdminToken,
   waitForBackendRecovery,
 } from './api';
-import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartStatus, DiagnosticCheck, HealthLevel, MetricSample } from './types';
+import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressItem, DiagnosticCheck, HealthLevel, MetricSample } from './types';
 
 type Section = 'overview' | 'diagnostics' | 'configuration';
 
@@ -58,6 +63,9 @@ const RESTART_SCOPE_LABELS: Record<AdminConfigItem['restartScope'], string> = {
 
 /** 前端实时校验，与 server/src/admin/envConfig.ts validateEnvValue 规则一致（见 §4.3） */
 function validateConfigValue(key: string, value: string): string | null {
+  if (key.endsWith('_TIME') && !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+    return `${key} 必须使用 HH:mm 格式，例如 18:30`;
+  }
   if (['DB_HOST', 'DB_USER', 'DB_NAME', 'OPENAI_MODEL'].includes(key) && !value.trim()) {
     return `${key} 不能为空`;
   }
@@ -174,6 +182,9 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [config, setConfig] = useState<AdminConfigItem[]>([]);
   const [metrics, setMetrics] = useState<MetricSample[]>([]);
+  const [dataUpdates, setDataUpdates] = useState<DataUpdateProgressItem[]>([]);
+  const [backupExport, setBackupExport] = useState<DatabaseBackupExportStatus | null>(null);
+  const [backupStarting, setBackupStarting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -263,15 +274,63 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
     }
   }, [token]);
 
+  const refreshDataUpdates = useCallback(async () => {
+    try {
+      const response = await getDataUpdateProgress(token);
+      setDataUpdates(response.items);
+    } catch {
+      // Keep the last useful snapshot during a brief backend restart or network outage.
+    }
+  }, [token]);
+
+  const refreshBackupExport = useCallback(async () => {
+    try {
+      setBackupExport(await getDatabaseBackupExport(token));
+    } catch {
+      // Keep the last snapshot during transient outages.
+    }
+  }, [token]);
+
+  const createBackupExport = useCallback(async () => {
+    if (backupStarting || backupExport?.status === 'running') return;
+    setBackupStarting(true);
+    setError('');
+    try {
+      setBackupExport(await startDatabaseBackupExport(token));
+      setNotice('数据库备份已在后台开始导出，完成后可直接下载 SQL 文件。');
+    } catch (backupError) {
+      setError(backupError instanceof Error ? backupError.message : '数据库备份导出失败');
+    } finally {
+      setBackupStarting(false);
+    }
+  }, [backupExport?.status, backupStarting, token]);
+
+  const downloadBackupExport = useCallback(async () => {
+    if (!backupExport?.id || !backupExport.fileName) return;
+    setError('');
+    try {
+      await downloadDatabaseBackupExport(token, backupExport.id, backupExport.fileName);
+      setNotice(`数据库备份 ${backupExport.fileName} 已开始下载。`);
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : '数据库备份下载失败');
+    }
+  }, [backupExport, token]);
+
   useEffect(() => {
     void refreshOverview();
+    void refreshDataUpdates();
+    void refreshBackupExport();
     const healthTimer = window.setInterval(() => void refreshHealth(true), 15_000);
     const metricsTimer = window.setInterval(() => void refreshMetrics(), 30_000);
+    const dataUpdateTimer = window.setInterval(() => void refreshDataUpdates(), 2_000);
+    const backupTimer = window.setInterval(() => void refreshBackupExport(), 3_000);
     return () => {
       window.clearInterval(healthTimer);
       window.clearInterval(metricsTimer);
+      window.clearInterval(dataUpdateTimer);
+      window.clearInterval(backupTimer);
     };
-  }, [refreshOverview, refreshHealth, refreshMetrics]);
+  }, [refreshOverview, refreshHealth, refreshMetrics, refreshDataUpdates, refreshBackupExport]);
 
   const navigate = (next: Section) => {
     setSection(next);
@@ -389,7 +448,16 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
           {loading && !overview ? (
             <DashboardSkeleton />
           ) : section === 'overview' ? (
-            overview && <OverviewSection overview={overview} metrics={metrics} onRefreshMetrics={() => void refreshMetrics()} />
+            overview && <OverviewSection
+              overview={overview}
+              metrics={metrics}
+              dataUpdates={dataUpdates}
+              backupExport={backupExport}
+              backupStarting={backupStarting}
+              onStartBackup={() => void createBackupExport()}
+              onDownloadBackup={() => void downloadBackupExport()}
+              onRefreshMetrics={() => void refreshMetrics()}
+            />
           ) : section === 'diagnostics' ? (
             overview && <DiagnosticsSection checks={overview.checks} />
           ) : (
@@ -446,9 +514,14 @@ function RestartDialog({ pid, onCancel, onConfirm }: { pid: number; onCancel: ()
   );
 }
 
-function OverviewSection({ overview, metrics, onRefreshMetrics }: {
+function OverviewSection({ overview, metrics, dataUpdates, backupExport, backupStarting, onStartBackup, onDownloadBackup, onRefreshMetrics }: {
   overview: AdminOverview;
   metrics: MetricSample[];
+  dataUpdates: DataUpdateProgressItem[];
+  backupExport: DatabaseBackupExportStatus | null;
+  backupStarting: boolean;
+  onStartBackup: () => void;
+  onDownloadBackup: () => void;
   onRefreshMetrics: () => void;
 }) {
   const connectionUsage = overview.database.maxConnections && overview.database.threadsConnected != null
@@ -478,6 +551,15 @@ function OverviewSection({ overview, metrics, onRefreshMetrics }: {
         </div>
         <StatusBadge level={overview.overall} />
       </section>
+
+      <DataUpdateProgressPanel items={dataUpdates} />
+
+      <DatabaseBackupPanel
+        status={backupExport}
+        starting={backupStarting}
+        onStart={onStartBackup}
+        onDownload={onDownloadBackup}
+      />
 
       <section className="metric-grid" aria-label="核心运行指标">
         <MetricCard
@@ -657,6 +739,105 @@ function OverviewSection({ overview, metrics, onRefreshMetrics }: {
   );
 }
 
+function DatabaseBackupPanel({ status, starting, onStart, onDownload }: {
+  status: DatabaseBackupExportStatus | null;
+  starting: boolean;
+  onStart: () => void;
+  onDownload: () => void;
+}) {
+  const running = starting || status?.status === 'running';
+  const level: HealthLevel = status?.status === 'failed'
+    ? 'critical' : status?.status === 'completed' ? 'healthy' : running ? 'warning' : 'disabled';
+  return (
+    <Panel title="数据库备份" subtitle="导出完整 MySQL SQL 文件 · 单事务一致性快照 · SHA-256 校验" icon={<DatabaseOutlined />}>
+      <div className={`database-backup-row status-surface-${level}`} aria-live="polite">
+        <div className="database-backup-copy">
+          <div className="database-backup-title">
+            <strong>{running ? '正在后台导出' : status?.status === 'completed' ? '最近备份可下载' : status?.status === 'failed' ? '最近导出失败' : '尚未导出备份'}</strong>
+            <StatusBadge level={level} compact />
+          </div>
+          {status?.status === 'completed' ? (
+            <p>{status.fileName} · {status.bytes == null ? '未知大小' : formatBytes(status.bytes)} · SHA-256 {status.sha256?.slice(0, 12)}…</p>
+          ) : status?.status === 'failed' ? (
+            <p className="database-backup-error">{status.error}</p>
+          ) : (
+            <p>{running ? '浏览器可以离开本页；后台会继续执行，状态每 3 秒刷新。' : '备份保存在服务器备份目录，完成后可下载到本机。'}</p>
+          )}
+          {status?.updatedAt && <small>更新时间：{new Date(status.updatedAt).toLocaleString('zh-CN', { hour12: false })}</small>}
+        </div>
+        <div className="database-backup-actions">
+          <button className="primary-button" disabled={running} onClick={onStart}>
+            <DatabaseOutlined />{running ? '正在导出…' : '导出新备份'}
+          </button>
+          <button className="secondary-button" disabled={status?.status !== 'completed'} onClick={onDownload}>
+            <DownloadOutlined />下载 SQL
+          </button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressItem[] }) {
+  return (
+    <Panel title="数据更新进度" subtitle="每 2 秒刷新 · 分钟湖与个股日 K 线均在后台执行" icon={<ClockCircleOutlined />}>
+      <div className="data-update-grid" aria-live="polite">
+        {items.length === 0 ? (
+          <div className="data-update-empty">正在读取后台任务状态…</div>
+        ) : items.map((item) => {
+          const running = item.status === 'running' || item.status === 'pending';
+          const level: HealthLevel = item.status === 'failed'
+            ? 'critical' : item.status === 'completed' && item.failed === 0 ? 'healthy' : running || item.failed > 0 ? 'warning' : 'disabled';
+          const width = item.percent ?? (running ? 12 : 0);
+          return (
+            <article className={`data-update-card status-surface-${level}`} key={item.key}>
+              <div className="data-update-head">
+                <div>
+                  <strong>{item.label}</strong>
+                  <span>{formatUpdatePhase(item.phase)}</span>
+                </div>
+                <StatusBadge level={level} compact />
+              </div>
+              <div
+                className={`data-update-track ${running && item.percent == null ? 'is-indeterminate' : ''}`}
+                role="progressbar"
+                aria-label={`${item.label}更新进度`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={item.percent ?? undefined}
+                aria-valuetext={item.percent == null ? formatUpdatePhase(item.phase) : `${item.percent}%`}
+              >
+                <span className={`data-update-fill level-${level}`} style={{ width: `${width}%` }} />
+              </div>
+              <div className="data-update-meta">
+                <span>{item.total > 0
+                  ? `${item.completed + item.failed} / ${item.total} · 成功 ${item.completed} · 失败 ${item.failed}`
+                  : item.message ?? '暂无运行中的任务'}</span>
+                <strong>{item.percent == null ? '—' : `${item.percent}%`}</strong>
+              </div>
+              {(item.message || item.updatedAt) && (
+                <p>{item.message ?? '进度已更新'}{item.updatedAt ? ` · ${new Date(item.updatedAt).toLocaleString('zh-CN', { hour12: false })}` : ''}</p>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+function formatUpdatePhase(phase: string): string {
+  const labels: Record<string, string> = {
+    idle: '等待任务', starting: '正在启动', preparing: '正在准备',
+    'fetching-online': '抓取分钟行情', publishing: '校验并发布', published: '发布完成',
+    'up-to-date': '数据已是最新', 'source-stale': '在线数据源滞后',
+    'local-fallback': '本地补偿导入', 'fallback-completed': '补偿导入完成',
+    pending: '排队准备', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消',
+    '排队准备': '排队准备', '更新行情': '更新个股日 K 行情', '等待计划任务': '等待计划任务', '等待盘后更新': '等待盘后更新',
+  };
+  return labels[phase] ?? phase;
+}
+
 function LineageRow({
   label,
   value,
@@ -801,7 +982,8 @@ function ConfigDialog({
   onClose: () => void;
   onSaved: (message: string) => Promise<void>;
 }) {
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(() =>
+    item.inputType === 'time' ? (item.maskedValue ?? '') : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showSecret, setShowSecret] = useState(false);
@@ -845,7 +1027,7 @@ function ConfigDialog({
             <input
               id="config-value"
               autoFocus
-              type={item.secret && !showSecret ? 'password' : 'text'}
+              type={item.secret && !showSecret ? 'password' : (item.inputType ?? 'text')}
               value={value}
               onChange={(event) => setValue(event.target.value)}
               placeholder={item.secret ? '不会显示现有密钥' : item.maskedValue ?? ''}

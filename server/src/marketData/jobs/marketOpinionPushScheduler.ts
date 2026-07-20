@@ -1,4 +1,9 @@
-import { finishCollectorRun, tryStartCollectorRun } from '../repositories/collectorRunRepository.js';
+import {
+  expireStaleCollectorRuns,
+  finishCollectorRun,
+  tryStartCollectorRun,
+  updateCollectorRunDetails,
+} from '../repositories/collectorRunRepository.js';
 import { getChinaMarketSession } from './marketSession.js';
 import type { MarketOpinionDigestKind } from '../../services/marketOpinionAgent.js';
 import type { MarketOpinionPushService } from '../../services/marketOpinionPushService.js';
@@ -40,12 +45,19 @@ async function tick(service: MarketOpinionPushService, schedule: MarketOpinionPu
   ticking = true;
   try {
     const now = new Date();
+    await expireStaleCollectorRuns('market_opinion_push', 5);
     const session = getChinaMarketSession(now);
     for (const kind of dueDigestKinds(now, schedule)) {
       const runKey = `market_opinion_push:${session.tradeDate}:${kind}`;
       if (!await tryStartCollectorRun(runKey, 'market_opinion_push')) continue;
       try {
-        const result = await service.send(kind, now);
+        const result = await service.send(kind, now, {
+          onStage: async (stage) => updateCollectorRunDetails(runKey, {
+            stage,
+            stageAt: new Date().toISOString(),
+            scheduledFor: schedule.times[kind],
+          }),
+        });
         await finishCollectorRun(runKey, 'succeeded', { details: { ...result } });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

@@ -4,13 +4,34 @@ import unittest
 
 import pandas as pd
 
-from index_update import TARGETS, apply_previous_close, canonical_checksum, validate_index_frame
+from index_update import (
+    TARGETS,
+    amount_yuan_to_yi,
+    apply_previous_close,
+    canonical_checksum,
+    reconciliation_start_date,
+    validate_index_frame,
+)
 
 
 class IndexUpdateTest(unittest.TestCase):
     def test_supports_csi_all_share(self) -> None:
         self.assertEqual(TARGETS["000985"].provider_symbol, "000985")
         self.assertEqual(TARGETS["000985"].source_file_name, "csindex:index-perf")
+
+    def test_index_amount_contract_uses_yi(self) -> None:
+        result = amount_yuan_to_yi(pd.Series([686_333_877_873.84]))
+        self.assertAlmostEqual(result.iloc[0], 6_863.3387787384)
+
+    def test_incremental_update_refetches_recent_overlap(self) -> None:
+        self.assertEqual(
+            reconciliation_start_date("2026-07-17", "19900101"),
+            "20260710",
+        )
+        self.assertEqual(
+            reconciliation_start_date("2026-07-17", "20260715"),
+            "20260715",
+        )
 
     def test_accepts_valid_ohlcv(self) -> None:
         frame = pd.DataFrame([{

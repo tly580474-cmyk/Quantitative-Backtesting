@@ -7,6 +7,7 @@ import os
 import random
 import sys
 import time
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,41 @@ from update import (
 
 
 SINA_URL = "https://quotes.sina.cn/cn/api/openapi.php/CN_MarketDataService.getKLineData"
+PROGRESS_FILE_ENV = "MINUTE_UPDATE_PROGRESS_FILE"
+_progress_started_at: str | None = None
+
+
+def write_progress(
+    status: str,
+    phase: str,
+    completed: int = 0,
+    total: int = 0,
+    failed: int = 0,
+    message: str | None = None,
+) -> None:
+    global _progress_started_at
+    path_value = os.getenv(PROGRESS_FILE_ENV, "").strip()
+    if not path_value:
+        return
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    if _progress_started_at is None:
+        _progress_started_at = now
+    payload = {
+        "status": status,
+        "phase": phase,
+        "completed": max(0, int(completed)),
+        "total": max(0, int(total)),
+        "failed": max(0, int(failed)),
+        "startedAt": _progress_started_at,
+        "updatedAt": now,
+        "finishedAt": now if status in ("completed", "failed") else None,
+        "message": message,
+    }
+    path = Path(path_value).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, path)
 
 
 @dataclass(frozen=True)
@@ -76,6 +112,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     load_env_file(Path.cwd() / ".env")
     args = parse_args()
+    write_progress("running", "preparing", message="正在检查交易日、清单与日线对账数据")
     output_root = Path(args.output_root).resolve()
     manifest = json.loads((output_root / "manifest.json").read_text(encoding="utf-8"))
     manifest_last_date = max(str(item["date"]) for item in manifest["files"])
@@ -131,7 +168,11 @@ def main() -> int:
                 "expectedLastTradingDate": expected_last_date,
                 "latestFinalizedDate": finalized,
             }, ensure_ascii=False))
-            return 2 if status == "source-stale" else 0
+            if status == "source-stale":
+                write_progress("failed", status, message="在线分钟源尚未提供最新已终态交易日")
+                return 2
+            write_progress("completed", status, completed=1, total=1, message="分钟湖已经是最新状态")
+            return 0
         instruments = load_instruments(connection, pending_dates[0], pending_dates[-1])
         references = load_daily_references(connection, pending_dates[0], pending_dates[-1])
     finally:
@@ -166,14 +207,17 @@ def main() -> int:
     }
     if args.dry_run:
         print(json.dumps({"status": "planned", **plan}, ensure_ascii=False))
+        write_progress("completed", "planned", completed=1, total=1, message="演练计划已生成")
         return 0
 
+    write_progress("running", "fetching-online", completed=0, total=len(target_symbols), message="正在并发抓取全市场分钟行情")
     responses, request_errors = fetch_universe(
         source,
         [instrument_by_symbol[item] for item in target_symbols],
         max(1, args.workers),
     )
     published = []
+    write_progress("running", "publishing", completed=len(responses), total=len(target_symbols), failed=len(request_errors), message="抓取完成，正在校验并原子发布 Parquet")
     for trade_date in pending_dates:
         result = publish_online_date(
             output_root=output_root,
@@ -195,6 +239,7 @@ def main() -> int:
         "publishedBytes": sum(int(item["bytes"]) for item in published),
         "coverageWarnings": sum(int(item["missingSymbols"]) for item in published),
     }, ensure_ascii=False))
+    write_progress("completed", "published", completed=len(responses), total=len(target_symbols), failed=len(request_errors), message=f"已发布 {len(published)} 个交易日")
     return 0
 
 
@@ -318,6 +363,11 @@ def fetch_universe(
             except Exception as error:
                 errors[instrument.provider_symbol] = str(error)
             if completed % 250 == 0 or completed == len(instruments):
+                write_progress(
+                    "running", "fetching-online", completed=completed - len(errors),
+                    total=len(instruments), failed=len(errors),
+                    message="正在并发抓取全市场分钟行情",
+                )
                 print(json.dumps({
                     "status": "fetching-online",
                     "completedSymbols": completed,
@@ -578,5 +628,6 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as error:
+        write_progress("failed", "failed", message=str(error))
         print(json.dumps({"status": "failed", "error": str(error)}, ensure_ascii=False), file=sys.stderr)
         raise

@@ -1,4 +1,4 @@
-import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartResult, BackendRestartStatus, MetricsHistoryResponse } from './types';
+import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartResult, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressResponse, MetricsHistoryResponse } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3001';
 
@@ -35,6 +35,42 @@ export async function getAdminHealth(token: string): Promise<AdminHealth> {
 export async function getMetricsHistory(token: string, since?: string): Promise<MetricsHistoryResponse> {
   const query = since ? `?since=${encodeURIComponent(since)}` : '';
   return request(`/api/admin/metrics/history${query}`, {}, token);
+}
+
+export async function getDataUpdateProgress(token: string): Promise<DataUpdateProgressResponse> {
+  return request('/api/admin/data-update-progress', {}, token);
+}
+
+export async function getDatabaseBackupExport(token: string): Promise<DatabaseBackupExportStatus> {
+  return request('/api/admin/database-backup', {}, token);
+}
+
+export async function startDatabaseBackupExport(token: string): Promise<DatabaseBackupExportStatus> {
+  return request('/api/admin/database-backup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  }, token);
+}
+
+export async function downloadDatabaseBackupExport(token: string, id: string, suggestedName: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/database-backup/${encodeURIComponent(id)}/download`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { message?: string };
+    throw new AdminApiError(body.message ?? `数据库备份下载失败（HTTP ${response.status}）`, response.status);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = suggestedName;
+    anchor.click();
+  } finally {
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  }
 }
 
 export async function getAdminConfig(token: string): Promise<AdminConfigItem[]> {

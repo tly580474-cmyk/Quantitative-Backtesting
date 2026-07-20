@@ -53,6 +53,7 @@ export interface MarketCollectorState {
     startedAt: string;
     finishedAt: string | null;
     consecutiveFailures: number;
+    staleRunningCount?: number;
     errorMessage: string | null;
   }>;
   newsSources: Array<{
@@ -274,16 +275,21 @@ export function evaluateMarketCollectorHealth(
   const newsRun = state.runs.find((run) => run.jobType === 'market_news');
   const heartbeatAt = newsRun?.finishedAt ?? newsRun?.startedAt ?? null;
   const heartbeatAge = ageMinutes(heartbeatAt, now);
-  const heartbeatStatus: DataHealthStatus = heartbeatAge <= 10 && newsRun?.status !== 'failed'
-    ? 'pass'
-    : heartbeatAge <= 30 ? 'warn' : 'fail';
+  const staleRunningCount = newsRun?.staleRunningCount ?? 0;
+  const heartbeatStatus: DataHealthStatus = staleRunningCount >= 3
+    ? 'fail'
+    : staleRunningCount > 0
+      ? 'warn'
+      : heartbeatAge <= 10 && newsRun?.status !== 'failed'
+        ? 'pass'
+        : heartbeatAge <= 30 ? 'warn' : 'fail';
   const heartbeat: DataHealthCheck = {
     key: 'market_news_collector_heartbeat',
     status: heartbeatStatus,
     message: heartbeatAt
-      ? `新闻采集任务最近心跳距今 ${Math.round(heartbeatAge)} 分钟`
+      ? `新闻采集任务最近心跳距今 ${Math.round(heartbeatAge)} 分钟${staleRunningCount ? `，另有 ${staleRunningCount} 个超时任务` : ''}`
       : '尚无新闻采集任务运行记录',
-    details: { ...newsRun, heartbeatAt, ageMinutes: heartbeatAge },
+    details: { ...newsRun, heartbeatAt, ageMinutes: heartbeatAge, staleRunningCount },
   };
 
   const freshestSource = state.newsSources.reduce<string | null>((latest, source) => {
@@ -340,7 +346,11 @@ export async function readMarketCollectorState(pool: Pool, now = new Date()): Pr
   ]);
   const latestRuns = new Map<string, MarketCollectorState['runs'][number]>();
   const failures = new Map<string, number>();
+  const staleRunning = new Map<string, number>();
   for (const row of runRows) {
+    if (row.status === 'running' && ageMinutes(mysqlDateToIso(row.startedAt), now) > 2) {
+      staleRunning.set(row.jobType, (staleRunning.get(row.jobType) ?? 0) + 1);
+    }
     if (!latestRuns.has(row.jobType)) {
       latestRuns.set(row.jobType, {
         jobType: row.jobType,
@@ -348,6 +358,7 @@ export async function readMarketCollectorState(pool: Pool, now = new Date()): Pr
         startedAt: mysqlDateToIso(row.startedAt)!,
         finishedAt: mysqlDateToIso(row.finishedAt),
         consecutiveFailures: 0,
+        staleRunningCount: 0,
         errorMessage: row.errorMessage,
       });
     }
@@ -356,7 +367,10 @@ export async function readMarketCollectorState(pool: Pool, now = new Date()): Pr
       else failures.set(row.jobType, -1);
     }
   }
-  for (const run of latestRuns.values()) run.consecutiveFailures = Math.max(0, failures.get(run.jobType) ?? 0);
+  for (const run of latestRuns.values()) {
+    run.consecutiveFailures = Math.max(0, failures.get(run.jobType) ?? 0);
+    run.staleRunningCount = staleRunning.get(run.jobType) ?? 0;
+  }
   return {
     expectedTradingDate: String(calendarRows[0]?.expectedTradingDate ?? '') || null,
     latestDragonTigerDate: String(dragonRows[0]?.latestDragonTigerDate ?? '') || null,

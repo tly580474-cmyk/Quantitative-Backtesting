@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { appendReferenceArticles } from './marketOpinionPushService.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { appendReferenceArticles, getMarketSnapshotSemantics, withStageTimeout } from './marketOpinionPushService.js';
 import type { MarketOpinionReport } from './marketOpinionAgent.js';
 
 function report(): MarketOpinionReport {
@@ -36,5 +36,46 @@ describe('market opinion email references', () => {
     const value = report();
     value.content = '没有引用。';
     expect(appendReferenceArticles(value)).toBe('没有引用。');
+  });
+});
+
+describe('market opinion stage timeout', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('returns a completed stage result', async () => {
+    await expect(withStageTimeout(Promise.resolve('ok'), 100, 'timeout')).resolves.toBe('ok');
+  });
+
+  it('fails a stage that exceeds its execution budget', async () => {
+    vi.useFakeTimers();
+    const result = withStageTimeout(new Promise<never>(() => undefined), 100, '观点生成超时');
+    const rejection = expect(result).rejects.toThrow('观点生成超时');
+    await vi.advanceTimersByTimeAsync(101);
+    await rejection;
+  });
+});
+
+describe('market snapshot time ownership', () => {
+  it('labels a Monday 09:16 quote as the current-session opening auction', () => {
+    const semantics = getMarketSnapshotSemantics({
+      tradeDate: '2026-07-20', minuteOfDay: 9 * 60 + 16, weekday: 1,
+      phase: 'pre_open', isIntradayUpdateWindow: false, isDailyBarFinal: false,
+    }, '2026-07-17');
+    expect(semantics).toEqual({
+      quoteTradeDate: '2026-07-20',
+      previousCloseTradeDate: '2026-07-17',
+      quotePhase: 'opening_auction',
+      snapshotType: 'current_session',
+    });
+  });
+
+  it('keeps a Monday 09:00 quote in the previous-close reference context', () => {
+    const semantics = getMarketSnapshotSemantics({
+      tradeDate: '2026-07-20', minuteOfDay: 9 * 60, weekday: 1,
+      phase: 'pre_open', isIntradayUpdateWindow: false, isDailyBarFinal: false,
+    }, '2026-07-17');
+    expect(semantics.quoteTradeDate).toBe('2026-07-17');
+    expect(semantics.quotePhase).toBe('pre_open_reference');
+    expect(semantics.snapshotType).toBe('previous_close_reference');
   });
 });

@@ -1,14 +1,28 @@
 param(
   [string]$TaskName = 'QuantBacktest-MinuteUpdate',
-  [string]$At = '16:30',
-  [string]$RetryAt = '17:30'
+  [string]$At = '',
+  [string]$RetryAt = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $serverRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
+function Resolve-ScheduleTime {
+  param([string]$Value, [string]$Key, [string]$Fallback)
+  if ($Value) { return $Value }
+  $fromProcess = [Environment]::GetEnvironmentVariable($Key)
+  if ($fromProcess) { return $fromProcess }
+  $envPath = Join-Path $serverRoot '.env'
+  if (Test-Path -LiteralPath $envPath) {
+    $line = Get-Content -LiteralPath $envPath | Where-Object { $_ -match "^$Key=" } | Select-Object -Last 1
+    if ($line) { return ($line.Substring($Key.Length + 1)).Trim().Trim('"').Trim("'") }
+  }
+  return $Fallback
+}
+$At = Resolve-ScheduleTime $At 'MINUTE_DATA_UPDATE_TIME' '16:30'
+$RetryAt = Resolve-ScheduleTime $RetryAt 'MINUTE_DATA_RETRY_TIME' '17:30'
 $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
 $runner = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'run-minute-update.ps1')).Path
-$argument = "-NoProfile -ExecutionPolicy Bypass -File `"$runner`""
+$argument = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runner`""
 $action = New-ScheduledTaskAction `
   -Execute $powershell `
   -Argument $argument `

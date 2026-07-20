@@ -1,7 +1,7 @@
 import { getChinaMarketSession } from './marketSession.js';
 import { refreshMarketNews } from '../marketNewsService.js';
 import { deleteMarketNewsBefore } from '../repositories/marketNewsRepository.js';
-import { finishCollectorRun, tryStartCollectorRun } from '../repositories/collectorRunRepository.js';
+import { expireStaleCollectorRuns, finishCollectorRun, tryStartCollectorRun } from '../repositories/collectorRunRepository.js';
 
 let intervalId: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -32,10 +32,11 @@ async function tick(): Promise<void> {
   running = true;
   try {
     const now = new Date();
+    await expireStaleCollectorRuns('market_news', 2);
     const runKey = `market_news:${newsSlotKey(now, refreshIntervalMinutes)}`;
     if (await tryStartCollectorRun(runKey, 'market_news')) {
       try {
-        const snapshot = await refreshMarketNews(true, 50);
+        const snapshot = await withTimeout(refreshMarketNews(true, 50), 60_000, '新闻采集超过 60 秒');
         await finishCollectorRun(runKey, 'succeeded', { details: { records: snapshot.total, sources: snapshot.sources } });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -47,6 +48,21 @@ async function tick(): Promise<void> {
     if (session.minuteOfDay >= 3 * 60) await cleanup(session.tradeDate);
   } finally {
     running = false;
+  }
+}
+
+export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), Math.max(1, timeoutMs));
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Pool } from 'mysql2/promise';
 import { z } from 'zod';
@@ -7,6 +8,13 @@ import { collectAdminOverview, collectAdminHealth } from '../admin/diagnostics.j
 import { listAdminConfig, updateEnvFile } from '../admin/envConfig.js';
 import { createOverviewCache } from '../admin/overviewCache.js';
 import { metricsHistory } from '../admin/metricsHistory.js';
+import { synchronizeScheduleConfig } from '../admin/scheduleConfig.js';
+import { collectDataUpdateProgress } from '../admin/dataUpdateProgress.js';
+import {
+  getDatabaseBackupExportStatus,
+  resolveDatabaseBackupDownload,
+  startDatabaseBackupExport,
+} from '../admin/databaseBackupExport.js';
 
 interface AdminRouteOptions {
   pool: Pool;
@@ -91,6 +99,45 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     return reply.send({ samples: metricsHistory.list(since) });
   });
 
+  app.get('/api/admin/data-update-progress', { preHandler: authorize }, async () => (
+    collectDataUpdateProgress(options.dbOnline)
+  ));
+
+  app.get('/api/admin/database-backup', { preHandler: authorize }, async () => (
+    getDatabaseBackupExportStatus(options.config)
+  ));
+
+  app.post('/api/admin/database-backup', { preHandler: authorize }, async (_request, reply) => {
+    if (!options.dbOnline) {
+      return reply.status(503).send({ error: 'DATABASE_UNAVAILABLE', message: '数据库未连接，无法导出备份' });
+    }
+    try {
+      const status = await startDatabaseBackupExport(options.config);
+      return reply.status(202).send(status);
+    } catch (error) {
+      return reply.status(409).send({
+        error: 'BACKUP_EXPORT_UNAVAILABLE',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>('/api/admin/database-backup/:id/download', { preHandler: authorize }, async (request, reply) => {
+    try {
+      const download = await resolveDatabaseBackupDownload(options.config, request.params.id);
+      reply.header('Content-Type', 'application/sql; charset=utf-8');
+      reply.header('Content-Length', String(download.bytes));
+      reply.header('Content-Disposition', `attachment; filename="${download.fileName}"`);
+      reply.header('X-Backup-SHA256', download.sha256);
+      return reply.send(createReadStream(download.path));
+    } catch (error) {
+      return reply.status(404).send({
+        error: 'BACKUP_NOT_FOUND',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
   app.get('/api/admin/config', { preHandler: authorize }, async () => ({
     items: listAdminConfig({ ...options.config, ...process.env }),
   }));
@@ -130,12 +177,21 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       }
       try {
         const updatedKeys = await updateEnvFile(options.envFilePath, parsed.data.updates);
-        request.log.warn({ updatedKeys }, 'Admin configuration updated; restart required');
+        const scheduleSync = await synchronizeScheduleConfig(updatedKeys);
+        const restartRequired = updatedKeys.some((key) =>
+          !key.startsWith('RESEARCH_SNAPSHOT_') && !key.startsWith('MINUTE_DATA_'));
+        request.log.warn({ updatedKeys, scheduleSync }, 'Admin configuration updated');
         overviewCache.invalidate();
+        const scheduleMessage = scheduleSync.updatedTasks.length > 0
+          ? `；已更新计划任务：${scheduleSync.updatedTasks.join('、')}`
+          : '';
+        const warningMessage = scheduleSync.warnings.length > 0
+          ? `；${scheduleSync.warnings.join('；')}`
+          : '';
         return reply.send({
           updatedKeys,
-          restartRequired: true,
-          message: '配置已写入 server/.env，重启后端后完全生效',
+          restartRequired,
+          message: `${restartRequired ? '配置已写入 server/.env，重启后端后完全生效' : '配置已写入 server/.env'}${scheduleMessage}${warningMessage}`,
         });
       } catch (error) {
         return reply.status(400).send({

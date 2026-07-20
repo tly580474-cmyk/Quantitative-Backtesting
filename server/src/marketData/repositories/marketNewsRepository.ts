@@ -69,7 +69,6 @@ export async function deleteMarketNewsBefore(cutoffIso: string, limit = 5_000): 
   const result = await getDb().execute(sql`
     DELETE FROM ${marketNews}
     WHERE ${marketNews.publishedAt} < ${toMysqlUtc(cutoffIso)}
-      AND ${marketNews.contentType} IN ('flash', 'article')
     LIMIT ${Math.max(1, Math.min(limit, 20_000))}
   `);
   const packet = result[0] as { affectedRows?: number };

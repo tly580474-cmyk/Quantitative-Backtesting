@@ -108,10 +108,12 @@ export async function refreshMarketNews(dbOnline = true, limit = 50): Promise<Ma
   return result;
 }
 
-export async function getMarketOpinionNews(): Promise<MarketNewsItem[]> {
-  const tiers: NewsSourceTier[] = ['state_media', 'professional', 'aggregator'];
-  const pages = await Promise.all(tiers.map((tier) => listMarketNews({ limit: 60, tier })));
-  return clusterMarketNews(sortNewsByTimeAndPriority(pages.flat()));
+export async function getMarketOpinionNews(now = Date.now(), lookbackHours = 72): Promise<MarketNewsItem[]> {
+  const tiers: NewsSourceTier[] = ['official', 'state_media', 'professional', 'aggregator'];
+  const cutoff = now - Math.max(1, lookbackHours) * 60 * 60_000;
+  const pages = await Promise.all(tiers.map((tier) => listMarketNews({ limit: 250, tier })));
+  return clusterMarketNews(sortNewsByTimeAndPriority(pages.flat()
+    .filter((item) => Date.parse(item.publishedAt) >= cutoff)));
 }
 
 function mapAnnouncement(item: Awaited<ReturnType<typeof fetchCninfoAnnouncements>>[number], code: string): MarketNewsItem {

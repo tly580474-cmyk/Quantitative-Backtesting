@@ -12,7 +12,6 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-import akshare as ak
 import pandas as pd
 import pymysql
 import requests
@@ -23,7 +22,7 @@ class IndexDefinition:
     code: str
     name: str
     provider_symbol: str
-    source_file_name: str = "akshare:stock_zh_index_daily_em"
+    source_file_name: str = "eastmoney:push2his-kline"
 
 
 TARGETS = {
@@ -46,6 +45,30 @@ TARGETS = {
         ),
     )
 }
+EASTMONEY_INDEX_SECIDS = {
+    "000001": "1.000001",
+    "399001": "0.399001",
+    "399006": "0.399006",
+    "000300": "1.000300",
+    "000905": "1.000905",
+    "000852": "1.000852",
+    "932000": "2.932000",
+    "000688": "1.000688",
+    "000680": "1.000680",
+}
+RECONCILIATION_LOOKBACK_DAYS = 7
+
+
+def amount_yuan_to_yi(amount: pd.Series) -> pd.Series:
+    """Convert provider turnover amounts from yuan to the Candle 亿元 unit."""
+    return amount / 100_000_000
+
+
+def reconciliation_start_date(end_time: str, requested_start: str) -> str:
+    """Refetch an overlap so provisional index bars can be corrected later."""
+    end_date = datetime.strptime(end_time[:10], "%Y-%m-%d").date()
+    overlap_start = (end_date - timedelta(days=RECONCILIATION_LOOKBACK_DAYS)).strftime("%Y%m%d")
+    return max(requested_start, overlap_start)
 
 
 def parse_args() -> argparse.Namespace:
@@ -75,7 +98,9 @@ def main() -> int:
             dataset = load_dataset(connection, symbol)
             start_date = args.start_date
             if not args.full and dataset and dataset["end_time"]:
-                start_date = next_date(str(dataset["end_time"]))
+                start_date = reconciliation_start_date(
+                    str(dataset["end_time"]), args.start_date
+                )
             if start_date > args.end_date:
                 repaired = 0 if args.dry_run or not dataset else repair_missing_index_returns(
                     connection, dataset["id"]
@@ -170,37 +195,55 @@ def fetch_index_frame_with_retry(
 def fetch_index_frame(definition: IndexDefinition, start_date: str, end_date: str) -> pd.DataFrame:
     if definition.source_file_name == "csindex:index-perf":
         return fetch_csindex_official_frame(definition, start_date, end_date)
-    raw = ak.stock_zh_index_daily_em(
-        symbol=definition.provider_symbol,
-        start_date=start_date.replace("-", ""),
-        end_date=end_date.replace("-", ""),
+    secid = EASTMONEY_INDEX_SECIDS.get(definition.code)
+    if not secid:
+        raise RuntimeError(f"missing Eastmoney secid for {definition.code}")
+    response = requests.get(
+        "https://push2his.eastmoney.com/api/qt/stock/kline/get",
+        params={
+            "secid": secid,
+            "fields1": "f1,f2,f3,f4,f5,f6",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+            "klt": "101",
+            "fqt": "0",
+            "beg": start_date.replace("-", ""),
+            "end": end_date.replace("-", ""),
+        },
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://quote.eastmoney.com/",
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    klines = (payload.get("data") or {}).get("klines") or []
+    raw = pd.DataFrame(
+        (line.split(",") for line in klines),
+        columns=[
+            "tradeDate", "open", "close", "high", "low", "volume", "amount",
+            "amplitude", "changePercent", "change", "turnoverRatePct",
+        ],
     )
     if raw.empty:
         return pd.DataFrame(columns=[
             "tradeDate", "open", "high", "low", "close", "volume", "amount",
             "change", "changePercent",
         ])
-    frame = raw.rename(columns={
-        "date": "tradeDate",
-        "open": "open",
-        "high": "high",
-        "low": "low",
-        "close": "close",
-        "volume": "volume",
-        "amount": "amount",
-    }).copy()
+    frame = raw.copy()
     frame["tradeDate"] = pd.to_datetime(frame["tradeDate"], errors="raise").dt.strftime("%Y-%m-%d")
     for column in ("open", "high", "low", "close", "volume", "amount"):
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    frame["amount"] = amount_yuan_to_yi(frame["amount"])
     frame = frame.sort_values("tradeDate").drop_duplicates(
         "tradeDate", keep="last"
     ).reset_index(drop=True)
-    previous = frame["close"].shift(1)
-    frame["change"] = frame["close"] - previous
-    frame["changePercent"] = frame["change"] / previous * 100
+    frame["change"] = pd.to_numeric(frame["change"], errors="coerce")
+    frame["changePercent"] = pd.to_numeric(frame["changePercent"], errors="coerce")
+    frame["turnoverRatePct"] = pd.to_numeric(frame["turnoverRatePct"], errors="coerce")
     return frame[[
         "tradeDate", "open", "high", "low", "close", "volume", "amount",
-        "change", "changePercent",
+        "change", "changePercent", "turnoverRatePct",
     ]]
 
 
@@ -247,10 +290,9 @@ def fetch_csindex_official_frame(
     # The official endpoint also returns base-point and holiday reference rows
     # without OHLC values. They are not exchange sessions and cannot be stored as candles.
     frame = frame.dropna(subset=["open", "high", "low", "close", "volume", "amount"])
-    # CSI reports volume in shares and turnover in CNY 100m; the existing index
-    # candle contract stores Tencent/Eastmoney volume units and turnover in CNY.
+    # CSI reports volume in shares and turnover in CNY 100m, which already
+    # matches the legacy Candle turnover contract.
     frame["volume"] = frame["volume"] / 100
-    frame["amount"] = frame["amount"] * 100_000_000
     frame = frame.sort_values("tradeDate").drop_duplicates(
         "tradeDate", keep="last"
     ).reset_index(drop=True)
@@ -377,6 +419,7 @@ def upsert_index_frame(connection, dataset_id: str, definition: IndexDefinition,
             optional_float(row.changePercent),
             float(row.volume),
             float(row.amount),
+            optional_float(getattr(row, "turnoverRatePct", None)),
             optional_float(getattr(row, "constituentCount", None)),
         )
         for row in frame.itertuples(index=False)
@@ -399,12 +442,13 @@ def upsert_index_frame(connection, dataset_id: str, definition: IndexDefinition,
             """
             INSERT INTO candles
               (dataset_id, time, symbol, open, high, low, close, `change`, change_percent,
-               volume, turnover, constituent_count)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               volume, turnover, turnover_rate_pct, constituent_count)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
               open=VALUES(open), high=VALUES(high), low=VALUES(low), close=VALUES(close),
               `change`=VALUES(`change`), change_percent=VALUES(change_percent),
               volume=VALUES(volume), turnover=VALUES(turnover),
+              turnover_rate_pct=VALUES(turnover_rate_pct),
               constituent_count=VALUES(constituent_count)
             """,
             rows,

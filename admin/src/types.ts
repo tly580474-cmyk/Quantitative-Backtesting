@@ -129,6 +129,7 @@ export interface AdminConfigItem {
   secret: boolean;
   editable: boolean;
   restartRequired: boolean;
+  inputType?: 'text' | 'time';
   restartScope: 'db' | 'ai' | 'runtime' | 'market' | 'access';
   configured: boolean;
   maskedValue: string | null;
@@ -158,6 +159,39 @@ export interface MetricSample {
 
 export interface MetricsHistoryResponse {
   samples: MetricSample[];
+}
+
+export interface DataUpdateProgressItem {
+  key: 'minute_lake' | 'daily_kline';
+  label: string;
+  status: 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  phase: string;
+  completed: number;
+  total: number;
+  failed: number;
+  percent: number | null;
+  startedAt: string | null;
+  updatedAt: string | null;
+  finishedAt: string | null;
+  message: string | null;
+}
+
+export interface DataUpdateProgressResponse {
+  generatedAt: string;
+  items: DataUpdateProgressItem[];
+}
+
+export interface DatabaseBackupExportStatus {
+  id: string;
+  status: 'idle' | 'running' | 'completed' | 'failed';
+  createdAt: string | null;
+  startedAt: string | null;
+  updatedAt: string;
+  finishedAt: string | null;
+  fileName: string | null;
+  bytes: number | null;
+  sha256: string | null;
+  error: string | null;
 }
 
 export interface BackendRestartStatus {
