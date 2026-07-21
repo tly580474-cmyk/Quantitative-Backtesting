@@ -17,13 +17,14 @@ import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
 import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem } from './types';
 import type { ImportResult } from '@/models';
 import { useCardDragReorder } from './useCardDragReorder';
+import { buildMarketIndexCards, resolveMarketIndexSnapshot, type MarketIndexOption } from './marketIndexCards';
 
 const { Text, Title } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
 const PINNED_WATCHLIST_KEY = 'quant-market-watchlist-pinned-v1';
 const MARKET_INDEX_SELECTION_KEY = 'quant-market-index-selection-v1';
 const MARKET_SENTIMENT_REFRESH_MS = 5 * 60_000;
-const MARKET_INDEX_OPTIONS: Array<{ key: string; code: string; name: string; market: StockSearchItem['market']; prefixed: string }> = [
+const MARKET_INDEX_OPTIONS: MarketIndexOption[] = [
   // A 股核心指数
   { key: 'SH:000001', code: '000001', name: '上证指数', market: 'SH', prefixed: 'sh000001' },
   { key: 'SZ:399001', code: '399001', name: '深证成指', market: 'SZ', prefixed: 'sz399001' },
@@ -1109,10 +1110,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       }
     }
   };
-  const visibleIndexQuotes = selectedIndexKeys.flatMap((key) => {
-    const quote = indexQuotes.find((item) => marketIndexKey(item) === key);
-    return quote ? [quote] : [];
-  });
+  const visibleIndexCards = buildMarketIndexCards(selectedIndexKeys, MARKET_INDEX_OPTIONS, indexQuotes);
   // 长按拖拽重排序
   const {
     draggingKey,
@@ -1152,38 +1150,46 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         <Tooltip title="刷新指数与市场概况"><Button icon={<ReloadOutlined />} loading={indexLoading || marketSentimentLoading} aria-label="刷新市场总览" onClick={() => { void loadIndexQuotes(); void loadMarketSentiment(false, true); }} /></Tooltip>
       </Space>
     </section>
-    <section className={`market-index-grid is-count-${visibleIndexQuotes.length}${isReordering ? ' is-reordering' : ''}`} aria-label="当前交易日主要指数">
-      {visibleIndexQuotes.map((item) => {
-        const direction = (item.changePct ?? 0) > 0 ? 'up' : (item.changePct ?? 0) < 0 ? 'down' : '';
-        const key = marketIndexKey(item);
+    <section className={`market-index-grid is-count-${visibleIndexCards.length}${isReordering ? ' is-reordering' : ''}`} aria-label="当前交易日主要指数">
+      {visibleIndexCards.map(({ key, option, quote: item }) => {
+        const snapshot = resolveMarketIndexSnapshot(item, indexPreviewKlines[key]);
+        const direction = (snapshot.changePct ?? 0) > 0 ? 'up' : (snapshot.changePct ?? 0) < 0 ? 'down' : '';
         const isDragging = draggingKey === key;
         const isDropTarget = dropTargetKey === key;
         return <button
           type="button"
-          className={`market-index-card${isDragging ? ' is-dragging' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
-          key={item.code}
+          className={`market-index-card${snapshot.source === 'unavailable' ? ' is-unavailable' : ''}${isDragging ? ' is-dragging' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
+          key={key}
           data-index-key={key}
           onPointerDown={(e) => handlePointerDown(key, e)}
           onPointerLeave={cancelLongPress}
-          onClick={() => { if (shouldSuppressClick()) return; selectIndexQuote(item); }}
-          aria-label={`查看${item.name}行情`}
+          onClick={() => {
+            if (shouldSuppressClick()) return;
+            if (item) selectIndexQuote(item);
+            else openInstrumentDetail({ code: option.prefixed, name: option.name, market: option.market, type: 'index' });
+          }}
+          aria-label={`查看${option.name}行情`}
           style={{ touchAction: 'none' }}
         >
-          <span>{item.name}<small>{item.market}</small></span>
-          <strong className={direction && `market-${direction}`}>{fmt(item.price)}</strong>
-          <em className={direction && `market-${direction}`}>{signed(item.changeAmount)}　{signed(item.changePct)}%</em>
-          <IndexSparkline points={indexPreviewKlines[key]} label={item.name} tone={direction || 'flat'} />
-          <small>成交额 {fmt(item.amountWan == null ? null : item.amountWan / 10000)} 亿</small>
+          <span>{option.name}<small>{option.market}</small></span>
+          <strong className={direction && `market-${direction}`}>{fmt(snapshot.price)}</strong>
+          <em className={direction && `market-${direction}`}>{signed(snapshot.changeAmount)}　{signed(snapshot.changePct)}%</em>
+          <IndexSparkline points={indexPreviewKlines[key]} label={option.name} tone={direction || 'flat'} />
+          <small>{snapshot.source === 'unavailable'
+            ? '行情暂不可用'
+            : snapshot.amountWan == null
+              ? '日 K 数据'
+              : `成交额 ${fmt(snapshot.amountWan / 10000)} 亿`}</small>
         </button>;
       })}
-      {indexQuotes.length === 0 && <div className="market-index-loading"><Skeleton active paragraph={{ rows: 2 }} /></div>}
+      {visibleIndexCards.length === 0 && indexLoading && <div className="market-index-loading"><Skeleton active paragraph={{ rows: 2 }} /></div>}
       <div className="market-index-summary">
         <div><span>全市场</span><strong>{fmt(marketSentiment?.total, 0)}<small> 只</small></strong></div>
         <div><span>上涨占比</span><strong className={(advanceRatio ?? 0) >= 50 ? 'market-up' : 'market-down'}>{fmt(advanceRatio)}<small>%</small></strong></div>
         <div><span>情绪 MSI</span><strong className={(marketSentiment?.msi ?? 0) >= 0 ? 'market-up' : 'market-down'}>{signed(marketSentiment?.msi)}</strong></div>
       </div>
     </section>
-    {visibleIndexQuotes.length > 1 && !isReordering && (
+    {visibleIndexCards.length > 1 && !isReordering && (
       <p className="market-index-drag-hint" aria-hidden="true">长按指数卡片可拖拽换位</p>
     )}
     {isReordering && (
@@ -1365,6 +1371,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         if (!draftIndexKeys.length) return;
         setSelectedIndexKeys(MARKET_INDEX_OPTIONS.filter((item) => draftIndexKeys.includes(item.key)).map((item) => item.key));
         setIndexConfigOpen(false);
+        void loadIndexQuotes();
       }}
     >
       <Text type="secondary">选择 1–5 个指数用于市场总览，设置会保存在当前浏览器。</Text>
