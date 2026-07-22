@@ -4,7 +4,7 @@ import { fetchCachedMarketCapitalFlow } from '../marketData/marketCapitalFlowSer
 import { getDataFreshness } from '../marketData/repositories/marketDataRepository.js';
 import { getMarketOpinionNews, refreshMarketNews } from '../marketData/marketNewsService.js';
 import { getChinaMarketSession, type ChinaMarketSession } from '../marketData/jobs/marketSession.js';
-import { EmailSender, reportEmailHtml } from './emailSender.js';
+import { EmailSender, reportEmailHtml, type EmailDeliveryResult } from './emailSender.js';
 import { MarketOpinionAgent, type MarketOpinionDigestKind, type MarketOpinionMarketContext, type MarketOpinionReport } from './marketOpinionAgent.js';
 import { assessOpinionNews } from './marketOpinionNewsRanker.js';
 import {
@@ -22,6 +22,9 @@ export interface MarketOpinionPushResult {
   newsCount: number;
   sourceCount: number;
   messageId: string;
+  acceptedRecipients: string[];
+  rejectedRecipients: string[];
+  smtpResponse?: string;
   newsFetchedAt: string;
   marketCapturedAt: string;
   newsSources: string[];
@@ -104,7 +107,7 @@ export class MarketOpinionPushService {
         '观点邮件投递超过 45 秒',
       );
       await sendOptions.onStage?.('sent');
-      const pushResult = summarizeResult(kind, subject, report, result.messageId, inputs);
+      const pushResult = summarizePushResult(kind, subject, report, result, inputs);
       this.lastSuccess = pushResult;
       return pushResult;
     } catch (error) {
@@ -369,11 +372,11 @@ function buildSubject(kind: MarketOpinionDigestKind, context: MarketOpinionMarke
   return `【市场观点智能体】${context.session.slice(0, 10)} ${label}`;
 }
 
-function summarizeResult(
+export function summarizePushResult(
   kind: MarketOpinionDigestKind,
   subject: string,
   report: MarketOpinionReport,
-  messageId: string,
+  delivery: EmailDeliveryResult,
   inputs: FreshMarketOpinionInputs,
 ): MarketOpinionPushResult {
   return {
@@ -382,7 +385,10 @@ function summarizeResult(
     generatedAt: report.generatedAt,
     newsCount: report.newsCount,
     sourceCount: report.sourceCount,
-    messageId,
+    messageId: delivery.messageId,
+    acceptedRecipients: delivery.accepted,
+    rejectedRecipients: delivery.rejected,
+    smtpResponse: delivery.response,
     newsFetchedAt: inputs.newsSnapshot.updatedAt,
     marketCapturedAt: inputs.context.capturedAt,
     newsSources: [...new Set(inputs.news.map((item) => item.sourceKey))],

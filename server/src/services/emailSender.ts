@@ -17,6 +17,13 @@ export interface EmailMessage {
   html: string;
 }
 
+export interface EmailDeliveryResult {
+  messageId: string;
+  accepted: string[];
+  rejected: string[];
+  response?: string;
+}
+
 export class EmailSender {
   private transporter: Transporter;
 
@@ -41,7 +48,7 @@ export class EmailSender {
     await this.transporter.verify();
   }
 
-  async send(message: EmailMessage): Promise<{ messageId: string; accepted: string[]; rejected: string[] }> {
+  async send(message: EmailMessage): Promise<EmailDeliveryResult> {
     if (!this.isConfigured()) throw new Error('SMTP 邮件配置不完整');
     const result = await this.transporter.sendMail({
       from: this.config.from,
@@ -54,6 +61,7 @@ export class EmailSender {
       messageId: result.messageId,
       accepted: (result.accepted ?? []).map(String),
       rejected: (result.rejected ?? []).map(String),
+      response: typeof result.response === 'string' ? result.response : undefined,
     };
   }
 }

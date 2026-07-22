@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>量化回测系统 · 业务流程图</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a2029;
+    --panel-2: #222b36;
+    --border: #2d3748;
+    --text: #e6edf3;
+    --muted: #9ca3af;
+    --primary: #58a6ff;
+    --accent: #f59e0b;
+    --success: #3fb950;
+    --danger: #f85149;
+    --purple: #bc8cff;
+    --teal: #2dd4bf;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  header {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 28px 40px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(8px);
+  }
+  header h1 {
+    margin: 0 0 6px 0;
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  header .subtitle {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  header .meta {
+    margin-top: 8px;
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+  header .meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  header .meta .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: calc(100vh - 110px);
+  }
+  nav.sidebar {
+    border-right: 1px solid var(--border);
+    padding: 24px 16px;
+    position: sticky;
+    top: 110px;
+    height: calc(100vh - 110px);
+    overflow-y: auto;
+  }
+  nav.sidebar h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 18px 0 8px 0;
+    font-weight: 600;
+  }
+  nav.sidebar a {
+    display: block;
+    padding: 7px 10px;
+    border-radius: 6px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 13px;
+    margin-bottom: 2px;
+    border-left: 2px solid transparent;
+    transition: all 0.15s ease;
+  }
+  nav.sidebar a:hover {
+    background: var(--panel-2);
+    border-left-color: var(--primary);
+    color: var(--primary);
+  }
+  main {
+    padding: 32px 40px 60px 40px;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  section {
+    margin-bottom: 56px;
+    scroll-margin-top: 130px;
+  }
+  section h2 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 6px 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  section h2 .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--primary), var(--purple));
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  section .desc {
+    color: var(--muted);
+    font-size: 13px;
+    margin: 8px 0 20px 0;
+    max-width: 980px;
+  }
+  .diagram-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    overflow-x: auto;
+    margin-bottom: 16px;
+  }
+  .diagram-card .mermaid {
+    display: flex;
+    justify-content: center;
+    min-height: 100px;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border);
+  }
+  .legend .item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .legend .swatch {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 1200px) {
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+  .callout {
+    background: rgba(88, 166, 255, 0.08);
+    border-left: 3px solid var(--primary);
+    padding: 10px 14px;
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
+    color: var(--text);
+    margin: 12px 0 20px 0;
+  }
+  .callout.warn {
+    background: rgba(245, 158, 11, 0.08);
+    border-left-color: var(--accent);
+  }
+  .callout strong { color: var(--primary); }
+  .callout.warn strong { color: var(--accent); }
+  .footer {
+    text-align: center;
+    padding: 24px;
+    color: var(--muted);
+    font-size: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .mermaid { font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>量化回测系统 · 业务流程图</h1>
+  <div class="subtitle">基于 d:/github_public_repo/量化回测 仓库梳理 · 涵盖前端业务、后端调度、研究快照、因子研究、策略回测、数据治理等核心流程</div>
+  <div class="meta">
+    <span><span class="dot"></span>双前端 + Fastify 后端</span>
+    <span>端口: 业务 5558 / 运维 5559 / 后端 3001</span>
+    <span>存储: MySQL · DuckDB · IndexedDB</span>
+    <span>数据源: 腾讯 · 东财 · 巨潮 · 通达信 · akshare</span>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="sidebar">
+    <h3>总览</h3>
+    <a href="#overview">1 · 系统架构总览</a>
+    <a href="#frontend">2 · 前端业务模块</a>
+    <h3>数据采集</h3>
+    <a href="#sync">3 · 市场数据同步</a>
+    <a href="#schedulers">4 · 多调度器协同</a>
+    <a href="#reference">5 · 参考数据维护</a>
+    <h3>研究平台</h3>
+    <a href="#snapshot">6 · 研究快照构建</a>
+    <a href="#single-factor">7 · 单因子研究</a>
+    <a href="#composite-factor">8 · 复合因子合成</a>
+    <a href="#mining">9 · 因子自动挖掘</a>
+    <a href="#candidate">10 · 候选因子生命周期</a>
+    <h3>策略与回测</h3>
+    <a href="#studio">11 · 策略工作室</a>
+    <a href="#backtest">12 · 策略回测</a>
+    <a href="#ai-strategy">13 · AI 策略生成</a>
+    <h3>运维治理</h3>
+    <a href="#governance">14 · 数据治理</a>
+    <a href="#backup">15 · 备份与恢复</a>
+    <a href="#admin">16 · 运维监控</a>
+  </nav>
+
+  <main>
+    <section id="overview">
+      <h2><span class="num">1</span>系统架构总览</h2>
+      <div class="desc">三层架构: 业务前端(5558) + 运维控制台(5559) + Fastify 后端(3001)。后端以 MySQL 为权威存储,DuckDB + Parquet 作为研究 OLAP 引擎,Python 工具链负责参考数据与分钟数据。市场数据来自腾讯/东财/巨潮/通达信/akshare。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart TB
+  subgraph User["用户层"]
+    U1[研究员/交易员]
+    U2[运维管理员]
+  end
+  subgraph FE["前端层 · React 19 + Vite"]
+    BIZ["业务前端<br/>localhost:5558<br/>9大业务页面"]
+    ADM["运维控制台<br/>localhost:5559<br/>概览/诊断/配置"]
+  end
+  subgraph BE["后端层 · Fastify 5 · localhost:3001"]
+    ROUTES["路由层<br/>13 个 Route 模块"]
+    SVC["服务层<br/>市场数据/研究/AI/因子"]
+    JOBS["调度层<br/>6 个 Scheduler"]
+    RESEARCH["研究引擎<br/>DuckDB + Parquet"]
+    FACTOR["因子引擎<br/>Compiler/Evaluator/Runner"]
+  end
+  subgraph STORE["存储层"]
+    MYSQL[("MySQL<br/>Drizzle ORM<br/>28 migrations")]
+    DUCK[("DuckDB<br/>研究 OLAP")]
+    IDB[("IndexedDB<br/>Dexie v4")]
+    PARQ[("Parquet 快照<br/>版本化分区")]
+  end
+  subgraph EXT["外部数据源"]
+    TX[腾讯财经]
+    EM[东方财富]
+    CN[巨潮资讯]
+    TDX[通达信]
+    AK[akshare]
+    AI[OpenAI/DeepSeek]
+  end
+
+  U1 --> BIZ
+  U2 --> ADM
+  BIZ --> ROUTES
+  ADM --> ROUTES
+  ROUTES --> SVC
+  SVC --> JOBS
+  SVC --> RESEARCH
+  SVC --> FACTOR
+  SVC --> MYSQL
+  SVC --> IDB
+  RESEARCH --> DUCK
+  RESEARCH --> PARQ
+  JOBS --> TX
+  JOBS --> EM
+  JOBS --> CN
+  SVC --> TDX
+  SVC --> AK
+  SVC --> AI
+
+  classDef user fill:#1f2937,stroke:#58a6ff,color:#e6edf3
+  classDef fe fill:#1a2029,stroke:#bc8cff,color:#e6edf3
+  classDef be fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef store fill:#1a2029,stroke:#3fb950,color:#e6edf3
+  classDef ext fill:#1a2029,stroke:#2dd4bf,color:#e6edf3
+  class U1,U2 user
+  class BIZ,ADM fe
+  class ROUTES,SVC,JOBS,RESEARCH,FACTOR be
+  class MYSQL,DUCK,IDB,PARQ store
+  class TX,EM,CN,TDX,AK,AI ext
+        </div>
+      </div>
+    </section>
+
+    <section id="frontend">
+      <h2><span class="num">2</span>前端业务模块</h2>
+      <div class="desc">业务前端通过 HashRouter 组织为 4 大业务组、9 个核心页面。状态管理使用 7 个 zustand store,本地数据持久化于 IndexedDB(Dexie v4)。Admin 控制台为独立的 React 应用。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart LR
+  subgraph DataCenter["数据中心"]
+    MD["市场数据<br/>MarketDataPage"]
+    WL["我的自选<br/>Watchlist"]
+    DL["数据管理<br/>DataLibrary"]
+  end
+  subgraph Research["研究分析"]
+    AN["行情分析<br/>K线+指标+筹码"]
+    FR["因子研究<br/>FactorResearchPage"]
+  end
+  subgraph Strategy["策略研发"]
+    ST["策略工作室<br/>节点编辑器"]
+  end
+  subgraph Backtest["回测实验"]
+    BR["策略回测<br/>BacktestRunner"]
+  end
+  subgraph Result["结果复盘"]
+    RT["回测结果<br/>BacktestResultsPage"]
+  end
+
+  FILE[Excel/CSV<br/>文件上传] --> DL
+  DL --> AN
+  MD --> AN
+  WL --> AN
+  AN --> ST
+  FR --> ST
+  ST --> BR
+  DL --> BR
+  BR --> RT
+  FR -.候选因子.-> BR
+
+  classDef dc fill:#1a2029,stroke:#58a6ff,color:#e6edf3
+  classDef rs fill:#1a2029,stroke:#bc8cff,color:#e6edf3
+  classDef sg fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef bt fill:#1a2029,stroke:#3fb950,color:#e6edf3
+  classDef rt fill:#1a2029,stroke:#2dd4bf,color:#e6edf3
+  class MD,WL,DL dc
+  class AN,FR rs
+  class ST sg
+  class BR bt
+  class RT rt
+        </div>
+      </div>
+      <div class="callout">
+        <strong>核心数据流:</strong> 文件/接口 → IndexedDB → K线分析 → 策略研发 → 回测引擎(Web Worker) → 结果可视化 → 对比复盘。
+      </div>
+    </section>
+
+    <section id="sync">
+      <h2><span class="num">3</span>市场数据同步流程</h2>
+      <div class="desc">syncScheduler 每分钟检查一次,达到配置的 dailySyncTime 且为交易日时,创建 syncJob 并由 syncExecutor 执行。支持 4 种任务类型: instruments / calendar / history / incremental。包含限流、重试、质量校验、复权刷新。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart TB
+  START([每分钟 tick]) --> CHECK_ENABLED{启用?}
+  CHECK_ENABLED -->|否| END1([等待])
+  CHECK_ENABLED -->|是| CHECK_TIME{到同步时间?}
+  CHECK_TIME -->|否| END1
+  CHECK_TIME -->|是| CHECK_TRADE{交易日?<br/>getTradeDateStatus}
+  CHECK_TRADE -->|否| END1
+  CHECK_TRADE -->|是| LOCK{获取 jobLock}
+  LOCK -->|失败| END1
+  LOCK -->|成功| CREATE[创建 syncJob]
+  CREATE --> EXEC[executeSyncJob]
+  EXEC --> TYPE{任务类型}
+
+  TYPE -->|instruments| INS[拉取/更新股票主数据<br/>instruments 表]
+  TYPE -->|calendar| CAL[更新交易日历<br/>trading_calendar]
+  TYPE -->|history| HIS[全量历史回填<br/>daily_candles]
+  TYPE -->|incremental| INC[增量同步<br/>自上次最新日期]
+
+  INS --> NORM[归一化<br/>symbolMapper + candleNormalizer]
+  CAL --> NORM
+  HIS --> NORM
+  INC --> NORM
+
+  NORM --> QUALITY[质量校验<br/>anomalyDetector + validators]
+  QUALITY -->|异常| ISSUE[记录 data_quality_issues]
+  QUALITY -->|正常| UPSERT[upsertDailyCandles<br/>MySQL daily_candles]
+  ISSUE --> UPSERT
+
+  UPSERT --> ADJ{复权因子刷新?<br/>hasCorporateActionSignal}
+  ADJ -->|是| REFRESH[refreshAdjustmentAfterCorporateAction]
+  ADJ -->|否| DONE
+  REFRESH --> DONE[更新 syncJob 状态<br/>release lock]
+
+  classDef start fill:#1f2937,stroke:#3fb950,color:#e6edf3
+  classDef decision fill:#1f2937,stroke:#f59e0b,color:#e6edf3
+  classDef action fill:#1a2029,stroke:#58a6ff,color:#e6edf3
+  classDef warn fill:#1a2029,stroke:#f85149,color:#e6edf3
+  class START start
+  class CHECK_ENABLED,CHECK_TIME,CHECK_TRADE,LOCK,TYPE,ADJ decision
+  class INS,CAL,HIS,INC,NORM,QUALITY,UPSERT,REFRESH,DONE,CREATE,EXEC action
+  class ISSUE warn
+        </div>
+      </div>
+      <div class="callout">
+        <strong>关键约束:</strong> Primaryprovider 包装 TencentProvider,提供限流与重试;syncExecutor 按 CHUNK_SIZE=10 分块处理,单标失败不影响整批;每 200 bars 让出事件循环以支持取消。
+      </div>
+    </section>
+
+    <section id="schedulers">
+      <h2><span class="num">4</span>多调度器协同(盘后/盘中)</h2>
+      <div class="desc">后端启动时根据配置并行启动 6 个独立调度器,各司其职。优雅关闭时按反向顺序停止。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart TB
+  subgraph Boot["server/src/app.ts 启动"]
+    CFG[loadConfig + Zod 校验]
+    DB[MySQL 连接 + 迁移]
+    RECOVER[恢复中断的候选测试]
+    REG[注册 13 个路由模块]
+    START[启动调度器]
+  end
+
+  subgraph Schedulers["6 个调度器"]
+    S1["syncScheduler<br/>每日 18:30 增量同步<br/>SH/SZ/BJ"]
+    S2["indexDatasetScheduler<br/>CN/US 指数更新"]
+    S3["dragonTigerScheduler<br/>龙虎榜采集"]
+    S4["marketNewsScheduler<br/>市场新闻<br/>每 N 分钟刷新"]
+    S5["marketOpinionPushScheduler<br/>盘前/盘中/盘后<br/>AI 观点 + 邮件推送"]
+    S6["miningScheduler<br/>因子挖掘<br/>默认 5 min tick"]
+  end
+
+  subgraph External["Python 工具链(独立定时任务)"]
+    P1["referenceData<br/>指数成分/分红/SW行业"]
+    P2["minuteData<br/>TDX导入 + 在线更新"]
+    P3["snapshotScheduler<br/>Windows 计划任务<br/>研究快照构建"]
+  end
+
+  CFG --> DB --> RECOVER --> REG --> START
+  START --> S1
+  START --> S2
+  START --> S3
+  START --> S4
+  START --> S5
+  START --> S6
+
+  subgraph Shutdown["SIGTERM/SIGINT 优雅关闭"]
+    STOP[反向停止 6 个调度器<br/>app.close<br/>closeDb<br/>closePool]
+  end
+
+  S1 -.-> STOP
+  S6 -.-> STOP
+
+  classDef boot fill:#1f2937,stroke:#58a6ff,color:#e6edf3
+  classDef sched fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef ext fill:#1a2029,stroke:#2dd4bf,color:#e6edf3
+  classDef sd fill:#1a2029,stroke:#f85149,color:#e6edf3
+  class CFG,DB,RECOVER,REG,START boot
+  class S1,S2,S3,S4,S5,S6 sched
+  class P1,P2,P3 ext
+  class STOP sd
+        </div>
+      </div>
+    </section>
+
+    <section id="reference">
+      <h2><span class="num">5</span>参考数据维护流程</h2>
+      <div class="desc">Python 工具链(server/src/referenceData/)维护指数成分、分红事件、SW 行业三类参考数据。每类提供 update/dry-run 模式,数据落 MySQL 后被前端选股/因子研究复用。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart LR
+  subgraph Inputs["数据输入"]
+    AK[(akshare)]
+    EM[(东财)]
+    WAY[(Wayback Machine)]
+  end
+
+  subgraph RefData["referenceData/ · Python"]
+    IC[index_constituents_update<br/>snapshot + wayback + derive]
+    ID[index_update<br/>增量 + 全量回填]
+    DV[dividend_update<br/>批量 + 重试 + 当前快照]
+    SW[sw_industry_update<br/>定义 + 成员 + 日K]
+  end
+
+  subgraph Tables["MySQL 参考数据表"]
+    T1[index_constituent_snapshots<br/>index_constituent_members]
+    T2[trading_calendar<br/>+ index daily bars]
+    T3[dividend_events<br/>+ reference_data_backfill_items]
+    T4[sw_industry_definitions<br/>sw_industry_memberships<br/>sw_industry_daily_bars]
+  end
+
+  subgraph Consumers["消费方"]
+    C1[因子研究<br/>行业中性化/选股池]
+    C2[选股打分<br/>StockSelectionScore]
+    C3[策略回测<br/>行业轮动]
+  end
+
+  AK --> IC
+  AK --> ID
+  AK --> DV
+  AK --> SW
+  EM --> DV
+  WAY --> IC
+
+  IC --> T1
+  ID --> T2
+  DV --> T3
+  SW --> T4
+
+  T1 --> C1
+  T1 --> C2
+  T2 --> C2
+  T3 --> C2
+  T4 --> C1
+  T4 --> C3
+
+  classDef inp fill:#1f2937,stroke:#2dd4bf,color:#e6edf3
+  classDef ref fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef tbl fill:#1a2029,stroke:#3fb950,color:#e6edf3
+  classDef con fill:#1a2029,stroke:#bc8cff,color:#e6edf3
+  class AK,EM,WAY inp
+  class IC,ID,DV,SW ref
+  class T1,T2,T3,T4 tbl
+  class C1,C2,C3 con
+        </div>
+      </div>
+    </section>
+
+    <section id="snapshot">
+      <h2><span class="num">6</span>研究快照构建(Phase 5.5)</h2>
+      <div class="desc">MySQL daily_candles → Parquet 分区 → manifest → 校验 → 发布 → DuckDB 查询。快照版本化、不可变、SHA-256 校验。snapshotFreshness 守卫所有因子研究路由。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart LR
+  SRC[("MySQL daily_candles<br/>+ daily_stock_metrics<br/>+ adjustment_factors_v2")]
+
+  subgraph Build["snapshotBuilder"]
+    READ[读取列定义<br/>20 字段 OHLCV + 衍生指标]
+    PART[按 year 分区<br/>写 Parquet]
+    MAN[生成 manifest<br/>snapshotId + dateRange<br/>+ checksum]
+  end
+
+  subgraph Verify["snapshotVerifier"]
+    SHA[SHA-256 校验]
+    ROW[行数/范围校验]
+  end
+
+  subgraph Publish["publishCli"]
+    PROMOTE[原子提升为 current<br/>符号链接/重命名]
+    RETAIN[保留策略<br/>snapshotRetention]
+  end
+
+  subgraph Serve["研究服务层"]
+    FRESH[snapshotFreshness<br/>守卫因子路由]
+    DUCKSVC[duckdbResearchService<br/>编译查询 → Parquet]
+    GUARD[researchQueryGuard<br/>行数/扫描估算]
+  end
+
+  SRC --> READ --> PART --> MAN --> SHA
+  SHA --> ROW --> PROMOTE --> RETAIN
+  PROMOTE --> FRESH
+  FRESH --> DUCKSVC
+  DUCKSVC --> GUARD
+
+  classDef src fill:#1f2937,stroke:#3fb950,color:#e6edf3
+  classDef build fill:#1a2029,stroke:#58a6ff,color:#e6edf3
+  classDef verify fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef publish fill:#1a2029,stroke:#bc8cff,color:#e6edf3
+  classDef serve fill:#1a2029,stroke:#2dd4bf,color:#e6edf3
+  class SRC src
+  class READ,PART,MAN build
+  class SHA,ROW verify
+  class PROMOTE,RETAIN publish
+  class FRESH,DUCKSVC,GUARD serve
+        </div>
+      </div>
+      <div class="callout warn">
+        <strong>守卫机制:</strong> snapshotFreshness 在 factorResearch 路由前检查当前快照是否过期,过期则拒绝请求;researchQueryGuard 估算扫描行数,超出 RESEARCH_QUERY_MAX_ROWS 则拒绝。
+      </div>
+    </section>
+
+    <section id="single-factor">
+      <h2><span class="num">7</span>单因子研究流程</h2>
+      <div class="desc">用户在 FactorResearchPage 选择内置因子 + 时间区间 + 分层参数,后端 factorRunner 编译因子 AST 为 SQL,在 DuckDB 上对 Parquet 快照执行,计算 IC/ICIR/分层回报/相关性/衰减。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart TB
+  UI["前端 FactorResearchPage<br/>选择因子 + 时间 + horizon + layers"]
+  UI -->|POST /api/factor-runs| API[factorResearch 路由]
+  API --> FRESH{snapshotFreshness<br/>快照可用?}
+  FRESH -->|否| ERR[400 拒绝]
+  FRESH -->|是| VALID[validateFactorRunConfig<br/>Zod 校验]
+  VALID --> COMPILE[factorCompiler<br/>AST → SQL 表达式]
+  COMPILE --> DUCK[("openManagedDuckDB<br/>threads=4 maxMem=1GB")]
+  DUCK --> QUERY["SQL: PERCENT_RANK 分层<br/>LEAD(open,1) 入场<br/>LEAD(close,N) 出场"]
+  QUERY --> CALC[计算 IC / rankIC / ICIR<br/>分层回报 / 衰减 / 相关性]
+  CALC --> REPORT[FactorResearchReport<br/>daily + layer metrics]
+  REPORT --> PERSIST[持久化 factor_runs + factor_reports]
+  PERSIST --> INTERP[reportInterpreter<br/>AI 解读可选]
+  INTERP --> UI2[前端展示报告 + 图表]
+
+  classDef ui fill:#1f2937,stroke:#bc8cff,color:#e6edf3
+  classDef api fill:#1a2029,stroke:#58a6ff,color:#e6edf3
+  classDef decision fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef engine fill:#1a2029,stroke:#3fb950,color:#e6edf3
+  classDef err fill:#1a2029,stroke:#f85149,color:#e6edf3
+  class UI,UI2 ui
+  class API,VALID,COMPILE,PERSIST,INTERP api
+  class FRESH decision
+  class DUCK,QUERY,CALC,REPORT engine
+  class ERR err
+        </div>
+      </div>
+      <div class="callout">
+        <strong>因子类型:</strong> higher-is-better / lower-is-better / research。依赖字段含 open/high/low/close/previousClose/volume/amount/turnoverRatePct。窗口包括 trailing_5/10/12/14/20/28/60 + instrument_window。
+      </div>
+    </section>
+
+    <section id="composite-factor">
+      <h2><span class="num">8</span>复合因子合成流程</h2>
+      <div class="desc">多因子合成支持 4 种加权策略: equal / ic / rankIc / manual。compositeRunner 在单次 DuckDB 查询中并行计算所有因子 + 加权 + 分层回测。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart TB
+  UI[前端配置<br/>选择多个内置因子]
+  UI -->|POST /api/factor-composites| API[compositeRunner]
+  API --> FRESH{快照新鲜?}
+  FRESH -->|否| REJECT[拒绝]
+  FRESH -->|是| MAP[requireBuiltinFactor<br/>× N 个]
+  MAP --> STRAT{加权策略}
+
+  STRAT -->|equal| EQ[等权 1/N]
+  STRAT -->|ic| IC[按 IC 加权]
+  STRAT -->|rankIc| RIC[按 rank IC 加权]
+  STRAT -->|manual| MAN[用户指定权重]
+
+  EQ --> COMBINE
+  IC --> COMBINE
+  RIC --> COMBINE
+  MAN --> COMBINE
+
+  COMBINE[单次 DuckDB 查询<br/>SELECT 各因子 + 综合分]
+  COMBINE --> LAYER[PERCENT_RANK 分层<br/>N 层]
+  LAYER --> METRICS[综合 IC / ICIR<br/>分层回报 / 相关性矩阵]
+  METRICS --> OUT[CompositeFactorResearchReport<br/>+ artifact 持久化]
+  OUT --> UI2[前端展示 + 与单因子对比]
+
+  classDef ui fill:#1f2937,stroke:#bc8cff,color:#e6edf3
+  classDef api fill:#1a2029,stroke:#58a6ff,color:#e6edf3
+  classDef decision fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef engine fill:#1a2029,stroke:#3fb950,color:#e6edf3
+  classDef err fill:#1a2029,stroke:#f85149,color:#e6edf3
+  class UI,UI2 ui
+  class API,MAP,COMBINE,LAYER,METRICS,OUT api
+  class FRESH,STRAT decision
+  class EQ,IC,RIC,MAN engine
+  class REJECT err
+        </div>
+      </div>
+    </section>
+
+    <section id="mining">
+      <h2><span class="num">9</span>因子自动挖掘流程(Phase 6)</h2>
+      <div class="desc">miningScheduler 默认每 5 分钟 tick,新快照发布时自动启动 miningTask。miningWorker 调用外部 Python factor-miner(FACTOR_MINER_ROOT),支持超时(6h)与内存上限(4GB)。产物为候选因子。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart TB
+  TICK([5 min tick]) --> CUR[读取当前快照]
+  CUR --> SCH[listMiningSchedules]
+  SCH --> LOOP{遍历调度}
+  LOOP -->|每个 schedule| CHK1{新快照?<br/>lastSnapshotId ≠ current}
+  CHK1 -->|否| NEXT[下一个]
+  CHK1 -->|是| CHK2{locked test<br/>日历跨度足够?}
+  CHK2 -->|否| NEXT
+  CHK2 -->|是| CHK3{窗口行数/交易日<br/>≥ 阈值?}
+  CHK3 -->|否| NEXT
+  CHK3 -->|是| ROLL[rollScheduledSplit<br/>滚动 train/valid 切分]
+  ROLL --> CREATE[createMiningTask]
+  CREATE --> WORKER[startMiningWorker<br/>spawn Python factor-miner]
+
+  WORKER --> RUN[Python 进程<br/>候选生成 + 测试]
+  RUN --> TIMEOUT{超时/内存/取消?}
+  TIMEOUT -->|是| ABORT[标记 aborted]
+  TIMEOUT -->|否| DONE[产物写入 artifact]
+  DONE --> UPDATE[updateMiningSchedule<br/>lastSnapshotId + lastTestEndDate]
+  UPDATE --> NEXT
+  NEXT --> LOOP
+  LOOP -->|完成| END([等待下次 tick])
+
+  classDef start fill:#1f2937,stroke:#3fb950,color:#e6edf3
+  classDef decision fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef action fill:#1a2029,stroke:#58a6ff,color:#e6edf3
+  classDef warn fill:#1a2029,stroke:#f85149,color:#e6edf3
+  class TICK,END start
+  class CHK1,CHK2,CHK3,TIMEOUT,LOOP decision
+  class CUR,SCH,ROLL,CREATE,WORKER,RUN,DONE,UPDATE,NEXT action
+  class ABORT warn
+        </div>
+      </div>
+      <div class="callout warn">
+        <strong>资源限制:</strong> FACTOR_MINER_TIMEOUT_MS 默认 6 小时;FACTOR_MINER_MAX_MEMORY_MB 默认 4 GB。worker 通过 worker_pid 跟踪,可被 cancel。
+      </div>
+    </section>
+
+    <section id="candidate">
+      <h2><span class="num">10</span>候选因子生命周期</h2>
+      <div class="desc">状态机: draft → frozen → testing → tested → approved/rejected → published。每步都有 gate 检查(lockedTestValidation、candidateGate)。published 后通过版本号进入正式因子目录。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+stateDiagram-v2
+  [*] --> draft: 创建候选
+  draft --> frozen: 冻结定义<br/>(不可变)
+  frozen --> testing: 启动 locked test
+  testing --> tested: 测试完成
+  tested --> approved: candidateGate 通过<br/>lineage + coverage 满足
+  tested --> rejected: gate 失败 / 人工驳回
+  approved --> published: 发布版本号
+  rejected --> draft: 修订后重启
+  published --> [*]
+
+  note right of frozen
+    lockedTestValidation:
+    MIN_LOCKED_TEST_SAMPLES
+    MIN_LOCKED_TEST_TRADING_DAYS
+  end note
+
+  note right of approved
+    服务端重启时
+    recoverInterruptedCandidateTests
+    恢复中断的 testing
+  end note
+        </div>
+      </div>
+    </section>
+
+    <section id="studio">
+      <h2><span class="num">11</span>策略工作室(Visual Strategy)</h2>
+      <div class="desc">基于 @xyflow/react 的节点编辑器,支持撤销/重做(Immer,栈深 50)、导入/导出、预览。Visual DSL 经 compiler 编译为 StrategyDefinition,validator 校验图结构(无环、有效边、必需节点),explainer 生成自然语言解释。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart LR
+  subgraph Editor["策略工作室 UI · StrategyStudioPage"]
+    CANVAS[节点画布<br/>@xyflow/react + dagre]
+    PANEL[配置面板<br/>参数 + 草稿 + 版本]
+  end
+
+  subgraph State["useStrategyStudioStore · Immer"]
+    UNDO[undo/redo 栈 max 50]
+    DRAFT[草稿 strategyDrafts]
+    VER[strategyVersions]
+  end
+
+  subgraph Pipeline["visualStrategies/"]
+    SCH[schema<br/>节点/边类型定义<br/>Zod 校验]
+    VAL[validator<br/>无环 + 边合法 + 必需节点]
+    COM[compiler<br/>DAG → StrategyDefinition]
+    EXP[explainer<br/>生成自然语言]
+  end
+
+  subgraph Out["产物"]
+    SD[StrategyDefinition<br/>可立即回测]
+    JSON[导出 JSON DSL]
+    DOC[策略说明文档]
+  end
+
+  CANVAS --> SCH
+  PANEL --> SCH
+  SCH --> VAL
+  VAL -->|invalid| ERR[显示错误]
+  VAL -->|valid| COM
+  COM --> EXP
+  COM --> SD
+  EXP --> DOC
+  SCH --> JSON
+
+  CANVAS -.-> UNDO
+  CANVAS -.-> DRAFT
+  PANEL -.-> VER
+
+  SD --> BT[进入回测]
+
+  classDef ui fill:#1f2937,stroke:#bc8cff,color:#e6edf3
+  classDef state fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef pipe fill:#1a2029,stroke:#58a6ff,color:#e6edf3
+  classDef out fill:#1a2029,stroke:#3fb950,color:#e6edf3
+  classDef err fill:#1a2029,stroke:#f85149,color:#e6edf3
+  class CANVAS,PANEL ui
+  class UNDO,DRAFT,VER state
+  class SCH,VAL,COM,EXP pipe
+  class SD,JSON,DOC,BT out
+  class ERR err
+        </div>
+      </div>
+    </section>
+
+    <section id="backtest">
+      <h2><span class="num">12</span>策略回测流程</h2>
+      <div class="desc">回测在 Web Worker 中执行,避免阻塞 UI。严格 T 信号 → T+1 开盘执行(无前视偏差)。broker 撮合(滑点 + 佣金 + 印花税),portfolio 跟踪仓位,equity 逐 bar 记录,metrics 计算收益/回撤/夏普等。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart TB
+  UI[BacktestRunner<br/>配置: 策略 + 参数 + 资金 + 滑点 + 佣金]
+  UI --> WORKER[Web Worker<br/>runBacktestAsync]
+  WORKER --> VALID[validateBacktestInput]
+  VALID --> WARM[warmupBars<br/>计算指标预热]
+  WARM --> LOOP{遍历每根 K 线}
+
+  LOOP -->|每 bar| EVAL[strategy.evaluate<br/>返回 StrategySignal]
+  EVAL --> SIG{信号?}
+  SIG -->|buy| ORDER_B[创建买单<br/>cash × positionSizing]
+  SIG -->|sell| ORDER_S[创建卖单<br/>清仓或减仓]
+  SIG -->|hold| NEXT[下一 bar]
+  ORDER_B --> FILL[broker.fillOrder<br/>T+1 open × (1+slip)]
+  ORDER_S --> FILL
+  FILL --> PORT[portfolio.applyTrade<br/>更新现金 + 仓位]
+  PORT --> EQ[createEquityPoint<br/>记录净值]
+  EQ --> NEXT
+  NEXT --> YIELD{每 200 bars<br/>让出事件循环}
+  YIELD -->|是| CANCEL{已取消?}
+  YIELD -->|否| LOOP
+  CANCEL -->|是| ABORT[中止]
+  CANCEL -->|否| LOOP
+
+  LOOP -->|结束| FORCE{forceCloseAtEnd?}
+  FORCE -->|是| FC[强制平仓]
+  FORCE -->|否| MET[calculateMetrics<br/>收益/回撤/夏普/胜率]
+  FC --> MET
+  MET --> RESULT[BacktestResult<br/>+ equityCurve + trades]
+  RESULT --> SAVE[保存 IndexedDB + MySQL]
+  SAVE --> SHOW[ResultsOverview + EquityChart + TradeList]
+
+  classDef ui fill:#1f2937,stroke:#bc8cff,color:#e6edf3
+  classDef worker fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef decision fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef action fill:#1a2029,stroke:#58a6ff,color:#e6edf3
+  classDef out fill:#1a2029,stroke:#3fb950,color:#e6edf3
+  classDef err fill:#1a2029,stroke:#f85149,color:#e6edf3
+  class UI,SHOW ui
+  class WORKER worker
+  class SIG,LOOP,FORCE,YIELD,CANCEL decision
+  class VALID,WARM,EVAL,ORDER_B,ORDER_S,FILL,PORT,EQ,NEXT,FC,MET action
+  class RESULT,SAVE out
+  class ABORT err
+        </div>
+      </div>
+      <div class="callout warn">
+        <strong>关键规则:</strong> 买入量 = cash × positionSizing,向下取整到 minimumTradeAmount;ETF 最小交易单位 1 元,允许小数;卖出才收印花税;指数 ETF 与股票采用不同撮合规则。
+      </div>
+    </section>
+
+    <section id="ai-strategy">
+      <h2><span class="num">13</span>AI 策略与观点生成</h2>
+      <div class="desc">两路 AI 应用: ① 策略生成(OpenAI/DeepSeek 兼容,可降级到 mock);② 市场观点推送(盘前/盘中/盘后三时段,AI 撰写 + 邮件推送)。另有 stockResearchAgent 与 sevenLayerDataService 提供个股深度研究。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart LR
+  subgraph Strategy["AI 策略生成"]
+    U1[用户描述策略思路]
+    U1 -->|POST /api/ai/strategies| API1[aiStrategies 路由]
+    API1 --> PROVIDER{AI 配置?}
+    PROVIDER -->|是| OA[OpenAIStrategyGenerationProvider<br/>Chat Completions]
+    PROVIDER -->|否| MOCK[MockStrategyGenerationProvider]
+    OA --> SCHEMA[Zod 校验产物]
+    MOCK --> SCHEMA
+    SCHEMA --> SD1[StrategyDefinition<br/>可直接回测]
+  end
+
+  subgraph Opinion["市场观点推送 · marketOpinionPushScheduler"]
+    TIMES[三时段触发<br/>morning / midday / close]
+    TIMES --> AGENT[MarketOpinionAgent<br/>聚合新闻 + 行情]
+    AGENT --> RANK[marketOpinionNewsRanker<br/>筛选排序]
+    RANK --> AI[AI 生成观点]
+    AI --> EMAIL[EmailSender<br/>SMTP 推送]
+  end
+
+  subgraph Research["个股研究"]
+    SEVEN[sevenLayerDataService<br/>7 层数据聚合]
+    AGENT2[stockResearchAgent<br/>深度研究]
+    SEVEN --> AGENT2
+  end
+
+  classDef strat fill:#1f2937,stroke:#bc8cff,color:#e6edf3
+  classDef opinion fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef research fill:#1a2029,stroke:#2dd4bf,color:#e6edf3
+  class U1,API1,PROVIDER,OA,MOCK,SCHEMA,SD1 strat
+  class TIMES,AGENT,RANK,AI,EMAIL opinion
+  class SEVEN,AGENT2 research
+        </div>
+      </div>
+      <div class="callout">
+        <strong>7 层数据:</strong> ① Quotes 行情 ② Research 研报 ③ Signals 信号(同花顺/北向/龙虎榜/解禁/轮动) ④ Capital 资金(融资融券/大宗/股东/分红/资金流) ⑤ Fundamental 基本面 ⑥ Announcement 公告(巨潮) ⑦ News 新闻。
+      </div>
+    </section>
+
+    <section id="governance">
+      <h2><span class="num">14</span>数据治理与质量保障</h2>
+      <div class="desc">6 类治理模块: 覆盖矩阵、健康门禁、跨源对账、产物生命周期、Parquet 压缩、物化因子健康。CLI 与定时任务定期执行,异常写入 data_quality_issues 表。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart TB
+  subgraph Inputs["数据源"]
+    MYSQL[MySQL<br/>daily_candles]
+    PARQ[Parquet 快照]
+    ART[研究产物<br/>artifacts]
+    MAT[物化因子]
+  end
+
+  subgraph Governance["6 类治理模块 · server/src/research/"]
+    G1[dataCoverageMatrix<br/>多源覆盖矩阵审计]
+    G2[dataHealthGate<br/>健康门禁<br/>阻塞不健康操作]
+    G3[dataReconciliation<br/>跨源对账]
+    G4[artifactLifecycle<br/>产物清理/prune]
+    G5[parquetCompact<br/>Parquet 压缩]
+    G6[materializedArtifactHealth<br/>物化因子归档]
+  end
+
+  subgraph Outputs["输出"]
+    O1[覆盖率报告]
+    O2[阻塞/放行]
+    O3[差异记录]
+    O4[清理 stale 产物]
+    O5[压缩后 Parquet]
+    O6[归档旧 artifact]
+  end
+
+  MYSQL --> G1
+  MYSQL --> G2
+  MYSQL --> G3
+  PARQ --> G5
+  ART --> G4
+  MAT --> G6
+
+  G1 --> O1
+  G2 --> O2
+  G3 --> O3
+  G4 --> O4
+  G5 --> O5
+  G6 --> O6
+
+  classDef inp fill:#1f2937,stroke:#3fb950,color:#e6edf3
+  classDef gov fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef out fill:#1a2029,stroke:#58a6ff,color:#e6edf3
+  class MYSQL,PARQ,ART,MAT inp
+  class G1,G2,G3,G4,G5,G6 gov
+  class O1,O2,O3,O4,O5,O6 out
+        </div>
+      </div>
+    </section>
+
+    <section id="backup">
+      <h2><span class="num">15</span>备份与恢复流程(Phase 5.5)</h2>
+      <div class="desc">备份三件套: create(mysqldump + Parquet 复制) → verify(校验和 + SHA-256) → restore-check(临时库恢复 + 行数/最大日期校验 + 可选清理)。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart LR
+  subgraph Create["backup:create"]
+    DUMP[mysqldump<br/>MySQL 全量]
+    COPY[复制 Parquet 快照<br/>+ manifest]
+    META[生成元数据<br/>backup-id + 时间戳]
+    DUMP --> META
+    COPY --> META
+  end
+
+  subgraph Verify["backup:verify --path"]
+    SHA[SHA-256 校验<br/>所有文件]
+    SIZE[文件大小 + 行数]
+    COMP[与 manifest 比对]
+    SHA --> COMP
+    SIZE --> COMP
+  end
+
+  subgraph Restore["backup:restore-check"]
+    CREATE_DB[创建临时库<br/>quant_backtest_restore_check]
+    RESTORE[恢复 dump]
+    VALI[校验行数 + maxDate]
+    DROP[可选清理临时库]
+    CREATE_DB --> RESTORE --> VALI --> DROP
+  end
+
+  Create --> Verify
+  Verify -->|失败| ALERT[告警 + 重做]
+  Verify -->|通过| Restore
+
+  classDef create fill:#1f2937,stroke:#3fb950,color:#e6edf3
+  classDef verify fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef restore fill:#1a2029,stroke:#58a6ff,color:#e6edf3
+  classDef err fill:#1a2029,stroke:#f85149,color:#e6edf3
+  class DUMP,COPY,META create
+  class SHA,SIZE,COMP verify
+  class CREATE_DB,RESTORE,VALI,DROP restore
+  class ALERT err
+        </div>
+      </div>
+    </section>
+
+    <section id="admin">
+      <h2><span class="num">16</span>运维监控(Admin Console)</h2>
+      <div class="desc">独立的 React 应用(端口 5559),Bearer token 鉴权。三大模块: 概览(TTL 缓存 10s,失败降级到旧帧)、诊断(健康/告警/任务)、配置(15 项可编辑环境变量,原子写入 .env)。metricsHistory 持续采样 rss/heap/DB latency/DuckDB 任务/磁盘/失败数。</div>
+      <div class="diagram-card">
+        <div class="mermaid">
+flowchart TB
+  USER[运维管理员]
+  USER -->|Bearer token| UI[Admin Console<br/>localhost:5559]
+
+  subgraph Sections["三大模块"]
+    S1[概览 Overview<br/>collectAdminOverview]
+    S2[诊断 Diagnostics<br/>collectAdminHealth]
+    S3[配置 Configuration<br/>15 项可编辑]
+  end
+
+  subgraph Cache["overviewCache"]
+    TTL[TTL 10s]
+    DEGRADE[失败降级到旧帧]
+  end
+
+  subgraph Metrics["metricsHistory"]
+    SAMPLE[持续采样]
+    RSS[rss / heap]
+    DBL[DB latency]
+    DUCK[DuckDB active/queued]
+    DISK[磁盘]
+    FAIL[任务失败数]
+  end
+
+  subgraph EnvEdit["envConfig · 原子写 .env"]
+    VALID[Zod 校验<br/>端口/并发/容量格式]
+    WRITE[原子写入 server/.env]
+    RESTART[可选重启<br/>requestedExitCode=75]
+  end
+
+  UI --> S1
+  UI --> S2
+  UI --> S3
+  S1 --> TTL
+  TTL --> DEGRADE
+  S2 --> SAMPLE
+  SAMPLE --> RSS
+  SAMPLE --> DBL
+  SAMPLE --> DUCK
+  SAMPLE --> DISK
+  SAMPLE --> FAIL
+  S3 --> VALID
+  VALID --> WRITE
+  WRITE --> RESTART
+
+  classDef user fill:#1f2937,stroke:#bc8cff,color:#e6edf3
+  classDef ui fill:#1a2029,stroke:#58a6ff,color:#e6edf3
+  classDef cache fill:#1a2029,stroke:#f59e0b,color:#e6edf3
+  classDef metric fill:#1a2029,stroke:#3fb950,color:#e6edf3
+  classDef env fill:#1a2029,stroke:#2dd4bf,color:#e6edf3
+  class USER user
+  class UI,S1,S2,S3 ui
+  class TTL,DEGRADE cache
+  class SAMPLE,RSS,DBL,DUCK,DISK,FAIL metric
+  class VALID,WRITE,RESTART env
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">
+      量化回测系统业务流程图 · 基于 d:/github_public_repo/量化回测 仓库自动生成 · 涵盖 16 个核心业务流程
+    </div>
+  </main>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      darkMode: true,
+      background: '#1a2029',
+      primaryColor: '#1f2937',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#58a6ff',
+      lineColor: '#9ca3af',
+      secondaryColor: '#222b36',
+      tertiaryColor: '#1a2029',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+      fontSize: '14px',
+      nodeBorderRadius: '6px',
+    },
+    flowchart: {
+      curve: 'basis',
+      padding: 16,
+      nodeSpacing: 40,
+      rankSpacing: 50,
+    },
+    state: {
+      useMaxWidth: true,
+    },
+  });
+</script>
+</body>
+</html>
