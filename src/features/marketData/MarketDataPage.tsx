@@ -677,6 +677,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const isWatchlistView = view === 'watchlist';
   const isDetailView = view === 'detail';
   const isResearchView = isWatchlistView || isDetailView;
+  const isEnhancedStockView = isWatchlistView || isDetailView;
   const initial = marketDataCache.watchlist ?? readWatchlist();
   const initialSelectedCode = instrumentCode || marketDataCache.selectedCode || initial[0]?.code || '600519';
   const [watchlist, setWatchlist] = useState<StockSearchItem[]>(initial);
@@ -690,7 +691,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [period, setPeriod] = useState<MarketKlinePeriod>(marketDataCache.period);
   const [showChipProfile, setShowChipProfile] = useState(false);
-  const [showChanStructures, setShowChanStructures] = useState(isDetailView);
+  const [showChanStructures, setShowChanStructures] = useState(isEnhancedStockView);
   const [indicatorVisibility, setIndicatorVisibility] = useState<MarketIndicatorVisibility>({
     ma: true,
     rsi: true,
@@ -703,7 +704,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     penCenters: true,
     segmentCenters: true,
   });
-  const [klines, setKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(initialSelectedCode, marketDataCache.period, isDetailView)] ?? []);
+  const [klines, setKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(initialSelectedCode, marketDataCache.period, isEnhancedStockView)] ?? []);
   const [klineLoading, setKlineLoading] = useState(false);
   const [scoreKlines, setScoreKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(initialSelectedCode, 'day')] ?? []);
   const [scoreCode, setScoreCode] = useState<string | null>(initialSelectedCode);
@@ -755,7 +756,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const loadKline = useCallback(async (code: string, nextPeriod: MarketKlinePeriod, silent = false) => {
     if (!silent) setKlineLoading(true);
     try {
-      const fullHistory = isDetailView && nextPeriod !== 'intraday';
+      const fullHistory = isEnhancedStockView && nextPeriod !== 'intraday';
       const suffix = fullHistory ? '&fullHistory=true' : '';
       const data = await apiFetch<{ items: KlinePoint[] }>(`/api/market-data/stocks/${code}/kline?period=${nextPeriod}${suffix}`);
       const next = data.items ?? [];
@@ -768,7 +769,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       }
     }
     finally { if (!silent) setKlineLoading(false); }
-  }, [isDetailView, message]);
+  }, [isEnhancedStockView, message]);
   const loadIndexQuotes = useCallback(async (silent = false) => {
     if (!silent) setIndexLoading(true);
     try {
@@ -817,7 +818,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   useEffect(() => {
     if (!isResearchView) return undefined;
     const cachedQuote = marketDataCache.quotes[selectedCode];
-    const cachedKlines = marketDataCache.klines[klineCacheKey(selectedCode, period, isDetailView && period !== 'intraday')];
+    const cachedKlines = marketDataCache.klines[klineCacheKey(selectedCode, period, isEnhancedStockView && period !== 'intraday')];
     const cachedReports = marketDataCache.reports[selectedCode];
     const cachedAgent = marketDataCache.agentResults[selectedCode];
     setQuote(cachedQuote ?? null);
@@ -1038,14 +1039,14 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     if (nextPeriod !== 'day') setShowChipProfile(false);
     setPeriod(nextPeriod);
     const cached = marketDataCache.klines[
-      klineCacheKey(selectedCode, nextPeriod, isDetailView && nextPeriod !== 'intraday')
+      klineCacheKey(selectedCode, nextPeriod, isEnhancedStockView && nextPeriod !== 'intraday')
     ];
     if (cached) setKlines(cached);
     else void loadKline(selectedCode, nextPeriod);
   };
 
   const loadDailyKlines = async () => {
-    const fullHistory = isDetailView;
+    const fullHistory = isEnhancedStockView;
     const cacheKey = klineCacheKey(selectedCode, 'day', fullHistory);
     const cached = marketDataCache.klines[cacheKey];
     if (cached) return cached;
@@ -1302,8 +1303,8 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
             {indicatorVisibility.ma && <Tag color="gold">MA5/10/20</Tag>}
             {indicatorVisibility.rsi && <Tag color="blue">RSI14</Tag>}
             {indicatorVisibility.macd && <Tag color="purple">MACD</Tag>}
-            {isDetailView && period !== 'intraday' && <Tag color="green">数据库优先 · {klines.length} 根</Tag>}
-            {isDetailView && period !== 'intraday' && klines.length > 0 && (
+            {isEnhancedStockView && period !== 'intraday' && <Tag color="green">数据库优先 · {klines.length} 根</Tag>}
+            {isEnhancedStockView && period !== 'intraday' && klines.length > 0 && (
               <Tag>{klines[0].date} ~ {klines[klines.length - 1].date}</Tag>
             )}
             {showChipProfile && <Tag color="volcano">筹码峰</Tag>}
@@ -1369,7 +1370,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
                   指标
                 </Button>
               </Popover>
-              {isDetailView && (
+              {isEnhancedStockView && (
                 <Popover
                   placement="bottomRight"
                   trigger="click"
@@ -1468,7 +1469,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
               period={period}
               previousClose={quote?.previousClose}
               showChipProfile={showChipProfile}
-              showChanStructures={isDetailView && showChanStructures}
+              showChanStructures={isEnhancedStockView && showChanStructures}
               indicatorVisibility={indicatorVisibility}
               chanVisibility={chanVisibility}
             />
