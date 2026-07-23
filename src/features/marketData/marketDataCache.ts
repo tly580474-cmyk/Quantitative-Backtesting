@@ -33,6 +33,10 @@ export const marketDataCache: MarketDataPageCache = {
   agentResults: {},
 };
 
-export function klineCacheKey(code: string, period: MarketDataPageCache['period']) {
-  return `${code}:${period}`;
+export function klineCacheKey(
+  code: string,
+  period: MarketDataPageCache['period'],
+  fullHistory = false,
+) {
+  return `${code}:${period}${fullHistory ? ':full' : ''}`;
 }

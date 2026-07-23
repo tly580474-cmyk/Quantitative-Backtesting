@@ -185,24 +185,6 @@ export default function ChartContainer({
     return () => document.removeEventListener('mouseup', onMouseUp);
   }, []);
 
-  // Initialize range lines from first/last candle if not yet set
-  useEffect(() => {
-    const rl = rangeLineRef.current;
-    if (!rl || candles.length < 2) return;
-    if (rl.getStartTime() && rl.getEndTime()) return;
-
-    const total = candles.length;
-    const startIdx = Math.floor(total * 0.2);
-    const endIdx = Math.floor(total * 0.8);
-    rl.setStartTime(candles[startIdx].time);
-    rl.setEndTime(candles[endIdx].time);
-    setRangeLineState({
-      startTime: candles[startIdx].time,
-      endTime: candles[endIdx].time,
-      dragging: null,
-    });
-  }, [candles]);
-
   const overlays = useMemo(
     () => indicatorResults.filter((r) => {
       const a = actives.find((x) => x.id === r.id);
@@ -399,45 +381,27 @@ export default function ChartContainer({
     chanStructureRef.current = chanStructure;
     candleSeries.attachPrimitive(chanStructure);
 
-    let handleRangeMouseDown: ((event: MouseEvent) => void) | undefined;
+    // Keep the range primitive attached for the lifetime of the chart. Enabling
+    // the range tool now only supplies/clears its endpoints, so the chart and its
+    // current logical viewport never need to be remounted.
+    const rangeLine = new RangeLinePrimitive();
+    rangeLineRef.current = rangeLine;
+    rangeLine.onChange = (state) => {
+      setRangeLineState(state);
+    };
+    candleSeries.attachPrimitive(rangeLine);
 
-    // Attach draggable range lines (only on chart page, not backtest)
-    if (showRangeLines) {
-      const rangeLine = new RangeLinePrimitive();
-      rangeLineRef.current = rangeLine;
-      rangeLine.onChange = (state) => {
-        setRangeLineState(state);
-      };
-      candleSeries.attachPrimitive(rangeLine);
+    const handleRangeMouseDown = (event: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      const hit = rangeLine.hitTest(event.clientX - rect.left, event.clientY - rect.top);
+      if (!hit) return;
 
-      // The chart primitive is attached after the earlier initialization effect
-      // runs. When candles are already loaded on mount, initialize here as well
-      // so the selector cannot remain invisible until the dataset changes.
-      const currentCandles = candlesRef.current;
-      if (currentCandles.length >= 2) {
-        const startCandle = currentCandles[Math.floor(currentCandles.length * 0.2)];
-        const endCandle = currentCandles[Math.floor(currentCandles.length * 0.8)];
-        rangeLine.setStartTime(startCandle.time);
-        rangeLine.setEndTime(endCandle.time);
-        setRangeLineState({
-          startTime: startCandle.time,
-          endTime: endCandle.time,
-          dragging: null,
-        });
-      }
-
-      handleRangeMouseDown = (event: MouseEvent) => {
-        const rect = container.getBoundingClientRect();
-        const hit = rangeLine.hitTest(event.clientX - rect.left, event.clientY - rect.top);
-        if (!hit) return;
-
-        const which = hit.externalId === 'range-line-start' ? 'start' : 'end';
-        rangeLine.setDragging(which);
-        event.preventDefault();
-        event.stopPropagation();
-      };
-      container.addEventListener('mousedown', handleRangeMouseDown, true);
-    }
+      const which = hit.externalId === 'range-line-start' ? 'start' : 'end';
+      rangeLine.setDragging(which);
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    container.addEventListener('mousedown', handleRangeMouseDown, true);
 
     chart.subscribeCrosshairMove((param) => {
       // Range line drag handling
@@ -546,9 +510,7 @@ export default function ChartContainer({
       resizeObserver.disconnect();
       if (visibleRangeTimerRef.current) clearTimeout(visibleRangeTimerRef.current);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
-      if (handleRangeMouseDown) {
-        container.removeEventListener('mousedown', handleRangeMouseDown, true);
-      }
+      container.removeEventListener('mousedown', handleRangeMouseDown, true);
       setVisibleRange(null);
       if (rangeLineRef.current) {
         candleSeries.detachPrimitive(rangeLineRef.current);
@@ -571,6 +533,30 @@ export default function ChartContainer({
       overlayLinesRef.current.clear();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const rangeLine = rangeLineRef.current;
+    if (!rangeLine) return;
+    if (!showRangeLines) {
+      rangeLine.setDragging(null);
+      rangeLine.setHovered(null);
+      rangeLine.setStartTime(null);
+      rangeLine.setEndTime(null);
+      return;
+    }
+    if (candles.length < 2) return;
+    const availableTimes = new Set(candles.map((candle) => candle.time));
+    if (
+      rangeLine.getStartTime()
+      && rangeLine.getEndTime()
+      && availableTimes.has(rangeLine.getStartTime()!)
+      && availableTimes.has(rangeLine.getEndTime()!)
+    ) return;
+    const startCandle = candles[Math.floor(candles.length * 0.2)];
+    const endCandle = candles[Math.floor(candles.length * 0.8)];
+    rangeLine.setStartTime(startCandle.time);
+    rangeLine.setEndTime(endCandle.time);
+  }, [candles, showRangeLines]);
 
   // Update candle/volume data
   useEffect(() => {

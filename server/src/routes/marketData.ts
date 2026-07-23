@@ -21,12 +21,19 @@ import {
   fetchMarketTechnicalRows,
   fetchMarketTechnicalRowsFromDb,
   fetchStockKlineFromDb,
+  fetchStockFullHistoryFromDb,
   fetchMarketIndexQuotes,
   fetchStockIntraday,
   fetchStockKline,
   fetchStockQuote,
   searchStocks,
 } from '../marketData/aStockDataService.js';
+import {
+  aggregateDailyKlines,
+  mergeKlinePoints,
+  shouldRefreshDailyKline,
+} from '../marketData/hybridKline.js';
+import { getChinaMarketSession } from '../marketData/jobs/marketSession.js';
 import {
   analyzeHistoricalTechnicals,
   filterEnrichedCandidates,
@@ -363,10 +370,15 @@ export function registerMarketDataRoutes(
       period: z.enum(['intraday', 'day', 'week', 'year']).default('day'),
       adjustmentMode: z.enum(['none', 'qfq', 'hfq']).default('qfq'),
       tradeDate: z.string().date().optional(),
+      fullHistory: z.enum(['true', 'false'])
+        .transform((value) => value === 'true')
+        .default(false),
     }).safeParse(req.query);
     if (!query.success) return reply.status(400).send({ message: '不支持的 K 线周期' });
     try {
-      const items = query.data.period === 'intraday'
+      let source: 'online' | 'database' | 'database+online' = 'online';
+      let effectiveAdjustmentMode: HistoryAdjustmentMode = query.data.adjustmentMode;
+      let items = query.data.period === 'intraday'
         ? query.data.tradeDate
           ? (await queryMinuteBars(storageConfig.minuteDataRoot, {
             code: req.params.code,
@@ -376,8 +388,56 @@ export function registerMarketDataRoutes(
             includeZeroVolume: true,
           })).items
           : await fetchStockIntraday(req.params.code)
-        : await fetchStockKline(req.params.code, query.data.period, 320, query.data.adjustmentMode);
-      return reply.send({ period: query.data.period, adjustmentMode: query.data.adjustmentMode, items });
+        : [];
+
+      if (query.data.period !== 'intraday') {
+        if (query.data.fullHistory) {
+          const database = await fetchStockFullHistoryFromDb(
+            req.params.code,
+            query.data.adjustmentMode,
+          );
+          effectiveAdjustmentMode = database.adjustmentMode;
+          if (database.items.length === 0) {
+            items = await fetchStockKline(
+              req.params.code,
+              query.data.period,
+              800,
+              query.data.adjustmentMode,
+            );
+            effectiveAdjustmentMode = query.data.adjustmentMode;
+          } else {
+            const session = getChinaMarketSession();
+            const latestDatabaseDate = database.items.at(-1)?.date;
+            const needsOnline = shouldRefreshDailyKline(
+              latestDatabaseDate,
+              session.tradeDate,
+              session.isIntradayUpdateWindow,
+            );
+            const online = needsOnline
+              ? await fetchStockKline(req.params.code, 'day', 30, effectiveAdjustmentMode)
+                  .catch(() => [])
+              : [];
+            const daily = mergeKlinePoints(database.items, online);
+            items = query.data.period === 'day'
+              ? daily
+              : aggregateDailyKlines(daily, query.data.period);
+            source = online.length > 0 ? 'database+online' : 'database';
+          }
+        } else {
+          items = await fetchStockKline(
+            req.params.code,
+            query.data.period,
+            320,
+            query.data.adjustmentMode,
+          );
+        }
+      }
+      return reply.send({
+        period: query.data.period,
+        adjustmentMode: effectiveAdjustmentMode,
+        source,
+        items,
+      });
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : 'K 线获取失败' });
     }

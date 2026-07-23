@@ -2,7 +2,18 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getHistoryDailyBarsInRange, getLatestMarketSnapshot, getInstrumentKeyBySymbol } from './repositories/marketDataRepository.js';
+import {
+  getHistoryDailyBars,
+  getHistoryDailyBarsInRange,
+  getLatestMarketSnapshot,
+  getInstrumentKeyBySymbol,
+  getPublishedHistoryAdjustment,
+} from './repositories/marketDataRepository.js';
+import { getInstrumentByMarketSymbol } from './repositories/instrumentRepository.js';
+import {
+  applyHistoryAdjustment,
+  type HistoryAdjustmentMode,
+} from './normalization/historyAdjustment.js';
 
 const TENCENT_QUOTE_URL = 'https://qt.gtimg.cn/q=';
 const TENCENT_KLINE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';
@@ -73,6 +84,11 @@ export interface KlinePoint {
 }
 
 export type StockKlinePeriod = 'intraday' | 'day' | 'week' | 'year';
+
+export interface DatabaseKlineResult {
+  items: KlinePoint[];
+  adjustmentMode: HistoryAdjustmentMode;
+}
 
 export interface ResearchReport {
   title: string;
@@ -900,6 +916,62 @@ export async function fetchStockKlineFromDb(
     volume: Number(bar.volume),
     turnoverRatePct: bar.turnoverRatePct != null ? Number(bar.turnoverRatePct) : undefined,
   }));
+}
+
+export async function fetchStockFullHistoryFromDb(
+  input: string,
+  adjustmentMode: HistoryAdjustmentMode = 'qfq',
+): Promise<DatabaseKlineResult> {
+  const security = resolveSecurity(input);
+  if (!['SH', 'SZ', 'BJ'].includes(security.market)) {
+    return { items: [], adjustmentMode };
+  }
+  const instrument = await getInstrumentByMarketSymbol(
+    security.market,
+    security.code,
+    'stock',
+  );
+  if (instrument?.instrumentKey == null) {
+    return { items: [], adjustmentMode };
+  }
+
+  const history = await getHistoryDailyBars(instrument.instrumentKey, { limit: 20_000 });
+  if (history.total === 0) return { items: [], adjustmentMode };
+
+  let bars = history.data;
+  let effectiveAdjustmentMode = adjustmentMode;
+  if (adjustmentMode !== 'none') {
+    const adjustment = await getPublishedHistoryAdjustment(
+      instrument.instrumentKey,
+      instrument.id,
+      adjustmentMode,
+    );
+    if (adjustment?.factors.length) {
+      bars = applyHistoryAdjustment(
+        history.data,
+        adjustment.factors,
+        adjustment.overrides,
+        adjustmentMode,
+      ) as typeof history.data;
+    } else {
+      effectiveAdjustmentMode = 'none';
+    }
+  }
+
+  return {
+    adjustmentMode: effectiveAdjustmentMode,
+    items: bars.map((bar) => ({
+      date: bar.tradeDate,
+      open: Number(bar.open),
+      close: Number(bar.close),
+      high: Number(bar.high),
+      low: Number(bar.low),
+      volume: Number(bar.volume ?? 0),
+      turnoverRatePct: bar.turnoverRatePct == null
+        ? undefined
+        : Number(bar.turnoverRatePct),
+    })),
+  };
 }
 
 function buildMainNetInTrend(mainNetInYi: number | null): MarketSentimentOverview['mainNetInTrend'] {

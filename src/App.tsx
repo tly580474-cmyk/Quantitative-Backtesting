@@ -402,7 +402,6 @@ function MarketAnalysisRoute() {
       <div className={indicatorInspectorOpen ? 'market-analysis-workspace has-inspector' : 'market-analysis-workspace'}>
         <div className="market-analysis-chart">
           <ChartContainer
-            key={`${rangeSelectionEnabled ? 'range-on' : 'range-off'}-${period}`}
             showRangeLines={rangeSelectionEnabled}
             period={period}
             showChipProfile={showChipProfile && period === 'day'}

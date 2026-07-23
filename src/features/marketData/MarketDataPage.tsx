@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { App, AutoComplete, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, Modal, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
-import { ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CheckOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, LineChartOutlined, NotificationOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, SettingOutlined, StarFilled, StarOutlined, ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons';
+import { App, AutoComplete, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, Modal, Popover, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
+import { ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CheckOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, LineChartOutlined, NotificationOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, SettingOutlined, SlidersOutlined, StarFilled, StarOutlined, ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { apiFetch } from '../../api/client';
-import MarketKlineChart from './MarketKlineChart';
+import MarketKlineChart, {
+  type MarketChanVisibility,
+  type MarketIndicatorVisibility,
+} from './MarketKlineChart';
 import StockSelectionScore from './StockSelectionScore';
 import StockSelectionWorkspace from './StockSelectionWorkspace';
 import HotSectorPanel from './HotSectorPanel';
@@ -687,7 +690,20 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [period, setPeriod] = useState<MarketKlinePeriod>(marketDataCache.period);
   const [showChipProfile, setShowChipProfile] = useState(false);
-  const [klines, setKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(initialSelectedCode, marketDataCache.period)] ?? []);
+  const [showChanStructures, setShowChanStructures] = useState(isDetailView);
+  const [indicatorVisibility, setIndicatorVisibility] = useState<MarketIndicatorVisibility>({
+    ma: true,
+    rsi: true,
+    macd: true,
+  });
+  const [chanVisibility, setChanVisibility] = useState<MarketChanVisibility>({
+    pens: true,
+    fractals: true,
+    segments: true,
+    penCenters: true,
+    segmentCenters: true,
+  });
+  const [klines, setKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(initialSelectedCode, marketDataCache.period, isDetailView)] ?? []);
   const [klineLoading, setKlineLoading] = useState(false);
   const [scoreKlines, setScoreKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(initialSelectedCode, 'day')] ?? []);
   const [scoreCode, setScoreCode] = useState<string | null>(initialSelectedCode);
@@ -739,8 +755,12 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const loadKline = useCallback(async (code: string, nextPeriod: MarketKlinePeriod, silent = false) => {
     if (!silent) setKlineLoading(true);
     try {
-      const data = await apiFetch<{ items: KlinePoint[] }>(`/api/market-data/stocks/${code}/kline?period=${nextPeriod}`);
-      const next = data.items ?? []; marketDataCache.klines[klineCacheKey(code, nextPeriod)] = next; setKlines(next);
+      const fullHistory = isDetailView && nextPeriod !== 'intraday';
+      const suffix = fullHistory ? '&fullHistory=true' : '';
+      const data = await apiFetch<{ items: KlinePoint[] }>(`/api/market-data/stocks/${code}/kline?period=${nextPeriod}${suffix}`);
+      const next = data.items ?? [];
+      marketDataCache.klines[klineCacheKey(code, nextPeriod, fullHistory)] = next;
+      setKlines(next);
     } catch (e) {
       if (!silent) {
         message.error(e instanceof Error ? e.message : 'K 线获取失败');
@@ -748,7 +768,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       }
     }
     finally { if (!silent) setKlineLoading(false); }
-  }, [message]);
+  }, [isDetailView, message]);
   const loadIndexQuotes = useCallback(async (silent = false) => {
     if (!silent) setIndexLoading(true);
     try {
@@ -797,7 +817,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   useEffect(() => {
     if (!isResearchView) return undefined;
     const cachedQuote = marketDataCache.quotes[selectedCode];
-    const cachedKlines = marketDataCache.klines[klineCacheKey(selectedCode, period)];
+    const cachedKlines = marketDataCache.klines[klineCacheKey(selectedCode, period, isDetailView && period !== 'intraday')];
     const cachedReports = marketDataCache.reports[selectedCode];
     const cachedAgent = marketDataCache.agentResults[selectedCode];
     setQuote(cachedQuote ?? null);
@@ -853,8 +873,9 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   useEffect(() => {
     if (!isResearchView) return;
     if (period !== 'day') return;
-    const cachedForSelected = marketDataCache.klines[klineCacheKey(selectedCode, 'day')];
-    if (klines.length > 0 && cachedForSelected === klines) {
+    const compact = marketDataCache.klines[klineCacheKey(selectedCode, 'day')];
+    const full = marketDataCache.klines[klineCacheKey(selectedCode, 'day', true)];
+    if (klines.length > 0 && (compact === klines || full === klines)) {
       setScoreKlines(klines);
       setScoreCode(selectedCode);
       setScoreKlineLoading(false);
@@ -1016,16 +1037,21 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const changePeriod = (nextPeriod: MarketKlinePeriod) => {
     if (nextPeriod !== 'day') setShowChipProfile(false);
     setPeriod(nextPeriod);
-    const cached = marketDataCache.klines[klineCacheKey(selectedCode, nextPeriod)];
+    const cached = marketDataCache.klines[
+      klineCacheKey(selectedCode, nextPeriod, isDetailView && nextPeriod !== 'intraday')
+    ];
     if (cached) setKlines(cached);
     else void loadKline(selectedCode, nextPeriod);
   };
 
   const loadDailyKlines = async () => {
-    const cacheKey = klineCacheKey(selectedCode, 'day');
+    const fullHistory = isDetailView;
+    const cacheKey = klineCacheKey(selectedCode, 'day', fullHistory);
     const cached = marketDataCache.klines[cacheKey];
     if (cached) return cached;
-    const data = await apiFetch<{ items: KlinePoint[] }>(`/api/market-data/stocks/${selectedCode}/kline?period=day`);
+    const data = await apiFetch<{ items: KlinePoint[] }>(
+      `/api/market-data/stocks/${selectedCode}/kline?period=day${fullHistory ? '&fullHistory=true' : ''}`,
+    );
     const next = data.items ?? [];
     marketDataCache.klines[cacheKey] = next;
     if (period === 'day') setKlines(next);
@@ -1271,7 +1297,18 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         <Card
           className="market-chart-card"
           variant="borderless"
-          title={<Space wrap><span>价格走势</span><Tag color="gold">MA5/10/20</Tag><Tag color="blue">RSI14</Tag><Tag color="purple">MACD</Tag>{showChipProfile && <Tag color="volcano">筹码峰</Tag>}{period === 'intraday' && <Tag color="cyan">5秒刷新</Tag>}</Space>}
+          title={<Space wrap>
+            <span>价格走势</span>
+            {indicatorVisibility.ma && <Tag color="gold">MA5/10/20</Tag>}
+            {indicatorVisibility.rsi && <Tag color="blue">RSI14</Tag>}
+            {indicatorVisibility.macd && <Tag color="purple">MACD</Tag>}
+            {isDetailView && period !== 'intraday' && <Tag color="green">数据库优先 · {klines.length} 根</Tag>}
+            {isDetailView && period !== 'intraday' && klines.length > 0 && (
+              <Tag>{klines[0].date} ~ {klines[klines.length - 1].date}</Tag>
+            )}
+            {showChipProfile && <Tag color="volcano">筹码峰</Tag>}
+            {period === 'intraday' && <Tag color="cyan">5秒刷新</Tag>}
+          </Space>}
           extra={(
             <div className="market-chart-view-controls">
               <Tooltip title={period === 'day' ? (showChipProfile ? '隐藏右侧筹码峰' : '在右侧展示筹码峰') : '请先切换到日K'}>
@@ -1286,6 +1323,132 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
                   筹码峰
                 </Button>
               </Tooltip>
+              <Popover
+                placement="bottomRight"
+                trigger="click"
+                title="技术指标"
+                content={(
+                  <div className="market-layer-options" aria-label="技术指标选择">
+                    <Checkbox
+                      checked={indicatorVisibility.ma}
+                      onChange={(event) => setIndicatorVisibility((current) => ({
+                        ...current,
+                        ma: event.target.checked,
+                      }))}
+                    >
+                      MA5/10/20（主图）
+                    </Checkbox>
+                    <Checkbox
+                      checked={indicatorVisibility.rsi}
+                      onChange={(event) => setIndicatorVisibility((current) => ({
+                        ...current,
+                        rsi: event.target.checked,
+                      }))}
+                    >
+                      RSI14
+                    </Checkbox>
+                    <Checkbox
+                      checked={indicatorVisibility.macd}
+                      onChange={(event) => setIndicatorVisibility((current) => ({
+                        ...current,
+                        macd: event.target.checked,
+                      }))}
+                    >
+                      MACD
+                    </Checkbox>
+                    <Text type="secondary">切换指标不会改变当前缩放或滚动位置。</Text>
+                  </div>
+                )}
+              >
+                <Button
+                  size="small"
+                  icon={<SlidersOutlined />}
+                  disabled={period === 'intraday'}
+                  aria-label="选择技术指标"
+                >
+                  指标
+                </Button>
+              </Popover>
+              {isDetailView && (
+                <Popover
+                  placement="bottomRight"
+                  trigger="click"
+                  title="缠论图层"
+                  content={(
+                    <div className="market-layer-options" aria-label="缠论图层选择">
+                      <Checkbox
+                        checked={showChanStructures}
+                        onChange={(event) => setShowChanStructures(event.target.checked)}
+                      >
+                        启用缠论分析
+                      </Checkbox>
+                      <div className="market-layer-options-divider" />
+                      <Checkbox
+                        checked={chanVisibility.fractals}
+                        disabled={!showChanStructures}
+                        onChange={(event) => setChanVisibility((current) => ({
+                          ...current,
+                          fractals: event.target.checked,
+                        }))}
+                      >
+                        顶底分型
+                      </Checkbox>
+                      <Checkbox
+                        checked={chanVisibility.pens}
+                        disabled={!showChanStructures}
+                        onChange={(event) => setChanVisibility((current) => ({
+                          ...current,
+                          pens: event.target.checked,
+                        }))}
+                      >
+                        笔
+                      </Checkbox>
+                      <Checkbox
+                        checked={chanVisibility.segments}
+                        disabled={!showChanStructures}
+                        onChange={(event) => setChanVisibility((current) => ({
+                          ...current,
+                          segments: event.target.checked,
+                        }))}
+                      >
+                        线段
+                      </Checkbox>
+                      <Checkbox
+                        checked={chanVisibility.penCenters}
+                        disabled={!showChanStructures}
+                        onChange={(event) => setChanVisibility((current) => ({
+                          ...current,
+                          penCenters: event.target.checked,
+                        }))}
+                      >
+                        笔中枢
+                      </Checkbox>
+                      <Checkbox
+                        checked={chanVisibility.segmentCenters}
+                        disabled={!showChanStructures}
+                        onChange={(event) => setChanVisibility((current) => ({
+                          ...current,
+                          segmentCenters: event.target.checked,
+                        }))}
+                      >
+                        段中枢
+                      </Checkbox>
+                      <Text type="secondary">候选结构与确认结构沿用 chan-v1 规则。</Text>
+                    </div>
+                  )}
+                >
+                  <Button
+                    className="market-chan-toggle"
+                    size="small"
+                    type={showChanStructures ? 'primary' : 'default'}
+                    disabled={period === 'intraday'}
+                    aria-pressed={showChanStructures}
+                    icon={<SettingOutlined />}
+                  >
+                    缠论
+                  </Button>
+                </Popover>
+              )}
               <Segmented
                 value={period}
                 onChange={(value) => changePeriod(value as MarketKlinePeriod)}
@@ -1300,7 +1463,15 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
           )}
         >
           <Spin spinning={klineLoading}>
-            <MarketKlineChart data={klines} period={period} previousClose={quote?.previousClose} showChipProfile={showChipProfile} />
+            <MarketKlineChart
+              data={klines}
+              period={period}
+              previousClose={quote?.previousClose}
+              showChipProfile={showChipProfile}
+              showChanStructures={isDetailView && showChanStructures}
+              indicatorVisibility={indicatorVisibility}
+              chanVisibility={chanVisibility}
+            />
           </Spin>
         </Card>
         <div className="market-lower-grid">

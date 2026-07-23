@@ -1,9 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, type Time } from 'lightweight-charts';
+import {
+  CandlestickSeries,
+  ColorType,
+  createChart,
+  HistogramSeries,
+  LineSeries,
+  LineStyle,
+  type IChartApi,
+  type IRange,
+  type ISeriesApi,
+  type Time,
+} from 'lightweight-charts';
 import { Empty, Segmented } from 'antd';
 import type { KlinePoint, MarketKlinePeriod } from './types';
 import { calculateChipDistribution } from './chipDistribution';
 import ChipProfile from './ChipProfile';
+import { analyzeChanlun } from '@/features/chanlun';
+import { ChanStructurePrimitive } from '@/features/chart/ChanStructurePrimitive';
 
 interface IndicatorPoint {
   ma5: number | null;
@@ -157,19 +170,59 @@ interface MarketKlineChartProps {
   period: MarketKlinePeriod;
   previousClose?: number | null;
   showChipProfile?: boolean;
+  showChanStructures?: boolean;
+  indicatorVisibility?: MarketIndicatorVisibility;
+  chanVisibility?: MarketChanVisibility;
 }
+
+export interface MarketIndicatorVisibility {
+  ma: boolean;
+  rsi: boolean;
+  macd: boolean;
+}
+
+export interface MarketChanVisibility {
+  pens: boolean;
+  fractals: boolean;
+  segments: boolean;
+  penCenters: boolean;
+  segmentCenters: boolean;
+}
+
+const DEFAULT_INDICATOR_VISIBILITY: MarketIndicatorVisibility = {
+  ma: true,
+  rsi: true,
+  macd: true,
+};
+
+const DEFAULT_CHAN_VISIBILITY: MarketChanVisibility = {
+  pens: true,
+  fractals: true,
+  segments: true,
+  penCenters: true,
+  segmentCenters: true,
+};
 
 export default function MarketKlineChart({
   data,
   period,
   previousClose,
   showChipProfile = false,
+  showChanStructures = false,
+  indicatorVisibility = DEFAULT_INDICATOR_VISIBILITY,
+  chanVisibility = DEFAULT_CHAN_VISIBILITY,
 }: MarketKlineChartProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const rsiRef = useRef<HTMLDivElement>(null);
+  const macdRef = useRef<HTMLDivElement>(null);
   const intradayPriceRef = useRef<HTMLDivElement>(null);
   const intradayVolumeRef = useRef<HTMLDivElement>(null);
   const intradayIndicatorRef = useRef<HTMLDivElement>(null);
   const chipPriceToCoordinateRef = useRef<((price: number) => number | null) | null>(null);
+  const chanStructureRef = useRef<ChanStructurePrimitive | null>(null);
+  const dailyChartRef = useRef<IChartApi | null>(null);
+  const maSeriesRef = useRef<Map<'ma5' | 'ma10' | 'ma20', ISeriesApi<'Line'>>>(new Map());
+  const dailyVisibleRangesRef = useRef<Map<string, IRange<number>>>(new Map());
   const [chipChartLayout, setChipChartLayout] = useState({ height: 0, revision: 0 });
   const [hover, setHover] = useState<HoverPoint | null>(null);
   const [subIndicator, setSubIndicator] = useState<IntradayIndicator>('volumeRatio');
@@ -190,6 +243,21 @@ export default function MarketKlineChart({
       : null,
     [chipEndIndex, data, period, showChipProfile],
   );
+  const chanAnalysis = useMemo(
+    () => analyzeChanlun(data.map((item) => ({
+      time: item.date,
+      symbol: 'market-detail',
+      open: item.open,
+      high: item.high,
+      low: item.low,
+      close: item.close,
+      volume: item.volume,
+      turnoverRatePct: item.turnoverRatePct,
+    }))),
+    [data],
+  );
+  const latestChanCenter = chanAnalysis.penCenters[chanAnalysis.penCenters.length - 1];
+  const dailyDatasetKey = `${period}:${data[0]?.date ?? ''}:${data[data.length - 1]?.date ?? ''}:${data.length}`;
 
   useEffect(() => {
     if (!isIntraday) return undefined;
@@ -307,11 +375,26 @@ export default function MarketKlineChart({
       layout: { background: { type: ColorType.Solid, color: '#fff' }, textColor: '#64748b' },
       grid: { vertLines: { color: '#eef2f7' }, horzLines: { color: '#eef2f7' } },
       crosshair: { vertLine: { color: '#94a3b8', labelVisible: false }, horzLine: { color: '#94a3b8', labelVisible: false } },
-      rightPriceScale: { borderColor: '#e2e8f0', scaleMargins: { top: 0.1, bottom: 0.25 } },
-      timeScale: { borderColor: '#e2e8f0', timeVisible: isIntraday, secondsVisible: false },
+      rightPriceScale: {
+        borderColor: '#e2e8f0',
+        minimumWidth: 68,
+        scaleMargins: { top: 0.1, bottom: 0.25 },
+      },
+      timeScale: {
+        borderColor: '#e2e8f0',
+        visible: !indicatorVisibility.rsi && !indicatorVisibility.macd,
+        timeVisible: isIntraday,
+        secondsVisible: false,
+      },
     });
+    dailyChartRef.current = chart;
     const candles = chart.addSeries(CandlestickSeries, { upColor: '#ef4444', downColor: '#16a34a', borderVisible: false, wickUpColor: '#ef4444', wickDownColor: '#16a34a' });
     candles.setData(data.map((item, index) => ({ time: times[index], open: item.open, high: item.high, low: item.low, close: item.close })));
+    const chanStructure = new ChanStructurePrimitive();
+    chanStructureRef.current = chanStructure;
+    candles.attachPrimitive(chanStructure);
+    chanStructure.setAnalysis(showChanStructures ? chanAnalysis : null);
+    chanStructure.setVisibility(chanVisibility);
     const volume = chart.addSeries(HistogramSeries, { priceScaleId: 'volume', priceFormat: { type: 'volume' } });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     volume.setData(data.map((item, index) => ({ time: times[index], value: item.volume, color: item.close >= item.open ? '#ef444466' : '#16a34a66' })));
@@ -323,7 +406,12 @@ export default function MarketKlineChart({
     ];
     for (const config of maConfigs) {
       const series = chart.addSeries(LineSeries, { color: config.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-      series.setData(indicators.flatMap((item, index) => item[config.key] == null ? [] : [{ time: times[index], value: item[config.key] as number }]));
+      maSeriesRef.current.set(config.key, series);
+      series.setData(indicatorVisibility.ma
+        ? indicators.flatMap((item, index) => item[config.key] == null
+          ? []
+          : [{ time: times[index], value: item[config.key] as number }])
+        : []);
     }
 
     const indexByDate = new Map(data.map((_item, index) => [timeKey(times[index]), index]));
@@ -358,7 +446,13 @@ export default function MarketKlineChart({
     };
     chipPriceToCoordinateRef.current = (price) => candles.priceToCoordinate(price);
     chart.timeScale().subscribeVisibleLogicalRangeChange(updateChipCoordinates);
-    chart.timeScale().fitContent();
+    const rememberVisibleRange = (range: IRange<number> | null) => {
+      if (range) dailyVisibleRangesRef.current.set(dailyDatasetKey, { ...range });
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(rememberVisibleRange);
+    const savedVisibleRange = dailyVisibleRangesRef.current.get(dailyDatasetKey);
+    if (savedVisibleRange) chart.timeScale().setVisibleLogicalRange(savedVisibleRange);
+    else chart.timeScale().fitContent();
     updateChipCoordinates();
     const observer = new ResizeObserver(() => {
       if (el.clientWidth > 0 && el.clientHeight > 0) {
@@ -371,11 +465,183 @@ export default function MarketKlineChart({
       observer.disconnect();
       el.removeEventListener('pointerleave', clearHover);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(updateChipCoordinates);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(rememberVisibleRange);
       chipPriceToCoordinateRef.current = null;
+      candles.detachPrimitive(chanStructure);
+      chanStructureRef.current = null;
+      maSeriesRef.current.clear();
+      dailyChartRef.current = null;
       chart.remove();
       setHover(null);
     };
-  }, [data, indicators, isIntraday, showChipProfile]);
+  }, [
+    dailyDatasetKey,
+    data,
+    indicators,
+    isIntraday,
+  ]);
+
+  useEffect(() => {
+    const times = data.map((item) => chartTime(item.date));
+    for (const [key, series] of maSeriesRef.current) {
+      series.setData(indicatorVisibility.ma
+        ? indicators.flatMap((item, index) => item[key] == null
+          ? []
+          : [{ time: times[index], value: item[key] as number }])
+        : []);
+    }
+  }, [data, indicatorVisibility.ma, indicators]);
+
+  useEffect(() => {
+    if (isIntraday) return undefined;
+    const mainChart = dailyChartRef.current;
+    if (!mainChart) return undefined;
+    const times = data.map((item) => chartTime(item.date));
+    const subcharts: IChartApi[] = [];
+    const cleanups: Array<() => void> = [];
+    const createSubchart = (container: HTMLDivElement, showTimeScale: boolean) => {
+      const chart = createChart(container, {
+        width: container.clientWidth,
+        height: container.clientHeight,
+        layout: { background: { type: ColorType.Solid, color: '#fff' }, textColor: '#64748b' },
+        grid: { vertLines: { color: '#f1f5f9' }, horzLines: { color: '#f1f5f9' } },
+        crosshair: {
+          vertLine: { color: '#94a3b8', labelVisible: false },
+          horzLine: { color: '#94a3b8', labelVisible: false },
+        },
+        rightPriceScale: {
+          borderColor: '#e2e8f0',
+          minimumWidth: 68,
+          scaleMargins: { top: 0.12, bottom: 0.12 },
+        },
+        timeScale: {
+          borderColor: '#e2e8f0',
+          visible: showTimeScale,
+          timeVisible: false,
+          secondsVisible: false,
+        },
+      });
+      subcharts.push(chart);
+      const observer = new ResizeObserver(() => {
+        if (container.clientWidth > 0 && container.clientHeight > 0) {
+          chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+        }
+      });
+      observer.observe(container);
+      cleanups.push(() => observer.disconnect());
+      return chart;
+    };
+
+    if (indicatorVisibility.rsi && rsiRef.current) {
+      const rsiChart = createSubchart(rsiRef.current, !indicatorVisibility.macd);
+      const rsiSeries = rsiChart.addSeries(LineSeries, {
+        color: '#7c3aed',
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: true,
+      });
+      rsiSeries.setData(indicators.map((item, index) => item.rsi14 == null
+        ? { time: times[index] }
+        : { time: times[index], value: item.rsi14 }));
+      rsiSeries.createPriceLine({
+        price: 70,
+        color: '#ef444466',
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: '超买',
+      });
+      rsiSeries.createPriceLine({
+        price: 30,
+        color: '#16a34a66',
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: '超卖',
+      });
+    }
+
+    if (indicatorVisibility.macd && macdRef.current) {
+      const macdChart = createSubchart(macdRef.current, true);
+      const histogram = macdChart.addSeries(HistogramSeries, {
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      histogram.setData(indicators.map((item, index) => item.macd == null
+        ? { time: times[index] }
+        : {
+          time: times[index],
+          value: item.macd,
+          color: item.macd >= 0 ? '#ef4444b3' : '#16a34ab3',
+        }));
+      const dif = macdChart.addSeries(LineSeries, {
+        color: '#2563eb',
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: true,
+      });
+      dif.setData(indicators.map((item, index) => item.dif == null
+        ? { time: times[index] }
+        : { time: times[index], value: item.dif }));
+      const dea = macdChart.addSeries(LineSeries, {
+        color: '#f59e0b',
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: true,
+      });
+      dea.setData(indicators.map((item, index) => item.dea == null
+        ? { time: times[index] }
+        : { time: times[index], value: item.dea }));
+    }
+
+    if (subcharts.length === 0) return undefined;
+    let syncing = false;
+    const synchronize = (source: IChartApi, targets: IChartApi[]) => (range: IRange<number> | null) => {
+      if (!range || syncing) return;
+      syncing = true;
+      for (const target of targets) {
+        if (target !== source) target.timeScale().setVisibleLogicalRange(range);
+      }
+      syncing = false;
+    };
+    const allCharts = [mainChart, ...subcharts];
+    const subscriptions = allCharts.map((chart) => {
+      const handler = synchronize(chart, allCharts);
+      chart.timeScale().subscribeVisibleLogicalRangeChange(handler);
+      return { chart, handler };
+    });
+    const mainRange = mainChart.timeScale().getVisibleLogicalRange();
+    if (mainRange) {
+      for (const chart of subcharts) chart.timeScale().setVisibleLogicalRange(mainRange);
+    }
+
+    return () => {
+      for (const { chart, handler } of subscriptions) {
+        chart.timeScale().unsubscribeVisibleLogicalRangeChange(handler);
+      }
+      for (const cleanup of cleanups) cleanup();
+      for (const chart of subcharts) chart.remove();
+    };
+  }, [
+    data,
+    indicatorVisibility.macd,
+    indicatorVisibility.rsi,
+    indicators,
+    isIntraday,
+  ]);
+
+  useEffect(() => {
+    const primitive = chanStructureRef.current;
+    if (!primitive) return;
+    primitive.setAnalysis(showChanStructures ? chanAnalysis : null);
+    primitive.setVisibility(chanVisibility);
+  }, [chanAnalysis, chanVisibility, showChanStructures]);
+
+  useEffect(() => {
+    dailyChartRef.current?.timeScale().applyOptions({
+      visible: !indicatorVisibility.rsi && !indicatorVisibility.macd,
+    });
+  }, [indicatorVisibility.macd, indicatorVisibility.rsi]);
 
   if (!data.length) return <Empty className="market-chart-empty" description={isIntraday ? '暂无分时数据' : '暂无 K 线数据'} />;
   if (isIntraday) {
@@ -425,24 +691,69 @@ export default function MarketKlineChart({
       </div>}
     </div>;
   }
-  return <div className={`market-kline-shell${showChipProfile && period === 'day' ? ' has-chip-profile' : ''}`}>
+  const hasRsiPane = indicatorVisibility.rsi;
+  const hasMacdPane = indicatorVisibility.macd;
+  return <div className={[
+    'market-kline-shell',
+    showChipProfile && period === 'day' ? 'has-chip-profile' : '',
+    hasRsiPane ? 'has-rsi-pane' : '',
+    hasMacdPane ? 'has-macd-pane' : '',
+  ].filter(Boolean).join(' ')}>
     <div className="market-indicator-legend" aria-label="最新技术指标">
-      <span className="ma5">MA5 {fmt(latest?.ma5 ?? null)}</span>
-      <span className="ma10">MA10 {fmt(latest?.ma10 ?? null)}</span>
-      <span className="ma20">MA20 {fmt(latest?.ma20 ?? null)}</span>
-      <span>RSI14 {fmt(latest?.rsi14 ?? null)}</span>
-      <span>MACD {fmt(latest?.macd ?? null)}</span>
+      {indicatorVisibility.ma && <span className="ma5">MA5 {fmt(latest?.ma5 ?? null)}</span>}
+      {indicatorVisibility.ma && <span className="ma10">MA10 {fmt(latest?.ma10 ?? null)}</span>}
+      {indicatorVisibility.ma && <span className="ma20">MA20 {fmt(latest?.ma20 ?? null)}</span>}
+      {indicatorVisibility.rsi && <span>RSI14 {fmt(latest?.rsi14 ?? null)}</span>}
+      {indicatorVisibility.macd && <span>MACD {fmt(latest?.macd ?? null)}</span>}
       {period === 'day' && <span>换手率 {formatTurnoverRate(data[data.length - 1]?.turnoverRatePct)}</span>}
     </div>
-    <div className="market-kline-stage">
-      <div ref={ref} className="market-kline" aria-label="股票 K 线图，移动鼠标查看每日数据" />
-      {showChipProfile && period === 'day' && (
-        <ChipProfile
-          distribution={chipDistribution}
-          asOfDate={chipAsOfDate}
-          priceToCoordinate={chipPriceToCoordinateRef.current}
-          chartHeight={chipChartLayout.height}
-        />
+    {showChanStructures && (
+      <div className="market-chan-legend" aria-label="缠论结构摘要">
+        <strong>chan-v1</strong>
+        {chanVisibility.fractals && <span>分型 {chanAnalysis.fractals.length}</span>}
+        {chanVisibility.pens && <span>笔 {chanAnalysis.pens.length}</span>}
+        {chanVisibility.segments && <span>线段 {chanAnalysis.segments.length}</span>}
+        {chanVisibility.penCenters && <span>笔中枢 {chanAnalysis.penCenters.length}</span>}
+        {chanVisibility.segmentCenters && <span>段中枢 {chanAnalysis.segmentCenters.length}</span>}
+        {chanVisibility.penCenters && latestChanCenter && (
+          <span className="center">
+            最近中枢 [{latestChanCenter.zd.toFixed(2)}, {latestChanCenter.zg.toFixed(2)}]
+          </span>
+        )}
+      </div>
+    )}
+    <div className="market-kline-stack">
+      <div className="market-kline-stage">
+        <div ref={ref} className="market-kline" aria-label="股票 K 线图，移动鼠标查看每日数据" />
+        {showChipProfile && period === 'day' && (
+          <ChipProfile
+            distribution={chipDistribution}
+            asOfDate={chipAsOfDate}
+            priceToCoordinate={chipPriceToCoordinateRef.current}
+            chartHeight={chipChartLayout.height}
+          />
+        )}
+      </div>
+      {hasRsiPane && (
+        <div className="market-kline-subpane" aria-label="RSI14 副图">
+          <div className="market-kline-subpane-legend">
+            <strong>RSI14</strong>
+            <span>{fmt(latest?.rsi14 ?? null)}</span>
+            <small>70 超买 · 30 超卖</small>
+          </div>
+          <div ref={rsiRef} className="market-kline-subchart" />
+        </div>
+      )}
+      {hasMacdPane && (
+        <div className="market-kline-subpane" aria-label="MACD 副图">
+          <div className="market-kline-subpane-legend">
+            <strong>MACD</strong>
+            <span className="dif">DIF {fmt(latest?.dif ?? null)}</span>
+            <span className="dea">DEA {fmt(latest?.dea ?? null)}</span>
+            <span>柱 {fmt(latest?.macd ?? null)}</span>
+          </div>
+          <div ref={macdRef} className="market-kline-subchart" />
+        </div>
       )}
     </div>
     {hover && <div className={`market-chart-tooltip is-${hover.side ?? 'right'}`} role="status">
@@ -454,9 +765,9 @@ export default function MarketKlineChart({
         <dt>涨跌幅</dt><dd className={(hover.changePct ?? 0) >= 0 ? 'market-up' : 'market-down'}>{fmt(hover.changePct)}%</dd>
         <dt>成交量</dt><dd>{formatVolume(hover.volume)}</dd>
         {period === 'day' && <><dt>换手率</dt><dd>{formatTurnoverRate(hover.turnoverRatePct)}</dd></>}
-        <dt>RSI14</dt><dd>{fmt(hover.rsi14)}</dd>
-        <dt>MA5/10/20</dt><dd>{fmt(hover.ma5)} / {fmt(hover.ma10)} / {fmt(hover.ma20)}</dd>
-        <dt>MACD</dt><dd>{fmt(hover.macd)}</dd>
+        {indicatorVisibility.rsi && <><dt>RSI14</dt><dd>{fmt(hover.rsi14)}</dd></>}
+        {indicatorVisibility.ma && <><dt>MA5/10/20</dt><dd>{fmt(hover.ma5)} / {fmt(hover.ma10)} / {fmt(hover.ma20)}</dd></>}
+        {indicatorVisibility.macd && <><dt>MACD</dt><dd>{fmt(hover.macd)}</dd></>}
       </dl>
     </div>}
   </div>;
