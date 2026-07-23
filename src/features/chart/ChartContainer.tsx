@@ -35,6 +35,8 @@ import { RangeLinePrimitive } from './RangeLinePrimitive';
 import { aggregateCandles, type ChartPeriod } from './timeframe';
 import { calculateChipDistribution } from '@/features/marketData/chipDistribution';
 import ChipProfile from '@/features/marketData/ChipProfile';
+import { analyzeChanlun } from '@/features/chanlun';
+import { ChanStructurePrimitive } from './ChanStructurePrimitive';
 
 interface IndicatorPaneEntry {
   chart: IChartApi;
@@ -48,12 +50,22 @@ interface ChartContainerProps {
   showRangeLines?: boolean;
   period?: ChartPeriod;
   showChipProfile?: boolean;
+  showChanPens?: boolean;
+  showChanFractals?: boolean;
+  showChanSegments?: boolean;
+  showChanPenCenters?: boolean;
+  showChanSegmentCenters?: boolean;
 }
 
 export default function ChartContainer({
   showRangeLines = false,
   period = 'day',
   showChipProfile = false,
+  showChanPens = false,
+  showChanFractals = false,
+  showChanSegments = false,
+  showChanPenCenters = false,
+  showChanSegmentCenters = false,
 }: ChartContainerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
@@ -86,6 +98,7 @@ export default function ChartContainer({
   const rangeLineDragging = useChartStore((s) => s.rangeLineDragging);
   const visibleRangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rangeLineRef = useRef<RangeLinePrimitive | null>(null);
+  const chanStructureRef = useRef<ChanStructurePrimitive | null>(null);
   const rangeLineHoveredRef = useRef<'start' | 'end' | null>(null);
   const chipPriceToCoordinateRef = useRef<((price: number) => number | null) | null>(null);
   const [chipChartLayout, setChipChartLayout] = useState({ height: 0, revision: 0 });
@@ -95,6 +108,20 @@ export default function ChartContainer({
     () => calculateAllIndicators(candles, actives),
     [candles, actives],
   );
+  const chanAnalysis = useMemo(
+    () => analyzeChanlun(candles),
+    [candles],
+  );
+  const confirmedPenCount = chanAnalysis.pens.filter((pen) => pen.status === 'confirmed').length;
+  const candidatePenCount = chanAnalysis.pens.length - confirmedPenCount;
+  const confirmedSegmentCount = chanAnalysis.segments.filter((segment) => segment.status === 'confirmed').length;
+  const candidateSegmentCount = chanAnalysis.segments.length - confirmedSegmentCount;
+  const confirmedPenCenterCount = chanAnalysis.penCenters.filter((center) => center.status === 'confirmed').length;
+  const candidatePenCenterCount = chanAnalysis.penCenters.length - confirmedPenCenterCount;
+  const confirmedSegmentCenterCount = chanAnalysis.segmentCenters.filter((center) => center.status === 'confirmed').length;
+  const candidateSegmentCenterCount = chanAnalysis.segmentCenters.length - confirmedSegmentCenterCount;
+  const latestPenCenter = chanAnalysis.penCenters[chanAnalysis.penCenters.length - 1];
+  const latestSegmentCenter = chanAnalysis.segmentCenters[chanAnalysis.segmentCenters.length - 1];
   const effectiveChipEndIndex = chipEndIndex >= 0
     ? Math.min(chipEndIndex, sourceCandles.length - 1)
     : sourceCandles.length - 1;
@@ -368,6 +395,10 @@ export default function ChartContainer({
     });
     volumeSeriesRef.current = volSeries;
 
+    const chanStructure = new ChanStructurePrimitive();
+    chanStructureRef.current = chanStructure;
+    candleSeries.attachPrimitive(chanStructure);
+
     let handleRangeMouseDown: ((event: MouseEvent) => void) | undefined;
 
     // Attach draggable range lines (only on chart page, not backtest)
@@ -523,6 +554,10 @@ export default function ChartContainer({
         candleSeries.detachPrimitive(rangeLineRef.current);
         rangeLineRef.current = null;
       }
+      if (chanStructureRef.current) {
+        candleSeries.detachPrimitive(chanStructureRef.current);
+        chanStructureRef.current = null;
+      }
       for (const entry of indicatorPanesRef.current.values()) {
         entry.unsubscribeRange?.();
         entry.unsubscribeCrosshair?.();
@@ -559,6 +594,27 @@ export default function ChartContainer({
       revision: current.revision + 1,
     }));
   }, [candles]);
+
+  // Keep the custom Chan structure layer independent from candle and indicator series.
+  useEffect(() => {
+    const primitive = chanStructureRef.current;
+    if (!primitive) return;
+    primitive.setAnalysis(chanAnalysis);
+    primitive.setVisibility({
+      pens: showChanPens,
+      fractals: showChanFractals,
+      segments: showChanSegments,
+      penCenters: showChanPenCenters,
+      segmentCenters: showChanSegmentCenters,
+    });
+  }, [
+    chanAnalysis,
+    showChanFractals,
+    showChanPenCenters,
+    showChanPens,
+    showChanSegmentCenters,
+    showChanSegments,
+  ]);
 
   // Signal markers on candlestick chart
   useEffect(() => {
@@ -820,6 +876,49 @@ export default function ChartContainer({
         }}
       >
         <div ref={mainRef} className="analysis-main-chart" />
+        {(showChanPens || showChanFractals || showChanSegments || showChanPenCenters || showChanSegmentCenters) && (
+          <div className="chan-chart-legend" aria-label="缠论结构图例">
+            <span className="chan-version-badge">{chanAnalysis.config.algorithmVersion}</span>
+            {showChanPens && (
+              <>
+                <span className="chan-legend-item is-confirmed">确认笔 {confirmedPenCount}</span>
+                <span className="chan-legend-item is-candidate">候选笔 {candidatePenCount}</span>
+              </>
+            )}
+            {showChanFractals && (
+              <span className="chan-legend-item is-fractal">分型 {chanAnalysis.fractals.length}</span>
+            )}
+            {showChanSegments && (
+              <>
+                <span className="chan-legend-item is-segment">确认段 {confirmedSegmentCount}</span>
+                <span className="chan-legend-item is-segment-candidate">候选段 {candidateSegmentCount}</span>
+              </>
+            )}
+            {showChanPenCenters && (
+              <span
+                className="chan-legend-item is-pen-center"
+                title={latestPenCenter
+                  ? `笔中枢 [${latestPenCenter.zd}, ${latestPenCenter.zg}] · ${latestPenCenter.lifecycle} · 确认 ${latestPenCenter.confirmedAt ?? '等待'}`
+                  : '当前没有笔中枢'}
+              >
+                笔中枢 {confirmedPenCenterCount}/{candidatePenCenterCount}
+              </span>
+            )}
+            {showChanSegmentCenters && (
+              <span
+                className="chan-legend-item is-segment-center"
+                title={latestSegmentCenter
+                  ? `段中枢 [${latestSegmentCenter.zd}, ${latestSegmentCenter.zg}] · ${latestSegmentCenter.lifecycle} · 确认 ${latestSegmentCenter.confirmedAt ?? '等待'}`
+                  : '当前没有段中枢'}
+              >
+                段中枢 {confirmedSegmentCenterCount}/{candidateSegmentCenterCount}
+              </span>
+            )}
+            <span className="chan-asof" title="所有结构仅使用截至该时点可获得的行情">
+              截止 {chanAnalysis.current.asOf ?? '--'}
+            </span>
+          </div>
+        )}
         {showChipProfile && period === 'day' && (
           <ChipProfile
             distribution={chipDistribution}

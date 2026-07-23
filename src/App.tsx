@@ -1,6 +1,6 @@
 import { useState, useCallback, lazy, Suspense, useMemo, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ConfigProvider, App as AntApp, Button, Modal, Segmented, Space } from 'antd';
+import { ConfigProvider, App as AntApp, Button, Modal, Segmented, Space, Tag } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   AreaChartOutlined,
@@ -12,6 +12,7 @@ import {
   ExperimentOutlined,
   FundProjectionScreenOutlined,
   LineChartOutlined,
+  NodeIndexOutlined,
   SettingOutlined,
   StarOutlined,
 } from '@ant-design/icons';
@@ -32,6 +33,8 @@ import { getRepository } from './api/useRepository';
 import { computeChecksum } from './db/marketDataRepository';
 import type { ImportResult } from './models';
 import { aggregateCandles, type ChartPeriod } from './features/chart/timeframe';
+import { analyzeChanlun } from './features/chanlun';
+import ChanStructurePanel from './features/chanlun/ChanStructurePanel';
 import {
   fetchAdjustedDatasets,
   fetchAdjustedDatasetsByCode,
@@ -128,8 +131,14 @@ function MarketAnalysisRoute() {
   const [rangeSelectionEnabled, setRangeSelectionEnabled] = useState(false);
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [showChipProfile, setShowChipProfile] = useState(false);
+  const [showChanPens, setShowChanPens] = useState(true);
+  const [showChanFractals, setShowChanFractals] = useState(true);
+  const [showChanSegments, setShowChanSegments] = useState(true);
+  const [showChanPenCenters, setShowChanPenCenters] = useState(true);
+  const [showChanSegmentCenters, setShowChanSegmentCenters] = useState(true);
   const [indicatorInspectorOpen, setIndicatorInspectorOpen] = useState(true);
   const [indicatorDrawerOpen, setIndicatorDrawerOpen] = useState(false);
+  const [inspectorMode, setInspectorMode] = useState<'indicator' | 'chan'>('indicator');
   const [exportingAnalysis, setExportingAnalysis] = useState(false);
   const emptyCandlesPromptShownRef = useRef(false);
   const isCompactViewport = useCompactViewport();
@@ -138,6 +147,7 @@ function MarketAnalysisRoute() {
     () => aggregateCandles(sourceCandles, period),
     [period, sourceCandles],
   );
+  const chanAnalysis = useMemo(() => analyzeChanlun(displayCandles), [displayCandles]);
 
   useEffect(() => {
     if (sourceCandles.length > 0) {
@@ -170,13 +180,14 @@ function MarketAnalysisRoute() {
     return undefined;
   }, [navigate, notification, sourceCandles.length]);
 
-  const handleIndicatorPanelToggle = useCallback(() => {
+  const handleInspectorToggle = useCallback((mode: 'indicator' | 'chan') => {
+    setInspectorMode(mode);
     if (isCompactViewport) {
       setIndicatorDrawerOpen(true);
       return;
     }
-    setIndicatorInspectorOpen((value) => !value);
-  }, [isCompactViewport]);
+    setIndicatorInspectorOpen((value) => inspectorMode === mode ? !value : true);
+  }, [inspectorMode, isCompactViewport]);
 
   const handleExportAnalysis = useCallback(async () => {
     const { importResult } = useCandleStore.getState();
@@ -235,28 +246,55 @@ function MarketAnalysisRoute() {
     }
   }, [notification, sourceCandles]);
 
+  const inspectorContent = (
+    <>
+      <Segmented
+        block
+        size="small"
+        value={inspectorMode}
+        options={[
+          { label: '指标', value: 'indicator' },
+          { label: '缠论', value: 'chan' },
+        ]}
+        onChange={setInspectorMode}
+      />
+      {inspectorMode === 'indicator'
+        ? <IndicatorPanel />
+        : <ChanStructurePanel analysis={chanAnalysis} />}
+    </>
+  );
+
   const indicatorPanel = (
     <WorkbenchPanel
-      title="指标配置"
-      subtitle="技术指标与参数"
+      title="分析图层"
+      subtitle={inspectorMode === 'indicator' ? '技术指标与参数' : '当前结构与确认依据'}
       className="market-analysis-inspector-panel"
-      closeLabel="收起指标配置"
+      closeLabel="收起分析图层"
       onClose={!isCompactViewport ? () => setIndicatorInspectorOpen(false) : undefined}
     >
-      <IndicatorPanel />
+      {inspectorContent}
     </WorkbenchPanel>
   );
 
   const analysisControls = (
     <Space className="market-analysis-toolbar-controls" size={8} wrap>
       <Button
-        type={!isCompactViewport && indicatorInspectorOpen ? 'primary' : 'default'}
+        type={!isCompactViewport && indicatorInspectorOpen && inspectorMode === 'indicator' ? 'primary' : 'default'}
         size="small"
         icon={<SettingOutlined />}
-        aria-pressed={!isCompactViewport && indicatorInspectorOpen}
-        onClick={handleIndicatorPanelToggle}
+        aria-pressed={!isCompactViewport && indicatorInspectorOpen && inspectorMode === 'indicator'}
+        onClick={() => handleInspectorToggle('indicator')}
       >
         指标
+      </Button>
+      <Button
+        type={!isCompactViewport && indicatorInspectorOpen && inspectorMode === 'chan' ? 'primary' : 'default'}
+        size="small"
+        icon={<NodeIndexOutlined />}
+        aria-pressed={!isCompactViewport && indicatorInspectorOpen && inspectorMode === 'chan'}
+        onClick={() => handleInspectorToggle('chan')}
+      >
+        缠论
       </Button>
       <Button
         className="market-chip-toggle"
@@ -270,6 +308,60 @@ function MarketAnalysisRoute() {
       >
         筹码峰
       </Button>
+      <Space.Compact className="chan-layer-controls">
+        <Button
+          type={showChanPens ? 'primary' : 'default'}
+          size="small"
+          icon={<NodeIndexOutlined />}
+          aria-pressed={showChanPens}
+          disabled={displayCandles.length === 0}
+          title="显示或隐藏缠论笔；紫色实线为确认笔，橙色虚线为候选笔"
+          onClick={() => setShowChanPens((value) => !value)}
+        >
+          缠论笔
+        </Button>
+        <Button
+          type={showChanFractals ? 'primary' : 'default'}
+          size="small"
+          aria-pressed={showChanFractals}
+          disabled={displayCandles.length === 0}
+          title="显示或隐藏严格顶底分型"
+          onClick={() => setShowChanFractals((value) => !value)}
+        >
+          分型
+        </Button>
+        <Button
+          type={showChanSegments ? 'primary' : 'default'}
+          size="small"
+          aria-pressed={showChanSegments}
+          disabled={displayCandles.length === 0}
+          title="显示或隐藏标准特征序列线段"
+          onClick={() => setShowChanSegments((value) => !value)}
+        >
+          线段
+        </Button>
+        <Button
+          type={showChanPenCenters ? 'primary' : 'default'}
+          size="small"
+          aria-pressed={showChanPenCenters}
+          disabled={displayCandles.length === 0}
+          title="显示或隐藏笔级别标准中枢"
+          onClick={() => setShowChanPenCenters((value) => !value)}
+        >
+          笔中枢
+        </Button>
+        <Button
+          type={showChanSegmentCenters ? 'primary' : 'default'}
+          size="small"
+          aria-pressed={showChanSegmentCenters}
+          disabled={displayCandles.length === 0}
+          title="显示或隐藏线段级别标准中枢"
+          onClick={() => setShowChanSegmentCenters((value) => !value)}
+        >
+          段中枢
+        </Button>
+      </Space.Compact>
+      <Tag className="chan-version-tag" variant="filled">chan-v1</Tag>
       <Segmented<ChartPeriod>
         aria-label="K线周期"
         size="small"
@@ -314,6 +406,11 @@ function MarketAnalysisRoute() {
             showRangeLines={rangeSelectionEnabled}
             period={period}
             showChipProfile={showChipProfile && period === 'day'}
+            showChanPens={showChanPens}
+            showChanFractals={showChanFractals}
+            showChanSegments={showChanSegments}
+            showChanPenCenters={showChanPenCenters}
+            showChanSegmentCenters={showChanSegmentCenters}
           />
         </div>
         {indicatorInspectorOpen && (
@@ -324,11 +421,11 @@ function MarketAnalysisRoute() {
       </div>
       <WorkbenchDrawer
         className="market-analysis-indicator-drawer"
-        title="指标配置"
+        title="分析图层"
         open={indicatorDrawerOpen}
         onClose={() => setIndicatorDrawerOpen(false)}
       >
-        <IndicatorPanel />
+        {inspectorContent}
       </WorkbenchDrawer>
     </div>
   );

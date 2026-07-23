@@ -7,6 +7,7 @@ import { smaCrossStrategy } from './builtins/smaCrossStrategy';
 import { volatilityStrategy } from './builtins/volatilityStrategy';
 import { reversalStrategy } from './builtins/reversalStrategy';
 import { compositeFactorStrategy } from './builtins/compositeFactorStrategy';
+import { chanCenterBreakoutStrategy } from './builtins/chanCenterBreakoutStrategy';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const STRATEGY_REGISTRY: StrategyDefinition<any>[] = [
@@ -18,6 +19,7 @@ export const STRATEGY_REGISTRY: StrategyDefinition<any>[] = [
   volatilityStrategy,
   reversalStrategy,
   compositeFactorStrategy,
+  chanCenterBreakoutStrategy,
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

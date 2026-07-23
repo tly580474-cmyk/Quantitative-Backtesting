@@ -1349,6 +1349,17 @@ body {
   justify-content: flex-end;
 }
 
+.chan-layer-controls .ant-btn {
+  min-width: 58px;
+}
+
+.chan-version-tag {
+  margin-inline-end: 0;
+  color: #6d28d9;
+  background: #f3e8ff;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
 .market-analysis-workspace {
   flex: 1 1 auto;
   min-width: 0;
@@ -1423,10 +1434,137 @@ body {
 }
 
 .analysis-main-stage {
+  position: relative;
   width: 100%;
   display: flex;
   align-items: stretch;
   background: #fff;
+}
+
+.chan-chart-legend {
+  position: absolute;
+  z-index: 3;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 16px);
+  padding: 4px 8px;
+  overflow: hidden;
+  color: #475569;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+  border: 1px solid rgb(226 232 240 / 88%);
+  border-radius: 6px;
+  background: rgb(255 255 255 / 90%);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 8%);
+  backdrop-filter: blur(4px);
+}
+
+.chan-version-badge {
+  color: #6d28d9;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-weight: 600;
+}
+
+.chan-legend-item::before {
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+  content: '';
+  background: #7c3aed;
+}
+
+.chan-legend-item.is-candidate::before {
+  height: 0;
+  border-top: 2px dashed #f59e0b;
+  background: transparent;
+}
+
+.chan-legend-item.is-fractal::before {
+  width: 0;
+  height: 0;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid #dc2626;
+  border-left: 4px solid transparent;
+  background: transparent;
+}
+
+.chan-legend-item.is-segment::before {
+  height: 3px;
+  background: #2563eb;
+}
+
+.chan-legend-item.is-segment-candidate::before {
+  height: 0;
+  border-top: 3px dashed #60a5fa;
+  background: transparent;
+}
+
+.chan-legend-item.is-pen-center::before,
+.chan-legend-item.is-segment-center::before {
+  width: 12px;
+  height: 7px;
+  border: 1px solid #7c3aed;
+  background: rgb(124 58 237 / 10%);
+}
+
+.chan-structure-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.chan-structure-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.chan-structure-meta code {
+  color: #6d28d9;
+}
+
+.chan-structure-row {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  background: #f8fafc;
+}
+
+.chan-structure-row > span,
+.chan-structure-row > small {
+  color: #64748b;
+}
+
+.chan-structure-row > strong {
+  color: #1e293b;
+  font-size: 13px;
+}
+
+.chan-structure-row > small {
+  line-height: 1.45;
+}
+
+.chan-structure-note {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.chan-legend-item.is-segment-center::before {
+  border-color: #2563eb;
+  background: rgb(37 99 235 / 10%);
 }
 
 .analysis-main-chart {
