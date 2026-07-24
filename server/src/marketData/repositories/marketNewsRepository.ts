@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import type { MarketNewsItem, NewsSourceTier } from '../marketNewsTypes.js';
 import { buildCanonicalNewsHash } from '../marketNewsDedup.js';
+import { normalizeMarketNewsUrl } from '../marketNewsUrl.js';
 
 const { marketNews } = schema;
 
@@ -14,7 +15,7 @@ export async function upsertMarketNews(items: MarketNewsItem[]): Promise<void> {
     sourceName: item.sourceName,
     sourceTier: item.sourceTier,
     contentType: item.contentType,
-    sourceUrl: item.sourceUrl ?? null,
+    sourceUrl: normalizeMarketNewsUrl(item.sourceUrl) ?? null,
     title: item.title,
     summary: item.summary ?? null,
     content: item.content ?? null,
@@ -91,7 +92,7 @@ function toDomain(row: typeof marketNews.$inferSelect): MarketNewsItem {
     sourceName: row.sourceName,
     sourceTier: row.sourceTier as MarketNewsItem['sourceTier'],
     contentType: row.contentType as MarketNewsItem['contentType'],
-    sourceUrl: row.sourceUrl ?? undefined,
+    sourceUrl: normalizeMarketNewsUrl(row.sourceUrl),
     title: row.title,
     summary: row.summary ?? undefined,
     content: row.content ?? undefined,

@@ -3,6 +3,7 @@ import { fetchCachedHotSectors } from '../marketData/hotSectorService.js';
 import { fetchCachedMarketCapitalFlow } from '../marketData/marketCapitalFlowService.js';
 import { getDataFreshness } from '../marketData/repositories/marketDataRepository.js';
 import { getMarketOpinionNews, refreshMarketNews } from '../marketData/marketNewsService.js';
+import { normalizeMarketNewsUrl } from '../marketData/marketNewsUrl.js';
 import { getChinaMarketSession, type ChinaMarketSession } from '../marketData/jobs/marketSession.js';
 import { EmailSender, reportEmailHtml, type EmailDeliveryResult } from './emailSender.js';
 import { MarketOpinionAgent, type MarketOpinionDigestKind, type MarketOpinionMarketContext, type MarketOpinionReport } from './marketOpinionAgent.js';
@@ -190,9 +191,10 @@ export function formatSelectionEvidence(report: MarketOpinionReport, inputs: Fre
 }
 
 function safeArticleUrl(value?: string): string | null {
-  if (!value) return null;
+  const normalized = normalizeMarketNewsUrl(value);
+  if (!normalized) return null;
   try {
-    const url = new URL(value);
+    const url = new URL(normalized);
     if (!['http:', 'https:'].includes(url.protocol)) return null;
     return encodeURI(url.toString()).replace(/\(/g, '%28').replace(/\)/g, '%29');
   } catch {

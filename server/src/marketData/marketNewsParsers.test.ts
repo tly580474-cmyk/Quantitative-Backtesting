@@ -25,7 +25,11 @@ describe('market news parsers', () => {
   it('maps CLS telegraph items and keeps the local signature vector stable', () => {
     const items = parseClsTelegraph(fixture.cls);
     expect(items[0]).toMatchObject({
-      newsId: '2430170', sourceKey: 'cls', sourceTier: 'professional', securityCode: '601728',
+      newsId: '2430170',
+      sourceKey: 'cls',
+      sourceTier: 'professional',
+      securityCode: '601728',
+      sourceUrl: 'https://www.cls.cn/detail/2430170',
     });
     expect(items[0]?.tags).toContain('人工智能');
     expect(buildClsSignature({

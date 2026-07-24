@@ -4,6 +4,7 @@ import { LinkOutlined, NotificationOutlined, ReloadOutlined } from '@ant-design/
 import { apiFetch } from '../../api/client';
 import type { MarketNewsItem, MarketNewsSnapshot, NewsSourceTier } from './types';
 import MarketOpinionPanel from './MarketOpinionPanel';
+import { normalizeNewsUrl } from './newsUrl';
 
 const { Text } = Typography;
 const STORAGE_KEY = 'quant-market-news-v1';
@@ -95,7 +96,7 @@ export default function MarketNewsPanel() {
             <time dateTime={item.publishedAt}>{new Date(item.publishedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>
             <div>
               <Space size={[6, 4]} wrap><Tag color={tierMeta[item.sourceTier].color}>{tierMeta[item.sourceTier].label}</Tag><Tag>{item.sourceName}</Tag>{(item.sourceCount ?? 1) > 1 && <Tooltip title={`同一事件来源：${item.relatedSources?.map((source) => source.sourceName).join('、')}`}><Tag color="cyan">{item.sourceCount} 个来源</Tag></Tooltip>}{item.securityCode && <Tag color="geekblue">{item.securityCode}</Tag>}</Space>
-              <h3>{item.sourceUrl ? <a href={item.sourceUrl} target="_blank" rel="noreferrer">{item.title}<LinkOutlined /></a> : item.title}</h3>
+              <h3>{item.sourceUrl ? <a href={normalizeNewsUrl(item.sourceUrl)} target="_blank" rel="noreferrer">{item.title}<LinkOutlined /></a> : item.title}</h3>
               {item.summary && <p>{item.summary}</p>}
             </div>
           </article>)}

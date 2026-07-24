@@ -9,6 +9,7 @@ import { fetchXinwenLianbo } from './http/xinwenLianboClient.js';
 import { buildCanonicalNewsHash, clusterMarketNews } from './marketNewsDedup.js';
 import { parseClsTelegraph, parseEastmoneyGlobalNews, parseEastmoneyStockNews, sortNewsByTimeAndPriority } from './marketNewsParsers.js';
 import type { MarketNewsItem, MarketNewsSnapshot, NewsSourceTier } from './marketNewsTypes.js';
+import { normalizeMarketNewsUrl } from './marketNewsUrl.js';
 import { listMarketNews, upsertMarketNews } from './repositories/marketNewsRepository.js';
 
 const GLOBAL_NEWS_URL = 'https://np-weblist.eastmoney.com/comm/web/getFastNewsList';
@@ -157,7 +158,18 @@ async function writeCache(data: MarketNewsSnapshot): Promise<void> {
 }
 
 async function readCache(): Promise<MarketNewsSnapshot | null> {
-  try { return JSON.parse(await readFile(CACHE_FILE, 'utf8')) as MarketNewsSnapshot; } catch { return null; }
+  try {
+    const snapshot = JSON.parse(await readFile(CACHE_FILE, 'utf8')) as MarketNewsSnapshot;
+    return {
+      ...snapshot,
+      items: snapshot.items.map((item) => ({
+        ...item,
+        sourceUrl: normalizeMarketNewsUrl(item.sourceUrl),
+      })),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function normalizeCode(value: string): string {

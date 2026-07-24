@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { apiFetch } from '../../api/client';
 import type { MarketOpinionReport, MarketOpinionStatus } from './types';
+import { normalizeNewsUrl } from './newsUrl';
 
 const { Text } = Typography;
 
@@ -112,12 +113,17 @@ export default function MarketOpinionPanel() {
       <Text className="market-opinion-period" type="secondary">
         样本区间 {new Date(report.periodStart).toLocaleString('zh-CN')}—{new Date(report.periodEnd).toLocaleString('zh-CN')} · 生成于 {new Date(report.generatedAt).toLocaleString('zh-CN')}{report.cached ? ' · 缓存结果' : ''}
       </Text>
-      <article className="market-opinion-report markdown-preview"><ReactMarkdown remarkPlugins={[remarkGfm]}>{report.content}</ReactMarkdown></article>
+      <article className="market-opinion-report markdown-preview"><ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ href, children, ...props }) => <a {...props} href={normalizeNewsUrl(href)} target="_blank" rel="noreferrer">{children}</a>,
+        }}
+      >{report.content}</ReactMarkdown></article>
       <Collapse
         className="market-opinion-evidence"
         items={[
           { key: 'reasoning', label: '生成过程摘要', children: <ol>{report.reasoningSummary.map((step) => <li key={step}>{step}</li>)}</ol> },
-          { key: 'sources', label: `引用材料（${report.sources.length}）`, children: <ol>{report.sources.map((source) => <li key={source.ref}><Tag>{source.ref}</Tag>{source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noreferrer">{source.title}<LinkOutlined /></a> : source.title}<Text type="secondary"> · {source.sourceName} · {new Date(source.publishedAt).toLocaleString('zh-CN')}</Text></li>)}</ol> },
+          { key: 'sources', label: `引用材料（${report.sources.length}）`, children: <ol>{report.sources.map((source) => <li key={source.ref}><Tag>{source.ref}</Tag>{source.sourceUrl ? <a href={normalizeNewsUrl(source.sourceUrl)} target="_blank" rel="noreferrer">{source.title}<LinkOutlined /></a> : source.title}<Text type="secondary"> · {source.sourceName} · {new Date(source.publishedAt).toLocaleString('zh-CN')}</Text></li>)}</ol> },
         ]}
       />
     </>}

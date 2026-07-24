@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { parseLooseJson } from './http/looseJson.js';
 import { buildCanonicalNewsHash } from './marketNewsDedup.js';
 import { TIER_PRIORITY, type MarketNewsItem } from './marketNewsTypes.js';
+import { normalizeMarketNewsUrl } from './marketNewsUrl.js';
 
 export function parseEastmoneyGlobalNews(data: unknown): MarketNewsItem[] {
   const payload = data as { data?: { fastNewsList?: Array<Record<string, unknown>> } };
@@ -50,7 +51,7 @@ export function parseClsTelegraph(data: unknown): MarketNewsItem[] {
       sourceName: '财联社电报',
       sourceTier: 'professional',
       contentType: 'flash',
-      sourceUrl: optionalText(row.shareurl),
+      sourceUrl: normalizeMarketNewsUrl(optionalText(row.shareurl)),
       title,
       summary: optionalText(stripMarkup(text(row.brief ?? row.content)).slice(0, 500)),
       content: optionalText(stripMarkup(text(row.content)).slice(0, 4000)),

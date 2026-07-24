@@ -21,6 +21,7 @@ import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, 
 import type { ImportResult } from '@/models';
 import { useCardDragReorder } from './useCardDragReorder';
 import { buildMarketIndexCards, resolveMarketIndexSnapshot, type MarketIndexOption } from './marketIndexCards';
+import { normalizeNewsUrl } from './newsUrl';
 
 const { Text, Title } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
@@ -437,7 +438,7 @@ function SevenLayerRecordItem({ record }: { record: SevenLayerRecord }) {
     <div className="market-seven-record-head">
       <Tag>{record.source}</Tag>
       {record.date && <Text type="secondary">{record.date}</Text>}
-      {record.url ? <a href={record.url} target="_blank" rel="noreferrer">{record.title}</a> : <Text strong>{record.title}</Text>}
+      {record.url ? <a href={normalizeNewsUrl(record.url)} target="_blank" rel="noreferrer">{record.title}</a> : <Text strong>{record.title}</Text>}
     </div>
     {summary && <Text type="secondary" className="market-seven-summary">{summary}</Text>}
     {metrics.length > 0 && <div className="market-seven-metrics">{metrics.map((item) => <Tag key={item}>{item}</Tag>)}</div>}
@@ -1489,7 +1490,12 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
               </Space>
             </div>
             {(agentRunning || reasoningSummary.length > 0) && <Collapse className="agent-reasoning" activeKey={thinkingOpen ? ['reasoning'] : []} onChange={(keys) => setThinkingOpen((Array.isArray(keys) ? keys : [keys]).includes('reasoning'))} items={[{ key: 'reasoning', label: <Space>{agentRunning ? <Spin size="small" /> : <CheckCircleOutlined className="agent-process-done" />}调研过程摘要{!agentRunning && <Text type="secondary">（已完成，自动折叠）</Text>}</Space>, children: <ol>{(reasoningSummary.length ? reasoningSummary : ['读取实时行情与估值字段', '加载日K、周K与技术趋势', '整理机构研报与评级', '区分事实、推断和数据缺口', '生成结构化 Markdown 报告']).map((step) => <li key={step}>{step}</li>)}</ol> }]} />}
-            {agentResult ? <article className="agent-result markdown-preview"><ReactMarkdown remarkPlugins={[remarkGfm]}>{agentResult}</ReactMarkdown></article> : !agentRunning && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={agentStatus?.configured ? 'Agent 将调用行情、K线和研报数据生成调研报告' : '复用策略工作室的模型配置后即可运行'} />}
+            {agentResult ? <article className="agent-result markdown-preview"><ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                a: ({ href, children, ...props }) => <a {...props} href={normalizeNewsUrl(href)} target="_blank" rel="noreferrer">{children}</a>,
+              }}
+            >{agentResult}</ReactMarkdown></article> : !agentRunning && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={agentStatus?.configured ? 'Agent 将调用行情、K线和研报数据生成调研报告' : '复用策略工作室的模型配置后即可运行'} />}
           </Card>
         </div>
         <Card

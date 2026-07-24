@@ -43,6 +43,14 @@ describe('market opinion email references', () => {
     value.content = '没有引用。';
     expect(appendReferenceArticles(value)).toBe('没有引用。');
   });
+
+  it('rewrites CLS app share links in email references', () => {
+    const value = report();
+    value.sources[0]!.sourceUrl = 'https://api3.cls.cn/share/article/2436739?os=web&sv=7.7.5&app=';
+    const content = appendReferenceArticles(value);
+    expect(content).toContain('(https://www.cls.cn/detail/2436739)');
+    expect(content).not.toContain('api3.cls.cn/share/article');
+  });
 });
 
 describe('market opinion stage timeout', () => {
