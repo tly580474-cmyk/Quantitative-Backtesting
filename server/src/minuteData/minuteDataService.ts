@@ -56,6 +56,7 @@ export interface MinuteQuery {
   endDate: string;
   limit: number;
   includeZeroVolume: boolean;
+  intervalMinutes?: 1 | 5 | 15 | 30 | 60 | 120;
 }
 
 let manifestCache: { path: string; modifiedAtMs: number; manifest: MinuteDataManifest } | null = null;
@@ -95,6 +96,7 @@ export async function queryMinuteBars(root: string, query: MinuteQuery) {
       providerSymbol: normalizeMinuteProviderSymbol(query.code),
       startDate: query.startDate,
       endDate: query.endDate,
+      intervalMinutes: query.intervalMinutes ?? 1,
       sourceFiles: 0,
       items: [] as MinuteBar[],
       truncated: false,
@@ -119,6 +121,7 @@ export async function queryMinuteBars(root: string, query: MinuteQuery) {
       providerSymbol: built.providerSymbol,
       startDate: query.startDate,
       endDate: query.endDate,
+      intervalMinutes: query.intervalMinutes ?? 1,
       sourceFiles: files.length,
       items,
       truncated: rows.length > query.limit,
@@ -135,26 +138,69 @@ export function buildMinuteQuery(
 ): { sql: string; values: Record<string, string | number>; providerSymbol: string } {
   if (parquetFiles.length === 0) throw new Error('分钟查询至少需要一个 Parquet 文件');
   const providerSymbol = normalizeMinuteProviderSymbol(query.code);
+  const intervalMinutes = query.intervalMinutes ?? 1;
+  if (![1, 5, 15, 30, 60, 120].includes(intervalMinutes)) {
+    throw new Error('分钟周期仅支持 1、5、15、30、60、120 分钟');
+  }
   const fileList = parquetFiles.map((file) => `'${escapeSqlLiteral(file)}'`).join(', ');
   return {
     providerSymbol,
     values: { providerSymbol, limit: query.limit + 1 },
     sql: `
-      SELECT trade_time AS date,
+      WITH source_rows AS (
+        SELECT CAST(trade_time AS TIMESTAMP) AS trade_time,
+               open,
+               high,
+               low,
+               close,
+               vol,
+               amount,
+               pre_close,
+               CASE WHEN CAST(trade_time AS TIME) <= TIME '11:30:00' THEN 'AM' ELSE 'PM' END AS session_name
+        FROM read_parquet([${fileList}], union_by_name = true)
+        WHERE code = $providerSymbol
+          ${query.includeZeroVolume ? '' : 'AND vol > 0'}
+          AND (
+            CAST(trade_time AS TIME) BETWEEN TIME '09:30:00' AND TIME '11:30:00'
+            OR CAST(trade_time AS TIME) BETWEEN TIME '13:00:00' AND TIME '15:00:00'
+          )
+      ),
+      numbered AS (
+        SELECT *,
+               ROW_NUMBER() OVER (
+                 PARTITION BY CAST(trade_time AS DATE), session_name
+                 ORDER BY trade_time
+               ) - 1 AS minute_index
+        FROM source_rows
+      ),
+      bars AS (
+        SELECT CAST(trade_time AS DATE) AS trade_date,
+               session_name,
+               FLOOR(minute_index / ${intervalMinutes}) AS bar_index,
+               MIN(trade_time) AS date,
+               FIRST(open ORDER BY trade_time) AS open,
+               MAX(high) AS high,
+               MIN(low) AS low,
+               LAST(close ORDER BY trade_time) AS close,
+               SUM(vol) AS volume,
+               SUM(amount) AS amount,
+               FIRST(pre_close ORDER BY trade_time) AS previousClose
+        FROM numbered
+        GROUP BY trade_date, session_name, bar_index
+      )
+      SELECT date,
              open,
              high,
              low,
              close,
-             vol AS volume,
+             volume,
              amount,
-             pre_close AS previousClose,
-             change,
-             pct_chg AS changePct,
-             vol > 0 AS isTradable
-      FROM read_parquet([${fileList}], union_by_name = true)
-      WHERE code = $providerSymbol
-        ${query.includeZeroVolume ? '' : 'AND vol > 0'}
-      ORDER BY trade_time
+             previousClose,
+             close - previousClose AS change,
+             CASE WHEN previousClose = 0 THEN NULL ELSE (close - previousClose) / previousClose * 100 END AS changePct,
+             volume > 0 AS isTradable
+      FROM bars
+      ORDER BY date
       LIMIT $limit
     `,
   };

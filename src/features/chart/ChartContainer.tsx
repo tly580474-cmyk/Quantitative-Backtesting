@@ -37,6 +37,8 @@ import { calculateChipDistribution } from '@/features/marketData/chipDistributio
 import ChipProfile from '@/features/marketData/ChipProfile';
 import { analyzeChanlun } from '@/features/chanlun';
 import { ChanStructurePrimitive } from './ChanStructurePrimitive';
+import { chartTimeKey, toChartTime } from './chartTime';
+import type { Candle } from '@/models';
 
 interface IndicatorPaneEntry {
   chart: IChartApi;
@@ -47,6 +49,7 @@ interface IndicatorPaneEntry {
 }
 
 interface ChartContainerProps {
+  sourceCandles?: readonly Candle[];
   showRangeLines?: boolean;
   period?: ChartPeriod;
   showChipProfile?: boolean;
@@ -58,6 +61,7 @@ interface ChartContainerProps {
 }
 
 export default function ChartContainer({
+  sourceCandles: sourceCandlesOverride,
   showRangeLines = false,
   period = 'day',
   showChipProfile = false,
@@ -77,7 +81,8 @@ export default function ChartContainer({
   const indicatorPanesRef = useRef<Map<string, IndicatorPaneEntry>>(new Map());
   const [mainChartHeight, setMainChartHeight] = useState(MAIN_CHART_MIN_HEIGHT);
 
-  const sourceCandles = useCandleStore((s) => s.candles);
+  const storedCandles = useCandleStore((s) => s.candles);
+  const sourceCandles = sourceCandlesOverride ?? storedCandles;
   const candles = useMemo(
     () => aggregateCandles(sourceCandles, period),
     [period, sourceCandles],
@@ -250,9 +255,10 @@ export default function ChartContainer({
     }
   };
 
-  const publishCrosshairDetails = (timeStr: string): number | null => {
+  const publishCrosshairDetails = (time: Time): number | null => {
     const currentCandles = candlesRef.current;
-    const index = currentCandles.findIndex((candle) => candle.time === timeStr);
+    const key = chartTimeKey(time);
+    const index = currentCandles.findIndex((candle) => chartTimeKey(toChartTime(candle.time)) === key);
     if (index < 0) return null;
 
     const candle = currentCandles[index];
@@ -268,7 +274,7 @@ export default function ChartContainer({
       ? (calculatedChange / previousCandle.close) * 100
       : candle.changePercent;
 
-    setCrosshairTime(timeStr);
+    setCrosshairTime(candle.time);
     setCrosshairData({
       open: candle.open,
       high: candle.high,
@@ -441,8 +447,7 @@ export default function ChartContainer({
         }
         return;
       }
-      const timeStr = param.time as string;
-      const index = publishCrosshairDetails(timeStr);
+      const index = publishCrosshairDetails(param.time);
       if (index == null) return;
 
       for (const [indicatorId, pane] of indicatorPanesRef.current) {
@@ -563,11 +568,11 @@ export default function ChartContainer({
     if (!candleSeriesRef.current || !volumeSeriesRef.current) return;
 
     const candleData: CandlestickData[] = candles.map((c) => ({
-      time: c.time as Time,
+      time: toChartTime(c.time),
       open: c.open, high: c.high, low: c.low, close: c.close,
     }));
     const volData: HistogramData[] = candles.map((c) => ({
-      time: c.time as Time,
+      time: toChartTime(c.time),
       value: c.volume ?? 0,
       color: c.close >= c.open ? CHART_COLORS.volume : CHART_COLORS.volumeDown,
     }));
@@ -618,7 +623,7 @@ export default function ChartContainer({
       }
 
       const markers = activeSignals.map((s: StrategySignal) => ({
-        time: s.time as Time,
+        time: toChartTime(s.time),
         position: s.action === 'buy' ? 'belowBar' : 'aboveBar',
         color: s.action === 'buy' ? '#22C55E' : '#EF4444',
         shape: s.action === 'buy' ? 'arrowUp' : 'arrowDown',
@@ -667,7 +672,7 @@ export default function ChartContainer({
         for (let i = 0; i < data.length; i++) {
           const v = data[i];
           if (v != null) {
-            lineData.push({ time: candles[i].time as Time, value: v });
+            lineData.push({ time: toChartTime(candles[i].time), value: v });
           }
         }
         series.setData(lineData);
@@ -787,7 +792,7 @@ export default function ChartContainer({
             const value = data[i];
             if (value != null) {
               chartData.push({
-                time: candles[i].time as Time,
+                time: toChartTime(candles[i].time),
                 value,
                 color: result.id === 'macd' && cfg.key === 'histogram'
                   ? getMacdHistogramColor(value)

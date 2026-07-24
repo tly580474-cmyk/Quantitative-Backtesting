@@ -1,5 +1,5 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export interface MarketCapitalFlowSnapshot {
@@ -37,6 +37,30 @@ const ENDPOINTS = [
 
 let memoryCache: { data: MarketCapitalFlowSnapshot; cachedAt: number } | null = null;
 let refreshInFlight: Promise<MarketCapitalFlowSnapshot> | null = null;
+
+async function persistDiskCache(entry: { data: MarketCapitalFlowSnapshot; cachedAt: number }): Promise<void> {
+  const tempFile = `${CACHE_FILE}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await mkdir(dirname(CACHE_FILE), { recursive: true });
+    await writeFile(tempFile, JSON.stringify(entry), 'utf8');
+    await rename(tempFile, CACHE_FILE);
+  } catch (error) {
+    await rm(tempFile, { force: true }).catch(() => undefined);
+    console.error('[market-capital-flow] failed to persist snapshot cache', error);
+  }
+}
+
+export function useStoredReferenceSnapshot(
+  snapshot: MarketCapitalFlowSnapshot | null,
+  expectedTradeDate: string | null,
+): MarketCapitalFlowSnapshot | null {
+  if (!snapshot || !expectedTradeDate || snapshot.tradeDate !== expectedTradeDate) return null;
+  return {
+    ...snapshot,
+    stale: true,
+    fallbackReason: '盘前沿用上一完整交易日收盘资金流快照',
+  };
+}
 
 function params(page: number): URLSearchParams {
   return new URLSearchParams({
@@ -137,8 +161,7 @@ async function refreshMarketCapitalFlow(tradeDate: string | null): Promise<Marke
     };
     const cachedAt = Date.now();
     memoryCache = { data, cachedAt };
-    await mkdir(resolve(CACHE_FILE, '..'), { recursive: true });
-    await writeFile(CACHE_FILE, JSON.stringify({ data, cachedAt }), 'utf8').catch(() => undefined);
+    await persistDiskCache(memoryCache);
     return data;
   })().finally(() => {
     refreshInFlight = null;
@@ -149,8 +172,13 @@ async function refreshMarketCapitalFlow(tradeDate: string | null): Promise<Marke
 export async function fetchCachedMarketCapitalFlow(
   force = false,
   tradeDate: string | null = null,
+  allowStoredReference = false,
 ): Promise<MarketCapitalFlowSnapshot> {
   if (!memoryCache) memoryCache = await readDiskCache();
+  if (allowStoredReference) {
+    const storedReference = useStoredReferenceSnapshot(memoryCache?.data ?? null, tradeDate);
+    if (storedReference) return storedReference;
+  }
   if (!force && memoryCache && Date.now() - memoryCache.cachedAt < CACHE_MS) return memoryCache.data;
   try {
     return await refreshMarketCapitalFlow(tradeDate);

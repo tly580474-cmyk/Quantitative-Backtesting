@@ -1051,6 +1051,24 @@ body {
   .market-analysis-toolbar-controls {
     justify-content: space-between;
   }
+
+  .analysis-period-switcher {
+    width: 100%;
+    align-items: center;
+    flex-direction: row;
+    padding: 2px;
+  }
+
+  .analysis-period-switcher .ant-segmented {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+
+  .analysis-minute-range,
+  .analysis-minute-range .ant-picker {
+    width: 100%;
+  }
 }
 
 @media (max-width: 575px) {
@@ -1350,7 +1368,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #f8fafc;
+  background: #f4f7fb;
 }
 
 .market-analysis-toolbar {
@@ -1364,8 +1382,8 @@ body {
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  border-bottom: 1px solid #f0f0f0;
-  background: #fafbfc;
+  border-bottom: 1px solid #dfe6ef;
+  background: #fff;
 }
 
 .market-analysis-toolbar-extra {
@@ -1377,8 +1395,57 @@ body {
   justify-content: flex-end;
 }
 
-.chan-layer-controls .ant-btn {
-  min-width: 58px;
+.market-analysis-toolbar {
+  border-bottom-color: #dfe6ef !important;
+  background: #fff !important;
+}
+
+.analysis-period-switcher {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 2px;
+  border: 1px solid #dfe6ef;
+  border-radius: 7px;
+  background: #f8fafc;
+}
+
+.analysis-period-switcher .ant-segmented {
+  background: #eef2f7;
+}
+
+.analysis-period-switcher .ant-segmented-item {
+  cursor: pointer;
+}
+
+.analysis-more-period {
+  flex: 0 0 auto;
+  color: #475569;
+}
+
+.analysis-more-period.ant-btn-primary {
+  color: #fff;
+}
+
+.analysis-chan-layer-options {
+  min-width: 238px;
+}
+
+.analysis-chan-layer-note {
+  max-width: 260px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.analysis-minute-range .ant-picker {
+  width: 224px;
+}
+
+.analysis-minute-source {
+  margin-inline-end: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .chan-version-tag {
@@ -1396,6 +1463,7 @@ body {
   align-items: stretch;
   overflow: hidden;
   background: #fff;
+  border-top: 1px solid #eef2f7;
 }
 
 .market-analysis-chart {
@@ -1412,7 +1480,7 @@ body {
   min-height: 0;
   overflow: auto;
   border-left: 1px solid #e2e8f0;
-  background: #f8fafc;
+  background: #f4f7fb;
   scrollbar-gutter: stable;
 }
 

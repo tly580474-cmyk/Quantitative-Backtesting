@@ -212,7 +212,7 @@ export async function buildMarketContext(now: Date): Promise<MarketOpinionMarket
   const [indices, sentiment, capitalFlow, hotSectors] = await Promise.allSettled([
     fetchMarketIndexQuotes(),
     fetchCachedMarketSentimentOverview(true),
-    fetchCachedMarketCapitalFlow(true, semantics.quoteTradeDate),
+    fetchCachedMarketCapitalFlow(true, semantics.quoteTradeDate, session.phase === 'pre_open'),
     fetchCachedHotSectors(true),
   ]);
   const unavailable: string[] = [];

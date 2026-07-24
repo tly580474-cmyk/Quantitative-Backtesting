@@ -9,6 +9,8 @@ export { buildSegments } from './segments';
 export { buildCenters } from './centers';
 export { generateChanCenterSignals } from './signals';
 export type { ChanTradingSignal } from './signals';
+export { generateChanThirdBuySignals } from './thirdBuy';
+export type { ChanThirdBuySignal } from './thirdBuy';
 export { analyzeChanlunAt, replayChanlun } from './replay';
 export type { ChanReplayFrame } from './replay';
 export type {

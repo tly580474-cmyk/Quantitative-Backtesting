@@ -384,6 +384,7 @@ export function registerMarketDataRoutes(
             code: req.params.code,
             startDate: query.data.tradeDate,
             endDate: query.data.tradeDate,
+            intervalMinutes: 1,
             limit: Math.min(1000, storageConfig.minuteQueryMaxRows),
             includeZeroVolume: true,
           })).items
@@ -455,6 +456,10 @@ export function registerMarketDataRoutes(
     const query = z.object({
       startDate: z.string().date(),
       endDate: z.string().date().optional(),
+      interval: z.coerce.number().int().refine(
+        (value) => [1, 5, 15, 30, 60, 120].includes(value),
+        '不支持的分钟周期',
+      ).default(1),
       limit: z.coerce.number().int().min(1).max(storageConfig.minuteQueryMaxRows).default(10000),
       includeZeroVolume: z.enum(['true', 'false']).default('true').transform((value) => value === 'true'),
     }).safeParse(req.query);
@@ -464,6 +469,7 @@ export function registerMarketDataRoutes(
         code: req.params.code,
         startDate: query.data.startDate,
         endDate: query.data.endDate ?? query.data.startDate,
+        intervalMinutes: query.data.interval as 1 | 5 | 15 | 30 | 60 | 120,
         limit: query.data.limit,
         includeZeroVolume: query.data.includeZeroVolume,
       }));

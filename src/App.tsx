@@ -1,21 +1,24 @@
 import { useState, useCallback, lazy, Suspense, useMemo, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ConfigProvider, App as AntApp, Button, Modal, Segmented, Space, Tag } from 'antd';
+import { Checkbox, ConfigProvider, App as AntApp, Button, DatePicker, Dropdown, Modal, Popover, Segmented, Space, Tag } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   AreaChartOutlined,
   BarChartOutlined,
   ControlOutlined,
   DatabaseOutlined,
+  DownOutlined,
   DotChartOutlined,
   DownloadOutlined,
   ExperimentOutlined,
   FundProjectionScreenOutlined,
   LineChartOutlined,
   NodeIndexOutlined,
+  ReloadOutlined,
   SettingOutlined,
   StarOutlined,
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import zhCN from 'antd/locale/zh_CN';
 import AppLayout from './components/AppLayout';
 import FileUploader from './components/FileUploader';
@@ -32,7 +35,13 @@ import { apiFetch } from '@/api/client';
 import { getRepository } from './api/useRepository';
 import { computeChecksum } from './db/marketDataRepository';
 import type { ImportResult } from './models';
-import { aggregateCandles, type ChartPeriod } from './features/chart/timeframe';
+import {
+  aggregateCandles,
+  isMinutePeriod,
+  minutePeriodValue,
+  type ChartPeriod,
+  type MinuteChartPeriod,
+} from './features/chart/timeframe';
 import { analyzeChanlun } from './features/chanlun';
 import ChanStructurePanel from './features/chanlun/ChanStructurePanel';
 import {
@@ -49,6 +58,67 @@ const BacktestResultsPage = lazy(() => import('./features/backtestResults/Backte
 const StrategyStudioPage = lazy(() => import('./features/strategyStudio/StrategyStudioPage'));
 const MarketDataPage = lazy(() => import('./features/marketData/MarketDataPage'));
 const FactorResearchPage = lazy(() => import('./features/factorResearch/FactorResearchPage'));
+
+interface MinuteCatalogResponse {
+  status: 'ready' | 'unavailable';
+  firstDate?: string | null;
+  lastDate?: string | null;
+}
+
+interface MinuteBarsResponse {
+  intervalMinutes: number;
+  sourceFiles: number;
+  truncated: boolean;
+  elapsedMs: number;
+  items: Array<{
+    date: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+    amount: number;
+  }>;
+}
+
+const MINUTE_DEFAULT_WINDOW_DAYS: Record<MinuteChartPeriod, number> = {
+  minute1: 5,
+  minute5: 15,
+  minute15: 30,
+  minute30: 60,
+  minute60: 90,
+  minute120: 120,
+};
+
+const MINUTE_MAX_WINDOW_DAYS: Record<MinuteChartPeriod, number> = {
+  minute1: 15,
+  minute5: 60,
+  minute15: 120,
+  minute30: 180,
+  minute60: 366,
+  minute120: 366,
+};
+
+function normalizeMinuteTime(value: string): string {
+  return value.trim().replace('T', ' ').slice(0, 16);
+}
+
+const COMMON_PERIOD_OPTIONS: Array<{ label: string; value: ChartPeriod }> = [
+  { label: '1分', value: 'minute1' },
+  { label: '5分', value: 'minute5' },
+  { label: '日K', value: 'day' },
+  { label: '周K', value: 'week' },
+  { label: '月K', value: 'month' },
+];
+
+const MORE_PERIOD_OPTIONS: Array<{ label: string; value: ChartPeriod }> = [
+  { label: '15分钟', value: 'minute15' },
+  { label: '30分钟', value: 'minute30' },
+  { label: '60分钟', value: 'minute60' },
+  { label: '120分钟', value: 'minute120' },
+  { label: '季K', value: 'quarter' },
+  { label: '年K', value: 'year' },
+];
 
 const NAV_ITEMS: MenuProps['items'] = [
   {
@@ -131,6 +201,7 @@ function MarketAnalysisRoute() {
   const [rangeSelectionEnabled, setRangeSelectionEnabled] = useState(false);
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [showChipProfile, setShowChipProfile] = useState(false);
+  const [chanEnabled, setChanEnabled] = useState(false);
   const [showChanPens, setShowChanPens] = useState(true);
   const [showChanFractals, setShowChanFractals] = useState(true);
   const [showChanSegments, setShowChanSegments] = useState(true);
@@ -140,14 +211,108 @@ function MarketAnalysisRoute() {
   const [indicatorDrawerOpen, setIndicatorDrawerOpen] = useState(false);
   const [inspectorMode, setInspectorMode] = useState<'indicator' | 'chan'>('indicator');
   const [exportingAnalysis, setExportingAnalysis] = useState(false);
+  const [minuteCandles, setMinuteCandles] = useState<ImportResult['candles']>([]);
+  const [minuteRange, setMinuteRange] = useState<[string, string] | null>(null);
+  const [minuteCatalog, setMinuteCatalog] = useState<MinuteCatalogResponse | null>(null);
+  const [minuteLoading, setMinuteLoading] = useState(false);
+  const [minuteMeta, setMinuteMeta] = useState<{ sourceFiles: number; elapsedMs: number; truncated: boolean } | null>(null);
+  const minuteRequestRef = useRef(0);
   const emptyCandlesPromptShownRef = useRef(false);
   const isCompactViewport = useCompactViewport();
   const sourceCandles = useCandleStore((state) => state.candles);
+  const importResult = useCandleStore((state) => state.importResult);
+  const analysisSymbol = importResult?.symbol ?? sourceCandles[0]?.symbol ?? '';
+  const activeSourceCandles = isMinutePeriod(period) ? minuteCandles : sourceCandles;
   const displayCandles = useMemo(
-    () => aggregateCandles(sourceCandles, period),
-    [period, sourceCandles],
+    () => aggregateCandles(activeSourceCandles, period),
+    [activeSourceCandles, period],
   );
   const chanAnalysis = useMemo(() => analyzeChanlun(displayCandles), [displayCandles]);
+
+  const loadMinuteCandles = useCallback(async (
+    nextPeriod: MinuteChartPeriod,
+    range: [string, string],
+    quiet = false,
+  ) => {
+    if (!analysisSymbol) {
+      if (!quiet) notification.warning({ message: '请先从市场数据或数据管理打开一只股票' });
+      return;
+    }
+    const maxDays = MINUTE_MAX_WINDOW_DAYS[nextPeriod];
+    if (dayjs(range[1]).diff(dayjs(range[0]), 'day') + 1 > maxDays) {
+      notification.warning({ message: `${minutePeriodValue(nextPeriod)} 分钟线单次最多加载 ${maxDays} 个自然日` });
+      return;
+    }
+    const requestId = ++minuteRequestRef.current;
+    setMinuteLoading(true);
+    try {
+      const query = new URLSearchParams({
+        startDate: range[0],
+        endDate: range[1],
+        interval: String(minutePeriodValue(nextPeriod)),
+        includeZeroVolume: 'true',
+        limit: '100000',
+      });
+      const response = await apiFetch<MinuteBarsResponse>(
+        `/api/market-data/stocks/${encodeURIComponent(analysisSymbol)}/minute?${query}`,
+        { timeoutMs: 60000 },
+      );
+      if (requestId !== minuteRequestRef.current) return;
+      const requestedInterval = minutePeriodValue(nextPeriod);
+      if (response.intervalMinutes !== requestedInterval) {
+        throw new Error(`分钟周期校验失败：请求 ${requestedInterval} 分钟，服务端返回 ${response.intervalMinutes ?? '未知'} 分钟；请重启后端服务`);
+      }
+      setMinuteCandles(response.items.map((item) => ({
+        time: normalizeMinuteTime(item.date),
+        symbol: analysisSymbol,
+        open: item.open,
+        high: item.high,
+        low: item.low,
+        close: item.close,
+        volume: item.volume,
+        turnover: item.amount / 100_000_000,
+      })));
+      setMinuteMeta({
+        sourceFiles: response.sourceFiles,
+        elapsedMs: response.elapsedMs,
+        truncated: response.truncated,
+      });
+      if (response.truncated) notification.warning({ message: '分钟数据达到返回上限，请缩短日期范围' });
+    } catch (error) {
+      if (requestId !== minuteRequestRef.current) return;
+      setMinuteCandles([]);
+      setMinuteMeta(null);
+      notification.error({ message: error instanceof Error ? error.message : '分钟行情加载失败' });
+    } finally {
+      if (requestId === minuteRequestRef.current) setMinuteLoading(false);
+    }
+  }, [analysisSymbol, notification]);
+
+  useEffect(() => {
+    if (!isMinutePeriod(period)) return;
+    let cancelled = false;
+    const prepare = async () => {
+      try {
+        const catalog = await apiFetch<MinuteCatalogResponse>('/api/market-data/minute/catalog');
+        if (cancelled) return;
+        setMinuteCatalog(catalog);
+        if (catalog.status !== 'ready' || !catalog.lastDate) {
+          setMinuteCandles([]);
+          notification.warning({ message: 'DuckDB 分钟快照暂不可用' });
+          return;
+        }
+        const end = catalog.lastDate;
+        const start = dayjs(end).subtract(MINUTE_DEFAULT_WINDOW_DAYS[period] - 1, 'day').format('YYYY-MM-DD');
+        const range: [string, string] = [start, end];
+        setMinuteRange(range);
+        await loadMinuteCandles(period, range, true);
+      } catch (error) {
+        if (!cancelled) notification.error({ message: error instanceof Error ? error.message : '分钟数据目录读取失败' });
+      }
+    };
+    void prepare();
+    return () => { cancelled = true; };
+  }, [loadMinuteCandles, notification, period]);
 
   useEffect(() => {
     if (sourceCandles.length > 0) {
@@ -276,6 +441,57 @@ function MarketAnalysisRoute() {
     </WorkbenchPanel>
   );
 
+  const chanLayerOptions = (
+    <div className="market-layer-options analysis-chan-layer-options" aria-label="缠线图层选择">
+      <Checkbox
+        checked={chanEnabled}
+        disabled={displayCandles.length === 0}
+        onChange={(event) => setChanEnabled(event.target.checked)}
+      >
+        启用缠线分析
+      </Checkbox>
+      <div className="market-layer-options-divider" />
+      <Checkbox
+        checked={showChanFractals}
+        disabled={!chanEnabled}
+        onChange={(event) => setShowChanFractals(event.target.checked)}
+      >
+        顶底分型
+      </Checkbox>
+      <Checkbox
+        checked={showChanPens}
+        disabled={!chanEnabled}
+        onChange={(event) => setShowChanPens(event.target.checked)}
+      >
+        笔
+      </Checkbox>
+      <Checkbox
+        checked={showChanSegments}
+        disabled={!chanEnabled}
+        onChange={(event) => setShowChanSegments(event.target.checked)}
+      >
+        线段
+      </Checkbox>
+      <Checkbox
+        checked={showChanPenCenters}
+        disabled={!chanEnabled}
+        onChange={(event) => setShowChanPenCenters(event.target.checked)}
+      >
+        笔中枢
+      </Checkbox>
+      <Checkbox
+        checked={showChanSegmentCenters}
+        disabled={!chanEnabled}
+        onChange={(event) => setShowChanSegmentCenters(event.target.checked)}
+      >
+        段中枢
+      </Checkbox>
+      <span className="analysis-chan-layer-note">候选结构与确认结构沿用 chan-v1 规则。</span>
+    </div>
+  );
+
+  const morePeriod = MORE_PERIOD_OPTIONS.find((option) => option.value === period);
+
   const analysisControls = (
     <Space className="market-analysis-toolbar-controls" size={8} wrap>
       <Button
@@ -296,6 +512,18 @@ function MarketAnalysisRoute() {
       >
         缠论
       </Button>
+      <Popover placement="bottomRight" trigger="click" title="缠线图层" content={chanLayerOptions}>
+        <Button
+          type={chanEnabled ? 'primary' : 'default'}
+          size="small"
+          icon={<NodeIndexOutlined />}
+          aria-pressed={chanEnabled}
+          disabled={displayCandles.length === 0}
+          title="配置缠线图层"
+        >
+          缠线
+        </Button>
+      </Popover>
       <Button
         className="market-chip-toggle"
         type={showChipProfile && period === 'day' ? 'primary' : 'default'}
@@ -308,77 +536,69 @@ function MarketAnalysisRoute() {
       >
         筹码峰
       </Button>
-      <Space.Compact className="chan-layer-controls">
-        <Button
-          type={showChanPens ? 'primary' : 'default'}
+      {chanEnabled && <Tag className="chan-version-tag" variant="filled">chan-v1</Tag>}
+      <div className="analysis-period-switcher" aria-label="K线周期">
+        <Segmented<ChartPeriod>
           size="small"
-          icon={<NodeIndexOutlined />}
-          aria-pressed={showChanPens}
-          disabled={displayCandles.length === 0}
-          title="显示或隐藏缠论笔；紫色实线为确认笔，橙色虚线为候选笔"
-          onClick={() => setShowChanPens((value) => !value)}
+          value={(COMMON_PERIOD_OPTIONS.some((option) => option.value === period) ? period : '') as ChartPeriod}
+          options={COMMON_PERIOD_OPTIONS}
+          onChange={setPeriod}
+        />
+        <Dropdown
+          trigger={['click']}
+          placement="bottomRight"
+          menu={{
+            selectable: true,
+            selectedKeys: morePeriod ? [morePeriod.value] : [],
+            items: MORE_PERIOD_OPTIONS.map((option) => ({ key: option.value, label: option.label })),
+            onClick: ({ key }) => setPeriod(key as ChartPeriod),
+          }}
         >
-          缠论笔
-        </Button>
-        <Button
-          type={showChanFractals ? 'primary' : 'default'}
-          size="small"
-          aria-pressed={showChanFractals}
-          disabled={displayCandles.length === 0}
-          title="显示或隐藏严格顶底分型"
-          onClick={() => setShowChanFractals((value) => !value)}
-        >
-          分型
-        </Button>
-        <Button
-          type={showChanSegments ? 'primary' : 'default'}
-          size="small"
-          aria-pressed={showChanSegments}
-          disabled={displayCandles.length === 0}
-          title="显示或隐藏标准特征序列线段"
-          onClick={() => setShowChanSegments((value) => !value)}
-        >
-          线段
-        </Button>
-        <Button
-          type={showChanPenCenters ? 'primary' : 'default'}
-          size="small"
-          aria-pressed={showChanPenCenters}
-          disabled={displayCandles.length === 0}
-          title="显示或隐藏笔级别标准中枢"
-          onClick={() => setShowChanPenCenters((value) => !value)}
-        >
-          笔中枢
-        </Button>
-        <Button
-          type={showChanSegmentCenters ? 'primary' : 'default'}
-          size="small"
-          aria-pressed={showChanSegmentCenters}
-          disabled={displayCandles.length === 0}
-          title="显示或隐藏线段级别标准中枢"
-          onClick={() => setShowChanSegmentCenters((value) => !value)}
-        >
-          段中枢
-        </Button>
-      </Space.Compact>
-      <Tag className="chan-version-tag" variant="filled">chan-v1</Tag>
-      <Segmented<ChartPeriod>
-        aria-label="K线周期"
-        size="small"
-        value={period}
-        options={[
-          { label: '日K', value: 'day' },
-          { label: '周K', value: 'week' },
-          { label: '月K', value: 'month' },
-        ]}
-        onChange={setPeriod}
-      />
+          <Button
+            className="analysis-more-period"
+            type={morePeriod ? 'primary' : 'text'}
+            size="small"
+          >
+            {morePeriod?.label ?? '更多'} <DownOutlined />
+          </Button>
+        </Dropdown>
+      </div>
+      {isMinutePeriod(period) && (
+        <Space.Compact className="analysis-minute-range">
+          <DatePicker.RangePicker
+            size="small"
+            allowClear={false}
+            value={minuteRange ? [dayjs(minuteRange[0]), dayjs(minuteRange[1])] : null}
+            minDate={minuteCatalog?.firstDate ? dayjs(minuteCatalog.firstDate) : undefined}
+            maxDate={minuteCatalog?.lastDate ? dayjs(minuteCatalog.lastDate) : undefined}
+            onChange={(dates) => {
+              if (dates?.[0] && dates[1]) {
+                setMinuteRange([dates[0].format('YYYY-MM-DD'), dates[1].format('YYYY-MM-DD')]);
+              }
+            }}
+          />
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            loading={minuteLoading}
+            disabled={!minuteRange || !analysisSymbol}
+            onClick={() => minuteRange && loadMinuteCandles(period, minuteRange)}
+          >
+            加载
+          </Button>
+        </Space.Compact>
+      )}
+      {isMinutePeriod(period) && minuteMeta && (
+        <Tag className="analysis-minute-source" color={minuteMeta.truncated ? 'warning' : 'blue'}>
+          DuckDB · {minuteMeta.sourceFiles} 日 · {displayCandles.length} 根 · {minuteMeta.elapsedMs}ms
+        </Tag>
+      )}
       <Button
         size="small"
         icon={<DownloadOutlined />}
         loading={exportingAnalysis}
-        disabled={sourceCandles.length === 0}
-        title="导出前复权 / 后复权 / 不复权日 K 行情"
+        disabled={sourceCandles.length === 0 || isMinutePeriod(period)}
+        title={isMinutePeriod(period) ? '分钟行情按需加载，不参与日 K 复权导出' : '导出前复权 / 后复权 / 不复权日 K 行情'}
         onClick={handleExportAnalysis}
       >
         导出数据
@@ -402,14 +622,15 @@ function MarketAnalysisRoute() {
       <div className={indicatorInspectorOpen ? 'market-analysis-workspace has-inspector' : 'market-analysis-workspace'}>
         <div className="market-analysis-chart">
           <ChartContainer
+            sourceCandles={activeSourceCandles}
             showRangeLines={rangeSelectionEnabled}
             period={period}
             showChipProfile={showChipProfile && period === 'day'}
-            showChanPens={showChanPens}
-            showChanFractals={showChanFractals}
-            showChanSegments={showChanSegments}
-            showChanPenCenters={showChanPenCenters}
-            showChanSegmentCenters={showChanSegmentCenters}
+            showChanPens={chanEnabled && showChanPens}
+            showChanFractals={chanEnabled && showChanFractals}
+            showChanSegments={chanEnabled && showChanSegments}
+            showChanPenCenters={chanEnabled && showChanPenCenters}
+            showChanSegmentCenters={chanEnabled && showChanSegmentCenters}
           />
         </div>
         {indicatorInspectorOpen && (

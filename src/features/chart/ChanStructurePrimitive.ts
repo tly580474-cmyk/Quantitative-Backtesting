@@ -7,6 +7,7 @@ import type {
   Time,
 } from 'lightweight-charts';
 import type { ChanAnalysis, ChanCenter, ChanFractal, ChanPen, ChanSegment } from '@/features/chanlun';
+import { toChartTime } from './chartTime';
 
 export interface ChanLayerVisibility {
   pens: boolean;
@@ -239,7 +240,7 @@ export class ChanStructurePrimitive implements ISeriesPrimitive<Time> {
   paneViews(): IPrimitivePaneView[] {
     return [new ChanStructurePaneView(new ChanStructureRenderer(
       () => this.getRenderModel(),
-      (time) => this.chart?.timeScale().timeToCoordinate(time as Time) ?? null,
+      (time) => this.chart?.timeScale().timeToCoordinate(toChartTime(time)) ?? null,
       (price) => this.series?.priceToCoordinate(price) ?? null,
     ))];
   }

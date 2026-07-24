@@ -14,7 +14,13 @@ export interface CollectorRun {
   details?: Record<string, unknown>;
 }
 
-export async function tryStartCollectorRun(runKey: string, jobType: string): Promise<boolean> {
+export async function tryStartCollectorRun(
+  runKey: string,
+  jobType: string,
+  options: { maxAttempts?: number; retryDelayMinutes?: number } = {},
+): Promise<boolean> {
+  const maxAttempts = options.maxAttempts ?? 3;
+  const retryDelayMinutes = options.retryDelayMinutes ?? 0;
   const result = await getDb().execute(sql`
     INSERT IGNORE INTO ${marketDataCollectorRuns}
       (${marketDataCollectorRuns.runKey}, ${marketDataCollectorRuns.jobType}, ${marketDataCollectorRuns.status}, ${marketDataCollectorRuns.attempts}, ${marketDataCollectorRuns.startedAt})
@@ -22,6 +28,8 @@ export async function tryStartCollectorRun(runKey: string, jobType: string): Pro
   `);
   const packet = result[0] as { affectedRows?: number };
   if (Number(packet.affectedRows ?? 0) > 0) return true;
+  const retryCutoff = new Date(Date.now() - retryDelayMinutes * 60_000)
+    .toISOString().replace('T', ' ').replace('Z', '');
   const retry = await getDb().update(marketDataCollectorRuns).set({
     status: 'running',
     attempts: sql`${marketDataCollectorRuns.attempts} + 1`,
@@ -31,7 +39,8 @@ export async function tryStartCollectorRun(runKey: string, jobType: string): Pro
   }).where(and(
     eq(marketDataCollectorRuns.runKey, runKey),
     eq(marketDataCollectorRuns.status, 'failed'),
-    lt(marketDataCollectorRuns.attempts, 3),
+    lt(marketDataCollectorRuns.attempts, maxAttempts),
+    lt(marketDataCollectorRuns.startedAt, retryCutoff),
   ));
   const retryPacket = retry[0] as { affectedRows?: number };
   return Number(retryPacket.affectedRows ?? 0) > 0;

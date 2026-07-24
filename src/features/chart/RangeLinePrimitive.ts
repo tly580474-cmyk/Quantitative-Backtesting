@@ -7,6 +7,7 @@ import type {
   Time,
   Coordinate,
 } from 'lightweight-charts';
+import { toChartTime } from './chartTime';
 
 const HIT_DISTANCE = 12;
 const LINE_COLOR = '#1677FF';
@@ -161,7 +162,7 @@ export class RangeLinePrimitive implements ISeriesPrimitive<Time> {
 
   private timeToCoord(time: string): Coordinate | null {
     if (!this._chart) return null;
-    return this._chart.timeScale().timeToCoordinate(time as Time);
+    return this._chart.timeScale().timeToCoordinate(toChartTime(time));
   }
 
   updateAllViews(): void {

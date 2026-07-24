@@ -60,4 +60,20 @@ describe('chart timeframe aggregation', () => {
     expect(result).toEqual(candles);
     expect(result).not.toBe(candles);
   });
+
+  it('aggregates by calendar quarter and year', () => {
+    expect(aggregateCandles(candles, 'quarter')).toEqual([
+      expect.objectContaining({ time: '2026-06-30', open: 10, close: 11, volume: 300 }),
+      expect.objectContaining({ time: '2026-07-06', open: 11, close: 11.5, volume: 700 }),
+    ]);
+    expect(aggregateCandles(candles, 'year')).toEqual([
+      expect.objectContaining({ time: '2026-07-06', open: 10, high: 13, low: 9, close: 11.5, volume: 1000 }),
+    ]);
+  });
+
+  it('keeps server-aggregated minute bars unchanged', () => {
+    const result = aggregateCandles(candles, 'minute15');
+    expect(result).toEqual(candles);
+    expect(result).not.toBe(candles);
+  });
 });

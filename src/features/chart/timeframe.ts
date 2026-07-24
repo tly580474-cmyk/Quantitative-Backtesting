@@ -1,16 +1,29 @@
 import type { Candle } from '@/models';
 
-export type ChartPeriod = 'day' | 'week' | 'month';
+export type MinuteChartPeriod = 'minute1' | 'minute5' | 'minute15' | 'minute30' | 'minute60' | 'minute120';
+export type ChartPeriod = MinuteChartPeriod | 'day' | 'week' | 'month' | 'quarter' | 'year';
+
+export const MINUTE_PERIODS: readonly MinuteChartPeriod[] = [
+  'minute1', 'minute5', 'minute15', 'minute30', 'minute60', 'minute120',
+];
+
+export function isMinutePeriod(period: ChartPeriod): period is MinuteChartPeriod {
+  return MINUTE_PERIODS.includes(period as MinuteChartPeriod);
+}
+
+export function minutePeriodValue(period: MinuteChartPeriod): 1 | 5 | 15 | 30 | 60 | 120 {
+  return Number(period.slice('minute'.length)) as 1 | 5 | 15 | 30 | 60 | 120;
+}
 
 export function aggregateCandles(
   candles: readonly Candle[],
   period: ChartPeriod,
 ): Candle[] {
-  if (period === 'day' || candles.length === 0) return [...candles];
+  if (period === 'day' || isMinutePeriod(period) || candles.length === 0) return [...candles];
   const sorted = [...candles].sort((a, b) => a.time.localeCompare(b.time));
   const groups = new Map<string, Candle[]>();
   for (const candle of sorted) {
-    const key = period === 'week' ? weekKey(candle.time) : candle.time.slice(0, 7);
+    const key = periodKey(candle.time, period);
     const group = groups.get(key);
     if (group) group.push(candle);
     else groups.set(key, [candle]);
@@ -48,6 +61,16 @@ export function aggregateCandles(
     previousClose = last.close;
   }
   return result;
+}
+
+function periodKey(time: string, period: Exclude<ChartPeriod, MinuteChartPeriod | 'day'>): string {
+  if (period === 'week') return weekKey(time);
+  if (period === 'month') return time.slice(0, 7);
+  if (period === 'quarter') {
+    const month = Number(time.slice(5, 7));
+    return `${time.slice(0, 4)}-Q${Math.ceil(month / 3)}`;
+  }
+  return time.slice(0, 4);
 }
 
 function weekKey(time: string): string {

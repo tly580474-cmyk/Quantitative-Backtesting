@@ -691,7 +691,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [period, setPeriod] = useState<MarketKlinePeriod>(marketDataCache.period);
   const [showChipProfile, setShowChipProfile] = useState(false);
-  const [showChanStructures, setShowChanStructures] = useState(isEnhancedStockView);
+  const [showChanStructures, setShowChanStructures] = useState(false);
   const [indicatorVisibility, setIndicatorVisibility] = useState<MarketIndicatorVisibility>({
     ma: true,
     rsi: true,

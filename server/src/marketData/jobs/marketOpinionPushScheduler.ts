@@ -49,7 +49,10 @@ async function tick(service: MarketOpinionPushService, schedule: MarketOpinionPu
     const session = getChinaMarketSession(now);
     for (const kind of dueDigestKinds(now, schedule)) {
       const runKey = `market_opinion_push:${session.tradeDate}:${kind}`;
-      if (!await tryStartCollectorRun(runKey, 'market_opinion_push')) continue;
+      if (!await tryStartCollectorRun(runKey, 'market_opinion_push', {
+        maxAttempts: 3,
+        retryDelayMinutes: 5,
+      })) continue;
       try {
         const result = await service.send(kind, now, {
           onStage: async (stage) => updateCollectorRunDetails(runKey, {
