@@ -88,7 +88,10 @@ export default function StockSelectionScore({
               风控 -{result.riskDeduction}
             </Tag>
             {result.forcedCooling && <Tag color="error">流动性强制冷却</Tag>}
-            <Tag>{result.asOf} · {result.sampleSize} 根日 K</Tag>
+            <Tag>
+              {result.asOf} · {result.sampleSize} 根有效日 K
+              {result.inputSampleSize !== result.sampleSize ? `（原始 ${result.inputSampleSize} 根）` : ''}
+            </Tag>
           </Space>
         </div>
 

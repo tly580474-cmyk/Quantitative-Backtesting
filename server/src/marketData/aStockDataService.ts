@@ -79,6 +79,8 @@ export interface KlinePoint {
   high: number;
   low: number;
   volume: number;
+  /** Daily traded amount in yuan when supplied by the data source. */
+  amount?: number;
   /** Daily turnover rate in percentage points; 0.41 means 0.41%. */
   turnoverRatePct?: number;
 }
@@ -914,6 +916,7 @@ export async function fetchStockKlineFromDb(
     high: Number(bar.high),
     low: Number(bar.low),
     volume: Number(bar.volume),
+    amount: bar.amount != null ? Number(bar.amount) : undefined,
     turnoverRatePct: bar.turnoverRatePct != null ? Number(bar.turnoverRatePct) : undefined,
   }));
 }
@@ -967,6 +970,7 @@ export async function fetchStockFullHistoryFromDb(
       high: Number(bar.high),
       low: Number(bar.low),
       volume: Number(bar.volume ?? 0),
+      amount: bar.amount == null ? undefined : Number(bar.amount),
       turnoverRatePct: bar.turnoverRatePct == null
         ? undefined
         : Number(bar.turnoverRatePct),

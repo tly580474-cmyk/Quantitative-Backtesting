@@ -35,6 +35,15 @@ describe('hybrid daily K-line data', () => {
     ]);
   });
 
+  it('retains database turnover amount when an online refresh has no amount', () => {
+    const stored = { ...point('2026-07-21', 10, 12, 9, 11), amount: 123_000_000 };
+    const online = point('2026-07-21', 11, 13, 10, 12);
+
+    expect(mergeKlinePoints([stored], [online])).toEqual([
+      { ...online, amount: 123_000_000 },
+    ]);
+  });
+
   it('refreshes during a trading session or whenever the database lacks today', () => {
     expect(shouldRefreshDailyKline('2026-07-22', '2026-07-22', true)).toBe(true);
     expect(shouldRefreshDailyKline('2026-07-21', '2026-07-22', false)).toBe(true);

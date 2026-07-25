@@ -30,12 +30,13 @@ export interface SelectionScoreResult {
   forcedCooling: boolean;
   sections: SelectionScoreSection[];
   asOf: string | null;
+  inputSampleSize: number;
   sampleSize: number;
   message?: string;
   assumptions: string[];
 }
 
-const POSITIVE_SCORE_MAX = 100;
+const BREAKOUT_PROXIMITY = 0.98;
 
 const TIER_META: Record<SelectionScoreTier, { label: string; description: string }> = {
   core: {
@@ -61,8 +62,7 @@ function average(values: number[]): number {
 }
 
 function round(value: number, digits = 2): number {
-  const factor = 10 ** digits;
-  return Math.round(value * factor) / factor;
+  return Number.isFinite(value) ? Number(value.toFixed(digits)) : 0;
 }
 
 function percent(value: number): string {
@@ -73,6 +73,15 @@ function smaAt(candles: KlinePoint[], period: number, endIndex = candles.length 
   const start = endIndex - period + 1;
   if (start < 0) return null;
   return average(candles.slice(start, endIndex + 1).map((item) => item.close));
+}
+
+function isBelowSmaAt(candles: KlinePoint[], period: number, index: number, price: number): boolean {
+  const value = smaAt(candles, period, index);
+  return value != null && price < value;
+}
+
+function uniqueByDate<T extends { date: string }>(items: T[]): T[] {
+  return items.filter((item, index) => index === 0 || item.date !== items[index - 1].date);
 }
 
 function priceReturn(candles: KlinePoint[], periods: number): number | null {
@@ -164,12 +173,14 @@ export function calculateSelectionScore(
   inputCandles: KlinePoint[],
   benchmarkCandles: KlinePoint[],
 ): SelectionScoreResult {
-  const candles = [...inputCandles]
-    .filter((item) => [item.open, item.close, item.high, item.low, item.volume].every(Number.isFinite))
-    .sort((a, b) => a.date.localeCompare(b.date));
-  const benchmark = [...benchmarkCandles]
-    .filter((item) => Number.isFinite(item.close))
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const inputSampleSize = inputCandles.length;
+  const candles = uniqueByDate([...inputCandles]
+    .filter((item) => [item.open, item.close, item.high, item.low].every((value) => Number.isFinite(value) && value > 0)
+      && Number.isFinite(item.volume) && item.volume >= 0)
+    .sort((a, b) => a.date.localeCompare(b.date)));
+  const benchmark = uniqueByDate([...benchmarkCandles]
+    .filter((item) => Number.isFinite(item.close) && item.close > 0)
+    .sort((a, b) => a.date.localeCompare(b.date)));
 
   if (candles.length < 65) {
     return {
@@ -184,8 +195,9 @@ export function calculateSelectionScore(
       forcedCooling: false,
       sections: [],
       asOf: candles[candles.length - 1]?.date ?? null,
+      inputSampleSize,
       sampleSize: candles.length,
-      message: `当前仅有 ${candles.length} 根有效日 K，至少需要 65 根。`,
+      message: `收到 ${inputSampleSize} 根日 K，清洗并按日期去重后有 ${candles.length} 根有效日 K，至少需要 65 根。`,
       assumptions: [],
     };
   }
@@ -198,6 +210,7 @@ export function calculateSelectionScore(
   const sma60 = smaAt(candles, 60)!;
   const sma5Prev = smaAt(candles, 5, candles.length - 6)!;
   const sma10Prev = smaAt(candles, 10, candles.length - 6)!;
+  const sma20Prev = smaAt(candles, 20, candles.length - 6)!;
   const sma60Prev = smaAt(candles, 60, candles.length - 6)!;
   const return5 = priceReturn(candles, 5)!;
   const return10 = priceReturn(candles, 10)!;
@@ -207,6 +220,7 @@ export function calculateSelectionScore(
   const previous60 = candles.slice(-61, -1);
   const recent5 = candles.slice(-5);
   const recent10 = candles.slice(-10);
+  const recent11 = candles.slice(-11);
   const averageVolume20 = average(previous20.map((item) => item.volume));
   const averageVolume3 = average(candles.slice(-3).map((item) => item.volume));
   const averageVolume5 = average(recent5.map((item) => item.volume));
@@ -215,21 +229,30 @@ export function calculateSelectionScore(
   const distanceToSma20 = Math.abs(latestClose - sma20) / sma20;
   const distanceToPreviousHigh = Math.max(0, previous60High - latestClose) / previous60High;
   const latestVolumeRatio = averageVolume20 > 0 ? latest.volume / averageVolume20 : 0;
-  const latestChange = latest.close / candles[candles.length - 2].close - 1;
-  const dailyChanges = candles.map((item, index) => index === 0 ? 0 : item.close / candles[index - 1].close - 1);
+  const previousClose = candles[candles.length - 2].close;
+  const latestChange = previousClose > 0 ? latest.close / previousClose - 1 : 0;
+  const dailyChanges = candles.map((item, index) => {
+    if (index === 0) return 0;
+    const priorClose = candles[index - 1].close;
+    return priorClose > 0 ? item.close / priorClose - 1 : 0;
+  });
 
   const trendItems: SelectionScoreItem[] = [];
-  const sma60Change = sma60 / sma60Prev - 1;
+  const sma60Change = sma60Prev > 0 ? sma60 / sma60Prev - 1 : 0;
   const sma60FlatOrUp = sma60Change >= -0.005;
   addBonus(trendItems, '60 日均线向上或走平', 8, sma60FlatOrUp, `MA60 ${round(sma60Prev)} → ${round(sma60)}（${percent(sma60Change)}）`);
-  const sma20NearCross = sma20 >= sma60 * 0.98;
+  const sma20NearCross = sma20 >= sma60
+    || (Math.abs(sma20 - sma60) / sma60 < 0.02 && sma20 - sma20Prev > sma60 - sma60Prev);
   addBonus(trendItems, '20 日线在 60 日线上方或即将上穿', 5, sma20NearCross, `MA20 ${round(sma20)} / MA60 ${round(sma60)}`);
   addBonus(trendItems, '股价站上或距离 20 日线不超过 5%', 5, latestClose >= sma20 || distanceToSma20 <= 0.05, `收盘 ${round(latestClose)} / MA20 ${round(sma20)} / 距离 ${percent(distanceToSma20)}`);
   const eitherShortMaUp = sma5 >= sma5Prev || sma10 >= sma10Prev;
   addBonus(trendItems, '5 日、10 日线至少一条向上', 4, eitherShortMaUp, `MA5 ${round(sma5Prev)}→${round(sma5)}；MA10 ${round(sma10Prev)}→${round(sma10)}`);
   addPenalty(trendItems, '60 日均线明显向下', 6, sma60Change < -0.015, `5 个交易日前后变化 ${percent(sma60Change)}`);
-  const below60Unrecovered = candles.slice(-3).every((item) => item.close < sma60);
-  addPenalty(trendItems, '跌破 60 日线且 3 日未收回', 6, below60Unrecovered, `最近 3 日收盘均低于 MA60 ${round(sma60)}`);
+  const below60Unrecovered = candles.slice(-3).every((item, offset) => {
+    const index = candles.length - 3 + offset;
+    return isBelowSmaAt(candles, 60, index, item.close);
+  });
+  addPenalty(trendItems, '跌破 60 日线且 3 日未收回', 6, below60Unrecovered, `最近 3 日收盘均低于各自时点的 MA60`);
   const trend = section('trend', '中长期均线趋势', 22, trendItems);
 
   const momentumItems: SelectionScoreItem[] = [];
@@ -256,20 +279,20 @@ export function calculateSelectionScore(
   const momentum = section('momentum', '短期动量强弱', 18, momentumItems);
 
   const volumeItems: SelectionScoreItem[] = [];
-  const risingOrBreakout = latestChange > 0 || latestClose >= previous20High * 0.98;
+  const risingOrBreakout = latestChange > 0 || latestClose >= previous20High * BREAKOUT_PROXIMITY;
   addBonus(volumeItems, '上涨或突破日量能达到 1.2 倍', 6, risingOrBreakout && latestVolumeRatio >= 1.2, `当日涨跌 ${percent(latestChange)}；量比 ${round(latestVolumeRatio)}`);
-  const upVolumes = recent10.filter((_, index) => index > 0 && recent10[index].close > recent10[index - 1].close).map((item) => item.volume);
-  const downVolumes = recent10.filter((_, index) => index > 0 && recent10[index].close < recent10[index - 1].close).map((item) => item.volume);
+  const upVolumes = recent11.slice(1).filter((item, index) => item.close > recent11[index].close).map((item) => item.volume);
+  const downVolumes = recent11.slice(1).filter((item, index) => item.close < recent11[index].close).map((item) => item.volume);
   const upVolumeAverage = average(upVolumes);
   const downVolumeAverage = average(downVolumes);
-  addBonus(volumeItems, '上涨日量能高于下跌日', 5, upVolumes.length >= 2 && downVolumes.length >= 1 && upVolumeAverage > downVolumeAverage, `上涨日/下跌日均量 ${downVolumeAverage > 0 ? round(upVolumeAverage / downVolumeAverage) : '—'} 倍`);
+  addBonus(volumeItems, '上涨日量能高于下跌日', 5, upVolumes.length >= 1 && (downVolumes.length === 0 || upVolumeAverage > downVolumeAverage), `上涨日/下跌日均量 ${downVolumeAverage > 0 ? round(upVolumeAverage / downVolumeAverage) : '—'} 倍`);
   addBonus(volumeItems, '回调时量能明显缩小', 4, downVolumes.length >= 1 && upVolumes.length >= 1 && downVolumeAverage < upVolumeAverage * 0.9, `下跌日均量为上涨日 ${upVolumeAverage > 0 ? percent(downVolumeAverage / upVolumeAverage) : '—'}`);
   addBonus(volumeItems, '近 3 日均量不低于 20 日均量 80%', 3, averageVolume3 >= averageVolume20 * 0.8, `3 日/20 日量比 ${round(averageVolume3 / averageVolume20)}`);
   const shrinkingDecline = return5 < 0 && averageVolume5 < averageVolume20 * 0.6;
   addPenalty(volumeItems, '持续缩量阴跌', 5, shrinkingDecline, `近 5 日 ${percent(return5)}；5 日/20 日量比 ${round(averageVolume5 / averageVolume20)}`);
   const heavySellWithoutSupport = latestChange <= -0.03
     && latestVolumeRatio >= 1.5
-    && (latest.close - latest.low) / Math.max(latest.high - latest.low, 0.01) < 0.25;
+    && (latest.close - latest.low) / Math.max(latest.high - latest.low, latest.close * 0.001) < 0.25;
   addPenalty(volumeItems, '放量下跌且无明显承接', 6, heavySellWithoutSupport, `涨跌 ${percent(latestChange)}；量比 ${round(latestVolumeRatio)}；收盘靠近最低`);
   const volume = section('volume', '成交量资金验证', 18, volumeItems);
 
@@ -277,8 +300,12 @@ export function calculateSelectionScore(
   const nearSupport = distanceToSma20 <= 0.08;
   addBonus(supportItems, '距离 20 日线或支撑位不超过 8%', 5, nearSupport, `距 MA20 ${percent(distanceToSma20)}`);
   addBonus(supportItems, '距离上方压力仍有 5% 以上空间', 4, distanceToPreviousHigh >= 0.05, `距 60 日高点 ${percent(distanceToPreviousHigh)}`);
-  const supportHeld = candles.slice(-5).every((item) => item.low >= sma20 * 0.95);
-  addBonus(supportItems, '回踩支撑位未有效跌破', 3, supportHeld, `最近 5 日低点均未低于 MA20 的 95%：${supportHeld ? '是' : '否'}`);
+  const supportHeld = candles.slice(-5).every((item, offset) => {
+    const index = candles.length - 5 + offset;
+    const value = smaAt(candles, 20, index);
+    return value != null && item.low >= value * 0.95;
+  });
+  addBonus(supportItems, '回踩支撑位未有效跌破', 3, supportHeld, `最近 5 日低点均未低于各自时点 MA20 的 95%：${supportHeld ? '是' : '否'}`);
   const latestRange = latest.high - latest.low;
   const isBullishOrDoji = latest.close >= latest.open || (latestRange > 0 && Math.abs(latest.close - latest.open) / latestRange <= 0.25);
   const stopFalling = nearSupport && (isBullishOrDoji || latest.volume < candles[candles.length - 2].volume);
@@ -288,11 +315,11 @@ export function calculateSelectionScore(
   const support = section('support', '支撑压力位置', 14, supportItems);
 
   const patternItems: SelectionScoreItem[] = [];
-  const attemptBreakout = latestClose >= previous20High * 0.97;
+  const attemptBreakout = latestClose >= previous20High * BREAKOUT_PROXIMITY;
   addBonus(patternItems, '箱体平台尝试突破', 4, attemptBreakout, `收盘 ${round(latestClose)} / 前 20 日高点 ${round(previous20High)}`);
   const olderPlatformHigh = Math.max(...candles.slice(-26, -6).map((item) => item.high));
-  const brokeRecently = Math.max(...candles.slice(-5).map((item) => item.close)) >= olderPlatformHigh;
-  const breakoutHeld = brokeRecently && latestClose >= olderPlatformHigh * 0.98;
+  const breakoutHeld = candles.slice(-5).some((item) => item.close >= olderPlatformHigh)
+    && latestClose >= olderPlatformHigh * BREAKOUT_PROXIMITY;
   addBonus(patternItems, '突破平台后未明显跌回', 4, breakoutHeld, `平台 ${round(olderPlatformHigh)} / 当前 ${round(latestClose)}`);
   const lowA = Math.min(...candles.slice(-15, -10).map((item) => item.low));
   const lowB = Math.min(...candles.slice(-10, -5).map((item) => item.low));
@@ -301,10 +328,11 @@ export function calculateSelectionScore(
   addBonus(patternItems, '底部逐步抬高', 4, higherLows, `阶段低点 ${round(lowA)} → ${round(lowB)} → ${round(lowC)}`);
   const rangePct = (item: KlinePoint) => (item.high - item.low) / Math.max(item.close, 0.01);
   const contraction = average(candles.slice(-5).map(rangePct)) < average(candles.slice(-15, -5).map(rangePct)) * 0.8
-    && latestClose >= sma20;
+    && latestClose >= sma20
+    && (return5 > 0 || sma5 > sma20);
   addBonus(patternItems, '上升三角形、收敛或旗形整理', 4, contraction, `近 5 日振幅相对前期 ${percent(average(candles.slice(-5).map(rangePct)) / average(candles.slice(-15, -5).map(rangePct)))}`);
   const bullishDays = recent5.filter((item) => item.close > item.open).length;
-  const gentleRise = return5 > 0 && bullishDays >= 3 && recent5.every((_, index) => index === 0 || Math.abs(dailyChanges[dailyChanges.length - 5 + index]) < 0.05);
+  const gentleRise = return5 > 0 && bullishDays >= 3 && recent5.every((_, index) => Math.abs(dailyChanges[dailyChanges.length - 5 + index]) < 0.05);
   addBonus(patternItems, '连续小阳线或温和上行', 3, gentleRise, `近 5 日 ${percent(return5)}；阳线 ${bullishDays} 天`);
   const pattern = section('pattern', 'K 线形态结构', 10, patternItems);
 
@@ -331,7 +359,7 @@ export function calculateSelectionScore(
 
   const volatilityItems: SelectionScoreItem[] = [];
   const drawdownWindow = candles.slice(-21);
-  let rollingPeak = drawdownWindow[0].close;
+  let rollingPeak = drawdownWindow[0].high;
   let maxDrawdown20 = 0;
   for (const item of drawdownWindow) {
     rollingPeak = Math.max(rollingPeak, item.high);
@@ -341,19 +369,21 @@ export function calculateSelectionScore(
   let largeBearishStreak = 0;
   let hasConsecutiveLargeBearish = false;
   for (const item of recent10) {
-    largeBearishStreak = item.close < item.open && (item.open - item.close) / item.open >= 0.03 ? largeBearishStreak + 1 : 0;
+    largeBearishStreak = item.open > 0 && item.close < item.open && (item.open - item.close) / item.open >= 0.03 ? largeBearishStreak + 1 : 0;
     if (largeBearishStreak >= 2) hasConsecutiveLargeBearish = true;
   }
   addBonus(volatilityItems, '近 10 日无连续大阴线', 3, !hasConsecutiveLargeBearish, hasConsecutiveLargeBearish ? '出现连续 2 根实体跌幅至少 3% 的阴线' : '未出现连续大阴线');
   const upperRejectionCount = previous20.filter((item) => {
     const candleBody = Math.abs(item.close - item.open);
     const shadow = item.high - Math.max(item.open, item.close);
-    return item.close < item.open && shadow > Math.max(candleBody * 2, (item.high - item.low) * 0.35);
+    return shadow > Math.max(candleBody * 2, (item.high - item.low) * 0.35);
   }).length;
   addBonus(volatilityItems, '波动平稳、冲高回落不频繁', 3, upperRejectionCount <= 2, `近 20 日明显冲高回落 ${upperRejectionCount} 次`);
   addPenalty(volatilityItems, '近 20 日最大回撤超过 20%', 5, maxDrawdown20 > 0.2, `最大回撤 ${percent(maxDrawdown20)}`);
-  const recentUnstable = hasConsecutiveLargeBearish && recent5.every((item) => item.close <= item.open || item.close < sma5);
-  addPenalty(volatilityItems, '连续大阴线后未企稳', 6, recentUnstable, `连续大阴线且最近 5 日未站稳 MA5：${recentUnstable ? '是' : '否'}`);
+  const recentUnstable = hasConsecutiveLargeBearish && recent5.every((item, offset) => {
+    const index = candles.length - 5 + offset;
+    return item.close <= item.open && isBelowSmaAt(candles, 5, index, item.close);
+  });
   const volatility = section('volatility', '波动与回撤控制', 10, volatilityItems);
 
   const riskItems: SelectionScoreItem[] = [];
@@ -370,21 +400,28 @@ export function calculateSelectionScore(
     return dailyChanges[index] <= -0.025 && item.volume >= averageVolume20;
   });
   addPenalty(riskItems, '连续放量大跌', 8, consecutiveHeavyDrop, `最近 2 日均跌超 2.5% 且放量：${consecutiveHeavyDrop ? '是' : '否'}`);
-  const below20And60 = candles.slice(-3).every((item) => item.close < sma20 && item.close < sma60);
-  addPenalty(riskItems, '跌破 20 日线和 60 日线且未收回', 8, below20And60, `最近 3 日均低于 MA20 ${round(sma20)} 和 MA60 ${round(sma60)}`);
+  const below20And60 = candles.slice(-3).every((item, offset) => {
+    const index = candles.length - 3 + offset;
+    return isBelowSmaAt(candles, 20, index, item.close) && isBelowSmaAt(candles, 60, index, item.close);
+  });
+  addPenalty(riskItems, '跌破 20 日线和 60 日线且未收回', 8, below20And60, `最近 3 日均低于各自时点的 MA20 和 MA60`);
   const bearishAlignment = sma5 < sma10 && sma10 < sma20 && sma20 < sma60
     && sma5 < sma5Prev && sma10 < sma10Prev && sma60 < sma60Prev;
   addPenalty(riskItems, '均线明显空头排列', 10, bearishAlignment, `MA5 ${round(sma5)} < MA10 ${round(sma10)} < MA20 ${round(sma20)} < MA60 ${round(sma60)}`);
   addPenalty(riskItems, '短期连续大阴线且无企稳', 6, recentUnstable, `最近 10 日连续大阴线且未企稳：${recentUnstable ? '是' : '否'}`);
-  const estimatedAmounts = candles.slice(-20).map((item) => item.volume * ((item.high + item.low + item.close) / 3) * 100);
-  const averageAmountYuan = average(estimatedAmounts);
+  const amountWindow = candles.slice(-20);
+  const actualAmountCount = amountWindow.filter((item) => Number.isFinite(item.amount) && item.amount! >= 0).length;
+  const amounts = amountWindow.map((item) => Number.isFinite(item.amount) && item.amount! >= 0
+    ? item.amount!
+    : item.volume * ((item.high + item.low + item.close) / 3) * 100);
+  const averageAmountYuan = average(amounts);
   const forcedCooling = averageAmountYuan < 10_000_000;
-  addPenalty(riskItems, '日均成交额低于 3000 万', 5, averageAmountYuan < 30_000_000, `估算 20 日均额 ${round(averageAmountYuan / 100_000_000)} 亿`);
+  addPenalty(riskItems, '日均成交额低于 3000 万', 5, averageAmountYuan < 30_000_000, `20 日均额 ${round(averageAmountYuan / 100_000_000)} 亿`);
   riskItems.push({
     label: '日均成交额低于 1000 万，直接进入冷却池',
     points: 0,
     matched: forcedCooling,
-    detail: `估算 20 日均额 ${round(averageAmountYuan / 100_000_000)} 亿`,
+    detail: `20 日均额 ${round(averageAmountYuan / 100_000_000)} 亿`,
     kind: 'penalty',
   });
   const riskScore = riskItems.reduce((sum, item) => sum + item.points, 0);
@@ -392,7 +429,8 @@ export function calculateSelectionScore(
 
   const positiveSections = [trend, momentum, volume, support, pattern, oscillator, volatility];
   const rawPositiveScore = positiveSections.reduce((sum, item) => sum + item.score, 0);
-  const normalizedBaseScore = Math.round(rawPositiveScore / POSITIVE_SCORE_MAX * 100);
+  const positiveScoreMax = positiveSections.reduce((sum, item) => sum + (item.maxScore ?? 0), 0);
+  const normalizedBaseScore = positiveScoreMax > 0 ? Math.round(rawPositiveScore / positiveScoreMax * 100) : 0;
   const riskDeduction = Math.abs(riskScore);
   const score = Math.min(100, Math.max(0, normalizedBaseScore - riskDeduction));
   const tier = forcedCooling ? 'blocked' : tierFor(score);
@@ -411,10 +449,13 @@ export function calculateSelectionScore(
     forcedCooling,
     sections: [...positiveSections, risk],
     asOf: latest.date,
+    inputSampleSize,
     sampleSize: candles.length,
     assumptions: [
-      '宽松版正向规则满分恰好为 100 分，风控项在技术面得分后直接扣减，最低为 0 分。',
-      '历史 K 线未提供成交额，流动性使用成交量 × 典型价 × 100 股/手估算。',
+      `正向规则按各节满分合计 ${positiveScoreMax} 分归一化，风控项在技术面得分后直接扣减，最低为 0 分。`,
+      actualAmountCount === amountWindow.length
+        ? '流动性使用历史 K 线提供的真实成交额。'
+        : `最近 20 日有 ${actualAmountCount} 日提供真实成交额，其余日期使用成交量 × 典型价 × 100 股/手估算。`,
       '“即将上穿、重要支撑、形态偏强、明显下跌”等描述采用固定阈值量化，便于复现。',
       '本模型用于宽松初筛，不等同于买入信号；冷却池建议 20–40 个交易日后重新评分。',
       benchmarkReturn20 == null ? '沪深 300 日 K 不足，相对强弱项不加分。' : `沪深 300 近 20 日收益为 ${percent(benchmarkReturn20)}。`,

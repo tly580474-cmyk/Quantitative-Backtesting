@@ -6,7 +6,12 @@ export function mergeKlinePoints(
 ): KlinePoint[] {
   const byDate = new Map<string, KlinePoint>();
   for (const item of databaseItems) byDate.set(item.date, item);
-  for (const item of onlineItems) byDate.set(item.date, item);
+  for (const item of onlineItems) {
+    const stored = byDate.get(item.date);
+    byDate.set(item.date, stored?.amount != null && item.amount == null
+      ? { ...item, amount: stored.amount }
+      : item);
+  }
   return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -44,6 +49,7 @@ export function aggregateDailyKlines(
     current.high = Math.max(current.high, item.high);
     current.low = Math.min(current.low, item.low);
     current.volume += item.volume;
+    if (item.amount != null) current.amount = (current.amount ?? 0) + item.amount;
     if (item.turnoverRatePct != null) {
       current.turnoverRatePct = (current.turnoverRatePct ?? 0) + item.turnoverRatePct;
     }
