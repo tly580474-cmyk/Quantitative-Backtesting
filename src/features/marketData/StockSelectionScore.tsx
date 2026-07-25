@@ -83,7 +83,7 @@ export default function StockSelectionScore({
           </Space>
           <Text>{result.tierDescription}</Text>
           <Space wrap size={[6, 6]} className="stock-score-meta">
-            <Tag color="blue">技术面 {result.rawPositiveScore}/100</Tag>
+            <Tag color="blue">反转复合分位 {result.rawPositiveScore}/100</Tag>
             <Tag color={result.riskDeduction > 0 ? 'error' : 'success'}>
               风控 -{result.riskDeduction}
             </Tag>
@@ -96,10 +96,10 @@ export default function StockSelectionScore({
         </div>
 
         <div className="stock-score-scale" aria-label="评分档位">
-          <span><b className="is-core">75–100</b> 核心优选</span>
-          <span><b className="is-watch">60–74</b> 观察备选</span>
-          <span><b className="is-weak">45–59</b> 弱势观察</span>
-          <span><b className="is-blocked">＜45</b> 冷却剔除</span>
+          <span><b className="is-core">80–100</b> 核心优选</span>
+          <span><b className="is-watch">60–79</b> 持有观察</span>
+          <span><b className="is-weak">40–59</b> 中性观察</span>
+          <span><b className="is-blocked">＜40</b> 回避冷却</span>
         </div>
       </div>
 

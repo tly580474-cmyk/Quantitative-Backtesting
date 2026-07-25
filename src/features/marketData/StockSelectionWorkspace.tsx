@@ -14,7 +14,7 @@ import type {
 } from './types';
 
 const { Text } = Typography;
-const SCORE_STORAGE_KEY = 'quant-watchlist-scores-v1';
+const SCORE_STORAGE_KEY = 'quant-watchlist-scores-v2';
 const SCREENER_STORAGE_KEY = 'quant-market-screener-v1';
 
 export const DEFAULT_SCREENER_CRITERIA: MarketScreenerCriteria = {
@@ -213,7 +213,7 @@ export default function StockSelectionWorkspace({
     <div className="selection-toolbar">
       <div>
         <Text strong>自选股评分排名</Text>
-        <Text type="secondary">评分基于最近日 K；置顶优先，其余按分数降序。</Text>
+        <Text type="secondary">评分基于中期反转因子，建议约 10 个交易日重评；置顶优先，其余按分数降序。</Text>
       </div>
       <Button icon={<ReloadOutlined />} loading={rankingLoading} onClick={() => void refreshScores()}>刷新评分</Button>
     </div>
