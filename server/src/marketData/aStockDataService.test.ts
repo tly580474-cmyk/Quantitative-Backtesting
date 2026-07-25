@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchMarketIndexQuotes,
   fetchStockQuote,
+  normalizeOnlineVolumeToShares,
   normalizeSinaTurnoverRatePct,
   parseEastmoneyDailyKlines,
 } from './aStockDataService.js';
@@ -114,6 +115,17 @@ describe('A-share stock quote service', () => {
       volume: 50870,
       turnoverRatePct: 0.41,
     }]);
+  });
+
+  it('normalizes mainland stock and ETF online volume from lots to shares', () => {
+    expect(normalizeOnlineVolumeToShares(5_492.3, '002298', 'SZ')).toBe(549_230);
+    expect(normalizeOnlineVolumeToShares(12_345, '510300', 'SH')).toBe(1_234_500);
+    expect(normalizeOnlineVolumeToShares(12_345, '000001', 'SH')).toBe(12_345);
+
+    const points = parseEastmoneyDailyKlines([
+      '2026-07-24,7.73,8.10,8.10,7.67,5492.3,4440000,10.05,0.74,0,8.31',
+    ], 100);
+    expect(points[0].volume).toBe(549_230);
   });
 
   it('does not invent a turnover rate when Eastmoney returns a placeholder', () => {

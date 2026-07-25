@@ -99,9 +99,9 @@ function fmt(value: number | null, digits = 2) {
 }
 
 function formatVolume(value: number) {
-  if (value >= 1e8) return `${fmt(value / 1e8)} 亿`;
-  if (value >= 1e4) return `${fmt(value / 1e4)} 万`;
-  return fmt(value, 0);
+  if (value >= 1e8) return `${fmt(value / 1e8)} 亿股`;
+  if (value >= 1e4) return `${fmt(value / 1e4)} 万股`;
+  return `${fmt(value, 0)} 股`;
 }
 
 function formatPct(value: number | null) {

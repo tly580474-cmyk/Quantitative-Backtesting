@@ -325,6 +325,17 @@ function inferType(code: string, market: MarketCode = marketOf(code)): 'stock' |
   return 'stock';
 }
 
+export function normalizeOnlineVolumeToShares(
+  volume: number,
+  code: string,
+  market: MarketCode,
+): number {
+  const multiplier = ['SH', 'SZ', 'BJ'].includes(market) && inferType(code, market) !== 'index'
+    ? 100
+    : 1;
+  return volume * multiplier;
+}
+
 async function fetchText(url: string, encoding = 'utf-8'): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
@@ -1571,7 +1582,14 @@ export async function fetchStockKline(
     const [date, open, close, high, low, volume] = row;
     const values = [open, close, high, low, volume].map(Number);
     return typeof date === 'string' && values.every(Number.isFinite)
-      ? [{ date, open: values[0], close: values[1], high: values[2], low: values[3], volume: values[4] }]
+      ? [{
+        date,
+        open: values[0],
+        close: values[1],
+        high: values[2],
+        low: values[3],
+        volume: normalizeOnlineVolumeToShares(values[4], security.code, security.market),
+      }]
       : [];
   });
 
@@ -1640,7 +1658,10 @@ async function fetchEastmoneyDailyKline(input: string, count: number): Promise<K
   const response = await eastmoneyGet(EASTMONEY_KLINE_URL, params, 'https://quote.eastmoney.com/');
   if (!response.ok) throw new Error(`东方财富 K 线接口 HTTP ${response.status}`);
   const payload = await response.json() as { data?: { klines?: unknown } };
-  return parseEastmoneyDailyKlines(payload.data?.klines);
+  return parseEastmoneyDailyKlines(
+    payload.data?.klines,
+    normalizeOnlineVolumeToShares(1, code, market),
+  );
 }
 
 /** 通过东方财富 API 获取国际指数 K 线（日经/KOSPI） */
@@ -1685,7 +1706,7 @@ async function fetchEastmoneyIndexKline(
   return points;
 }
 
-export function parseEastmoneyDailyKlines(input: unknown): KlinePoint[] {
+export function parseEastmoneyDailyKlines(input: unknown, volumeMultiplier = 1): KlinePoint[] {
   if (!Array.isArray(input)) return [];
   return input.flatMap((row) => {
     const fields = String(row).split(',');
@@ -1700,14 +1721,15 @@ export function parseEastmoneyDailyKlines(input: unknown): KlinePoint[] {
       close: prices[1],
       high: prices[2],
       low: prices[3],
-      volume: prices[4],
+      volume: prices[4] * volumeMultiplier,
       ...(rate == null ? {} : { turnoverRatePct: rate }),
     }];
   });
 }
 
 export async function fetchStockIntraday(input: string): Promise<KlinePoint[]> {
-  const { prefixed } = resolveSecurity(input);
+  const security = resolveSecurity(input);
+  const { prefixed } = security;
   const params = new URLSearchParams({
     code: prefixed,
     r: Math.random().toString(),
@@ -1739,7 +1761,11 @@ export async function fetchStockIntraday(input: string): Promise<KlinePoint[]> {
     const rawVolume = Number(fields[2] ?? 0);
     if (!/^\d{4}$/.test(rawTime) || !Number.isFinite(price)) return [];
     const cumulativeVolume = Number.isFinite(rawVolume) ? rawVolume : 0;
-    const volume = Math.max(0, cumulativeVolume - previousVolume);
+    const volume = normalizeOnlineVolumeToShares(
+      Math.max(0, cumulativeVolume - previousVolume),
+      security.code,
+      security.market,
+    );
     previousVolume = cumulativeVolume;
     const time = `${datePrefix} ${rawTime.slice(0, 2)}:${rawTime.slice(2, 4)}`;
     return [{

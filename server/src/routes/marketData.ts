@@ -618,6 +618,7 @@ export function registerMarketDataRoutes(
         period: query.data.period,
         adjustmentMode: effectiveAdjustmentMode,
         source,
+        volumeUnit: 'share',
         items,
       });
     } catch (error) {

@@ -414,7 +414,7 @@ export function calculateSelectionScore(
   const amounts = amountWindow.map((item) => (
     item.amount != null && Number.isFinite(item.amount) && item.amount >= 0
       ? item.amount
-      : item.volume * ((item.high + item.low + item.close) / 3) * 100
+      : item.volume * ((item.high + item.low + item.close) / 3)
   ));
   const averageAmountYuan = average(amounts);
   const forcedCooling = averageAmountYuan < LIQUIDITY_FLOOR_YUAN;
@@ -451,7 +451,7 @@ export function calculateSelectionScore(
         : '9 个可计算量价因子均已纳入。',
       actualAmountCount === amountWindow.length
         ? '流动性硬过滤使用历史 K 线提供的真实成交额。'
-        : `最近 20 日有 ${actualAmountCount} 日提供真实成交额，其余日期使用成交量 × 典型价 × 100 股/手估算。`,
+        : `最近 20 日有 ${actualAmountCount} 日提供真实成交额，其余日期使用成交量（股）× 典型价估算。`,
     ],
   };
 }

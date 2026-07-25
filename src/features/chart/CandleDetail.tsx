@@ -108,9 +108,9 @@ function Row({
 }
 
 function formatVolume(v: number): string {
-  if (v >= 1e8) return `${roundTo(v / 1e8, 2)} 亿`;
-  if (v >= 1e4) return `${roundTo(v / 1e4, 2)} 万`;
-  return v.toFixed(0);
+  if (v >= 1e8) return `${roundTo(v / 1e8, 2)} 亿股`;
+  if (v >= 1e4) return `${roundTo(v / 1e4, 2)} 万股`;
+  return `${v.toFixed(0)} 股`;
 }
 
 function formatIndicatorValue(value: number): string {
