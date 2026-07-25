@@ -82,6 +82,30 @@ export async function getCandles(
   return { data, total: Number(row?.count ?? 0), offset, limit };
 }
 
+export async function getLatestDatasetCandlesBySymbol(
+  symbol: string,
+  assetType: string,
+  limit = 20_000,
+) {
+  const [dataset] = await getDb()
+    .select()
+    .from(marketDatasets)
+    .where(and(
+      eq(marketDatasets.symbol, symbol),
+      eq(marketDatasets.assetType, assetType),
+    ))
+    .orderBy(desc(marketDatasets.updatedAt))
+    .limit(1);
+  if (!dataset) return { dataset: null, data: [] };
+  const data = await getDb()
+    .select()
+    .from(candles)
+    .where(eq(candles.datasetId, dataset.id))
+    .orderBy(desc(candles.time))
+    .limit(limit);
+  return { dataset, data: data.reverse() };
+}
+
 export async function findDuplicateByChecksum(checksum: string) {
   const rows = await getDb()
     .select()

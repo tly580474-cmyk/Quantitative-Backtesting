@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchMarketIndexQuotes,
+  fetchStockKline,
   fetchStockQuote,
+  inferType,
   normalizeOnlineVolumeToShares,
   normalizeSinaTurnoverRatePct,
   parseEastmoneyDailyKlines,
+  parseSinaUsIndexDailyKline,
+  resolveSecurity,
 } from './aStockDataService.js';
 
 describe('A-share stock quote service', () => {
@@ -101,6 +105,38 @@ describe('A-share stock quote service', () => {
     });
   });
 
+  it.each([
+    ['ft932000', { code: '932000', market: 'SH', prefixed: '', eastmoneySecid: '2.932000' }],
+    ['sh932000', { code: '932000', market: 'SH', prefixed: '', eastmoneySecid: '2.932000' }],
+    ['usSPX', { code: 'SPX', market: 'US', prefixed: 'usINX', sinaSymbol: '.INX' }],
+    ['usDJIA', { code: 'DJIA', market: 'US', prefixed: 'usDJI', sinaSymbol: '.DJI' }],
+    ['jpN225', { code: 'N225', market: 'JP', prefixed: '', eastmoneySecid: '100.N225' }],
+    ['krKS11', { code: 'KS11', market: 'KR', prefixed: '', eastmoneySecid: '100.KS11' }],
+  ])('normalizes index alias %s to its canonical security', (alias, expected) => {
+    expect(resolveSecurity(alias)).toMatchObject(expected);
+  });
+
+  it('classifies CSI 2000 as an index rather than a stock', () => {
+    expect(inferType('932000', 'SH')).toBe('index');
+  });
+
+  it('uses Sina daily history when Tencent only exposes one US-index point', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
+      expect(String(url)).toContain('US_MinKService.getDailyK');
+      return new Response(
+        '/*guard*/var_data=([{"d":"2026-07-22","o":"100","h":"103","l":"99","c":"102","v":"10"},'
+        + '{"d":"2026-07-23","o":"102","h":"104","l":"101","c":"103","v":"11"},'
+        + '{"d":"2026-07-24","o":"103","h":"105","l":"102","c":"104","v":"12"}]);',
+        { status: 200 },
+      );
+    }));
+
+    const points = await fetchStockKline('usINX', 'day', 2);
+
+    expect(points).toHaveLength(2);
+    expect(points.map((point) => point.date)).toEqual(['2026-07-23', '2026-07-24']);
+  });
+
   it('maps Eastmoney daily f61 to the real turnover-rate field', () => {
     const points = parseEastmoneyDailyKlines([
       '2026-07-02,1193.01,1203.00,1215.52,1190.51,50870,6122360932.00,2.10,0.84,9.99,0.41',
@@ -114,6 +150,22 @@ describe('A-share stock quote service', () => {
       low: 1190.51,
       volume: 50870,
       turnoverRatePct: 0.41,
+    }]);
+  });
+
+  it('parses Sina US-index JSONP rows', () => {
+    const points = parseSinaUsIndexDailyKline(
+      'var_data=([{"d":"2026-07-24","o":"10","h":"10.5","l":"10.2","c":"11","v":"25","a":"300"}]);',
+    );
+
+    expect(points).toEqual([{
+      date: '2026-07-24',
+      open: 10,
+      close: 11,
+      high: 11,
+      low: 10,
+      volume: 25,
+      amount: 300,
     }]);
   });
 

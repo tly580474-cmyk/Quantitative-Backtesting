@@ -367,6 +367,26 @@ export interface SectorConstituentSnapshot {
   source: string;
 }
 
+export interface IndexConstituent {
+  rank: number;
+  code: string;
+  name: string;
+  nameEn: string | null;
+  exchange: string | null;
+  weightPct: number | null;
+}
+
+export interface IndexConstituentSnapshot {
+  indexCode: string;
+  indexName: string;
+  constituentDate: string;
+  weightDate: string | null;
+  source: string;
+  total: number;
+  updatedAt: string;
+  items: IndexConstituent[];
+}
+
 export type MarketKlinePeriod = 'intraday' | 'day' | 'week' | 'year';
 
 export interface ResearchReport {

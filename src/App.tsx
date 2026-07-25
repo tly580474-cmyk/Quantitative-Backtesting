@@ -673,7 +673,7 @@ function WatchlistRoute() {
   return <MarketDataPage view="watchlist" onOpenInAnalysis={handleOpenInAnalysis} />;
 }
 
-function MarketDetailRoute() {
+export function MarketDetailRoute() {
   const navigate = useNavigate();
   const { code = '' } = useParams();
   const handleOpenInAnalysis = useCallback((result: ImportResult) => {
@@ -682,7 +682,12 @@ function MarketDetailRoute() {
     navigate('/analysis');
   }, [navigate]);
 
-  return <MarketDataPage view="detail" instrumentCode={code} onOpenInAnalysis={handleOpenInAnalysis} />;
+  return <MarketDataPage
+    view="detail"
+    instrumentCode={code}
+    onOpenInAnalysis={handleOpenInAnalysis}
+    onOpenDetail={(stock) => navigate(`/market-detail/${stock.code}`)}
+  />;
 }
 
 function AppContent() {

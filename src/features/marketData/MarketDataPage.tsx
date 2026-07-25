@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { App, AutoComplete, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, Modal, Popover, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
-import { ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CheckOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, FundProjectionScreenOutlined, LineChartOutlined, NotificationOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SettingOutlined, SlidersOutlined, StarFilled, StarOutlined, ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CheckOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, FundProjectionScreenOutlined, LineChartOutlined, NotificationOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SettingOutlined, SlidersOutlined, StarFilled, StarOutlined, ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -15,12 +15,13 @@ import StockSelectionWorkspace from './StockSelectionWorkspace';
 import HotSectorPanel from './HotSectorPanel';
 import DragonTigerPanel from './DragonTigerPanel';
 import MarketNewsPanel from './MarketNewsPanel';
+import IndexConstituentDrawer from './IndexConstituentDrawer';
 import { klineCacheKey, marketDataCache } from './marketDataCache';
 import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
 import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem, TradingStyleId, TradingStyleOption } from './types';
 import type { ImportResult } from '@/models';
 import { useCardDragReorder } from './useCardDragReorder';
-import { buildMarketIndexCards, resolveMarketIndexSnapshot, type MarketIndexOption } from './marketIndexCards';
+import { buildMarketIndexCards, buildMarketIndexDetailTarget, resolveMarketIndexSnapshot, type MarketIndexOption } from './marketIndexCards';
 import { normalizeNewsUrl } from './newsUrl';
 
 const { Text, Title } = Typography;
@@ -66,6 +67,15 @@ const DEFAULT_WATCHLIST: StockSearchItem[] = [
   { code: '600519', name: '贵州茅台', market: 'SH', type: 'stock' },
   { code: '000001', name: '平安银行', market: 'SZ', type: 'stock' },
 ];
+
+function supportsIndexConstituents(quote: StockQuote): boolean {
+  return quote.type === 'index' && (
+    quote.name === '沪深300'
+    || quote.name.includes('中证')
+    || quote.name === '科创50'
+    || quote.name === '科创综指'
+  );
+}
 const SEVEN_LAYER_DEFS: Array<{ key: SevenLayerSection['key']; title: string; summary: string }> = [
   { key: 'signal', title: '信号', summary: '同花顺热点/北向/龙虎榜/解禁/行业线索' },
   { key: 'capital', title: '资金面', summary: '融资融券/大宗交易/股东户数/分钟资金流/120日资金流' },
@@ -726,6 +736,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [selectedIndexKeys, setSelectedIndexKeys] = useState<string[]>(readMarketIndexSelection);
   const [draftIndexKeys, setDraftIndexKeys] = useState<string[]>(readMarketIndexSelection);
   const [indexConfigOpen, setIndexConfigOpen] = useState(false);
+  const [indexConstituentOpen, setIndexConstituentOpen] = useState(false);
   const [indexPreviewKlines, setIndexPreviewKlines] = useState<Record<string, KlinePoint[]>>({});
   const [indexLoading, setIndexLoading] = useState(false);
   const [marketSentiment, setMarketSentiment] = useState<MarketSentimentOverview | null>(() => marketDataCache.marketSentiment ?? null);
@@ -744,17 +755,23 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [agentResult, setAgentResult] = useState(() => marketDataCache.agentResults[initialSelectedCode]?.content ?? '');
   const [reasoningSummary, setReasoningSummary] = useState<string[]>(() => marketDataCache.agentResults[initialSelectedCode]?.reasoningSummary ?? []);
   const [thinkingOpen, setThinkingOpen] = useState(false);
+  const selectedCodeRef = useRef(initialSelectedCode);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!instrumentCode || instrumentCode === selectedCode) return;
     marketDataCache.selectedCode = instrumentCode;
+    selectedCodeRef.current = instrumentCode;
     setSelectedCode(instrumentCode);
   }, [instrumentCode, selectedCode]);
   useEffect(() => { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist)); marketDataCache.watchlist = watchlist; }, [watchlist]);
   useEffect(() => { localStorage.setItem(PINNED_WATCHLIST_KEY, JSON.stringify(pinnedCodes)); }, [pinnedCodes]);
   useEffect(() => { localStorage.setItem(MARKET_INDEX_SELECTION_KEY, JSON.stringify(selectedIndexKeys)); }, [selectedIndexKeys]);
-  useEffect(() => { marketDataCache.selectedCode = selectedCode; }, [selectedCode]);
+  useEffect(() => {
+    selectedCodeRef.current = selectedCode;
+    marketDataCache.selectedCode = selectedCode;
+  }, [selectedCode]);
+  useEffect(() => { setIndexConstituentOpen(false); }, [selectedCode]);
   useEffect(() => { marketDataCache.period = period; }, [period]);
   useEffect(() => { marketDataCache.agentQuestion = agentQuestion; }, [agentQuestion]);
   useEffect(() => { marketDataCache.agentModel = agentModel; }, [agentModel]);
@@ -762,9 +779,18 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
 
   const loadQuote = useCallback(async (code: string) => {
     setQuoteLoading(true);
-    try { const next = await apiFetch<StockQuote>(`/api/market-data/stocks/${code}/quote`); marketDataCache.quotes[code] = next; setQuote(next); }
-    catch (e) { message.error(e instanceof Error ? e.message : '实时行情获取失败'); setQuote(null); }
-    finally { setQuoteLoading(false); }
+    try {
+      const next = await apiFetch<StockQuote>(`/api/market-data/stocks/${code}/quote`);
+      marketDataCache.quotes[code] = next;
+      if (selectedCodeRef.current === code) setQuote(next);
+    } catch (e) {
+      if (selectedCodeRef.current === code) {
+        message.error(e instanceof Error ? e.message : '实时行情获取失败');
+        setQuote(null);
+      }
+    } finally {
+      if (selectedCodeRef.current === code) setQuoteLoading(false);
+    }
   }, [message]);
   const loadKline = useCallback(async (code: string, nextPeriod: MarketKlinePeriod, silent = false) => {
     if (!silent) setKlineLoading(true);
@@ -998,8 +1024,12 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   };
   const openInstrumentDetail = (stock: StockSearchItem) => {
     marketDataCache.selectedCode = stock.code;
+    if (onOpenDetail) {
+      onOpenDetail(stock);
+      return;
+    }
+    selectedCodeRef.current = stock.code;
     setSelectedCode(stock.code);
-    onOpenDetail?.(stock);
   };
   const removeStock = (code: string) => setWatchlist((all) => {
     const next = all.filter((x) => x.code !== code);
@@ -1032,15 +1062,17 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       message.warning('请选择 1–3 种交易风格');
       return;
     }
+    const targetCode = selectedCode;
     setAgentRunning(true); setAgentResult(''); setReasoningSummary([]); setThinkingOpen(true);
     try {
-      const result = await apiFetch<{ content: string; reasoningSummary: string[] }>(`/api/market-data/stocks/${selectedCode}/research`, {
+      const result = await apiFetch<{ content: string; reasoningSummary: string[] }>(`/api/market-data/stocks/${targetCode}/research`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: agentQuestion, model: agentModel, styles: agentStyles }),
         timeoutMs: 180000,
       });
-      marketDataCache.agentResults[selectedCode] = result;
+      marketDataCache.agentResults[targetCode] = result;
+      if (selectedCodeRef.current !== targetCode) return;
       setAgentResult(result.content); setReasoningSummary(result.reasoningSummary ?? []); setThinkingOpen(false);
     } catch (e) { message.error(e instanceof Error ? e.message : '智能交易系统分析失败'); }
     finally { setAgentRunning(false); }
@@ -1159,10 +1191,6 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     ));
   }, [orderedWatchlist, watchlistQuery]);
   const options = useMemo(() => searchItems.map((item) => ({ value: item.code, label: <div className="market-search-option"><span><b>{item.name}</b> <Text type="secondary">{item.code}</Text></span><Tag>{item.market}</Tag></div> })), [searchItems]);
-  const selectIndexQuote = (item: StockQuote) => {
-    const code = `${item.market.toLowerCase()}${item.code}`;
-    openInstrumentDetail({ code, name: item.name, market: item.market, type: 'index' });
-  };
   const loadedSevenKeys = Object.keys(sevenLayerSections) as SevenLayerSection['key'][];
   const refreshLoadedSevenLayers = () => {
     for (const key of loadedSevenKeys) void loadSevenLayerSection(selectedCode, key, true);
@@ -1230,8 +1258,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
           onPointerLeave={cancelLongPress}
           onClick={() => {
             if (shouldSuppressClick()) return;
-            if (item) selectIndexQuote(item);
-            else openInstrumentDetail({ code: option.prefixed, name: option.name, market: option.market, type: 'index' });
+            openInstrumentDetail(buildMarketIndexDetailTarget(option, item));
           }}
           aria-label={`查看${option.name}行情`}
           style={{ touchAction: 'none' }}
@@ -1329,10 +1356,16 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       </aside>}
       <div className="market-main">
         <Card className="market-quote-card" variant="borderless"><Skeleton loading={quoteLoading} active paragraph={{ rows: 3 }}>
-          {quote ? <><div className="market-quote-head"><div className="market-quote-meta"><Space align="baseline"><Title level={3}>{quote.name}</Title><Text type="secondary">{quote.code} · {quote.market}</Text></Space><Space wrap><Tag color="blue">{quote.industry || '行业待补充'}</Tag>{quote.source.map((s) => <Tag key={s}>{s}</Tag>)}</Space><Space wrap className="market-quote-actions"><Button icon={<ReloadOutlined />} onClick={() => loadQuote(selectedCode)}>刷新行情</Button><Button icon={<ExportOutlined />} loading={exporting === 'analysis'} onClick={openInAnalysis}>导入行情分析</Button><Button icon={<DownloadOutlined />} loading={exporting === 'excel'} onClick={exportExcel}>导出 Excel</Button>{isDetailView && (selectedIsInWatchlist ? <Button icon={<CheckOutlined />} disabled>已在自选</Button> : <Button type="primary" icon={<StarOutlined />} onClick={() => { addStock({ code: selectedCode, name: quote.name, market: quote.market, type: quote.type }); message.success(`${quote.name} 已加入自选`); }}>添加自选</Button>)}</Space></div><div className="market-price-block"><span className={accent && `market-${accent}`}>{fmt(quote.price)}</span><Text className={accent && `market-${accent}`}>{fmt(quote.changeAmount)} / {fmt(quote.changePct)}%</Text></div></div>
+          {quote ? <><div className="market-quote-head"><div className="market-quote-meta"><Space align="baseline"><Title level={3}>{quote.name}</Title><Text type="secondary">{quote.code} · {quote.market}</Text></Space><Space wrap><Tag color="blue">{quote.industry || '行业待补充'}</Tag>{quote.source.map((s) => <Tag key={s}>{s}</Tag>)}</Space><Space wrap className="market-quote-actions"><Button icon={<ReloadOutlined />} onClick={() => loadQuote(selectedCode)}>刷新行情</Button><Button icon={<ExportOutlined />} loading={exporting === 'analysis'} onClick={openInAnalysis}>导入行情分析</Button><Button icon={<DownloadOutlined />} loading={exporting === 'excel'} onClick={exportExcel}>导出 Excel</Button>{isDetailView && (selectedIsInWatchlist ? <Button icon={<CheckOutlined />} disabled>已在自选</Button> : <Button type="primary" icon={<StarOutlined />} onClick={() => { addStock({ code: selectedCode, name: quote.name, market: quote.market, type: quote.type }); message.success(`${quote.name} 已加入自选`); }}>添加自选</Button>)}{isDetailView && supportsIndexConstituents(quote) && <Button icon={<ApartmentOutlined />} aria-label={`查看${quote.name}成分股`} onClick={() => setIndexConstituentOpen(true)}>成分股</Button>}</Space></div><div className="market-price-block"><span className={accent && `market-${accent}`}>{fmt(quote.price)}</span><Text className={accent && `market-${accent}`}>{fmt(quote.changeAmount)} / {fmt(quote.changePct)}%</Text></div></div>
           <div className="market-metrics-grid"><Metric label="今开 / 最高 / 最低" value={`${fmt(quote.open)} / ${fmt(quote.high)} / ${fmt(quote.low)}`} /><Metric label="昨收 / 涨停 / 跌停" value={`${fmt(quote.previousClose)} / ${fmt(quote.limitUp)} / ${fmt(quote.limitDown)}`} /><Metric label="换手率" value={`${fmt(quote.turnoverPct)}%`} /><Metric label="振幅" value={`${fmt(quote.amplitudePct)}%`} /><Metric label="量比" value={fmt(quote.volumeRatio)} /><Metric label="成交额" value={amount(quote.amountWan)} /><Metric label="PE(TTM) / PE(静)" value={`${fmt(quote.peTtm)} / ${fmt(quote.peStatic)}`} /><Metric label="PB" value={fmt(quote.pb)} /><Metric label="总市值" value={`${fmt(quote.marketCapYi)} 亿`} /><Metric label="流通市值" value={`${fmt(quote.floatMarketCapYi)} 亿`} /><Metric label="上市日期" value={quote.listDate || '—'} /><Metric label="所属行业" value={quote.industry || '—'} /></div>
           {quote.type === 'stock' && <StockSelectionScore candles={scoreCode === selectedCode ? scoreKlines : []} benchmarkCandles={benchmarkKlines} loading={scoreKlineLoading || benchmarkLoading || scoreCode !== selectedCode} />}</> : <Empty description={`无法加载 ${selected?.name ?? selectedCode} 行情`} />}
         </Skeleton></Card>
+        {quote && supportsIndexConstituents(quote) && <IndexConstituentDrawer
+          index={{ code: quote.code, name: quote.name }}
+          open={indexConstituentOpen}
+          onClose={() => setIndexConstituentOpen(false)}
+          onSelectStock={openInstrumentDetail}
+        />}
         <Card
           className="market-chart-card"
           variant="borderless"

@@ -26,6 +26,8 @@ import {
   fetchStockIntraday,
   fetchStockKline,
   fetchStockQuote,
+  inferType,
+  resolveSecurity,
   searchStocks,
 } from '../marketData/aStockDataService.js';
 import {
@@ -68,6 +70,7 @@ import {
   getCurrentResearchSnapshot,
   queryResearchSnapshot,
   queryStockDividendHistory,
+  queryLatestIndexConstituents,
 } from '../research/duckdbResearchService.js';
 import { buildResearchSnapshot } from '../research/snapshotBuilder.js';
 import { getResearchSnapshotFreshness } from '../research/snapshotFreshness.js';
@@ -557,8 +560,12 @@ export function registerMarketDataRoutes(
     }).safeParse(req.query);
     if (!query.success) return reply.status(400).send({ message: '不支持的 K 线周期' });
     try {
+      const security = resolveSecurity(req.params.code);
+      const requestedAdjustmentMode: HistoryAdjustmentMode = inferType(security.code, security.market) === 'index'
+        ? 'none'
+        : query.data.adjustmentMode;
       let source: 'online' | 'database' | 'database+online' = 'online';
-      let effectiveAdjustmentMode: HistoryAdjustmentMode = query.data.adjustmentMode;
+      let effectiveAdjustmentMode: HistoryAdjustmentMode = requestedAdjustmentMode;
       let items = query.data.period === 'intraday'
         ? query.data.tradeDate
           ? (await queryMinuteBars(storageConfig.minuteDataRoot, {
@@ -576,7 +583,7 @@ export function registerMarketDataRoutes(
         if (query.data.fullHistory) {
           const database = await fetchStockFullHistoryFromDb(
             req.params.code,
-            query.data.adjustmentMode,
+            requestedAdjustmentMode,
           );
           effectiveAdjustmentMode = database.adjustmentMode;
           if (database.items.length === 0) {
@@ -584,9 +591,9 @@ export function registerMarketDataRoutes(
               req.params.code,
               query.data.period,
               800,
-              query.data.adjustmentMode,
+              requestedAdjustmentMode,
             );
-            effectiveAdjustmentMode = query.data.adjustmentMode;
+            effectiveAdjustmentMode = requestedAdjustmentMode;
           } else {
             const session = getChinaMarketSession();
             const latestDatabaseDate = database.items.at(-1)?.date;
@@ -610,7 +617,7 @@ export function registerMarketDataRoutes(
             req.params.code,
             query.data.period,
             320,
-            query.data.adjustmentMode,
+            requestedAdjustmentMode,
           );
         }
       }
@@ -762,6 +769,27 @@ export function registerMarketDataRoutes(
   app.get('/api/research-snapshots/current', async (_req, reply) => {
     const snapshot = await getCurrentResearchSnapshot(storageConfig.snapshotRoot);
     return reply.send(snapshot ?? { status: 'unavailable' });
+  });
+
+  app.get<{ Params: { code: string } }>('/api/research-snapshots/index-constituents/:code', async (req, reply) => {
+    const parsed = z.string().regex(/^\d{6}$/).safeParse(req.params.code);
+    if (!parsed.success) return reply.status(400).send({ message: '指数代码必须为 6 位数字' });
+    try {
+      const snapshot = await queryLatestIndexConstituents(storageConfig.snapshotRoot, parsed.data);
+      return reply.send(snapshot ?? {
+        indexCode: parsed.data,
+        indexName: parsed.data,
+        constituentDate: '',
+        weightDate: null,
+        source: '本地研究快照',
+        total: 0,
+        updatedAt: new Date().toISOString(),
+        items: [],
+      });
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '指数成分股读取失败' });
+    }
   });
 
   app.get('/api/research-snapshots/freshness', async (_req, reply) => {

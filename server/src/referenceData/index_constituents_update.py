@@ -23,7 +23,16 @@ import pymysql
 import requests
 
 
-DEFAULT_INDEX_CODES = ("000300", "000905", "000852", "932000", "000688", "000680")
+DEFAULT_INDEX_CODES = (
+    "000300",
+    "000905",
+    "000852",
+    "932000",
+    "000510",
+    "000985",
+    "000688",
+    "000680",
+)
 
 
 @dataclass(frozen=True)

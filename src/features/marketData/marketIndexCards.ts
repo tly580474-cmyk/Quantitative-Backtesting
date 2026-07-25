@@ -22,6 +22,19 @@ export interface MarketIndexSnapshot {
   source: 'quote' | 'kline' | 'unavailable';
 }
 
+/** Keep the configured provider alias when opening an index detail page. */
+export function buildMarketIndexDetailTarget(
+  option: MarketIndexOption,
+  quote: StockQuote | null,
+): StockSearchItem {
+  return {
+    code: option.prefixed,
+    name: quote?.name ?? option.name,
+    market: option.market,
+    type: 'index',
+  };
+}
+
 /**
  * Keep the configured card slots stable even when an upstream quote response is
  * partial. A missing quote is data state, not a reason to remove the card.

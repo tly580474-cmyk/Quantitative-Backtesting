@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildMarketIndexCards, resolveMarketIndexSnapshot, type MarketIndexOption } from '../marketIndexCards';
+import {
+  buildMarketIndexCards,
+  buildMarketIndexDetailTarget,
+  resolveMarketIndexSnapshot,
+  type MarketIndexOption,
+} from '../marketIndexCards';
 import type { KlinePoint, StockQuote } from '../types';
 
 const options: MarketIndexOption[] = [
@@ -8,6 +13,10 @@ const options: MarketIndexOption[] = [
   { key: 'SZ:399006', code: '399006', name: '创业板指', market: 'SZ', prefixed: 'sz399006' },
   { key: 'SH:000852', code: '000852', name: '中证1000', market: 'SH', prefixed: 'sh000852' },
   { key: 'SH:932000', code: '932000', name: '中证2000', market: 'SH', prefixed: 'ft932000' },
+  { key: 'US:SPX', code: 'SPX', name: '标普500', market: 'US', prefixed: 'usINX' },
+  { key: 'US:DJIA', code: 'DJIA', name: '道琼斯', market: 'US', prefixed: 'usDJI' },
+  { key: 'JP:N225', code: 'N225', name: '日经225', market: 'JP', prefixed: 'ftN225' },
+  { key: 'KR:KS11', code: 'KS11', name: '韩国KOSPI', market: 'KR', prefixed: 'ftKS11' },
 ];
 
 function quote(option: MarketIndexOption): StockQuote {
@@ -22,14 +31,26 @@ function quote(option: MarketIndexOption): StockQuote {
 }
 
 describe('market overview index cards', () => {
-  it('keeps all five configured cards when the quote response only contains three', () => {
+  it.each([
+    ['SH:932000', 'ft932000'],
+    ['US:SPX', 'usINX'],
+    ['US:DJIA', 'usDJI'],
+    ['JP:N225', 'ftN225'],
+    ['KR:KS11', 'ftKS11'],
+  ])('keeps the configured provider alias for %s detail navigation', (key, expected) => {
+    const option = options.find((item) => item.key === key);
+    expect(option).toBeDefined();
+    expect(buildMarketIndexDetailTarget(option!, null).code).toBe(expected);
+  });
+
+  it('keeps all configured cards when the quote response is partial', () => {
     const cards = buildMarketIndexCards(
       options.map((option) => option.key),
       options,
       options.slice(0, 3).map(quote),
     );
 
-    expect(cards).toHaveLength(5);
+    expect(cards).toHaveLength(options.length);
     expect(cards.map((card) => card.key)).toEqual(options.map((option) => option.key));
     expect(cards.slice(3).every((card) => card.quote === null)).toBe(true);
   });

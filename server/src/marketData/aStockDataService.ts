@@ -14,6 +14,7 @@ import {
   applyHistoryAdjustment,
   type HistoryAdjustmentMode,
 } from './normalization/historyAdjustment.js';
+import { getLatestDatasetCandlesBySymbol } from '../services/dataService.js';
 
 const TENCENT_QUOTE_URL = 'https://qt.gtimg.cn/q=';
 const TENCENT_KLINE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';
@@ -22,6 +23,7 @@ const TENCENT_SEARCH_URL = 'https://smartbox.gtimg.cn/s3/';
 const EASTMONEY_REPORT_URL = 'https://reportapi.eastmoney.com/report/list';
 const EASTMONEY_INFO_URL = 'https://push2.eastmoney.com/api/qt/stock/get';
 const EASTMONEY_KLINE_URL = 'https://push2his.eastmoney.com/api/qt/stock/kline/get';
+const SINA_US_DAILY_URL = 'https://stock.finance.sina.com.cn/usstock/api/jsonp.php/var_data=/US_MinKService.getDailyK';
 
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
@@ -264,32 +266,35 @@ function normalizeCode(input: string): string {
   return match[1];
 }
 
-/** 国际指数代码查找表：前端传入的 instrumentCode → 腾讯 prefixed / 东方财富 secid */
-const INTERNATIONAL_INDEX_LOOKUP: Record<string, { prefixed: string; market: MarketCode; eastmoneySecid?: string }> = {
-  hkhsi: { prefixed: 'hkHSI', market: 'HK' },
-  usndx: { prefixed: 'usNDX', market: 'US' },
-  usinx: { prefixed: 'usINX', market: 'US' },
-  usdji: { prefixed: 'usDJI', market: 'US' },
-  ft932000: { prefixed: '', market: 'SH', eastmoneySecid: '2.932000' },
-  ftn225: { prefixed: '', market: 'JP', eastmoneySecid: '100.N225' },
-  ftks11: { prefixed: '', market: 'KR', eastmoneySecid: '100.KS11' },
+interface ResolvedSecurity {
+  code: string;
+  market: MarketCode;
+  prefixed: string;
+  eastmoneySecid?: string;
+  sinaSymbol?: string;
+}
+
+/** Canonical index aliases accepted by detail routes and market-data endpoints. */
+const INDEX_ALIAS_LOOKUP: Record<string, ResolvedSecurity> = {
+  hkhsi: { code: 'HSI', prefixed: 'hkHSI', market: 'HK' },
+  usndx: { code: 'NDX', prefixed: 'usNDX', market: 'US', sinaSymbol: '.NDX' },
+  usinx: { code: 'SPX', prefixed: 'usINX', market: 'US', sinaSymbol: '.INX' },
+  usspx: { code: 'SPX', prefixed: 'usINX', market: 'US', sinaSymbol: '.INX' },
+  usdji: { code: 'DJIA', prefixed: 'usDJI', market: 'US', sinaSymbol: '.DJI' },
+  usdjia: { code: 'DJIA', prefixed: 'usDJI', market: 'US', sinaSymbol: '.DJI' },
+  ft932000: { code: '932000', prefixed: '', market: 'SH', eastmoneySecid: '2.932000' },
+  sh932000: { code: '932000', prefixed: '', market: 'SH', eastmoneySecid: '2.932000' },
+  ftn225: { code: 'N225', prefixed: '', market: 'JP', eastmoneySecid: '100.N225' },
+  jpn225: { code: 'N225', prefixed: '', market: 'JP', eastmoneySecid: '100.N225' },
+  ftks11: { code: 'KS11', prefixed: '', market: 'KR', eastmoneySecid: '100.KS11' },
+  krks11: { code: 'KS11', prefixed: '', market: 'KR', eastmoneySecid: '100.KS11' },
 };
 
-function resolveSecurity(input: string): { code: string; market: MarketCode; prefixed: string; eastmoneySecid?: string } {
+export function resolveSecurity(input: string): ResolvedSecurity {
   const value = input.trim().toLowerCase();
 
-  // 国际指数代码（hkHSI / usNDX / ftN225 等）
-  const intl = INTERNATIONAL_INDEX_LOOKUP[value];
-  if (intl) {
-    // 从原始输入中提取 code（如 hkHSI → HSI, usNDX → NDX）
-    const codeMatch = input.trim().match(/^(?:hk|us|ft)(.+)$/i);
-    return {
-      code: codeMatch ? codeMatch[1].toUpperCase() : input.trim().toUpperCase(),
-      market: intl.market,
-      prefixed: intl.prefixed,
-      eastmoneySecid: intl.eastmoneySecid,
-    };
-  }
+  const index = INDEX_ALIAS_LOOKUP[value];
+  if (index) return { ...index };
 
   const prefixMatch = value.match(/^(sh|sz|bj)(\d{6})$/);
   const suffixMatch = value.match(/^(\d{6})\.(sh|sz|bj)$/);
@@ -317,9 +322,15 @@ function prefixOf(code: string): string {
   return market === 'SH' ? `sh${code}` : market === 'BJ' ? `bj${code}` : `sz${code}`;
 }
 
-function inferType(code: string, market: MarketCode = marketOf(code)): 'stock' | 'index' | 'etf' {
+const KNOWN_CN_INDEX_CODES = new Set([
+  '000001', '399001', '399006', '000300', '000905', '000852',
+  '000688', '000680', '000510', '000985', '932000',
+]);
+
+export function inferType(code: string, market: MarketCode = marketOf(code)): 'stock' | 'index' | 'etf' {
   // 国际市场代码均为指数
   if (market === 'HK' || market === 'US' || market === 'JP' || market === 'KR') return 'index';
+  if (KNOWN_CN_INDEX_CODES.has(code)) return 'index';
   if ((market === 'SH' && code.startsWith('000')) || (market === 'SZ' && code.startsWith('399'))) return 'index';
   if (/^(1[568]|5[168])/.test(code)) return 'etf';
   return 'stock';
@@ -426,7 +437,42 @@ export async function searchStocks(keyword: string, limit = 12): Promise<StockSe
 }
 
 export async function fetchStockQuote(input: string, withProfile = true): Promise<StockQuote> {
-  const { code, market, prefixed } = resolveSecurity(input);
+  const security = resolveSecurity(input);
+  const { code, market, prefixed } = security;
+  if (security.eastmoneySecid) {
+    const definition = MARKET_INDEXES.find((item) => (
+      item.code === code
+      && item.market === market
+      && item.eastmoneySecid === security.eastmoneySecid
+    ));
+    if (!definition) throw new Error(`缺少指数 ${code} 的行情配置`);
+    const quote = await fetchEastmoneyIndexQuote(definition);
+    if (quote) return quote;
+
+    const local = await getLatestDatasetCandlesBySymbol(code, 'index', 2);
+    if (local.data.length > 0) {
+      return buildIndexQuoteFromKlines(
+        definition,
+        local.data.map((bar) => ({
+          date: bar.time,
+          open: Number(bar.open),
+          close: Number(bar.close),
+          high: Number(bar.high),
+          low: Number(bar.low),
+          volume: Number(bar.volume ?? 0),
+          amount: bar.turnover == null ? undefined : Number(bar.turnover) * 100_000_000,
+        })),
+        ['本地指数数据'],
+      );
+    }
+
+    const online = await fetchEastmoneyIndexKline(security.eastmoneySecid, 'day', 2)
+      .catch(() => []);
+    if (online.length > 0) {
+      return buildIndexQuoteFromKlines(definition, online, ['东方财富K线']);
+    }
+    throw new Error(`指数 ${code} 行情暂不可用`);
+  }
   const text = await fetchText(`${TENCENT_QUOTE_URL}${prefixed}`, 'gbk');
   const values = text.match(/"([\s\S]*?)"/)?.[1]?.split('~') ?? [];
   if (values.length < 53 || !values[1]) throw new Error(`未找到证券 ${code}`);
@@ -537,6 +583,45 @@ async function fetchEastmoneyIndexQuote(item: IndexDefinition): Promise<StockQuo
   } catch {
     return null;
   }
+}
+
+function buildIndexQuoteFromKlines(
+  item: IndexDefinition,
+  points: KlinePoint[],
+  source: string[],
+): StockQuote {
+  const latest = points.at(-1)!;
+  const previous = points.at(-2);
+  const previousClose = previous?.close ?? latest.open;
+  const changeAmount = latest.close - previousClose;
+  return {
+    code: item.code,
+    name: item.name,
+    market: item.market,
+    type: 'index',
+    price: latest.close,
+    previousClose,
+    open: latest.open,
+    changeAmount,
+    changePct: previousClose === 0 ? null : changeAmount / previousClose * 100,
+    high: latest.high,
+    low: latest.low,
+    amountWan: latest.amount == null ? null : latest.amount / 10_000,
+    turnoverPct: latest.turnoverRatePct ?? null,
+    peTtm: null,
+    amplitudePct: previousClose === 0 ? null : (latest.high - latest.low) / previousClose * 100,
+    floatMarketCapYi: null,
+    marketCapYi: null,
+    pb: null,
+    limitUp: null,
+    limitDown: null,
+    volumeRatio: null,
+    peStatic: null,
+    industry: '大盘指数',
+    listDate: null,
+    updatedAt: `${latest.date}T15:00:00.000Z`,
+    source,
+  };
 }
 
 function sentimentStatus(msi: number): Pick<MarketSentimentOverview, 'status' | 'statusLabel'> {
@@ -937,35 +1022,57 @@ export async function fetchStockFullHistoryFromDb(
   adjustmentMode: HistoryAdjustmentMode = 'qfq',
 ): Promise<DatabaseKlineResult> {
   const security = resolveSecurity(input);
+  const assetType = inferType(security.code, security.market);
+  if (assetType === 'index') {
+    const dataset = await getLatestDatasetCandlesBySymbol(security.code, 'index');
+    if (dataset.data.length > 0) {
+      return {
+        adjustmentMode: 'none',
+        items: dataset.data.map((bar) => ({
+          date: bar.time,
+          open: Number(bar.open),
+          close: Number(bar.close),
+          high: Number(bar.high),
+          low: Number(bar.low),
+          volume: Number(bar.volume ?? 0),
+          amount: bar.turnover == null ? undefined : Number(bar.turnover) * 100_000_000,
+          turnoverRatePct: bar.turnoverRatePct == null
+            ? undefined
+            : Number(bar.turnoverRatePct),
+        })),
+      };
+    }
+  }
   if (!['SH', 'SZ', 'BJ'].includes(security.market)) {
     return { items: [], adjustmentMode };
   }
+  const effectiveRequestedMode = assetType === 'index' ? 'none' : adjustmentMode;
   const instrument = await getInstrumentByMarketSymbol(
     security.market,
     security.code,
-    'stock',
+    assetType,
   );
   if (instrument?.instrumentKey == null) {
-    return { items: [], adjustmentMode };
+    return { items: [], adjustmentMode: effectiveRequestedMode };
   }
 
   const history = await getHistoryDailyBars(instrument.instrumentKey, { limit: 20_000 });
-  if (history.total === 0) return { items: [], adjustmentMode };
+  if (history.total === 0) return { items: [], adjustmentMode: effectiveRequestedMode };
 
   let bars = history.data;
-  let effectiveAdjustmentMode = adjustmentMode;
-  if (adjustmentMode !== 'none') {
+  let effectiveAdjustmentMode = effectiveRequestedMode;
+  if (effectiveRequestedMode !== 'none') {
     const adjustment = await getPublishedHistoryAdjustment(
       instrument.instrumentKey,
       instrument.id,
-      adjustmentMode,
+      effectiveRequestedMode,
     );
     if (adjustment?.factors.length) {
       bars = applyHistoryAdjustment(
         history.data,
         adjustment.factors,
         adjustment.overrides,
-        adjustmentMode,
+        effectiveRequestedMode,
       ) as typeof history.data;
     } else {
       effectiveAdjustmentMode = 'none';
@@ -1527,6 +1634,98 @@ function parseTencentQuote(
   };
 }
 
+interface SinaUsDailyRow {
+  d?: string;
+  o?: string;
+  h?: string;
+  l?: string;
+  c?: string;
+  v?: string;
+  a?: string;
+}
+
+const sinaIndexDailyCache = new Map<string, { updatedAt: number; items: KlinePoint[] }>();
+const onlineIndexKlineCache = new Map<string, { updatedAt: number; items: KlinePoint[] }>();
+const INDEX_KLINE_CACHE_TTL_MS = 15 * 60_000;
+
+export function parseSinaUsIndexDailyKline(payload: string): KlinePoint[] {
+  const match = payload.match(/=\((\[[\s\S]*\])\);?\s*$/);
+  if (!match) return [];
+  let rows: SinaUsDailyRow[];
+  try {
+    rows = JSON.parse(match[1]) as SinaUsDailyRow[];
+  } catch {
+    return [];
+  }
+  return rows.flatMap((row) => {
+    const values = [row.o, row.c, row.h, row.l, row.v].map(Number);
+    if (!row.d || values.some((value) => !Number.isFinite(value))) return [];
+    const amount = numberOrNull(row.a);
+    return [{
+      date: row.d,
+      open: values[0],
+      close: values[1],
+      high: Math.max(values[0], values[1], values[2]),
+      low: Math.min(values[0], values[1], values[3]),
+      volume: values[4],
+      ...(amount == null ? {} : { amount }),
+    }];
+  });
+}
+
+function aggregateIndexKlines(
+  daily: KlinePoint[],
+  period: 'day' | 'week' | 'year',
+): KlinePoint[] {
+  if (period === 'day') return daily;
+  const grouped = new Map<string, KlinePoint>();
+  for (const point of daily) {
+    const date = new Date(`${point.date}T00:00:00Z`);
+    const key = period === 'year'
+      ? point.date.slice(0, 4)
+      : (() => {
+        const day = date.getUTCDay() || 7;
+        date.setUTCDate(date.getUTCDate() - day + 1);
+        return date.toISOString().slice(0, 10);
+      })();
+    const current = grouped.get(key);
+    if (!current) {
+      grouped.set(key, { ...point });
+      continue;
+    }
+    current.close = point.close;
+    current.high = Math.max(current.high, point.high);
+    current.low = Math.min(current.low, point.low);
+    current.volume += point.volume;
+    if (point.amount != null) current.amount = (current.amount ?? 0) + point.amount;
+  }
+  return [...grouped.values()];
+}
+
+async function fetchSinaUsIndexKline(
+  symbol: string,
+  period: 'day' | 'week' | 'year',
+  count: number,
+): Promise<KlinePoint[]> {
+  const cached = sinaIndexDailyCache.get(symbol);
+  let daily = cached?.items;
+  if (!cached || !daily || Date.now() - cached.updatedAt > INDEX_KLINE_CACHE_TTL_MS) {
+    const response = await fetchWithRetry(
+      `${SINA_US_DAILY_URL}?symbol=${encodeURIComponent(symbol)}`,
+      {
+        headers: { ...BROWSER_HEADERS, Referer: 'https://finance.sina.com.cn/' },
+        signal: AbortSignal.timeout(20_000),
+      },
+    );
+    if (!response.ok) throw new Error(`新浪美股指数 K 线接口 HTTP ${response.status}`);
+    const parsed = parseSinaUsIndexDailyKline(await response.text());
+    if (parsed.length < 2) throw new Error(`新浪美股指数 ${symbol} K 线数据不足`);
+    daily = parsed;
+    sinaIndexDailyCache.set(symbol, { updatedAt: Date.now(), items: parsed });
+  }
+  return aggregateIndexKlines(daily, period).slice(-count);
+}
+
 export async function fetchStockKline(
   input: string,
   period: 'day' | 'week' | 'year',
@@ -1536,9 +1735,29 @@ export async function fetchStockKline(
   const security = resolveSecurity(input);
   const { prefixed } = security;
 
-  // 东方财富专属指数（日经/KOSPI）：腾讯不支持，直接走东方财富 K 线
+  // 新浪提供完整的美股指数日线；腾讯该接口通常只返回最新一个交易日。
+  if (security.sinaSymbol) {
+    try {
+      return await fetchSinaUsIndexKline(security.sinaSymbol, period, count);
+    } catch {
+      // Keep Tencent as a final fallback for a current quote point.
+    }
+  }
+
+  // 腾讯不支持的指数使用东方财富，并保留最近一次成功结果应对上游波动。
   if (security.eastmoneySecid) {
-    return fetchEastmoneyIndexKline(security.eastmoneySecid, period, count);
+    const cacheKey = `${security.eastmoneySecid}:${period}:${count}`;
+    try {
+      const items = await fetchEastmoneyIndexKline(security.eastmoneySecid, period, count);
+      if (items.length > 0) {
+        onlineIndexKlineCache.set(cacheKey, { updatedAt: Date.now(), items });
+      }
+      return items;
+    } catch (error) {
+      const cached = onlineIndexKlineCache.get(cacheKey);
+      if (cached) return cached.items;
+      throw error;
+    }
   }
 
   // 前复权日 K 走东财（含 f61 换手率）+ 新浪补全的富链路；其余复权口径腾讯直接给出，跳过东财/新浪补全。

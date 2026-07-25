@@ -95,6 +95,83 @@ export async function queryStockDividendHistory(
   }
 }
 
+export interface IndexConstituentSnapshot {
+  indexCode: string;
+  indexName: string;
+  constituentDate: string;
+  weightDate: string | null;
+  source: string;
+  total: number;
+  updatedAt: string;
+  items: Array<{
+    rank: number;
+    code: string;
+    name: string;
+    nameEn: string | null;
+    exchange: string | null;
+    weightPct: number | null;
+  }>;
+}
+
+export async function queryLatestIndexConstituents(
+  root: string,
+  inputCode: string,
+): Promise<IndexConstituentSnapshot | null> {
+  const code = inputCode.replace(/\D/g, '').padStart(6, '0').slice(-6);
+  const snapshotRoot = resolve(root);
+  const current = await readCurrentSnapshot(snapshotRoot);
+  if (!current) return null;
+  const dataset = current.manifest.datasets?.find((item) => item.name === 'index_constituents');
+  if (!dataset) return null;
+  const parquetPath = normalizeDuckDbPath(
+    join(snapshotRoot, current.manifest.snapshotId, dataset.relativePath),
+  );
+  const session = await openManagedDuckDB({
+    label: 'index-constituents',
+    config: { threads: '2', max_memory: '512MB' },
+  });
+  try {
+    const reader = await session.connection.runAndReadAll(`
+      WITH latest_snapshot AS (
+        SELECT snapshotId, indexCode, indexName, constituentDate, weightDate, sourceKey
+        FROM read_parquet('${escapeSqlLiteral(parquetPath)}')
+        WHERE indexCode = $indexCode
+        QUALIFY ROW_NUMBER() OVER (
+          ORDER BY constituentDate DESC, weightDate DESC NULLS LAST, snapshotId DESC
+        ) = 1
+      )
+      SELECT member.indexCode, member.indexName, member.constituentDate, member.weightDate,
+             member.sourceKey, member.constituentCode, member.constituentName,
+             member.constituentNameEn, member.exchange, member.weightPct
+      FROM read_parquet('${escapeSqlLiteral(parquetPath)}') AS member
+      INNER JOIN latest_snapshot AS latest ON member.snapshotId = latest.snapshotId
+      ORDER BY member.weightPct DESC NULLS LAST, member.constituentCode
+    `, { indexCode: code });
+    const rows = reader.getRowObjectsJson() as Array<Record<string, unknown>>;
+    if (!rows.length) return null;
+    const first = rows[0];
+    return {
+      indexCode: String(first.indexCode ?? code),
+      indexName: String(first.indexName ?? code),
+      constituentDate: String(first.constituentDate ?? ''),
+      weightDate: first.weightDate == null ? null : String(first.weightDate),
+      source: '本地研究快照',
+      total: rows.length,
+      updatedAt: current.pointer.publishedAt,
+      items: rows.map((row, index) => ({
+        rank: index + 1,
+        code: String(row.constituentCode ?? ''),
+        name: String(row.constituentName ?? ''),
+        nameEn: row.constituentNameEn == null ? null : String(row.constituentNameEn),
+        exchange: row.exchange == null ? null : String(row.exchange),
+        weightPct: finiteNumber(row.weightPct),
+      })),
+    };
+  } finally {
+    await session.close();
+  }
+}
+
 export async function queryResearchSnapshot(root: string, query: ResearchQuery) {
   const snapshotRoot = resolve(root);
   const current = await readCurrentSnapshot(snapshotRoot);
@@ -209,4 +286,11 @@ function normalizeDuckDbPath(path: string): string {
 
 function escapeSqlLiteral(value: string): string {
   return value.replaceAll("'", "''");
+}
+
+function finiteNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }

@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DuckDBInstance } from '@duckdb/node-api';
 import { afterEach, describe, it } from 'vitest';
-import { buildResearchQuery, queryResearchSnapshot } from './duckdbResearchService.js';
+import {
+  buildResearchQuery,
+  queryLatestIndexConstituents,
+  queryResearchSnapshot,
+} from './duckdbResearchService.js';
 
 const temporaryRoots: string[] = [];
 
@@ -112,5 +116,71 @@ describe('DuckDB research query builder', () => {
       tradeDate: '2026-07-03',
       close: 10.5,
     });
+  });
+
+  it('returns the latest published index constituent snapshot', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'index-constituent-snapshot-'));
+    temporaryRoots.push(root);
+    const snapshotId = 'snapshot-index-test';
+    const datasetDir = join(root, snapshotId, 'index_constituents');
+    await mkdir(datasetDir, { recursive: true });
+    const parquetPath = join(datasetDir, 'data.parquet').replaceAll('\\', '/');
+    const instance = await DuckDBInstance.create(':memory:');
+    const connection = await instance.connect();
+    await connection.run(`
+      COPY (
+        SELECT 'old'::VARCHAR AS snapshotId, '000300'::VARCHAR AS indexCode,
+               '沪深300'::VARCHAR AS indexName, DATE '2026-07-22' AS constituentDate,
+               NULL::DATE AS weightDate, 'official'::VARCHAR AS sourceKey,
+               'official'::VARCHAR AS weightMethod, NULL::VARCHAR AS anchorSnapshotId,
+               NULL::VARCHAR AS validationSnapshotId, NULL::DOUBLE AS validationHalfL1Pct,
+               '600000'::VARCHAR AS constituentCode, 1::BIGINT AS instrumentKey,
+               '浦发银行'::VARCHAR AS constituentName, 'SPDB'::VARCHAR AS constituentNameEn,
+               '上海证券交易所'::VARCHAR AS exchange, 'SSE'::VARCHAR AS exchangeEn,
+               NULL::DOUBLE AS weightPct, '600000'::VARCHAR AS rawCode
+        UNION ALL
+        SELECT 'latest', '000300', '沪深300', DATE '2026-07-23', NULL::DATE,
+               'official', 'official', NULL, NULL, NULL, '000001', 2,
+               '平安银行', 'Ping An Bank', '深圳证券交易所', 'SZSE', NULL, '000001'
+        UNION ALL
+        SELECT 'latest', '000300', '沪深300', DATE '2026-07-23', NULL::DATE,
+               'official', 'official', NULL, NULL, NULL, '600519', 3,
+               '贵州茅台', 'Kweichow Moutai', '上海证券交易所', 'SSE', NULL, '600519'
+      ) TO '${parquetPath}' (FORMAT parquet)
+    `);
+    connection.closeSync();
+    instance.closeSync();
+    await writeFile(join(root, 'current.json'), JSON.stringify({
+      snapshotId,
+      publishedAt: '2026-07-24T10:33:28.856Z',
+    }));
+    await writeFile(join(root, snapshotId, 'manifest.json'), JSON.stringify({
+      schemaVersion: 1,
+      snapshotId,
+      sourceVersion: 'batch-index-test',
+      sourcePublishedAt: null,
+      createdAt: '2026-07-24T10:33:28.856Z',
+      status: 'validated',
+      rowCount: 0,
+      instrumentCount: 0,
+      minDate: null,
+      maxDate: null,
+      partitions: [],
+      datasets: [{
+        name: 'index_constituents',
+        relativePath: 'index_constituents/data.parquet',
+        rows: 3,
+        bytes: 1,
+        minDate: '2026-07-22',
+        maxDate: '2026-07-23',
+        sha256: 'test',
+      }],
+    }));
+
+    const result = await queryLatestIndexConstituents(root, '000300');
+
+    assert.equal(result?.constituentDate, '2026-07-23');
+    assert.equal(result?.total, 2);
+    assert.deepEqual(result?.items.map((item) => item.code), ['000001', '600519']);
   });
 });
