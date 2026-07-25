@@ -19,7 +19,7 @@ vi.mock('openai', () => ({
   },
 }));
 
-function item(id: string, tier: NewsSourceTier, publishedAt = '2026-07-18T12:00:00.000Z'): MarketNewsItem {
+function item(id: string, tier: NewsSourceTier, publishedAt = new Date().toISOString()): MarketNewsItem {
   return {
     newsId: id,
     sourceKey: tier === 'state_media' ? 'xinwenlianbo' : tier === 'professional' ? 'cls' : 'eastmoney_stock',

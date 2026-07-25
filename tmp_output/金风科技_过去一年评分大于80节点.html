@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>金风科技｜过去一年评分大于 80 节点</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #697386;
+      --line: #e6e9ef;
+      --panel: #ffffff;
+      --wash: #f5f7fa;
+      --red: #d92d20;
+      --red-soft: #fff0ee;
+      --green: #079455;
+      --gold: #b54708;
+      --navy: #253b5b;
+      --shadow: 0 14px 40px rgba(23, 32, 51, .08);
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--wash); }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font: 14px/1.55 Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      font-variant-numeric: tabular-nums;
+    }
+    main { width: min(1440px, calc(100% - 32px)); margin: 28px auto 56px; }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: end;
+      padding: 28px 30px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(135deg, #fff 0%, #fff 65%, #f8eee9 100%);
+      box-shadow: var(--shadow);
+    }
+    .eyebrow { margin: 0 0 8px; color: var(--red); font-size: 12px; font-weight: 800; letter-spacing: .12em; }
+    h1 { margin: 0; font-size: clamp(28px, 4vw, 48px); line-height: 1.12; letter-spacing: -.035em; }
+    .subtitle { margin: 12px 0 0; color: var(--muted); font-size: 15px; }
+    .symbol { display: inline-flex; margin-left: 10px; padding: 4px 9px; border-radius: 99px; background: #edf2f7; color: var(--navy); font-size: 13px; vertical-align: middle; }
+    .asof { color: var(--muted); text-align: right; white-space: nowrap; }
+    .asof strong { display: block; color: var(--ink); font-size: 20px; }
+    .metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+    .metric { padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+    .metric span { display: block; color: var(--muted); font-size: 12px; }
+    .metric strong { display: block; margin-top: 5px; font-size: 25px; letter-spacing: -.02em; }
+    .metric.primary { border-color: #f4c7c2; background: var(--red-soft); }
+    .metric.primary strong { color: var(--red); }
+    .panel { margin-top: 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
+    .panel-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; padding: 20px 24px 12px; }
+    .panel-head h2 { margin: 0; font-size: 18px; }
+    .panel-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); font-size: 12px; }
+    .legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 2px; }
+    .legend .rise::before { background: var(--red); }
+    .legend .fall::before { background: var(--green); }
+    .legend .mark::before { border-radius: 50%; background: #ffb020; box-shadow: 0 0 0 2px var(--red); }
+    .chart-wrap { position: relative; height: 520px; margin: 0 16px 10px; border-top: 1px solid var(--line); }
+    canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+    .tooltip {
+      position: absolute;
+      z-index: 3;
+      display: none;
+      min-width: 210px;
+      padding: 10px 12px;
+      border: 1px solid #d8dde6;
+      border-radius: 10px;
+      background: rgba(255,255,255,.96);
+      box-shadow: 0 10px 24px rgba(23,32,51,.14);
+      pointer-events: none;
+      font-size: 12px;
+    }
+    .tooltip strong { display: block; margin-bottom: 4px; font-size: 13px; }
+    .tooltip-grid { display: grid; grid-template-columns: auto auto; gap: 2px 12px; color: var(--muted); }
+    .node-strip { display: flex; gap: 8px; overflow-x: auto; padding: 2px 24px 18px; scrollbar-width: thin; }
+    .node-chip { flex: 0 0 auto; padding: 7px 10px; border: 1px solid #f0bbb5; border-radius: 9px; background: var(--red-soft); color: #8f241c; font: inherit; cursor: pointer; }
+    .node-chip:hover, .node-chip:focus-visible { outline: 2px solid #f5a8a0; outline-offset: 1px; }
+    .node-chip b { color: var(--red); }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 1060px; }
+    th, td { padding: 12px 14px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { position: sticky; top: 0; background: #f8fafc; color: var(--muted); font-size: 12px; font-weight: 700; }
+    tbody tr:hover { background: #fffafa; }
+    .score-pill { display: inline-grid; min-width: 34px; height: 28px; place-items: center; border-radius: 8px; background: var(--red); color: #fff; }
+    .factor { display: inline-block; margin: 0 5px 4px 0; padding: 2px 7px; border-radius: 99px; background: #edf2f7; color: #44546a; font-size: 11px; white-space: nowrap; }
+    .up { color: var(--red); font-weight: 650; }
+    .down { color: var(--green); font-weight: 650; }
+    .empty { padding: 36px; text-align: center; color: var(--muted); }
+    .notes { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; padding: 22px 24px; }
+    .notes h3 { margin: 0 0 8px; font-size: 14px; }
+    .notes p, .notes li { color: var(--muted); font-size: 12px; }
+    .notes ul { margin: 0; padding-left: 18px; }
+    .stamp { margin-top: 14px; color: #98a2b3; font-size: 11px; text-align: right; }
+    @media (max-width: 900px) {
+      main { width: min(100% - 18px, 1440px); margin-top: 10px; }
+      .hero { grid-template-columns: 1fr; padding: 22px; }
+      .asof { text-align: left; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .chart-wrap { height: 430px; margin-inline: 6px; }
+      .notes { grid-template-columns: 1fr; }
+      .panel-head { flex-direction: column; }
+    }
+    @media print {
+      body { background: #fff; }
+      main { width: 100%; margin: 0; }
+      .hero, .panel, .metric { box-shadow: none; }
+      .chart-wrap { height: 420px; }
+      .node-strip { display: none; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">DATA-DRIVEN REVERSAL SCORE</p>
+      <h1>金风科技<span class="symbol">002202.SZ</span></h1>
+      <p class="subtitle">过去一年日 K 中，选股评分严格大于 80 分的节点标记</p>
+    </div>
+    <div class="asof">行情截至<strong>2026-07-24</strong>前复权日线</div>
+  </header>
+
+  <section class="metrics" aria-label="统计摘要">
+    <div class="metric primary"><span>高分交易日</span><strong>15</strong></div>
+    <div class="metric"><span>独立高分阶段</span><strong>4</strong></div>
+    <div class="metric"><span>最高评分</span><strong>89.04</strong></div>
+    <div class="metric"><span>节点后 10 日平均</span><strong class="down">-1.52%</strong></div>
+    <div class="metric"><span>节点后 10 日上涨率</span><strong>57.1%</strong></div>
+  </section>
+
+  <section class="panel" aria-labelledby="chart-title">
+    <div class="panel-head">
+      <div>
+        <h2 id="chart-title">过去一年日 K 与高分节点</h2>
+        <p>2025-07-24 至 2026-07-24，共 243 个交易日；鼠标悬停查看当日行情与评分。</p>
+      </div>
+      <div class="legend" aria-label="图例">
+        <span class="rise">上涨 K 线</span>
+        <span class="fall">下跌 K 线</span>
+        <span class="mark">评分 &gt; 80</span>
+      </div>
+    </div>
+    <div class="chart-wrap" id="chartWrap">
+      <canvas id="chart" aria-label="金风科技过去一年日 K 图"></canvas>
+      <div class="tooltip" id="tooltip"></div>
+    </div>
+    <div class="node-strip" id="nodeStrip" aria-label="高分节点快捷定位"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="table-title">
+    <div class="panel-head">
+      <div>
+        <h2 id="table-title">评分大于 80 的全部节点</h2>
+        <p>“后 10 日表现”为节点收盘价到第 10 个后续交易日收盘价的实际涨跌，仅用于复盘。</p>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>日期</th><th>评分</th><th>收盘价</th><th>当日涨跌</th><th>成交额</th><th>换手率</th><th>后 10 日表现</th><th>主要贡献因子</th></tr></thead>
+        <tbody>
+    <tr>
+      <td><time>2026-05-27</time></td>
+      <td><strong class="score-pill">80.19</strong></td>
+      <td>23.60</td>
+      <td class="down">-3.71%</td>
+      <td>33.25 亿</td>
+      <td>4.11%</td>
+      <td class="down">-9.96%</td>
+      <td><span class="factor">20 日突破强度 +14.6</span><span class="factor">3 日 / 20 日均量比 +11</span><span class="factor">RSI(14) +10.2</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-06-01</time></td>
+      <td><strong class="score-pill">80.36</strong></td>
+      <td>23.46</td>
+      <td class="up">+0.17%</td>
+      <td>24.06 亿</td>
+      <td>3.02%</td>
+      <td class="down">-9.04%</td>
+      <td><span class="factor">20 日突破强度 +14.6</span><span class="factor">3 日 / 20 日均量比 +12.3</span><span class="factor">RSI(14) +9.8</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-06-02</time></td>
+      <td><strong class="score-pill">82.72</strong></td>
+      <td>23.24</td>
+      <td class="down">-0.94%</td>
+      <td>26.33 亿</td>
+      <td>3.41%</td>
+      <td class="down">-6.33%</td>
+      <td><span class="factor">20 日突破强度 +14.8</span><span class="factor">3 日 / 20 日均量比 +12.1</span><span class="factor">RSI(14) +10.1</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-06-08</time></td>
+      <td><strong class="score-pill">81.13</strong></td>
+      <td>21.69</td>
+      <td class="down">-5.70%</td>
+      <td>26.77 亿</td>
+      <td>3.60%</td>
+      <td class="up">+0.28%</td>
+      <td><span class="factor">20 日突破强度 +15.7</span><span class="factor">3 日 / 20 日均量比 +11.4</span><span class="factor">RSI(14) +10</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-06-09</time></td>
+      <td><strong class="score-pill">80.14</strong></td>
+      <td>22.00</td>
+      <td class="up">+1.43%</td>
+      <td>22.01 亿</td>
+      <td>3.03%</td>
+      <td class="up">+0.91%</td>
+      <td><span class="factor">20 日突破强度 +15.2</span><span class="factor">3 日 / 20 日均量比 +9.9</span><span class="factor">RSI(14) +9.7</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-06-10</time></td>
+      <td><strong class="score-pill">80.84</strong></td>
+      <td>21.25</td>
+      <td class="down">-3.41%</td>
+      <td>22.57 亿</td>
+      <td>3.13%</td>
+      <td class="up">+3.06%</td>
+      <td><span class="factor">20 日突破强度 +15.5</span><span class="factor">3 日 / 20 日均量比 +10</span><span class="factor">20 日收益率 +10</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-06-11</time></td>
+      <td><strong class="score-pill">86.5</strong></td>
+      <td>21.13</td>
+      <td class="down">-0.56%</td>
+      <td>17.70 亿</td>
+      <td>2.50%</td>
+      <td class="up">+10.41%</td>
+      <td><span class="factor">20 日突破强度 +15.5</span><span class="factor">3 日 / 20 日均量比 +10.9</span><span class="factor">RSI(14) +10.2</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-07-15</time></td>
+      <td><strong class="score-pill">85.57</strong></td>
+      <td>18.88</td>
+      <td class="down">-1.51%</td>
+      <td>16.17 亿</td>
+      <td>2.53%</td>
+      <td class="">—</td>
+      <td><span class="factor">20 日突破强度 +15.5</span><span class="factor">3 日 / 20 日均量比 +10.5</span><span class="factor">20 日收益率 +9</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-07-16</time></td>
+      <td><strong class="score-pill">88.72</strong></td>
+      <td>18.59</td>
+      <td class="down">-1.54%</td>
+      <td>15.16 亿</td>
+      <td>2.42%</td>
+      <td class="">—</td>
+      <td><span class="factor">20 日突破强度 +15.7</span><span class="factor">3 日 / 20 日均量比 +13.1</span><span class="factor">20 日收益率 +9.3</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-07-17</time></td>
+      <td><strong class="score-pill">88.93</strong></td>
+      <td>17.01</td>
+      <td class="down">-8.50%</td>
+      <td>22.17 亿</td>
+      <td>3.74%</td>
+      <td class="">—</td>
+      <td><span class="factor">20 日突破强度 +17.1</span><span class="factor">3 日 / 20 日均量比 +13.4</span><span class="factor">20 日收益率 +10</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-07-20</time></td>
+      <td><strong class="score-pill">89.04</strong></td>
+      <td>17.03</td>
+      <td class="up">+0.12%</td>
+      <td>17.99 亿</td>
+      <td>3.12%</td>
+      <td class="">—</td>
+      <td><span class="factor">20 日突破强度 +17</span><span class="factor">3 日 / 20 日均量比 +13</span><span class="factor">20 日收益率 +10.1</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-07-21</time></td>
+      <td><strong class="score-pill">86.1</strong></td>
+      <td>17.55</td>
+      <td class="up">+3.05%</td>
+      <td>17.60 亿</td>
+      <td>3.04%</td>
+      <td class="">—</td>
+      <td><span class="factor">20 日突破强度 +16.6</span><span class="factor">3 日 / 20 日均量比 +12.8</span><span class="factor">RSI(14) +9.8</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-07-22</time></td>
+      <td><strong class="score-pill">86.64</strong></td>
+      <td>17.51</td>
+      <td class="down">-0.23%</td>
+      <td>16.30 亿</td>
+      <td>2.74%</td>
+      <td class="">—</td>
+      <td><span class="factor">20 日突破强度 +16.6</span><span class="factor">3 日 / 20 日均量比 +13.2</span><span class="factor">20 日收益率 +9.7</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-07-23</time></td>
+      <td><strong class="score-pill">80.43</strong></td>
+      <td>18.37</td>
+      <td class="up">+4.91%</td>
+      <td>21.99 亿</td>
+      <td>3.62%</td>
+      <td class="">—</td>
+      <td><span class="factor">20 日突破强度 +15.6</span><span class="factor">3 日 / 20 日均量比 +12.8</span><span class="factor">RSI(14) +9.6</span></td>
+    </tr>
+  
+    <tr>
+      <td><time>2026-07-24</time></td>
+      <td><strong class="score-pill">84.35</strong></td>
+      <td>17.62</td>
+      <td class="down">-4.08%</td>
+      <td>15.91 亿</td>
+      <td>2.65%</td>
+      <td class="">—</td>
+      <td><span class="factor">20 日突破强度 +16.5</span><span class="factor">3 日 / 20 日均量比 +12.7</span><span class="factor">20 日收益率 +10</span></td>
+    </tr>
+  </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel notes" aria-label="口径说明">
+    <div>
+      <h3>评分口径</h3>
+      <p>采用系统当前的中期反转评分：突破强度、均量比、换手率、RSI、20 日收益、波幅比、当日量比、MA60 斜率、价格相对 MA20 距离，共 9 个可用量价因子。各因子按最近最多 252 个历史观测转换为方向调整后的分位，再按研究报告中的 |Rank ICIR| 加权。</p>
+    </div>
+    <div>
+      <h3>阅读提示</h3>
+      <ul>
+        <li>本页筛选条件是评分严格大于 80，等于 80 不计入。</li>
+        <li>PB 历史数据未进入页面评分，其权重由其他可用因子重新归一化。</li>
+        <li>高分是研究信号，不等于买入建议；模型建议约 10 个交易日观察周期。</li>
+      </ul>
+      <div class="stamp">数据：东方财富前复权日 K｜生成时间：2026/7/25 13:56:14</div>
+    </div>
+  </section>
+</main>
+<script>
+  const data = [{"date":"2025-07-24","open":9.79,"close":9.83,"high":9.83,"low":9.7,"volume":279403,"amount":276930688.44,"amplitude":1.33,"changePct":0.82,"change":0.08,"turnoverRatePct":0.83,"score":54.33},{"date":"2025-07-25","open":9.85,"close":9.73,"high":9.85,"low":9.72,"volume":300393,"amount":297591023.4,"amplitude":1.32,"changePct":-1.02,"change":-0.1,"turnoverRatePct":0.9,"score":56.45},{"date":"2025-07-28","open":9.72,"close":9.72,"high":9.78,"low":9.62,"volume":276872,"amount":272506007.91,"amplitude":1.64,"changePct":-0.1,"change":-0.01,"turnoverRatePct":0.83,"score":61.82},{"date":"2025-07-29","open":9.69,"close":9.69,"high":9.72,"low":9.59,"volume":214922,"amount":210236145.61,"amplitude":1.34,"changePct":-0.31,"change":-0.03,"turnoverRatePct":0.64,"score":67.59},{"date":"2025-07-30","open":9.88,"close":9.72,"high":10.15,"low":9.68,"volume":683017,"amount":686519815.41,"amplitude":4.85,"changePct":0.31,"change":0.03,"turnoverRatePct":2.04,"score":47.98},{"date":"2025-07-31","open":9.71,"close":9.49,"high":9.76,"low":9.45,"volume":503194,"amount":488678088.02,"amplitude":3.19,"changePct":-2.37,"change":-0.23,"turnoverRatePct":1.5,"score":54.52},{"date":"2025-08-01","open":9.46,"close":9.6,"high":9.73,"low":9.44,"volume":396117,"amount":387191676.11,"amplitude":3.06,"changePct":1.16,"change":0.11,"turnoverRatePct":1.18,"score":53.24},{"date":"2025-08-04","open":9.57,"close":9.49,"high":9.58,"low":9.44,"volume":307247,"amount":295541275.2,"amplitude":1.46,"changePct":-1.15,"change":-0.11,"turnoverRatePct":0.92,"score":61.94},{"date":"2025-08-05","open":9.52,"close":9.64,"high":9.65,"low":9.51,"volume":275745,"amount":268525365.65,"amplitude":1.48,"changePct":1.58,"change":0.15,"turnoverRatePct":0.82,"score":63.74},{"date":"2025-08-06","open":9.64,"close":9.63,"high":9.65,"low":9.54,"volume":200734,"amount":195324438,"amplitude":1.14,"changePct":-0.1,"change":-0.01,"turnoverRatePct":0.6,"score":68.8},{"date":"2025-08-07","open":9.62,"close":9.61,"high":9.79,"low":9.57,"volume":334742,"amount":327695216.54,"amplitude":2.28,"changePct":-0.21,"change":-0.02,"turnoverRatePct":1,"score":57.04},{"date":"2025-08-08","open":9.6,"close":10.01,"high":10.12,"low":9.57,"volume":1144035,"amount":1152832068.51,"amplitude":5.72,"changePct":4.16,"change":0.4,"turnoverRatePct":3.41,"score":29.3},{"date":"2025-08-11","open":10.06,"close":10.11,"high":10.14,"low":9.96,"volume":605992,"amount":618133402.89,"amplitude":1.8,"changePct":1,"change":0.1,"turnoverRatePct":1.81,"score":28.92},{"date":"2025-08-12","open":10.08,"close":10.2,"high":10.22,"low":10.01,"volume":452287,"amount":464696746.48,"amplitude":2.08,"changePct":0.89,"change":0.09,"turnoverRatePct":1.35,"score":29.12},{"date":"2025-08-13","open":10.18,"close":10.27,"high":10.34,"low":10.14,"volume":456181,"amount":474595296.73,"amplitude":1.96,"changePct":0.69,"change":0.07,"turnoverRatePct":1.36,"score":30.8},{"date":"2025-08-14","open":10.27,"close":10.08,"high":10.3,"low":10.03,"volume":391191,"amount":402012903.15,"amplitude":2.63,"changePct":-1.85,"change":-0.19,"turnoverRatePct":1.17,"score":41.16},{"date":"2025-08-15","open":10.11,"close":10.47,"high":10.52,"low":10.07,"volume":641923,"amount":666907089.62,"amplitude":4.46,"changePct":3.87,"change":0.39,"turnoverRatePct":1.91,"score":24.79},{"date":"2025-08-18","open":10.47,"close":10.4,"high":10.5,"low":10.35,"volume":530003,"amount":552060815.03,"amplitude":1.43,"changePct":-0.67,"change":-0.07,"turnoverRatePct":1.58,"score":28.75},{"date":"2025-08-19","open":10.41,"close":10.38,"high":10.48,"low":10.33,"volume":392849,"amount":408752659.35,"amplitude":1.44,"changePct":-0.19,"change":-0.02,"turnoverRatePct":1.17,"score":34.08},{"date":"2025-08-20","open":10.38,"close":10.55,"high":10.56,"low":10.27,"volume":448250,"amount":467052518.6,"amplitude":2.79,"changePct":1.64,"change":0.17,"turnoverRatePct":1.34,"score":27.97},{"date":"2025-08-21","open":10.55,"close":10.52,"high":10.62,"low":10.45,"volume":414523,"amount":437136152.13,"amplitude":1.61,"changePct":-0.28,"change":-0.03,"turnoverRatePct":1.24,"score":33.27},{"date":"2025-08-22","open":10.47,"close":10.56,"high":10.59,"low":10.43,"volume":415191,"amount":436791177.37,"amplitude":1.52,"changePct":0.38,"change":0.04,"turnoverRatePct":1.24,"score":28.21},{"date":"2025-08-25","open":11.01,"close":11.62,"high":11.62,"low":11.01,"volume":1938875,"amount":2241085064.79,"amplitude":5.78,"changePct":10.04,"change":1.06,"turnoverRatePct":5.78,"score":13.57},{"date":"2025-08-26","open":11.73,"close":11.95,"high":12.15,"low":11.6,"volume":2705434,"amount":3228385840.84,"amplitude":4.73,"changePct":2.84,"change":0.33,"turnoverRatePct":8.06,"score":13.17},{"date":"2025-08-27","open":11.74,"close":11.52,"high":11.9,"low":11.52,"volume":1345166,"amount":1577343779.36,"amplitude":3.18,"changePct":-3.6,"change":-0.43,"turnoverRatePct":4.01,"score":22.02},{"date":"2025-08-28","open":11.52,"close":11.46,"high":11.68,"low":11.19,"volume":845332,"amount":966569877.51,"amplitude":4.25,"changePct":-0.52,"change":-0.06,"turnoverRatePct":2.52,"score":25.73},{"date":"2025-08-29","open":11.47,"close":11.42,"high":11.56,"low":11.3,"volume":629037,"amount":716862963.81,"amplitude":2.27,"changePct":-0.35,"change":-0.04,"turnoverRatePct":1.87,"score":31.96},{"date":"2025-09-01","open":11.41,"close":11.26,"high":11.47,"low":11.14,"volume":719402,"amount":810897966.56,"amplitude":2.89,"changePct":-1.4,"change":-0.16,"turnoverRatePct":2.14,"score":33.23},{"date":"2025-09-02","open":11.33,"close":10.99,"high":11.34,"low":10.9,"volume":670504,"amount":742387114.97,"amplitude":3.91,"changePct":-2.4,"change":-0.27,"turnoverRatePct":2,"score":41.36},{"date":"2025-09-03","open":11.06,"close":11.36,"high":11.42,"low":11.02,"volume":966491,"amount":1087225666.92,"amplitude":3.64,"changePct":3.37,"change":0.37,"turnoverRatePct":2.88,"score":27.35},{"date":"2025-09-04","open":11.31,"close":11.11,"high":11.45,"low":10.94,"volume":734245,"amount":822442446.4,"amplitude":4.49,"changePct":-2.2,"change":-0.25,"turnoverRatePct":2.19,"score":36.72},{"date":"2025-09-05","open":11.1,"close":12.22,"high":12.22,"low":11.07,"volume":1690798,"amount":2012463741.69,"amplitude":10.35,"changePct":9.99,"change":1.11,"turnoverRatePct":5.04,"score":15.04},{"date":"2025-09-08","open":12.49,"close":12.28,"high":12.78,"low":12.01,"volume":1852615,"amount":2281899232.19,"amplitude":6.3,"changePct":0.49,"change":0.06,"turnoverRatePct":5.52,"score":15.94},{"date":"2025-09-09","open":12.32,"close":12.25,"high":12.56,"low":12.09,"volume":955538,"amount":1175238893,"amplitude":3.83,"changePct":-0.24,"change":-0.03,"turnoverRatePct":2.85,"score":24.8},{"date":"2025-09-10","open":12.25,"close":12.16,"high":12.38,"low":12.04,"volume":714593,"amount":869485119.06,"amplitude":2.78,"changePct":-0.73,"change":-0.09,"turnoverRatePct":2.13,"score":32.62},{"date":"2025-09-11","open":12.55,"close":12.52,"high":12.68,"low":11.91,"volume":1928634,"amount":2392346561.82,"amplitude":6.33,"changePct":2.96,"change":0.36,"turnoverRatePct":5.75,"score":20.52},{"date":"2025-09-12","open":12.7,"close":12.36,"high":12.8,"low":12.32,"volume":1339127,"amount":1672424335.48,"amplitude":3.83,"changePct":-1.28,"change":-0.16,"turnoverRatePct":3.99,"score":22.31},{"date":"2025-09-15","open":12.37,"close":12.31,"high":12.5,"low":12.19,"volume":999642,"amount":1233734953.27,"amplitude":2.51,"changePct":-0.4,"change":-0.05,"turnoverRatePct":2.98,"score":25.23},{"date":"2025-09-16","open":12.37,"close":12.31,"high":12.4,"low":12.11,"volume":777825,"amount":954776942.93,"amplitude":2.36,"changePct":0,"change":0,"turnoverRatePct":2.32,"score":31.69},{"date":"2025-09-17","open":12.45,"close":13.23,"high":13.44,"low":12.33,"volume":1781240,"amount":2299129888.79,"amplitude":9.02,"changePct":7.47,"change":0.92,"turnoverRatePct":5.31,"score":18.2},{"date":"2025-09-18","open":13.15,"close":13.5,"high":13.81,"low":13.02,"volume":2023610,"amount":2735624110.17,"amplitude":5.97,"changePct":2.04,"change":0.27,"turnoverRatePct":6.03,"score":15.58},{"date":"2025-09-19","open":13.4,"close":13.71,"high":13.98,"low":13.25,"volume":1317633,"amount":1805109539.8,"amplitude":5.41,"changePct":1.56,"change":0.21,"turnoverRatePct":3.93,"score":18.96},{"date":"2025-09-22","open":13.66,"close":13.54,"high":13.71,"low":13.3,"volume":1054293,"amount":1416659538.63,"amplitude":2.99,"changePct":-1.24,"change":-0.17,"turnoverRatePct":3.14,"score":27.29},{"date":"2025-09-23","open":13.42,"close":13.12,"high":13.56,"low":12.92,"volume":1095044,"amount":1442446454.03,"amplitude":4.73,"changePct":-3.1,"change":-0.42,"turnoverRatePct":3.26,"score":37.02},{"date":"2025-09-24","open":13.11,"close":13.41,"high":13.42,"low":13.01,"volume":943888,"amount":1249011965.71,"amplitude":3.13,"changePct":2.21,"change":0.29,"turnoverRatePct":2.81,"score":29.87},{"date":"2025-09-25","open":13.49,"close":14.07,"high":14.46,"low":13.4,"volume":1908427,"amount":2634586236.04,"amplitude":7.9,"changePct":4.92,"change":0.66,"turnoverRatePct":5.69,"score":15.08},{"date":"2025-09-26","open":14.06,"close":14.34,"high":14.76,"low":13.9,"volume":1893562,"amount":2736112193.44,"amplitude":6.11,"changePct":1.92,"change":0.27,"turnoverRatePct":5.64,"score":15.04},{"date":"2025-09-29","open":14.7,"close":14.57,"high":15.23,"low":14.15,"volume":2048846,"amount":3012952043.4,"amplitude":7.53,"changePct":1.6,"change":0.23,"turnoverRatePct":6.11,"score":14.91},{"date":"2025-09-30","open":14.5,"close":14.97,"high":15.1,"low":14.41,"volume":1415242,"amount":2093284132.41,"amplitude":4.74,"changePct":2.75,"change":0.4,"turnoverRatePct":4.22,"score":17.92},{"date":"2025-10-09","open":15.2,"close":16.24,"high":16.47,"low":15.02,"volume":1954909,"amount":3139884697.12,"amplitude":9.69,"changePct":8.48,"change":1.27,"turnoverRatePct":5.83,"score":13.41},{"date":"2025-10-10","open":16.25,"close":15.94,"high":16.27,"low":15.72,"volume":1709220,"amount":2724946013.85,"amplitude":3.39,"changePct":-1.85,"change":-0.3,"turnoverRatePct":5.09,"score":19.82},{"date":"2025-10-13","open":15.3,"close":17.18,"high":17.19,"low":15.3,"volume":2100914,"amount":3426581746.23,"amplitude":11.86,"changePct":7.78,"change":1.24,"turnoverRatePct":6.26,"score":13.48},{"date":"2025-10-14","open":17.18,"close":16.5,"high":18.5,"low":16.41,"volume":2637078,"amount":4577681103.49,"amplitude":12.17,"changePct":-3.96,"change":-0.68,"turnoverRatePct":7.86,"score":19.28},{"date":"2025-10-15","open":16.9,"close":16.73,"high":16.99,"low":16.01,"volume":1869569,"amount":3088397073.26,"amplitude":5.94,"changePct":1.39,"change":0.23,"turnoverRatePct":5.57,"score":27.39},{"date":"2025-10-16","open":16.58,"close":16,"high":16.66,"low":15.95,"volume":1820793,"amount":2946123552.08,"amplitude":4.24,"changePct":-4.36,"change":-0.73,"turnoverRatePct":5.43,"score":33.08},{"date":"2025-10-17","open":16,"close":14.9,"high":16.05,"low":14.85,"volume":1880088,"amount":2870807230.8,"amplitude":7.5,"changePct":-6.88,"change":-1.1,"turnoverRatePct":5.6,"score":42.13},{"date":"2025-10-20","open":15.31,"close":14.5,"high":15.43,"low":14.34,"volume":1976587,"amount":2893196243.56,"amplitude":7.32,"changePct":-2.68,"change":-0.4,"turnoverRatePct":5.89,"score":44.01},{"date":"2025-10-21","open":14.66,"close":14.83,"high":15.15,"low":14.51,"volume":1498318,"amount":2233713735.69,"amplitude":4.41,"changePct":2.28,"change":0.33,"turnoverRatePct":4.47,"score":42.15},{"date":"2025-10-22","open":14.94,"close":15.07,"high":15.38,"low":14.65,"volume":2022231,"amount":3050333063.48,"amplitude":4.92,"changePct":1.62,"change":0.24,"turnoverRatePct":6.03,"score":37.6},{"date":"2025-10-23","open":14.9,"close":15.25,"high":15.26,"low":14.6,"volume":1367170,"amount":2036871850.46,"amplitude":4.38,"changePct":1.19,"change":0.18,"turnoverRatePct":4.07,"score":44.21},{"date":"2025-10-24","open":15.15,"close":15.83,"high":15.97,"low":15.08,"volume":1779304,"amount":2780311039.56,"amplitude":5.84,"changePct":3.8,"change":0.58,"turnoverRatePct":5.3,"score":36.66},{"date":"2025-10-27","open":16,"close":15.57,"high":16.04,"low":15.22,"volume":2034513,"amount":3166356539.02,"amplitude":5.18,"changePct":-1.64,"change":-0.26,"turnoverRatePct":6.06,"score":37.38},{"date":"2025-10-28","open":15.58,"close":14.97,"high":15.6,"low":14.88,"volume":1650843,"amount":2498289281.33,"amplitude":4.62,"changePct":-3.85,"change":-0.6,"turnoverRatePct":4.92,"score":44.88},{"date":"2025-10-29","open":14.84,"close":15.67,"high":15.68,"low":14.82,"volume":1569887,"amount":2421131011.65,"amplitude":5.74,"changePct":4.68,"change":0.7,"turnoverRatePct":4.68,"score":42.51},{"date":"2025-10-30","open":15.68,"close":16.38,"high":16.93,"low":15.52,"volume":2303511,"amount":3788914999.06,"amplitude":9,"changePct":4.53,"change":0.71,"turnoverRatePct":6.87,"score":35.28},{"date":"2025-10-31","open":16.32,"close":15.7,"high":16.64,"low":15.65,"volume":1701837,"amount":2720959340.75,"amplitude":6.04,"changePct":-4.15,"change":-0.68,"turnoverRatePct":5.07,"score":47.57},{"date":"2025-11-03","open":15.87,"close":16.79,"high":16.97,"low":15.49,"volume":2225279,"amount":3622087330.19,"amplitude":9.43,"changePct":6.94,"change":1.09,"turnoverRatePct":6.63,"score":32.38},{"date":"2025-11-04","open":16.63,"close":16.22,"high":16.67,"low":16.01,"volume":1539449,"amount":2502677103.53,"amplitude":3.93,"changePct":-3.39,"change":-0.57,"turnoverRatePct":4.59,"score":46.89},{"date":"2025-11-05","open":15.8,"close":16.77,"high":16.93,"low":15.7,"volume":1741496,"amount":2883355327.08,"amplitude":7.58,"changePct":3.39,"change":0.55,"turnoverRatePct":5.19,"score":36.29},{"date":"2025-11-06","open":16.75,"close":16.93,"high":17.55,"low":16.52,"volume":1978909,"amount":3365555868.37,"amplitude":6.14,"changePct":0.95,"change":0.16,"turnoverRatePct":5.9,"score":36.88},{"date":"2025-11-07","open":16.71,"close":16.66,"high":17.09,"low":16.53,"volume":1217865,"amount":2044834330.51,"amplitude":3.31,"changePct":-1.59,"change":-0.27,"turnoverRatePct":3.63,"score":46.41},{"date":"2025-11-10","open":16.4,"close":15.6,"high":16.5,"low":15.46,"volume":1943292,"amount":3076428104.09,"amplitude":6.24,"changePct":-6.36,"change":-1.06,"turnoverRatePct":5.8,"score":53.42},{"date":"2025-11-11","open":15.7,"close":15.53,"high":15.96,"low":15.41,"volume":994311,"amount":1558387845.85,"amplitude":3.53,"changePct":-0.45,"change":-0.07,"turnoverRatePct":2.97,"score":64.78},{"date":"2025-11-12","open":15.41,"close":14.98,"high":15.49,"low":14.8,"volume":1149336,"amount":1723826909.34,"amplitude":4.44,"changePct":-3.54,"change":-0.55,"turnoverRatePct":3.43,"score":68.7},{"date":"2025-11-13","open":15.05,"close":15.35,"high":15.54,"low":15.05,"volume":898415,"amount":1374591522.29,"amplitude":3.27,"changePct":2.47,"change":0.37,"turnoverRatePct":2.68,"score":67.06},{"date":"2025-11-14","open":15.12,"close":15.2,"high":15.62,"low":14.98,"volume":720283,"amount":1103452699.51,"amplitude":4.17,"changePct":-0.98,"change":-0.15,"turnoverRatePct":2.15,"score":65.35},{"date":"2025-11-17","open":15.13,"close":14.92,"high":15.18,"low":14.8,"volume":669057,"amount":999582632.36,"amplitude":2.5,"changePct":-1.84,"change":-0.28,"turnoverRatePct":2,"score":64.45},{"date":"2025-11-18","open":14.97,"close":14.69,"high":15.03,"low":14.58,"volume":621297,"amount":915691015.36,"amplitude":3.02,"changePct":-1.54,"change":-0.23,"turnoverRatePct":1.85,"score":67.79},{"date":"2025-11-19","open":14.69,"close":14.89,"high":14.94,"low":14.56,"volume":652729,"amount":963934147.8,"amplitude":2.59,"changePct":1.36,"change":0.2,"turnoverRatePct":1.95,"score":67.46},{"date":"2025-11-20","open":14.89,"close":14.76,"high":15.22,"low":14.75,"volume":551057,"amount":824392257.48,"amplitude":3.16,"changePct":-0.87,"change":-0.13,"turnoverRatePct":1.64,"score":69.98},{"date":"2025-11-21","open":14.55,"close":14.28,"high":14.76,"low":14.27,"volume":763695,"amount":1105389869.63,"amplitude":3.32,"changePct":-3.25,"change":-0.48,"turnoverRatePct":2.28,"score":72.37},{"date":"2025-11-24","open":14.1,"close":14.73,"high":15,"low":13.96,"volume":893233,"amount":1312247241.49,"amplitude":7.28,"changePct":3.15,"change":0.45,"turnoverRatePct":2.66,"score":68.52},{"date":"2025-11-25","open":14.8,"close":14.88,"high":15.02,"low":14.7,"volume":666049,"amount":992421710.51,"amplitude":2.17,"changePct":1.02,"change":0.15,"turnoverRatePct":1.99,"score":68.05},{"date":"2025-11-26","open":15,"close":15.4,"high":15.58,"low":14.91,"volume":1061515,"amount":1625687576.84,"amplitude":4.5,"changePct":3.49,"change":0.52,"turnoverRatePct":3.17,"score":60.55},{"date":"2025-11-27","open":15.37,"close":15.19,"high":15.46,"low":15.12,"volume":657347,"amount":1005830896.21,"amplitude":2.21,"changePct":-1.36,"change":-0.21,"turnoverRatePct":1.96,"score":68.58},{"date":"2025-11-28","open":15.27,"close":15.41,"high":15.56,"low":15.18,"volume":721192,"amount":1110991648.82,"amplitude":2.5,"changePct":1.45,"change":0.22,"turnoverRatePct":2.15,"score":59.88},{"date":"2025-12-01","open":15.4,"close":15.04,"high":15.4,"low":14.8,"volume":961373,"amount":1439310536.58,"amplitude":3.89,"changePct":-2.4,"change":-0.37,"turnoverRatePct":2.87,"score":58.76},{"date":"2025-12-02","open":15.01,"close":15.67,"high":16.06,"low":14.73,"volume":1363429,"amount":2099983847.55,"amplitude":8.84,"changePct":4.19,"change":0.63,"turnoverRatePct":4.07,"score":41.15},{"date":"2025-12-03","open":15.52,"close":15.29,"high":16.39,"low":15.1,"volume":2070595,"amount":3268837758.98,"amplitude":8.23,"changePct":-2.43,"change":-0.38,"turnoverRatePct":6.18,"score":41.36},{"date":"2025-12-04","open":14.9,"close":15.03,"high":15.36,"low":14.58,"volume":1205528,"amount":1799862501.5,"amplitude":5.1,"changePct":-1.7,"change":-0.26,"turnoverRatePct":3.6,"score":48.65},{"date":"2025-12-05","open":15.02,"close":15.85,"high":16.38,"low":14.99,"volume":1734387,"amount":2748554059.15,"amplitude":9.25,"changePct":5.46,"change":0.82,"turnoverRatePct":5.17,"score":33.57},{"date":"2025-12-08","open":16.11,"close":15.9,"high":16.27,"low":15.75,"volume":1056746,"amount":1682534080.59,"amplitude":3.28,"changePct":0.32,"change":0.05,"turnoverRatePct":3.15,"score":32.71},{"date":"2025-12-09","open":15.78,"close":15.59,"high":15.97,"low":15.51,"volume":723725,"amount":1134528162.99,"amplitude":2.89,"changePct":-1.95,"change":-0.31,"turnoverRatePct":2.16,"score":42.2},{"date":"2025-12-10","open":15.51,"close":15.44,"high":15.58,"low":15.3,"volume":518727,"amount":799283325.61,"amplitude":1.8,"changePct":-0.96,"change":-0.15,"turnoverRatePct":1.55,"score":53.13},{"date":"2025-12-11","open":15.76,"close":16.98,"high":16.98,"low":15.7,"volume":2424564,"amount":4057598261.21,"amplitude":8.29,"changePct":9.97,"change":1.54,"turnoverRatePct":7.23,"score":18.07},{"date":"2025-12-12","open":16.82,"close":16.98,"high":16.98,"low":16.4,"volume":2644377,"amount":4424595292.88,"amplitude":3.42,"changePct":0,"change":0,"turnoverRatePct":7.89,"score":15.99},{"date":"2025-12-15","open":17.1,"close":17.5,"high":17.95,"low":16.82,"volume":2574733,"amount":4485911624.24,"amplitude":6.65,"changePct":3.06,"change":0.52,"turnoverRatePct":7.68,"score":15.05},{"date":"2025-12-16","open":17.2,"close":16.39,"high":17.28,"low":16.25,"volume":1721331,"amount":2857462270.76,"amplitude":5.89,"changePct":-6.34,"change":-1.11,"turnoverRatePct":5.13,"score":32.26},{"date":"2025-12-17","open":16.31,"close":16.52,"high":16.58,"low":16.12,"volume":1101857,"amount":1801866298.2,"amplitude":2.81,"changePct":0.79,"change":0.13,"turnoverRatePct":3.29,"score":36.1},{"date":"2025-12-18","open":16.37,"close":16.53,"high":17.08,"low":16.05,"volume":1223868,"amount":2031002386.68,"amplitude":6.23,"changePct":0.06,"change":0.01,"turnoverRatePct":3.65,"score":37.43},{"date":"2025-12-19","open":16.42,"close":16.2,"high":16.75,"low":16.06,"volume":1242108,"amount":2025442352.35,"amplitude":4.17,"changePct":-2,"change":-0.33,"turnoverRatePct":3.71,"score":44.59},{"date":"2025-12-22","open":16.51,"close":16.89,"high":17.19,"low":16.51,"volume":1594487,"amount":2684861427.81,"amplitude":4.2,"changePct":4.26,"change":0.69,"turnoverRatePct":4.76,"score":30.38},{"date":"2025-12-23","open":17.41,"close":17.05,"high":17.85,"low":16.77,"volume":1943362,"amount":3358660548.34,"amplitude":6.39,"changePct":0.95,"change":0.16,"turnoverRatePct":5.8,"score":27.84},{"date":"2025-12-24","open":16.77,"close":17.43,"high":17.7,"low":16.61,"volume":1523708,"amount":2644136723.97,"amplitude":6.39,"changePct":2.23,"change":0.38,"turnoverRatePct":4.55,"score":27.03},{"date":"2025-12-25","open":17.69,"close":19.17,"high":19.17,"low":17.56,"volume":2665276,"amount":4982980388.87,"amplitude":9.24,"changePct":9.98,"change":1.74,"turnoverRatePct":7.95,"score":15.63},{"date":"2025-12-26","open":19.95,"close":19.69,"high":20.39,"low":19.42,"volume":3506219,"amount":6952541636.3,"amplitude":5.06,"changePct":2.71,"change":0.52,"turnoverRatePct":10.46,"score":14.55},{"date":"2025-12-29","open":21,"close":21.66,"high":21.66,"low":20.52,"volume":2203865,"amount":4670287376.56,"amplitude":5.79,"changePct":10.01,"change":1.97,"turnoverRatePct":6.57,"score":14.65},{"date":"2025-12-30","open":22.01,"close":20.2,"high":22.78,"low":19.54,"volume":6827394,"amount":14441032116.14,"amplitude":14.96,"changePct":-6.74,"change":-1.46,"turnoverRatePct":20.37,"score":21.9},{"date":"2025-12-31","open":19.6,"close":20.4,"high":20.88,"low":19.45,"volume":4279626,"amount":8620825356.11,"amplitude":7.08,"changePct":0.99,"change":0.2,"turnoverRatePct":12.76,"score":26.96},{"date":"2026-01-05","open":22.44,"close":21.82,"high":22.44,"low":21.69,"volume":6487827,"amount":14418140742.79,"amplitude":3.68,"changePct":6.96,"change":1.42,"turnoverRatePct":19.35,"score":16.6},{"date":"2026-01-06","open":21.21,"close":24,"high":24,"low":20.8,"volume":6176228,"amount":13663631128.28,"amplitude":14.67,"changePct":9.99,"change":2.18,"turnoverRatePct":18.42,"score":10.48},{"date":"2026-01-07","open":24.5,"close":26.4,"high":26.4,"low":23.81,"volume":6801731,"amount":16845815443.14,"amplitude":10.79,"changePct":10,"change":2.4,"turnoverRatePct":20.29,"score":10.22},{"date":"2026-01-08","open":26,"close":29.04,"high":29.04,"low":25.53,"volume":6081267,"amount":16759890677.63,"amplitude":13.3,"changePct":10,"change":2.64,"turnoverRatePct":18.14,"score":11.13},{"date":"2026-01-09","open":31.94,"close":31.94,"high":31.94,"low":30.74,"volume":5632929,"amount":17893128946.1,"amplitude":4.13,"changePct":9.99,"change":2.9,"turnoverRatePct":16.74,"score":11.89},{"date":"2026-01-12","open":33.99,"close":35.13,"high":35.13,"low":33.55,"volume":3796194,"amount":13189513602.71,"amplitude":4.95,"changePct":9.99,"change":3.19,"turnoverRatePct":11.28,"score":15.64},{"date":"2026-01-13","open":36,"close":33.95,"high":37.03,"low":31.62,"volume":8963325,"amount":30088791029.09,"amplitude":15.4,"changePct":-3.36,"change":-1.18,"turnoverRatePct":26.64,"score":17.36},{"date":"2026-01-14","open":34.47,"close":33.38,"high":35.55,"low":32.63,"volume":7550424,"amount":25760095916.05,"amplitude":8.6,"changePct":-1.68,"change":-0.57,"turnoverRatePct":22.44,"score":22.87},{"date":"2026-01-15","open":30.39,"close":30.04,"high":31.62,"low":30.04,"volume":1807170,"amount":5476993213.23,"amplitude":4.73,"changePct":-10.01,"change":-3.34,"turnoverRatePct":5.37,"score":36.56},{"date":"2026-01-16","open":27.04,"close":27.04,"high":27.04,"low":27.04,"volume":690435,"amount":1866936240,"amplitude":0,"changePct":-9.99,"change":-3,"turnoverRatePct":2.05,"score":52.53},{"date":"2026-01-19","open":24.34,"close":27.7,"high":28.51,"low":24.34,"volume":7116452,"amount":18598306971.45,"amplitude":15.42,"changePct":2.44,"change":0.66,"turnoverRatePct":21.15,"score":41.68},{"date":"2026-01-20","open":26.93,"close":26.06,"high":27.33,"low":25.65,"volume":4990954,"amount":13149514163.99,"amplitude":6.06,"changePct":-5.92,"change":-1.64,"turnoverRatePct":14.84,"score":43.46},{"date":"2026-01-21","open":25.94,"close":25.45,"high":26.58,"low":25.38,"volume":3336930,"amount":8667470983.33,"amplitude":4.6,"changePct":-2.34,"change":-0.61,"turnoverRatePct":9.92,"score":42.66},{"date":"2026-01-22","open":25.63,"close":26.89,"high":27.19,"low":25.34,"volume":4304908,"amount":11402478112.74,"amplitude":7.27,"changePct":5.66,"change":1.44,"turnoverRatePct":12.8,"score":41.8},{"date":"2026-01-23","open":27.69,"close":29.58,"high":29.58,"low":27.69,"volume":3489662,"amount":10056922132.57,"amplitude":7.03,"changePct":10,"change":2.69,"turnoverRatePct":10.37,"score":42.86},{"date":"2026-01-26","open":29.79,"close":28.4,"high":30.53,"low":28.01,"volume":5769714,"amount":16880314060.74,"amplitude":8.52,"changePct":-3.99,"change":-1.18,"turnoverRatePct":17.15,"score":39.56},{"date":"2026-01-27","open":28.24,"close":28.59,"high":29.49,"low":28.09,"volume":3403807,"amount":9808694858.55,"amplitude":4.93,"changePct":0.67,"change":0.19,"turnoverRatePct":10.12,"score":47.83},{"date":"2026-01-28","open":28.31,"close":27.71,"high":28.76,"low":27.25,"volume":3081180,"amount":8563373069.59,"amplitude":5.28,"changePct":-3.08,"change":-0.88,"turnoverRatePct":9.16,"score":52.29},{"date":"2026-01-29","open":27.48,"close":26.9,"high":28.47,"low":26.81,"volume":2898894,"amount":8010026963.68,"amplitude":5.99,"changePct":-2.92,"change":-0.81,"turnoverRatePct":8.62,"score":57.16},{"date":"2026-01-30","open":26.91,"close":26.11,"high":27.63,"low":25.78,"volume":2381310,"amount":6292249482.74,"amplitude":6.88,"changePct":-2.94,"change":-0.79,"turnoverRatePct":7.08,"score":61.42},{"date":"2026-02-02","open":26.1,"close":25.63,"high":26.8,"low":25.53,"volume":2073522,"amount":5407860212.11,"amplitude":4.86,"changePct":-1.84,"change":-0.48,"turnoverRatePct":6.16,"score":63.16},{"date":"2026-02-03","open":26.01,"close":27.16,"high":27.4,"low":25.47,"volume":3248801,"amount":8647014287.65,"amplitude":7.53,"changePct":5.97,"change":1.53,"turnoverRatePct":9.66,"score":60},{"date":"2026-02-04","open":26.81,"close":27.28,"high":27.97,"low":26.66,"volume":2976868,"amount":8107434233.8,"amplitude":4.82,"changePct":0.44,"change":0.12,"turnoverRatePct":8.85,"score":61.2},{"date":"2026-02-05","open":25.53,"close":24.82,"high":25.94,"low":24.56,"volume":3514464,"amount":8820903598.43,"amplitude":5.06,"changePct":-9.02,"change":-2.46,"turnoverRatePct":10.45,"score":64.37},{"date":"2026-02-06","open":24.76,"close":25.51,"high":26.07,"low":24.76,"volume":2428441,"amount":6215858257.09,"amplitude":5.28,"changePct":2.78,"change":0.69,"turnoverRatePct":7.22,"score":67.09},{"date":"2026-02-09","open":26.02,"close":26.19,"high":26.58,"low":25.43,"volume":2255275,"amount":5857402781.78,"amplitude":4.51,"changePct":2.67,"change":0.68,"turnoverRatePct":6.7,"score":65.48},{"date":"2026-02-10","open":26.2,"close":25.67,"high":26.33,"low":25.52,"volume":1432205,"amount":3694226315.17,"amplitude":3.09,"changePct":-1.99,"change":-0.52,"turnoverRatePct":4.26,"score":69.71},{"date":"2026-02-11","open":25.65,"close":25.46,"high":26.13,"low":25.4,"volume":1337457,"amount":3442629686.65,"amplitude":2.84,"changePct":-0.82,"change":-0.21,"turnoverRatePct":3.98,"score":70.95},{"date":"2026-02-12","open":25.2,"close":25.13,"high":25.6,"low":25.05,"volume":1257804,"amount":3178851988.51,"amplitude":2.16,"changePct":-1.3,"change":-0.33,"turnoverRatePct":3.74,"score":72.54},{"date":"2026-02-13","open":25.05,"close":24.9,"high":25.29,"low":24.85,"volume":1007794,"amount":2521739349.9,"amplitude":1.75,"changePct":-0.92,"change":-0.23,"turnoverRatePct":3,"score":71.22},{"date":"2026-02-24","open":25.23,"close":26.08,"high":26.65,"low":25.03,"volume":2290205,"amount":5985785735.77,"amplitude":6.51,"changePct":4.74,"change":1.18,"turnoverRatePct":6.81,"score":61.78},{"date":"2026-02-25","open":26.2,"close":27.26,"high":27.57,"low":26.08,"volume":2608005,"amount":7059322404.23,"amplitude":5.71,"changePct":4.52,"change":1.18,"turnoverRatePct":7.75,"score":52.04},{"date":"2026-02-26","open":27,"close":28.38,"high":28.73,"low":26.62,"volume":3370775,"amount":9473116841.11,"amplitude":7.74,"changePct":4.11,"change":1.12,"turnoverRatePct":10.02,"score":37.2},{"date":"2026-02-27","open":28,"close":28.45,"high":28.99,"low":27.88,"volume":2618153,"amount":7448061534.47,"amplitude":3.91,"changePct":0.25,"change":0.07,"turnoverRatePct":7.78,"score":39.35},{"date":"2026-03-02","open":28.08,"close":28.11,"high":29.58,"low":28.07,"volume":3120822,"amount":8961568263.41,"amplitude":5.31,"changePct":-1.2,"change":-0.34,"turnoverRatePct":9.28,"score":40.93},{"date":"2026-03-03","open":28.12,"close":26.33,"high":28.25,"low":26.26,"volume":2601843,"amount":7017266615.81,"amplitude":7.08,"changePct":-6.33,"change":-1.78,"turnoverRatePct":7.74,"score":53.96},{"date":"2026-03-04","open":25.87,"close":27.01,"high":27.98,"low":25.87,"volume":2119125,"amount":5751431236.03,"amplitude":8.01,"changePct":2.58,"change":0.68,"turnoverRatePct":6.3,"score":52.21},{"date":"2026-03-05","open":27.6,"close":28,"high":28.15,"low":27.11,"volume":2415127,"amount":6698631898.55,"amplitude":3.85,"changePct":3.67,"change":0.99,"turnoverRatePct":7.18,"score":42.09},{"date":"2026-03-06","open":27.88,"close":28.47,"high":28.98,"low":27.72,"volume":2465203,"amount":7030157732.36,"amplitude":4.5,"changePct":1.68,"change":0.47,"turnoverRatePct":7.33,"score":38.32},{"date":"2026-03-09","open":27.7,"close":28.47,"high":28.58,"low":27.5,"volume":1972762,"amount":5538672034.99,"amplitude":3.79,"changePct":0,"change":0,"turnoverRatePct":5.87,"score":39.65},{"date":"2026-03-10","open":28.59,"close":28.48,"high":29.2,"low":28.23,"volume":2010059,"amount":5763492940.55,"amplitude":3.41,"changePct":0.04,"change":0.01,"turnoverRatePct":5.98,"score":39.76},{"date":"2026-03-11","open":28.51,"close":30.24,"high":31,"low":27.82,"volume":4343929,"amount":12789875618.93,"amplitude":11.17,"changePct":6.18,"change":1.76,"turnoverRatePct":12.91,"score":21.48},{"date":"2026-03-12","open":29.94,"close":31.29,"high":33,"low":29.15,"volume":4781429,"amount":14690731957.48,"amplitude":12.73,"changePct":3.47,"change":1.05,"turnoverRatePct":14.22,"score":18.17},{"date":"2026-03-13","open":31.35,"close":31.43,"high":32.68,"low":31,"volume":3941956,"amount":12534772375.98,"amplitude":5.37,"changePct":0.45,"change":0.14,"turnoverRatePct":11.72,"score":22.71},{"date":"2026-03-16","open":31.9,"close":31.01,"high":33.3,"low":29.39,"volume":4496377,"amount":14402035938.7,"amplitude":12.44,"changePct":-1.34,"change":-0.42,"turnoverRatePct":13.37,"score":25.62},{"date":"2026-03-17","open":30.01,"close":28.55,"high":30.7,"low":28.5,"volume":3216179,"amount":9517518280.43,"amplitude":7.09,"changePct":-7.93,"change":-2.46,"turnoverRatePct":9.56,"score":44.04},{"date":"2026-03-18","open":28.56,"close":31,"high":31.41,"low":28.2,"volume":4543151,"amount":13679729835.26,"amplitude":11.24,"changePct":8.58,"change":2.45,"turnoverRatePct":13.51,"score":29.33},{"date":"2026-03-19","open":30,"close":29.81,"high":31.17,"low":29.65,"volume":3161139,"amount":9581179569.88,"amplitude":4.9,"changePct":-3.84,"change":-1.19,"turnoverRatePct":9.4,"score":38.98},{"date":"2026-03-20","open":29.9,"close":29.2,"high":30.39,"low":29.15,"volume":2412637,"amount":7170964097.78,"amplitude":4.16,"changePct":-2.05,"change":-0.61,"turnoverRatePct":7.17,"score":47.16},{"date":"2026-03-23","open":28.4,"close":27.41,"high":29.08,"low":27.3,"volume":2435664,"amount":6853876678.32,"amplitude":6.1,"changePct":-6.13,"change":-1.79,"turnoverRatePct":7.24,"score":57.93},{"date":"2026-03-24","open":28.08,"close":27.58,"high":28.23,"low":27.04,"volume":2044648,"amount":5646815711.88,"amplitude":4.34,"changePct":0.62,"change":0.17,"turnoverRatePct":6.08,"score":63.46},{"date":"2026-03-25","open":27.85,"close":28.31,"high":28.78,"low":27.83,"volume":1977758,"amount":5607516975.21,"amplitude":3.44,"changePct":2.65,"change":0.73,"turnoverRatePct":5.88,"score":63.32},{"date":"2026-03-26","open":28.61,"close":28.13,"high":28.75,"low":27.38,"volume":2113751,"amount":5946385535.03,"amplitude":4.84,"changePct":-0.64,"change":-0.18,"turnoverRatePct":6.28,"score":63.8},{"date":"2026-03-27","open":27.4,"close":27.45,"high":27.95,"low":27.05,"volume":1468402,"amount":4039467188.46,"amplitude":3.2,"changePct":-2.42,"change":-0.68,"turnoverRatePct":4.37,"score":67.76},{"date":"2026-03-30","open":27.46,"close":27.72,"high":28.36,"low":27.46,"volume":1939899,"amount":5414551196.17,"amplitude":3.28,"changePct":0.98,"change":0.27,"turnoverRatePct":5.77,"score":63.6},{"date":"2026-03-31","open":27.75,"close":26.3,"high":27.98,"low":26,"volume":2631421,"amount":7121209519.9,"amplitude":7.14,"changePct":-5.12,"change":-1.42,"turnoverRatePct":7.82,"score":64.67},{"date":"2026-04-01","open":26.53,"close":25.42,"high":26.61,"low":25.05,"volume":2211044,"amount":5634329609.94,"amplitude":5.93,"changePct":-3.35,"change":-0.88,"turnoverRatePct":6.57,"score":70.63},{"date":"2026-04-02","open":25.4,"close":24.01,"high":25.69,"low":23.9,"volume":2345841,"amount":5765785963.36,"amplitude":7.04,"changePct":-5.55,"change":-1.41,"turnoverRatePct":6.97,"score":73.38},{"date":"2026-04-03","open":23.9,"close":24.22,"high":24.44,"low":22.93,"volume":2421140,"amount":5712791331.26,"amplitude":6.29,"changePct":0.87,"change":0.21,"turnoverRatePct":7.2,"score":74.88},{"date":"2026-04-07","open":23.84,"close":22.89,"high":23.84,"low":22.8,"volume":2285768,"amount":5296895007.59,"amplitude":4.29,"changePct":-5.49,"change":-1.33,"turnoverRatePct":6.8,"score":76.84},{"date":"2026-04-08","open":23.2,"close":23.84,"high":23.86,"low":23.2,"volume":2777689,"amount":6560648060.51,"amplitude":2.88,"changePct":4.15,"change":0.95,"turnoverRatePct":8.26,"score":70.81},{"date":"2026-04-09","open":23.42,"close":23.84,"high":24.2,"low":23.01,"volume":2132337,"amount":5058621263.18,"amplitude":4.99,"changePct":0,"change":0,"turnoverRatePct":6.34,"score":72.65},{"date":"2026-04-10","open":24.02,"close":24.07,"high":24.77,"low":24.01,"volume":2016803,"amount":4906922880.63,"amplitude":3.19,"changePct":0.96,"change":0.23,"turnoverRatePct":6,"score":71.63},{"date":"2026-04-13","open":23.79,"close":24.14,"high":24.3,"low":23.7,"volume":1225553,"amount":2951494454.81,"amplitude":2.49,"changePct":0.29,"change":0.07,"turnoverRatePct":3.64,"score":77.95},{"date":"2026-04-14","open":24.35,"close":25.3,"high":25.34,"low":24.1,"volume":2797037,"amount":6936841260.07,"amplitude":5.14,"changePct":4.81,"change":1.16,"turnoverRatePct":8.32,"score":65.45},{"date":"2026-04-15","open":25.43,"close":25.02,"high":25.95,"low":24.84,"volume":2581314,"amount":6555546967.64,"amplitude":4.39,"changePct":-1.11,"change":-0.28,"turnoverRatePct":7.67,"score":65.53},{"date":"2026-04-16","open":25.1,"close":24.99,"high":25.2,"low":24.8,"volume":1536268,"amount":3830583494.71,"amplitude":1.6,"changePct":-0.12,"change":-0.03,"turnoverRatePct":4.57,"score":69.54},{"date":"2026-04-17","open":24.99,"close":25.39,"high":25.6,"low":24.8,"volume":1763846,"amount":4465281962.27,"amplitude":3.2,"changePct":1.6,"change":0.4,"turnoverRatePct":5.24,"score":68.62},{"date":"2026-04-20","open":25.14,"close":26.59,"high":26.95,"low":25.03,"volume":2803097,"amount":7312219053.96,"amplitude":7.56,"changePct":4.73,"change":1.2,"turnoverRatePct":8.33,"score":56.37},{"date":"2026-04-21","open":26.4,"close":26.13,"high":26.69,"low":25.89,"volume":1808333,"amount":4730705962.37,"amplitude":3.01,"changePct":-1.73,"change":-0.46,"turnoverRatePct":5.38,"score":58.6},{"date":"2026-04-22","open":25.88,"close":26.23,"high":26.37,"low":25.69,"volume":1588431,"amount":4128754022.34,"amplitude":2.6,"changePct":0.38,"change":0.1,"turnoverRatePct":4.72,"score":58.12},{"date":"2026-04-23","open":26.45,"close":25.7,"high":26.49,"low":25.44,"volume":1585717,"amount":4099406423.81,"amplitude":4,"changePct":-2.02,"change":-0.53,"turnoverRatePct":4.71,"score":62.03},{"date":"2026-04-24","open":25.66,"close":25.48,"high":26.2,"low":25.25,"volume":1582156,"amount":4069678260.58,"amplitude":3.7,"changePct":-0.86,"change":-0.22,"turnoverRatePct":4.7,"score":63.24},{"date":"2026-04-27","open":26.21,"close":26.53,"high":26.98,"low":26.21,"volume":2412312,"amount":6418259785.51,"amplitude":3.02,"changePct":4.12,"change":1.05,"turnoverRatePct":7.17,"score":44.63},{"date":"2026-04-28","open":26.45,"close":25.51,"high":26.5,"low":25.4,"volume":1763623,"amount":4540471711.03,"amplitude":4.15,"changePct":-3.84,"change":-1.02,"turnoverRatePct":5.24,"score":57.85},{"date":"2026-04-29","open":25.23,"close":25.73,"high":25.89,"low":25.07,"volume":1292192,"amount":3316064726.63,"amplitude":3.21,"changePct":0.86,"change":0.22,"turnoverRatePct":3.84,"score":59.95},{"date":"2026-04-30","open":26.51,"close":27.55,"high":28.18,"low":26.2,"volume":3493626,"amount":9489163559.8,"amplitude":7.7,"changePct":7.07,"change":1.82,"turnoverRatePct":10.39,"score":33.9},{"date":"2026-05-06","open":28,"close":27.94,"high":28.35,"low":27.7,"volume":3050494,"amount":8560143217.49,"amplitude":2.36,"changePct":1.42,"change":0.39,"turnoverRatePct":9.07,"score":32.18},{"date":"2026-05-07","open":27.95,"close":28.46,"high":28.68,"low":27.84,"volume":2650063,"amount":7482581451.74,"amplitude":3.01,"changePct":1.86,"change":0.52,"turnoverRatePct":7.88,"score":30.74},{"date":"2026-05-08","open":28.09,"close":28.49,"high":28.92,"low":28.01,"volume":2366480,"amount":6728896828.81,"amplitude":3.2,"changePct":0.11,"change":0.03,"turnoverRatePct":7.04,"score":33.95},{"date":"2026-05-11","open":28.9,"close":28.16,"high":28.99,"low":28,"volume":2246451,"amount":6366680745.65,"amplitude":3.47,"changePct":-1.16,"change":-0.33,"turnoverRatePct":6.68,"score":37.49},{"date":"2026-05-12","open":28.06,"close":27.27,"high":28.07,"low":27.01,"volume":1946375,"amount":5332489149.84,"amplitude":3.76,"changePct":-3.16,"change":-0.89,"turnoverRatePct":5.79,"score":46.44},{"date":"2026-05-13","open":27.07,"close":27.8,"high":27.94,"low":26.88,"volume":1761552,"amount":4870902978.7,"amplitude":3.89,"changePct":1.94,"change":0.53,"turnoverRatePct":5.24,"score":48.81},{"date":"2026-05-14","open":27.95,"close":26.03,"high":28,"low":25.98,"volume":2302553,"amount":6157468712.47,"amplitude":7.27,"changePct":-6.37,"change":-1.77,"turnoverRatePct":6.85,"score":59.42},{"date":"2026-05-15","open":25.9,"close":25.09,"high":26.35,"low":24.83,"volume":1736128,"amount":4393904462.03,"amplitude":5.84,"changePct":-3.61,"change":-0.94,"turnoverRatePct":5.16,"score":72.34},{"date":"2026-05-18","open":25,"close":25.79,"high":26.3,"low":25,"volume":1462306,"amount":3776764679.35,"amplitude":5.18,"changePct":2.79,"change":0.7,"turnoverRatePct":4.35,"score":69.97},{"date":"2026-05-19","open":25.56,"close":25.42,"high":25.73,"low":25.13,"volume":1042342,"amount":2640378318.54,"amplitude":2.33,"changePct":-1.43,"change":-0.37,"turnoverRatePct":3.1,"score":76.42},{"date":"2026-05-20","open":25.2,"close":25.3,"high":25.36,"low":24.69,"volume":1158381,"amount":2894266691.5,"amplitude":2.64,"changePct":-0.47,"change":-0.12,"turnoverRatePct":3.44,"score":78.86},{"date":"2026-05-21","open":25.49,"close":24.73,"high":26.09,"low":24.61,"volume":1779915,"amount":4533514849.21,"amplitude":5.85,"changePct":-2.25,"change":-0.57,"turnoverRatePct":5.29,"score":72.54},{"date":"2026-05-22","open":24.74,"close":25.2,"high":25.25,"low":24.3,"volume":1171680,"amount":2906885850.65,"amplitude":3.84,"changePct":1.9,"change":0.47,"turnoverRatePct":3.48,"score":74.5},{"date":"2026-05-25","open":25.2,"close":24.88,"high":25.28,"low":24.3,"volume":1547898,"amount":3820844183.92,"amplitude":3.89,"changePct":-1.27,"change":-0.32,"turnoverRatePct":4.6,"score":73.22},{"date":"2026-05-26","open":24.68,"close":24.51,"high":24.75,"low":23.75,"volume":1479360,"amount":3576076377.25,"amplitude":4.02,"changePct":-1.49,"change":-0.37,"turnoverRatePct":4.4,"score":77.31},{"date":"2026-05-27","open":24.67,"close":23.6,"high":24.96,"low":23.45,"volume":1382654,"amount":3325138800.85,"amplitude":6.16,"changePct":-3.71,"change":-0.91,"turnoverRatePct":4.11,"score":80.19},{"date":"2026-05-28","open":23.6,"close":24.3,"high":24.46,"low":23.48,"volume":1336150,"amount":3210932164.71,"amplitude":4.15,"changePct":2.97,"change":0.7,"turnoverRatePct":3.97,"score":77.87},{"date":"2026-05-29","open":24.15,"close":23.42,"high":24.26,"low":23.32,"volume":1387422,"amount":3276030929.63,"amplitude":3.87,"changePct":-3.62,"change":-0.88,"turnoverRatePct":4.12,"score":78.16},{"date":"2026-06-01","open":23.88,"close":23.46,"high":24.08,"low":23.37,"volume":1015201,"amount":2406303571.85,"amplitude":3.03,"changePct":0.17,"change":0.04,"turnoverRatePct":3.02,"score":80.36},{"date":"2026-06-02","open":23.23,"close":23.24,"high":23.39,"low":22.36,"volume":1147135,"amount":2632826253.66,"amplitude":4.39,"changePct":-0.94,"change":-0.22,"turnoverRatePct":3.41,"score":82.72},{"date":"2026-06-03","open":23.1,"close":23.61,"high":24.03,"low":22.8,"volume":1241902,"amount":2926844096.85,"amplitude":5.29,"changePct":1.59,"change":0.37,"turnoverRatePct":3.69,"score":78.15},{"date":"2026-06-04","open":23.35,"close":23.63,"high":23.75,"low":23.2,"volume":791043,"amount":1864277505.5,"amplitude":2.33,"changePct":0.08,"change":0.02,"turnoverRatePct":2.35,"score":79.81},{"date":"2026-06-05","open":23.85,"close":23,"high":23.95,"low":22.97,"volume":1164389,"amount":2713196329.79,"amplitude":4.15,"changePct":-2.67,"change":-0.63,"turnoverRatePct":3.46,"score":77.79},{"date":"2026-06-08","open":22.17,"close":21.69,"high":22.98,"low":21.58,"volume":1211201,"amount":2677321658.26,"amplitude":6.09,"changePct":-5.7,"change":-1.31,"turnoverRatePct":3.6,"score":81.13},{"date":"2026-06-09","open":21.93,"close":22,"high":22.08,"low":21.26,"volume":1018540,"amount":2201391717.27,"amplitude":3.78,"changePct":1.43,"change":0.31,"turnoverRatePct":3.03,"score":80.14},{"date":"2026-06-10","open":22,"close":21.25,"high":22.29,"low":21.03,"volume":1053771,"amount":2256839231.9,"amplitude":5.73,"changePct":-3.41,"change":-0.75,"turnoverRatePct":3.13,"score":80.84},{"date":"2026-06-11","open":21.01,"close":21.13,"high":21.28,"low":20.8,"volume":842004,"amount":1770083900.26,"amplitude":2.26,"changePct":-0.56,"change":-0.12,"turnoverRatePct":2.5,"score":86.5},{"date":"2026-06-12","open":21.56,"close":21.43,"high":22.3,"low":21.3,"volume":1697071,"amount":3712737599.62,"amplitude":4.73,"changePct":1.42,"change":0.3,"turnoverRatePct":5.05,"score":69.51},{"date":"2026-06-15","open":21.53,"close":21.34,"high":21.66,"low":20.91,"volume":1293343,"amount":2735836517.53,"amplitude":3.5,"changePct":-0.42,"change":-0.09,"turnoverRatePct":3.85,"score":67.94},{"date":"2026-06-16","open":21.69,"close":21.77,"high":22.41,"low":21.39,"volume":1443310,"amount":3155651561.74,"amplitude":4.78,"changePct":2.01,"change":0.43,"turnoverRatePct":4.29,"score":61.78},{"date":"2026-06-17","open":21.67,"close":21.98,"high":22.1,"low":21.42,"volume":1058409,"amount":2309292632.12,"amplitude":3.12,"changePct":0.96,"change":0.21,"turnoverRatePct":3.15,"score":67.29},{"date":"2026-06-18","open":21.89,"close":22.49,"high":23.05,"low":21.83,"volume":1441352,"amount":3248126039.68,"amplitude":5.55,"changePct":2.32,"change":0.51,"turnoverRatePct":4.29,"score":61.18},{"date":"2026-06-22","open":22.49,"close":22.94,"high":22.95,"low":21.66,"volume":1494541,"amount":3322382657.31,"amplitude":5.74,"changePct":2,"change":0.45,"turnoverRatePct":4.44,"score":55.82},{"date":"2026-06-23","open":22.63,"close":21.75,"high":23.05,"low":21.64,"volume":1335052,"amount":2971452577.15,"amplitude":6.15,"changePct":-5.19,"change":-1.19,"turnoverRatePct":3.97,"score":61.05},{"date":"2026-06-24","open":21.55,"close":22.2,"high":22.42,"low":21.04,"volume":1191123,"amount":2590827673.21,"amplitude":6.34,"changePct":2.07,"change":0.45,"turnoverRatePct":3.54,"score":61.69},{"date":"2026-06-25","open":22,"close":21.9,"high":22.66,"low":21.58,"volume":1299602,"amount":2869869031.08,"amplitude":4.86,"changePct":-1.35,"change":-0.3,"turnoverRatePct":3.86,"score":62.45},{"date":"2026-06-26","open":22.51,"close":23.33,"high":23.9,"low":22.26,"volume":3029974,"amount":7015099784.47,"amplitude":7.49,"changePct":6.53,"change":1.43,"turnoverRatePct":9.01,"score":42.02},{"date":"2026-06-29","open":22.76,"close":21.73,"high":22.84,"low":21.38,"volume":2275479,"amount":5002676946.28,"amplitude":6.26,"changePct":-6.86,"change":-1.6,"turnoverRatePct":6.77,"score":51.68},{"date":"2026-06-30","open":22.89,"close":23.9,"high":23.9,"low":22.89,"volume":2060240,"amount":4875022658.62,"amplitude":4.65,"changePct":9.99,"change":2.17,"turnoverRatePct":6.13,"score":36.92},{"date":"2026-07-01","open":23.9,"close":24.66,"high":25.06,"low":23.19,"volume":3230984,"amount":7886730299.01,"amplitude":7.82,"changePct":3.18,"change":0.76,"turnoverRatePct":9.61,"score":30.23},{"date":"2026-07-02","open":24.11,"close":23.51,"high":24.6,"low":23.49,"volume":2177889,"amount":5203071230.73,"amplitude":4.5,"changePct":-4.66,"change":-1.15,"turnoverRatePct":6.48,"score":42.93},{"date":"2026-07-03","open":23.5,"close":24.59,"high":24.98,"low":23.5,"volume":2147252,"amount":5219562331.93,"amplitude":6.3,"changePct":4.59,"change":1.08,"turnoverRatePct":6.38,"score":37.49},{"date":"2026-07-06","open":24.73,"close":23.91,"high":24.98,"low":23.52,"volume":1699005,"amount":4101988807.81,"amplitude":5.94,"changePct":-2.77,"change":-0.68,"turnoverRatePct":5.05,"score":43.53},{"date":"2026-07-07","open":23.53,"close":22.19,"high":23.7,"low":22.03,"volume":1551794,"amount":3524090734.32,"amplitude":6.98,"changePct":-7.19,"change":-1.72,"turnoverRatePct":4.61,"score":58.71},{"date":"2026-07-08","open":21.96,"close":21.04,"high":22.15,"low":21.02,"volume":1228579,"amount":2618857604.42,"amplitude":5.09,"changePct":-5.18,"change":-1.15,"turnoverRatePct":3.65,"score":73.75},{"date":"2026-07-09","open":20.82,"close":20.33,"high":20.98,"low":19.71,"volume":1504076,"amount":3048041870.23,"amplitude":6.04,"changePct":-3.37,"change":-0.71,"turnoverRatePct":4.47,"score":75.36},{"date":"2026-07-10","open":20.47,"close":22.36,"high":22.36,"low":19.93,"volume":2676621,"amount":5809635623.58,"amplitude":11.95,"changePct":9.99,"change":2.03,"turnoverRatePct":7.96,"score":52.6},{"date":"2026-07-13","open":21.73,"close":20.27,"high":21.85,"low":20.2,"volume":1953213,"amount":4031571679.47,"amplitude":7.38,"changePct":-9.35,"change":-2.09,"turnoverRatePct":5.81,"score":65.64},{"date":"2026-07-14","open":20,"close":19.17,"high":20,"low":18.46,"volume":1496265,"amount":2848864997.23,"amplitude":7.6,"changePct":-5.43,"change":-1.1,"turnoverRatePct":4.45,"score":73.62},{"date":"2026-07-15","open":18.99,"close":18.88,"high":19.38,"low":18.82,"volume":849600,"amount":1617439871.02,"amplitude":2.92,"changePct":-1.51,"change":-0.29,"turnoverRatePct":2.53,"score":85.57},{"date":"2026-07-16","open":18.48,"close":18.59,"high":19.07,"low":17.93,"volume":814783,"amount":1515912091.07,"amplitude":6.04,"changePct":-1.54,"change":-0.29,"turnoverRatePct":2.42,"score":88.72},{"date":"2026-07-17","open":18.49,"close":17.01,"high":18.59,"low":17,"volume":1256735,"amount":2216652958.31,"amplitude":8.55,"changePct":-8.5,"change":-1.58,"turnoverRatePct":3.74,"score":88.93},{"date":"2026-07-20","open":17.4,"close":17.03,"high":17.49,"low":16.69,"volume":1049471,"amount":1798581781.55,"amplitude":4.7,"changePct":0.12,"change":0.02,"turnoverRatePct":3.12,"score":89.04},{"date":"2026-07-21","open":17.13,"close":17.55,"high":17.62,"low":16.61,"volume":1022635,"amount":1759770644.38,"amplitude":5.93,"changePct":3.05,"change":0.52,"turnoverRatePct":3.04,"score":86.1},{"date":"2026-07-22","open":17.44,"close":17.51,"high":18.08,"low":17.36,"volume":922421,"amount":1629820543.22,"amplitude":4.1,"changePct":-0.23,"change":-0.04,"turnoverRatePct":2.74,"score":86.64},{"date":"2026-07-23","open":17.51,"close":18.37,"high":18.38,"low":17.38,"volume":1217526,"amount":2199346674.54,"amplitude":5.71,"changePct":4.91,"change":0.86,"turnoverRatePct":3.62,"score":80.43},{"date":"2026-07-24","open":18.08,"close":17.62,"high":18.2,"low":17.61,"volume":890913,"amount":1591360694.85,"amplitude":3.21,"changePct":-4.08,"change":-0.75,"turnoverRatePct":2.65,"score":84.35}];
+  const nodes = [{"index":201,"date":"2026-05-27","score":80.19,"close":23.6,"changePct":-3.71,"amountYi":33.2513880085,"turnover":4.11,"forward10d":-0.09957627118644075,"topFactors":[{"label":"20 日突破强度","points":14.6,"detail":"原值 -18.59%；越低越优；历史分位得分 84.7；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":11,"detail":"原值 0.773 倍；越低越优；历史分位得分 78.4；权重 14%；252 个观测"},{"label":"RSI(14)","points":10.2,"detail":"原值 20.8；越低越优；历史分位得分 99.4；权重 10.2%；252 个观测"}]},{"index":204,"date":"2026-06-01","score":80.36,"close":23.46,"changePct":0.17,"amountYi":24.0630357185,"turnover":3.02,"forward10d":-0.09036658141517484,"topFactors":[{"label":"20 日突破强度","points":14.6,"detail":"原值 -19.08%；越低越优；历史分位得分 85.1；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":12.3,"detail":"原值 0.686 倍；越低越优；历史分位得分 87.9；权重 14%；252 个观测"},{"label":"RSI(14)","points":9.8,"detail":"原值 28.1；越低越优；历史分位得分 95.4；权重 10.2%；252 个观测"}]},{"index":205,"date":"2026-06-02","score":82.72,"close":23.24,"changePct":-0.94,"amountYi":26.328262536599997,"turnover":3.41,"forward10d":-0.06325301204819278,"topFactors":[{"label":"20 日突破强度","points":14.8,"detail":"原值 -19.83%；越低越优；历史分位得分 86.3；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":12.1,"detail":"原值 0.697 倍；越低越优；历史分位得分 86.7；权重 14%；252 个观测"},{"label":"RSI(14)","points":10.1,"detail":"原值 22.8；越低越优；历史分位得分 98.6；权重 10.2%；252 个观测"}]},{"index":209,"date":"2026-06-08","score":81.13,"close":21.69,"changePct":-5.7,"amountYi":26.773216582600003,"turnover":3.6,"forward10d":0.0027662517289073207,"topFactors":[{"label":"20 日突破强度","points":15.7,"detail":"原值 -25.18%；越低越优；历史分位得分 91.1；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":11.4,"detail":"原值 0.752 倍；越低越优；历史分位得分 81.2；权重 14%；252 个观测"},{"label":"RSI(14)","points":10,"detail":"原值 23.1；越低越优；历史分位得分 98.2；权重 10.2%；252 个观测"}]},{"index":210,"date":"2026-06-09","score":80.14,"close":22,"changePct":1.43,"amountYi":22.0139171727,"turnover":3.03,"forward10d":0.009090909090909038,"topFactors":[{"label":"20 日突破强度","points":15.2,"detail":"原值 -21.62%；越低越优；历史分位得分 88.7；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":9.9,"detail":"原值 0.834 倍；越低越优；历史分位得分 70.8；权重 14%；252 个观测"},{"label":"RSI(14)","points":9.7,"detail":"原值 26.8；越低越优；历史分位得分 94.6；权重 10.2%；252 个观测"}]},{"index":211,"date":"2026-06-10","score":80.84,"close":21.25,"changePct":-3.41,"amountYi":22.568392319,"turnover":3.13,"forward10d":0.030588235294117583,"topFactors":[{"label":"20 日突破强度","points":15.5,"detail":"原值 -24.11%；越低越优；历史分位得分 90.3；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":10,"detail":"原值 0.828 倍；越低越优；历史分位得分 71.2；权重 14%；252 个观测"},{"label":"20 日收益率","points":10,"detail":"原值 -23.56%；越低越优；历史分位得分 98.6；权重 10.1%；252 个观测"}]},{"index":212,"date":"2026-06-11","score":86.5,"close":21.13,"changePct":-0.56,"amountYi":17.7008390026,"turnover":2.5,"forward10d":0.10411736867013732,"topFactors":[{"label":"20 日突破强度","points":15.5,"detail":"原值 -24.54%；越低越优；历史分位得分 90.3；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":10.9,"detail":"原值 0.778 倍；越低越优；历史分位得分 78；权重 14%；252 个观测"},{"label":"RSI(14)","points":10.2,"detail":"原值 20.7；越低越优；历史分位得分 99.4；权重 10.2%；252 个观测"}]},{"index":235,"date":"2026-07-15","score":85.57,"close":18.88,"changePct":-1.51,"amountYi":16.1743987102,"turnover":2.53,"forward10d":null,"topFactors":[{"label":"20 日突破强度","points":15.5,"detail":"原值 -24.66%；越低越优；历史分位得分 90.3；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":10.5,"detail":"原值 0.803 倍；越低越优；历史分位得分 74.8；权重 14%；252 个观测"},{"label":"20 日收益率","points":9,"detail":"原值 -13.28%；越低越优；历史分位得分 89.1；权重 10.1%；252 个观测"}]},{"index":236,"date":"2026-07-16","score":88.72,"close":18.59,"changePct":-1.54,"amountYi":15.159120910699999,"turnover":2.42,"forward10d":null,"topFactors":[{"label":"20 日突破强度","points":15.7,"detail":"原值 -25.82%；越低越优；历史分位得分 91.5；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":13.1,"detail":"原值 0.594 倍；越低越优；历史分位得分 93.8；权重 14%；252 个观测"},{"label":"20 日收益率","points":9.3,"detail":"原值 -15.42%；越低越优；历史分位得分 91.5；权重 10.1%；252 个观测"}]},{"index":237,"date":"2026-07-17","score":88.93,"close":17.01,"changePct":-8.5,"amountYi":22.1665295831,"turnover":3.74,"forward10d":null,"topFactors":[{"label":"20 日突破强度","points":17.1,"detail":"原值 -32.12%；越低越优；历史分位得分 99.4；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":13.4,"detail":"原值 0.552 倍；越低越优；历史分位得分 95.8；权重 14%；252 个观测"},{"label":"20 日收益率","points":10,"detail":"原值 -24.37%；越低越优；历史分位得分 99；权重 10.1%；252 个观测"}]},{"index":238,"date":"2026-07-20","score":89.04,"close":17.03,"changePct":0.12,"amountYi":17.9858178155,"turnover":3.12,"forward10d":null,"topFactors":[{"label":"20 日突破强度","points":17,"detail":"原值 -32.04%；越低越优；历史分位得分 99；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":13,"detail":"原值 0.597 倍；越低越优；历史分位得分 93.1；权重 14%；252 个观测"},{"label":"20 日收益率","points":10.1,"detail":"原值 -25.76%；越低越优；历史分位得分 99.8；权重 10.1%；252 个观测"}]},{"index":239,"date":"2026-07-21","score":86.1,"close":17.55,"changePct":3.05,"amountYi":17.5977064438,"turnover":3.04,"forward10d":null,"topFactors":[{"label":"20 日突破强度","points":16.6,"detail":"原值 -29.97%；越低越优；历史分位得分 96.6；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":12.8,"detail":"原值 0.643 倍；越低越优；历史分位得分 91.5；权重 14%；252 个观测"},{"label":"RSI(14)","points":9.8,"detail":"原值 25.3；越低越优；历史分位得分 95.4；权重 10.2%；252 个观测"}]},{"index":240,"date":"2026-07-22","score":86.64,"close":17.51,"changePct":-0.23,"amountYi":16.2982054322,"turnover":2.74,"forward10d":null,"topFactors":[{"label":"20 日突破强度","points":16.6,"detail":"原值 -30.13%；越低越优；历史分位得分 96.6；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":13.2,"detail":"原值 0.583 倍；越低越优；历史分位得分 94.6；权重 14%；252 个观测"},{"label":"20 日收益率","points":9.7,"detail":"原值 -21.13%；越低越优；历史分位得分 95.8；权重 10.1%；252 个观测"}]},{"index":241,"date":"2026-07-23","score":80.43,"close":18.37,"changePct":4.91,"amountYi":21.9934667454,"turnover":3.62,"forward10d":null,"topFactors":[{"label":"20 日突破强度","points":15.6,"detail":"原值 -26.7%；越低越优；历史分位得分 90.7；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":12.8,"detail":"原值 0.617 倍；越低越优；历史分位得分 91.5；权重 14%；252 个观测"},{"label":"RSI(14)","points":9.6,"detail":"原值 26.2；越低越优；历史分位得分 94.2；权重 10.2%；252 个观测"}]},{"index":242,"date":"2026-07-24","score":84.35,"close":17.62,"changePct":-4.08,"amountYi":15.913606948499998,"turnover":2.65,"forward10d":null,"topFactors":[{"label":"20 日突破强度","points":16.5,"detail":"原值 -29.69%；越低越优；历史分位得分 95.8；权重 17.2%；252 个观测"},{"label":"3 日 / 20 日均量比","points":12.7,"detail":"原值 0.631 倍；越低越优；历史分位得分 90.7；权重 14%；252 个观测"},{"label":"20 日收益率","points":10,"detail":"原值 -24.47%；越低越优；历史分位得分 99；权重 10.1%；252 个观测"}]}];
+  const canvas = document.getElementById('chart');
+  const wrap = document.getElementById('chartWrap');
+  const tooltip = document.getElementById('tooltip');
+  const strip = document.getElementById('nodeStrip');
+  let focusIndex = null;
+
+  nodes.forEach((node) => {
+    const button = document.createElement('button');
+    button.className = 'node-chip';
+    button.type = 'button';
+    button.innerHTML = node.date.slice(5) + ' · <b>' + node.score + '</b>';
+    button.addEventListener('click', () => { focusIndex = node.index; draw(); showTooltip(node.index, true); });
+    strip.appendChild(button);
+  });
+  if (!nodes.length) {
+    strip.innerHTML = '<span style="color:#697386">过去一年无高分节点</span>';
+  }
+
+  function layout() {
+    const rect = wrap.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, width: rect.width, height: rect.height, left: 58, right: 60, top: 28, bottom: 42 };
+  }
+
+  function scales(box) {
+    const min = Math.min(...data.map(d => d.low));
+    const max = Math.max(...data.map(d => d.high));
+    const pad = (max - min) * .08 || 1;
+    const low = min - pad;
+    const high = max + pad;
+    const plotW = box.width - box.left - box.right;
+    const plotH = box.height - box.top - box.bottom;
+    return {
+      x: (index) => box.left + (index + .5) / data.length * plotW,
+      y: (price) => box.top + (high - price) / (high - low) * plotH,
+      low, high, plotW, plotH,
+    };
+  }
+
+  function draw() {
+    const box = layout();
+    const { ctx, width, height } = box;
+    const scale = scales(box);
+    ctx.clearRect(0, 0, width, height);
+    ctx.font = '11px Inter, "PingFang SC", sans-serif';
+    ctx.textBaseline = 'middle';
+
+    for (let step = 0; step <= 5; step++) {
+      const price = scale.low + (scale.high - scale.low) * step / 5;
+      const y = scale.y(price);
+      ctx.strokeStyle = '#edf0f4';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(box.left, y); ctx.lineTo(width - box.right, y); ctx.stroke();
+      ctx.fillStyle = '#7b8494';
+      ctx.textAlign = 'right';
+      ctx.fillText(price.toFixed(2), width - 8, y);
+    }
+
+    const tickEvery = Math.max(1, Math.round(data.length / 8));
+    data.forEach((item, index) => {
+      if (index % tickEvery !== 0 && index !== data.length - 1) return;
+      const x = scale.x(index);
+      ctx.strokeStyle = '#f2f4f7';
+      ctx.beginPath(); ctx.moveTo(x, box.top); ctx.lineTo(x, height - box.bottom); ctx.stroke();
+      ctx.fillStyle = '#7b8494';
+      ctx.textAlign = 'center';
+      ctx.fillText(item.date.slice(5), x, height - 18);
+    });
+
+    const candleWidth = Math.max(1.5, Math.min(7, scale.plotW / data.length * .68));
+    data.forEach((item, index) => {
+      const x = scale.x(index);
+      const rising = item.close >= item.open;
+      const color = rising ? '#d92d20' : '#079455';
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, scale.y(item.high)); ctx.lineTo(x, scale.y(item.low)); ctx.stroke();
+      const top = scale.y(Math.max(item.open, item.close));
+      const bottom = scale.y(Math.min(item.open, item.close));
+      ctx.fillRect(x - candleWidth / 2, top, candleWidth, Math.max(1, bottom - top));
+    });
+
+    nodes.forEach((node) => {
+      const item = data[node.index];
+      const x = scale.x(node.index);
+      const y = scale.y(item.high) - 12;
+      ctx.fillStyle = '#ffb020';
+      ctx.strokeStyle = '#d92d20';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (nodes.length <= 18 || node === nodes.at(-1) || node === nodes[0]) {
+        ctx.fillStyle = '#a3261d';
+        ctx.textAlign = 'center';
+        ctx.font = '700 10px Inter, sans-serif';
+        ctx.fillText(String(node.score), x, y - 11);
+      }
+    });
+
+    if (focusIndex != null && data[focusIndex]) {
+      const x = scale.x(focusIndex);
+      ctx.strokeStyle = '#7b8494';
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(x, box.top); ctx.lineTo(x, height - box.bottom); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  function showTooltip(index, pinned = false, event) {
+    const item = data[index];
+    if (!item) return;
+    focusIndex = index;
+    const node = nodes.find(entry => entry.index === index);
+    tooltip.innerHTML =
+      '<strong>' + item.date + (node ? ' · 高分节点' : '') + '</strong>' +
+      '<div class="tooltip-grid">' +
+      '<span>开 / 高</span><b>' + item.open.toFixed(2) + ' / ' + item.high.toFixed(2) + '</b>' +
+      '<span>低 / 收</span><b>' + item.low.toFixed(2) + ' / ' + item.close.toFixed(2) + '</b>' +
+      '<span>涨跌</span><b class="' + (item.changePct >= 0 ? 'up' : 'down') + '">' + (item.changePct >= 0 ? '+' : '') + item.changePct.toFixed(2) + '%</b>' +
+      '<span>换手率</span><b>' + item.turnoverRatePct.toFixed(2) + '%</b>' +
+      '<span>评分</span><b>' + (item.score == null ? '—' : item.score) + '</b>' +
+      '</div>';
+    tooltip.style.display = 'block';
+    const rect = wrap.getBoundingClientRect();
+    const x = event ? event.clientX - rect.left : rect.width * (index + .5) / data.length;
+    const y = event ? event.clientY - rect.top : 90;
+    tooltip.style.left = Math.max(8, Math.min(rect.width - 228, x + 14)) + 'px';
+    tooltip.style.top = Math.max(8, Math.min(rect.height - 150, y + 14)) + 'px';
+    if (pinned) draw();
+  }
+
+  canvas.addEventListener('pointermove', (event) => {
+    const rect = canvas.getBoundingClientRect();
+    const left = 58;
+    const right = 60;
+    const ratio = (event.clientX - rect.left - left) / Math.max(1, rect.width - left - right);
+    const index = Math.max(0, Math.min(data.length - 1, Math.floor(ratio * data.length)));
+    showTooltip(index, false, event);
+    draw();
+  });
+  canvas.addEventListener('pointerleave', () => {
+    focusIndex = null;
+    tooltip.style.display = 'none';
+    draw();
+  });
+  window.addEventListener('resize', draw);
+  draw();
+</script>
+</body>
+</html>

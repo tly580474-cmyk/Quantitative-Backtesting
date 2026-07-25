@@ -444,10 +444,31 @@ export interface MarketSentimentOverview {
   notes: string[];
 }
 
+export type TradingStyleId =
+  | 'value'
+  | 'growth'
+  | 'cycle'
+  | 'contrarian'
+  | 'technical'
+  | 'chan'
+  | 'trend'
+  | 'limit-up';
+
+export interface TradingStyleOption {
+  value: TradingStyleId;
+  label: string;
+  riskLevel: 1 | 2 | 3 | 4 | 5;
+  riskLabel: string;
+  description: string;
+}
+
 export interface AgentStatus {
   configured: boolean;
   currentModel: string;
   availableModels: string[];
+  tradingStyles: TradingStyleOption[];
+  minStyles: number;
+  maxStyles: number;
   workflow: string[];
 }
 

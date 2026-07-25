@@ -43,9 +43,20 @@ import {
 } from '../marketData/marketTechnicalScreen.js';
 import { tencentProvider } from '../marketData/providers/tencentProvider.js';
 import { updateIndexDatasets } from '../marketData/jobs/indexDatasetUpdater.js';
-import { StockResearchAgent } from '../services/stockResearchAgent.js';
-import { MarketOpinionAgent, MARKET_OPINION_TIERS } from '../services/marketOpinionAgent.js';
-import type { MarketOpinionPushService } from '../services/marketOpinionPushService.js';
+import {
+  StockResearchAgent,
+  TRADING_STYLE_DEFINITIONS,
+  TRADING_STYLE_IDS,
+} from '../services/stockResearchAgent.js';
+import {
+  MarketOpinionAgent,
+  MARKET_OPINION_TIERS,
+  selectOpinionNews,
+} from '../services/marketOpinionAgent.js';
+import {
+  buildMarketContext,
+  type MarketOpinionPushService,
+} from '../services/marketOpinionPushService.js';
 import { fetchSevenLayerSection, fetchSevenLayerSnapshot } from '../marketData/sevenLayerDataService.js';
 import { fetchCachedHotSectors, fetchSectorConstituents } from '../marketData/hotSectorService.js';
 import type { HistoryReadMode } from '../marketData/repositories/historyStorePolicy.js';
@@ -69,6 +80,46 @@ const candlesQuerySchema = z.object({
 });
 
 const candidateIndicatorCache = new Map<string, { data: HistoricalTechnicalIndicators | null; cachedAt: number }>();
+
+type TradingLayerKey = 'signal' | 'capital' | 'fundamental';
+
+async function loadTradingLayer(code: string, key: TradingLayerKey): Promise<Record<string, unknown>> {
+  try {
+    const section = await fetchSevenLayerSection(code, key);
+    return {
+      status: section.status,
+      summary: section.summary,
+      sources: section.sources,
+      records: section.records.slice(0, 12).map((record) => ({
+        source: record.source,
+        title: record.title,
+        date: record.date,
+        summary: record.summary,
+        metrics: record.metrics,
+      })),
+      errors: section.errors,
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      records: [],
+      errors: [error instanceof Error ? error.message : String(error)],
+    };
+  }
+}
+
+async function loadRecentStockNews(code: string, dbOnline: boolean, now: Date) {
+  try {
+    const snapshot = await getStockNews(code, { dbOnline, limit: 20 });
+    return snapshot.items
+      .filter((item) => item.sourceTier !== 'self_media')
+      .filter((item) => isRecentNews(item.publishedAt, now, 30))
+      .slice(0, 10);
+  } catch {
+    return [];
+  }
+}
+
 const CANDIDATE_INDICATOR_CACHE_MS = 30 * 60_000;
 
 async function enrichTechnicalCandidates(
@@ -511,27 +562,58 @@ export function registerMarketDataRoutes(
     configured: Boolean(agentConfig.apiKey),
     currentModel: agentConfig.model,
     availableModels: agentConfig.availableModels,
-    workflow: ['实时行情', '日K/周K趋势', '机构研报', '证据整理', '风险核验'],
+    tradingStyles: TRADING_STYLE_DEFINITIONS.map(({ value, label, riskLevel, riskLabel, description }) => ({
+      value,
+      label,
+      riskLevel,
+      riskLabel,
+      description,
+    })),
+    minStyles: 1,
+    maxStyles: 3,
+    workflow: ['全市场环境', '个股多层数据', '消息面交叉验证', '多风格研判', '条件式交易计划', '风险核验'],
   }));
 
   app.post<{ Params: { code: string } }>('/api/market-data/stocks/:code/research', async (req, reply) => {
-    const body = z.object({ question: z.string().max(1000).optional(), model: z.string().optional() }).safeParse(req.body ?? {});
-    if (!body.success) return reply.status(400).send({ message: '调研参数无效' });
+    const body = z.object({
+      question: z.string().max(1000).optional(),
+      model: z.string().optional(),
+      styles: z.array(z.enum(TRADING_STYLE_IDS)).min(1).max(3),
+    }).safeParse(req.body ?? {});
+    if (!body.success) return reply.status(400).send({ message: '请选择 1–3 种交易风格' });
     if (body.data.model && !agentConfig.availableModels.includes(body.data.model)) {
       return reply.status(400).send({ message: '请求的模型不在允许列表中' });
     }
     if (!agentConfig.apiKey) return reply.status(503).send({ message: '请先在服务端配置 AI 模型与密钥' });
     try {
-      const [quote, daily, weekly, reports] = await Promise.all([
+      const now = new Date();
+      const [quote, daily, weekly, reports, marketContext, marketNews, stockNews, signal, capital, fundamental] = await Promise.all([
         fetchStockQuote(req.params.code),
         fetchStockKline(req.params.code, 'day'),
         fetchStockKline(req.params.code, 'week'),
         fetchResearchReports(req.params.code, 12),
+        buildMarketContext(now, { forceRefresh: false }),
+        getMarketNews({ dbOnline, limit: 50 }),
+        loadRecentStockNews(req.params.code, dbOnline, now),
+        loadTradingLayer(req.params.code, 'signal'),
+        loadTradingLayer(req.params.code, 'capital'),
+        loadTradingLayer(req.params.code, 'fundamental'),
       ]);
-      return reply.send(await agent.research({ quote, daily, weekly, reports, question: body.data.question }, body.data.model));
+      return reply.send(await agent.research({
+        quote,
+        daily,
+        weekly,
+        reports,
+        styles: body.data.styles,
+        marketContext,
+        marketNews: selectOpinionNews(marketNews.items).slice(0, 14),
+        stockNews,
+        marketLayers: { signal, capital, fundamental },
+        question: body.data.question,
+      }, body.data.model));
     } catch (error) {
       req.log.error(error);
-      return reply.status(502).send({ message: error instanceof Error ? error.message : 'Agent 调研失败' });
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '智能交易分析失败' });
     }
   });
 
@@ -753,4 +835,11 @@ function daysBetween(startDate: string, endDate: string): number {
     (Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`))
     / 86_400_000,
   );
+}
+
+function isRecentNews(publishedAt: string, now: Date, lookbackDays: number): boolean {
+  const timestamp = Date.parse(publishedAt);
+  return Number.isFinite(timestamp)
+    && timestamp >= now.getTime() - lookbackDays * 86_400_000
+    && timestamp <= now.getTime() + 5 * 60_000;
 }

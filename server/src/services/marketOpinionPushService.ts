@@ -206,16 +206,24 @@ function escapeMarkdownLabel(value: string): string {
   return value.replace(/([\\[\]*_`])/g, '\\$1');
 }
 
-export async function buildMarketContext(now: Date): Promise<MarketOpinionMarketContext> {
+export async function buildMarketContext(
+  now: Date,
+  options: { forceRefresh?: boolean } = {},
+): Promise<MarketOpinionMarketContext> {
   const session = getChinaMarketSession(now);
+  const forceRefresh = options.forceRefresh ?? true;
   const freshness = await getDataFreshness().catch(() => null);
   const referenceTradeDate = resolveReferenceTradeDate(freshness?.latestTradeDate, session.tradeDate);
   const semantics = getMarketSnapshotSemantics(session, referenceTradeDate);
   const [indices, sentiment, capitalFlow, hotSectors] = await Promise.allSettled([
     fetchMarketIndexQuotes(),
-    fetchCachedMarketSentimentOverview(true),
-    fetchCachedMarketCapitalFlow(true, semantics.quoteTradeDate, session.phase === 'pre_open'),
-    fetchCachedHotSectors(true),
+    fetchCachedMarketSentimentOverview(forceRefresh),
+    fetchCachedMarketCapitalFlow(
+      forceRefresh,
+      semantics.quoteTradeDate,
+      session.phase === 'pre_open' || !forceRefresh,
+    ),
+    fetchCachedHotSectors(forceRefresh),
   ]);
   const unavailable: string[] = [];
   if (indices.status === 'rejected') unavailable.push('指数行情');

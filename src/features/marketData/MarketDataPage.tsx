@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { App, AutoComplete, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, Modal, Popover, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
-import { ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CheckOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, LineChartOutlined, NotificationOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SearchOutlined, SettingOutlined, SlidersOutlined, StarFilled, StarOutlined, ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons';
+import { ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CheckOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, FundProjectionScreenOutlined, LineChartOutlined, NotificationOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SettingOutlined, SlidersOutlined, StarFilled, StarOutlined, ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -17,7 +17,7 @@ import DragonTigerPanel from './DragonTigerPanel';
 import MarketNewsPanel from './MarketNewsPanel';
 import { klineCacheKey, marketDataCache } from './marketDataCache';
 import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
-import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem } from './types';
+import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem, TradingStyleId, TradingStyleOption } from './types';
 import type { ImportResult } from '@/models';
 import { useCardDragReorder } from './useCardDragReorder';
 import { buildMarketIndexCards, resolveMarketIndexSnapshot, type MarketIndexOption } from './marketIndexCards';
@@ -28,6 +28,16 @@ const WATCHLIST_KEY = 'quant-market-watchlist-v1';
 const PINNED_WATCHLIST_KEY = 'quant-market-watchlist-pinned-v1';
 const MARKET_INDEX_SELECTION_KEY = 'quant-market-index-selection-v1';
 const MARKET_SENTIMENT_REFRESH_MS = 5 * 60_000;
+const DEFAULT_TRADING_STYLES: TradingStyleOption[] = [
+  { value: 'value', label: '价值投资派', riskLevel: 1, riskLabel: '稳健', description: '估值、盈利质量与安全边际' },
+  { value: 'growth', label: '成长赛道流', riskLevel: 2, riskLabel: '稳中进取', description: '业绩增速、产业空间与预期差' },
+  { value: 'cycle', label: '周期投资派', riskLevel: 2, riskLabel: '稳中进取', description: '供需周期、价格与库存拐点' },
+  { value: 'contrarian', label: '逆向抄底流', riskLevel: 3, riskLabel: '均衡', description: '超跌、情绪错杀与反转确认' },
+  { value: 'technical', label: '传统指标派', riskLevel: 3, riskLabel: '均衡', description: '均线、量价、MACD、RSI 等' },
+  { value: 'chan', label: '缠论结构派', riskLevel: 4, riskLabel: '进取', description: '分型、笔、线段与中枢结构' },
+  { value: 'trend', label: '趋势跟踪派', riskLevel: 4, riskLabel: '进取', description: '趋势强度、突破与退出纪律' },
+  { value: 'limit-up', label: '短线打板流', riskLevel: 5, riskLabel: '激进', description: '涨停结构、情绪周期与接力风险' },
+];
 const MARKET_INDEX_OPTIONS: MarketIndexOption[] = [
   // A 股核心指数
   { key: 'SH:000001', code: '000001', name: '上证指数', market: 'SH', prefixed: 'sh000001' },
@@ -729,6 +739,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(marketDataCache.agentStatus ?? null);
   const [agentQuestion, setAgentQuestion] = useState(marketDataCache.agentQuestion);
   const [agentModel, setAgentModel] = useState<string | undefined>(marketDataCache.agentModel);
+  const [agentStyles, setAgentStyles] = useState<TradingStyleId[]>(marketDataCache.agentStyles);
   const [agentRunning, setAgentRunning] = useState(false);
   const [agentResult, setAgentResult] = useState(() => marketDataCache.agentResults[initialSelectedCode]?.content ?? '');
   const [reasoningSummary, setReasoningSummary] = useState<string[]>(() => marketDataCache.agentResults[initialSelectedCode]?.reasoningSummary ?? []);
@@ -747,6 +758,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   useEffect(() => { marketDataCache.period = period; }, [period]);
   useEffect(() => { marketDataCache.agentQuestion = agentQuestion; }, [agentQuestion]);
   useEffect(() => { marketDataCache.agentModel = agentModel; }, [agentModel]);
+  useEffect(() => { marketDataCache.agentStyles = agentStyles; }, [agentStyles]);
 
   const loadQuote = useCallback(async (code: string) => {
     setQuoteLoading(true);
@@ -997,15 +1009,40 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const togglePinnedStock = (code: string) => setPinnedCodes((all) => (
     all.includes(code) ? all.filter((item) => item !== code) : [...all, code]
   ));
+  const toggleAgentStyle = (style: TradingStyleId, checked: boolean) => {
+    const maxStyles = agentStatus?.maxStyles ?? 3;
+    setAgentStyles((current) => {
+      if (checked) {
+        if (current.includes(style)) return current;
+        if (current.length >= maxStyles) {
+          message.warning(`最多选择 ${maxStyles} 种交易风格`);
+          return current;
+        }
+        return [...current, style];
+      }
+      if (current.length <= 1) {
+        message.warning('至少保留一种交易风格');
+        return current;
+      }
+      return current.filter((item) => item !== style);
+    });
+  };
   const runAgent = async () => {
+    if (agentStyles.length < 1 || agentStyles.length > 3) {
+      message.warning('请选择 1–3 种交易风格');
+      return;
+    }
     setAgentRunning(true); setAgentResult(''); setReasoningSummary([]); setThinkingOpen(true);
     try {
       const result = await apiFetch<{ content: string; reasoningSummary: string[] }>(`/api/market-data/stocks/${selectedCode}/research`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: agentQuestion, model: agentModel }), timeoutMs: 120000,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: agentQuestion, model: agentModel, styles: agentStyles }),
+        timeoutMs: 180000,
       });
       marketDataCache.agentResults[selectedCode] = result;
       setAgentResult(result.content); setReasoningSummary(result.reasoningSummary ?? []); setThinkingOpen(false);
-    } catch (e) { message.error(e instanceof Error ? e.message : 'Agent 调研失败'); }
+    } catch (e) { message.error(e instanceof Error ? e.message : '智能交易系统分析失败'); }
     finally { setAgentRunning(false); }
   };
 
@@ -1013,7 +1050,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     if (!agentResult) return;
     try {
       await navigator.clipboard.writeText(agentResult);
-      message.success('调研报告已复制');
+      message.success('交易分析报告已复制');
     } catch {
       message.error('复制失败，请检查浏览器剪贴板权限');
     }
@@ -1023,7 +1060,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     if (!agentResult) return;
     const stockName = quote?.name || selectedCode;
     const date = new Date().toISOString().slice(0, 10);
-    const safeName = `${stockName}-${selectedCode}-调研报告-${date}`.replace(/[\\/:*?"<>|]/g, '-');
+    const safeName = `${stockName}-${selectedCode}-交易分析-${date}`.replace(/[\\/:*?"<>|]/g, '-');
     const blob = new Blob([`\uFEFF${agentResult}`], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -1478,24 +1515,41 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         </Card>
         <div className="market-lower-grid">
           <Card className="market-reports-card" variant="borderless" title={<Space><FileSearchOutlined />机构研报</Space>} extra={<Space><Tag>{reports.length} 篇</Tag><Tooltip title="仅刷新机构研报"><Button size="small" icon={<ReloadOutlined />} loading={reportsLoading} onClick={() => loadReports(selectedCode)}>刷新</Button></Tooltip></Space>}><Table<ResearchReport> size="small" loading={reportsLoading} rowKey="infoCode" scroll={{ x: 560 }} pagination={{ pageSize: 6, hideOnSinglePage: true, responsive: true }} dataSource={reports} columns={[{ title: '日期', dataIndex: 'publishDate', width: 104 }, { title: '机构', dataIndex: 'organization', width: 100, ellipsis: true }, { title: '标题', dataIndex: 'title', width: 280, ellipsis: true, render: (title, row) => row.pdfUrl ? <a href={row.pdfUrl} target="_blank" rel="noreferrer">{title}</a> : title }, { title: '评级', dataIndex: 'rating', width: 76, render: (v) => v ? <Tag color="blue">{v}</Tag> : '—' }]} locale={{ emptyText: <Empty description="暂无机构研报，可点击右上角刷新" /> }} /></Card>
-          <Card className="market-agent-card" variant="borderless" title={<Space><RobotOutlined />调研 Agent</Space>} extra={<Tag color={agentStatus?.configured ? 'green' : 'orange'}>{agentStatus?.configured ? agentStatus.currentModel : '待配置'}</Tag>}>
-            <div className="agent-workflow">{(agentStatus?.workflow ?? ['实时行情', 'K线趋势', '机构研报', '证据整理']).map((step, i) => <span key={step}><b>{i + 1}</b>{step}</span>)}</div>
-            <Input.TextArea rows={3} value={agentQuestion} onChange={(e) => setAgentQuestion(e.target.value)} maxLength={1000} aria-label="调研问题" />
-            <div className="agent-actions"><Select value={agentModel} onChange={setAgentModel} options={(agentStatus?.availableModels ?? []).map((m) => ({ label: m, value: m }))} style={{ minWidth: 180 }} /><Button type="primary" icon={<RobotOutlined />} loading={agentRunning} disabled={!agentStatus?.configured} onClick={runAgent}>运行调研</Button></div>
+          <Card className="market-agent-card" variant="borderless" title={<Space><FundProjectionScreenOutlined />智能交易系统</Space>} extra={<Space wrap><Tag color="blue">{agentStyles.length}/3 种风格</Tag><Tag color={agentStatus?.configured ? 'green' : 'orange'}>{agentStatus?.configured ? agentStatus.currentModel : '待配置'}</Tag></Space>}>
+            <div className="agent-workflow">{(agentStatus?.workflow ?? ['全市场环境', '个股多层数据', '消息面交叉验证', '多风格研判', '交易计划', '风险核验']).map((step, i) => <span key={step}><b>{i + 1}</b>{step}</span>)}</div>
+            <section className="agent-style-section" aria-labelledby="agent-style-title">
+              <div className="agent-style-head">
+                <div><Text strong id="agent-style-title">交易风格</Text><Text type="secondary">至少选择 1 种，最多选择 3 种</Text></div>
+                <Text type="secondary">稳健 → 激进</Text>
+              </div>
+              <div className="agent-style-grid">
+                {(agentStatus?.tradingStyles ?? DEFAULT_TRADING_STYLES).map((style) => {
+                  const checked = agentStyles.includes(style.value);
+                  const disabled = !checked && agentStyles.length >= (agentStatus?.maxStyles ?? 3);
+                  return <label key={style.value} className={`agent-style-option risk-${style.riskLevel}${checked ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}`}>
+                    <Checkbox checked={checked} disabled={disabled} onChange={(event) => toggleAgentStyle(style.value, event.target.checked)} aria-label={style.label} />
+                    <span className="agent-style-copy"><strong>{style.label}</strong><small>{style.description}</small></span>
+                    <span className="agent-style-risk">{style.riskLabel}</span>
+                  </label>;
+                })}
+              </div>
+            </section>
+            <Input.TextArea rows={3} value={agentQuestion} onChange={(e) => setAgentQuestion(e.target.value)} maxLength={1000} aria-label="交易分析问题" placeholder="输入希望重点验证的市场、消息或个股问题" />
+            <div className="agent-actions"><Select aria-label="分析模型" value={agentModel} onChange={setAgentModel} options={(agentStatus?.availableModels ?? []).map((m) => ({ label: m, value: m }))} style={{ minWidth: 180 }} /><Button type="primary" icon={<FundProjectionScreenOutlined />} loading={agentRunning} disabled={!agentStatus?.configured || agentStyles.length < 1} onClick={runAgent}>生成交易分析</Button></div>
             <div className="agent-output-actions">
-              <Text type="secondary">输出内容</Text>
+              <Text type="secondary">系统输出</Text>
               <Space wrap>
                 <Button size="small" icon={<CopyOutlined />} disabled={!agentResult || agentRunning} onClick={copyAgentResult}>复制报告</Button>
                 <Button size="small" icon={<DownloadOutlined />} disabled={!agentResult || agentRunning} onClick={exportAgentResult}>导出 Markdown</Button>
               </Space>
             </div>
-            {(agentRunning || reasoningSummary.length > 0) && <Collapse className="agent-reasoning" activeKey={thinkingOpen ? ['reasoning'] : []} onChange={(keys) => setThinkingOpen((Array.isArray(keys) ? keys : [keys]).includes('reasoning'))} items={[{ key: 'reasoning', label: <Space>{agentRunning ? <Spin size="small" /> : <CheckCircleOutlined className="agent-process-done" />}调研过程摘要{!agentRunning && <Text type="secondary">（已完成，自动折叠）</Text>}</Space>, children: <ol>{(reasoningSummary.length ? reasoningSummary : ['读取实时行情与估值字段', '加载日K、周K与技术趋势', '整理机构研报与评级', '区分事实、推断和数据缺口', '生成结构化 Markdown 报告']).map((step) => <li key={step}>{step}</li>)}</ol> }]} />}
+            {(agentRunning || reasoningSummary.length > 0) && <Collapse className="agent-reasoning" activeKey={thinkingOpen ? ['reasoning'] : []} onChange={(keys) => setThinkingOpen((Array.isArray(keys) ? keys : [keys]).includes('reasoning'))} items={[{ key: 'reasoning', label: <Space>{agentRunning ? <Spin size="small" /> : <CheckCircleOutlined className="agent-process-done" />}分析过程摘要{!agentRunning && <Text type="secondary">（已完成，自动折叠）</Text>}</Space>, children: <ol>{(reasoningSummary.length ? reasoningSummary : ['读取全市场指数、情绪、资金和热点环境', '加载个股行情、K线与多层数据', '筛选市场消息、个股新闻和机构研报', '按已选交易风格分别建立分析框架', '交叉验证风格共识、冲突和风险', '生成带触发与失效条件的交易分析']).map((step) => <li key={step}>{step}</li>)}</ol> }]} />}
             {agentResult ? <article className="agent-result markdown-preview"><ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
                 a: ({ href, children, ...props }) => <a {...props} href={normalizeNewsUrl(href)} target="_blank" rel="noreferrer">{children}</a>,
               }}
-            >{agentResult}</ReactMarkdown></article> : !agentRunning && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={agentStatus?.configured ? 'Agent 将调用行情、K线和研报数据生成调研报告' : '复用策略工作室的模型配置后即可运行'} />}
+            >{agentResult}</ReactMarkdown></article> : !agentRunning && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={agentStatus?.configured ? '系统将联合分析全市场环境、消息面、个股证据和所选交易风格' : '复用策略工作室的模型配置后即可运行'} />}
           </Card>
         </div>
         <Card

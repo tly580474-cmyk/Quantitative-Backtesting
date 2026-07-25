@@ -408,6 +408,8 @@
 .market-intraday-tooltip > strong { color: #0f172a; }
 .market-intraday-tooltip dt { color: #64748b; }
 .market-lower-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(380px, .85fr); gap: 18px; align-items: start; }
+.market-watchlist-page .market-lower-grid,
+.market-detail-page .market-lower-grid { grid-template-columns: minmax(0, 1fr); }
 .market-seven-card .ant-card-body { padding: 10px 16px 16px; }
 .market-seven-collapse { background: #fff; }
 .market-seven-section { display: flex; flex-direction: column; gap: 10px; }
@@ -446,6 +448,26 @@
 .agent-workflow { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .agent-workflow span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid #bfdbfe; border-radius: 999px; color: #1e40af; background: #eff6ff; font-size: 12px; }
 .agent-workflow b { display: grid; width: 18px; height: 18px; place-items: center; border-radius: 50%; color: white; background: #2563eb; }
+.agent-style-section { margin-bottom: 14px; padding: 12px; border: 1px solid #dbe4f0; border-radius: 10px; background: #f8fafc; }
+.agent-style-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.agent-style-head > div { display: flex; flex-direction: column; gap: 2px; }
+.agent-style-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 8px; }
+.market-watchlist-page .agent-style-grid,
+.market-detail-page .agent-style-grid { grid-template-columns: repeat(4, minmax(160px, 1fr)); }
+.agent-style-option { position: relative; display: flex; min-width: 0; min-height: 64px; align-items: flex-start; gap: 8px; padding: 10px 54px 9px 10px; border: 1px solid #dbe4f0; border-left-width: 3px; border-radius: 8px; background: #fff; cursor: pointer; transition: border-color .2s ease, background-color .2s ease, box-shadow .2s ease; }
+.agent-style-option:hover { border-color: #93c5fd; background: #f8fbff; }
+.agent-style-option:focus-within { outline: 2px solid #1677ff; outline-offset: 2px; }
+.agent-style-option.is-selected { border-color: #60a5fa; background: #eff6ff; box-shadow: 0 3px 10px rgba(37,99,235,.1); }
+.agent-style-option.is-disabled { opacity: .52; cursor: not-allowed; }
+.agent-style-option.risk-1 { border-left-color: #16a34a; }
+.agent-style-option.risk-2 { border-left-color: #65a30d; }
+.agent-style-option.risk-3 { border-left-color: #d97706; }
+.agent-style-option.risk-4 { border-left-color: #ea580c; }
+.agent-style-option.risk-5 { border-left-color: #dc2626; }
+.agent-style-copy { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.agent-style-copy strong { color: #1e293b; font-size: 13px; line-height: 1.35; }
+.agent-style-copy small { color: #64748b; font-size: 11px; line-height: 1.4; }
+.agent-style-risk { position: absolute; top: 9px; right: 9px; padding: 2px 6px; border-radius: 999px; background: #eef2f7; color: #475569; font-size: 10px; line-height: 1.5; }
 .agent-actions { display: flex; justify-content: flex-end; gap: 10px; margin: 12px 0; }
 .agent-output-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 12px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
 .agent-result { max-height: 520px; overflow: auto; margin: 14px 0 0; padding: 16px; border: 1px solid #dbeafe; border-radius: 10px; background: #f8fafc; color: #1e293b; font: inherit; line-height: 1.7; white-space: pre-wrap; }
@@ -630,12 +652,19 @@
   .agent-output-actions { align-items: stretch; flex-direction: column; }
   .agent-output-actions .ant-space, .agent-output-actions .ant-btn { width: 100%; }
   .agent-workflow { gap: 6px; }
+  .agent-style-head { flex-direction: column; gap: 4px; }
+  .agent-style-grid,
+  .market-watchlist-page .agent-style-grid,
+  .market-detail-page .agent-style-grid { grid-template-columns: 1fr; }
+  .agent-style-option { display: grid; grid-template-columns: auto minmax(0, 1fr); padding-right: 10px; }
+  .agent-style-risk { position: static; grid-column: 2; justify-self: start; }
 }
 @media (prefers-reduced-motion: reduce) {
   .market-watchlist-item { transition: none; }
   .market-index-track { animation: none; }
   .market-index-preview.is-loading span { animation: none; }
   .market-breadth-bar, .market-breadth-stock-row > td { transition: none; }
+  .agent-style-option { transition: none; }
 }
 
 @keyframes marketTickerScroll {

@@ -1,4 +1,4 @@
-import type { AgentStatus, KlinePoint, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerSection, StockQuote, StockSearchItem } from './types';
+import type { AgentStatus, KlinePoint, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerSection, StockQuote, StockSearchItem, TradingStyleId } from './types';
 
 interface AgentResultCache {
   content: string;
@@ -18,6 +18,7 @@ interface MarketDataPageCache {
   agentStatus?: AgentStatus;
   agentQuestion: string;
   agentModel?: string;
+  agentStyles: TradingStyleId[];
   agentResults: Record<string, AgentResultCache>;
 }
 
@@ -29,7 +30,8 @@ export const marketDataCache: MarketDataPageCache = {
   sevenLayer: {},
   indexQuotes: undefined,
   marketSentiment: undefined,
-  agentQuestion: '请综合评估当前估值、趋势、机构观点和主要风险。',
+  agentQuestion: '请结合全市场环境、消息面和个股证据，给出可验证的条件式交易计划。',
+  agentStyles: ['value'],
   agentResults: {},
 };
 
