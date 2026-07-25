@@ -59,6 +59,42 @@ export async function getCurrentResearchSnapshot(root: string) {
   };
 }
 
+export async function queryStockDividendHistory(
+  root: string,
+  symbol: string,
+  limit = 20,
+): Promise<Array<Record<string, unknown>>> {
+  const snapshotRoot = resolve(root);
+  const current = await readCurrentSnapshot(snapshotRoot);
+  if (!current) return [];
+  const dataset = current.manifest.datasets?.find((item) => item.name === 'dividend_events');
+  if (!dataset) return [];
+  const parquetPath = normalizeDuckDbPath(
+    join(snapshotRoot, current.manifest.snapshotId, dataset.relativePath),
+  );
+  const session = await openManagedDuckDB({
+    label: 'stock-dividend-history',
+    config: { threads: '2', max_memory: '256MB' },
+  });
+  try {
+    const reader = await session.connection.runAndReadAll(`
+      SELECT reportPeriod, disclosureDate, announcementDate, recordDate, exDate,
+             latestAnnouncementDate, cashDividendPerShare, dividendYieldRaw,
+             planStatus, rawPlan, sourceKey, fetchedAt
+      FROM read_parquet('${escapeSqlLiteral(parquetPath)}')
+      WHERE symbol = $symbol
+      ORDER BY COALESCE(exDate, latestAnnouncementDate, announcementDate, reportPeriod) DESC
+      LIMIT $limit
+    `, {
+      symbol: symbol.replace(/\D/g, '').padStart(6, '0').slice(-6),
+      limit: Math.max(1, Math.min(100, Math.trunc(limit))),
+    });
+    return reader.getRowObjectsJson().map((row) => row as Record<string, unknown>);
+  } finally {
+    await session.close();
+  }
+}
+
 export async function queryResearchSnapshot(root: string, query: ResearchQuery) {
   const snapshotRoot = resolve(root);
   const current = await readCurrentSnapshot(snapshotRoot);

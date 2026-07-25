@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildRelativeStrengthEvidence,
   buildTradingSystemPrompt,
+  buildValueInvestmentEvidence,
   resolveTradingStyles,
   TRADING_STYLE_DEFINITIONS,
   type StockResearchContext,
@@ -51,6 +53,11 @@ function context(): StockResearchContext {
     marketContext: {
       capturedAt: '2026-07-25T08:00:00.000Z',
       session: '2026-07-25 final',
+      indices: [
+        { name: '中证全指', changePct: -2.21 },
+        { name: '沪深300', changePct: -1.67 },
+        { name: '中证500', changePct: -2.61 },
+      ],
       sentiment: { status: '中性', advancers: 2_600, decliners: 2_400 },
       hotSectors: { items: [{ name: '风电设备', changePct: 2.1 }] },
     },
@@ -78,7 +85,12 @@ function context(): StockResearchContext {
       canonicalHash: 'stock-hash',
     }],
     marketLayers: {
-      fundamental: { records: [{ metrics: { roe: 7.08 } }] },
+      fundamental: {
+        records: [
+          { source: '公司画像与估值', metrics: { dividendYield: 2.86 } },
+          { source: '东财核心财务', metrics: { roe: 7.08, eps: 0.75, operatingCashPerShare: 0.61 } },
+        ],
+      },
       capital: { records: [] },
       signal: { records: [] },
     },
@@ -138,5 +150,42 @@ describe('stock intelligent trading system prompt', () => {
     expect(prompt).toContain('"decliners":4777');
     expect(prompt).toContain('"totalAmountYi":19317.18');
     expect(prompt).toContain('任一数据块存在有效值，就必须使用已有证据判断');
+  });
+
+  it('requires every trading style to compare the stock with the broad market', () => {
+    const input = context();
+
+    const evidence = buildRelativeStrengthEvidence(input);
+    const prompt = buildTradingSystemPrompt(input);
+
+    expect(evidence.primaryBenchmark).toEqual({ name: '中证全指', changePct: -2.21 });
+    expect(evidence.excessVsPrimaryPctPoints).toBe(3.35);
+    expect(prompt).toContain('大盘博弈与个股相对强弱');
+    expect(prompt).toContain('逆势强、顺势强、市场同步、相对弱');
+    expect(prompt).toContain('每个流派的“大盘对比与博弈定位”都必须引用相对强弱证据');
+  });
+
+  it('makes dividend yield mandatory when value investing is selected', () => {
+    const input = context();
+
+    const evidence = buildValueInvestmentEvidence(input);
+    const prompt = buildTradingSystemPrompt(input);
+
+    expect(evidence.dividendYieldPct).toBe(2.86);
+    expect(evidence.dividendYieldSource).toBe('公司画像与估值');
+    expect(prompt).toContain('价值投资派专项证据');
+    expect(prompt).toContain('"dividendYieldPct":2.86');
+    expect(prompt).toContain('必须设置“股息与分红质量”小项');
+    expect(prompt).toContain('“股息率：X%”或“股息率：待补充”');
+  });
+
+  it('does not add the value-investing evidence block for non-value styles', () => {
+    const input = context();
+    input.styles = ['trend'];
+
+    const prompt = buildTradingSystemPrompt(input);
+
+    expect(prompt).not.toContain('价值投资派专项证据');
+    expect(prompt).not.toContain('股息率是必查项');
   });
 });

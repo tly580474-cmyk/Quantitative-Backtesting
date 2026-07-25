@@ -59,10 +59,15 @@ import {
 } from '../services/marketOpinionPushService.js';
 import { fetchSevenLayerSection, fetchSevenLayerSnapshot } from '../marketData/sevenLayerDataService.js';
 import { fetchCachedHotSectors, fetchSectorConstituents } from '../marketData/hotSectorService.js';
+import { fetchCninfoAnnouncements, type MainlandMarket } from '../marketData/http/cninfoClient.js';
+import { buildCanonicalNewsHash } from '../marketData/marketNewsDedup.js';
+import type { MarketNewsItem } from '../marketData/marketNewsTypes.js';
+import { listMarketNews } from '../marketData/repositories/marketNewsRepository.js';
 import type { HistoryReadMode } from '../marketData/repositories/historyStorePolicy.js';
 import {
   getCurrentResearchSnapshot,
   queryResearchSnapshot,
+  queryStockDividendHistory,
 } from '../research/duckdbResearchService.js';
 import { buildResearchSnapshot } from '../research/snapshotBuilder.js';
 import { getResearchSnapshotFreshness } from '../research/snapshotFreshness.js';
@@ -108,13 +113,138 @@ async function loadTradingLayer(code: string, key: TradingLayerKey): Promise<Rec
   }
 }
 
-async function loadRecentStockNews(code: string, dbOnline: boolean, now: Date) {
+function emptyTradingLayer(reason: string): Record<string, unknown> {
+  return {
+    status: 'not_requested',
+    records: [],
+    errors: [],
+    summary: reason,
+  };
+}
+
+async function loadLocalDividendLayer(
+  snapshotRoot: string,
+  code: string,
+  price: number | null,
+  now: Date,
+): Promise<Record<string, unknown>> {
   try {
-    const snapshot = await getStockNews(code, { dbOnline, limit: 20 });
-    return snapshot.items
-      .filter((item) => item.sourceTier !== 'self_media')
-      .filter((item) => isRecentNews(item.publishedAt, now, 30))
-      .slice(0, 10);
+    const events = await queryStockDividendHistory(snapshotRoot, code, 30);
+    const cutoff = now.getTime() - 366 * 86_400_000;
+    const completed = events.filter((event) => {
+      const exDate = typeof event.exDate === 'string' ? Date.parse(`${event.exDate}T00:00:00+08:00`) : Number.NaN;
+      return Number.isFinite(exDate) && exDate >= cutoff && exDate <= now.getTime();
+    });
+    const trailingCashDividendPerShare = completed.reduce((sum, event) => {
+      const value = Number(event.cashDividendPerShare);
+      return sum + (Number.isFinite(value) && value > 0 ? value : 0);
+    }, 0);
+    const dividendYield = price && price > 0 && trailingCashDividendPerShare > 0
+      ? Math.round((trailingCashDividendPerShare / price) * 10_000) / 100
+      : null;
+    return {
+      status: events.length ? 'ok' : 'no_data',
+      summary: events.length
+        ? `本地研究快照返回 ${events.length} 条分红事件`
+        : '本地研究快照暂无该股票分红事件',
+      sources: ['本地研究快照（分红事件）'],
+      records: [{
+        source: '本地研究快照（分红事件）',
+        title: '近12个月股息率与分红历史',
+        date: now.toISOString().slice(0, 10),
+        metrics: {
+          dividendYield,
+          dividendYieldMethod: '近12个月已除权现金分红合计 ÷ 当前股价',
+          trailingCashDividendPerShare: Math.round(trailingCashDividendPerShare * 10_000) / 10_000,
+          completedDividendCount: completed.length,
+          historyEventCount: events.length,
+        },
+      }, ...events.slice(0, 10).map((event) => ({
+        source: '本地研究快照（分红事件）',
+        title: String(event.rawPlan ?? event.planStatus ?? '分红事件'),
+        date: String(event.exDate ?? event.latestAnnouncementDate ?? event.reportPeriod ?? '').slice(0, 10),
+        metrics: event,
+      }))],
+      errors: [],
+    };
+  } catch (error) {
+    return {
+      status: 'degraded',
+      summary: '本地分红快照读取失败',
+      records: [],
+      errors: [error instanceof Error ? error.message : String(error)],
+    };
+  }
+}
+
+function mergeTradingLayers(
+  primary: Record<string, unknown>,
+  fallback: Record<string, unknown>,
+): Record<string, unknown> {
+  const primaryRecords = Array.isArray(primary.records) ? primary.records : [];
+  const fallbackRecords = Array.isArray(fallback.records) ? fallback.records : [];
+  const errors = [
+    ...(Array.isArray(primary.errors) ? primary.errors : []),
+    ...(Array.isArray(fallback.errors) ? fallback.errors : []),
+  ];
+  return {
+    status: primaryRecords.length || fallbackRecords.length ? (errors.length ? 'partial' : 'ok') : 'degraded',
+    summary: [primary.summary, fallback.summary].filter((item) => typeof item === 'string').join('；'),
+    sources: [
+      ...(Array.isArray(primary.sources) ? primary.sources : []),
+      ...(Array.isArray(fallback.sources) ? fallback.sources : []),
+    ],
+    records: [...primaryRecords, ...fallbackRecords],
+    errors,
+  };
+}
+
+async function loadRecentStockNews(code: string, dbOnline: boolean, now: Date) {
+  let items: MarketNewsItem[] = [];
+  try {
+    const announcements = await fetchCninfoAnnouncements(code, mainlandMarket(code), 20);
+    items = announcements.map((item) => ({
+      newsId: item.id || `${code}-${item.publishedAt}-${item.title}`,
+      sourceKey: 'cninfo',
+      sourceName: '巨潮资讯',
+      sourceTier: 'official',
+      contentType: 'announcement',
+      sourceUrl: item.url,
+      title: item.title,
+      publishedAt: item.publishedAt,
+      securityCode: code,
+      securityName: item.name || undefined,
+      canonicalHash: buildCanonicalNewsHash(item.title, item.publishedAt),
+      raw: item.raw,
+    }));
+  } catch {
+    if (dbOnline) {
+      items = await listMarketNews({ limit: 20, securityCode: code }).catch(() => []);
+    }
+  }
+  return items
+    .filter((item) => item.sourceTier !== 'self_media')
+    .filter((item) => isRecentNews(item.publishedAt, now, 30))
+    .slice(0, 10);
+}
+
+function mainlandMarket(code: string): MainlandMarket {
+  if (/^(4|8|92)/.test(code)) return 'BJ';
+  return /^6/.test(code) ? 'SH' : 'SZ';
+}
+
+async function loadOptionalResearchReports(code: string) {
+  try {
+    return await fetchResearchReports(code, 12);
+  } catch {
+    return [];
+  }
+}
+
+async function loadLocalMarketNews(dbOnline: boolean, now: Date): Promise<MarketNewsItem[]> {
+  if (!dbOnline) return [];
+  try {
+    return await getMarketOpinionNews(now.getTime(), 72);
   } catch {
     return [];
   }
@@ -587,18 +717,29 @@ export function registerMarketDataRoutes(
     if (!agentConfig.apiKey) return reply.status(503).send({ message: '请先在服务端配置 AI 模型与密钥' });
     try {
       const now = new Date();
-      const [quote, daily, weekly, reports, marketContext, marketNews, stockNews, signal, capital, fundamental] = await Promise.all([
-        fetchStockQuote(req.params.code),
+      const quote = await fetchStockQuote(req.params.code);
+      const needsSignal = body.data.styles.some((style) => ['growth', 'cycle', 'contrarian', 'limit-up'].includes(style));
+      const needsCapital = body.data.styles.some((style) => ['contrarian', 'technical', 'chan', 'trend', 'limit-up'].includes(style));
+      const needsFundamental = body.data.styles.some((style) => ['value', 'growth', 'cycle', 'contrarian'].includes(style));
+      const needsDividend = body.data.styles.includes('value');
+      const needsReports = body.data.styles.some((style) => ['value', 'growth', 'cycle'].includes(style));
+      const [daily, weekly, reports, marketContext, marketNews, stockNews, signal, capital, remoteFundamental, localDividend] = await Promise.all([
         fetchStockKline(req.params.code, 'day'),
         fetchStockKline(req.params.code, 'week'),
-        fetchResearchReports(req.params.code, 12),
+        needsReports ? loadOptionalResearchReports(req.params.code) : [],
         buildMarketContext(now, { forceRefresh: false }),
-        getMarketNews({ dbOnline, limit: 50 }),
+        loadLocalMarketNews(dbOnline, now),
         loadRecentStockNews(req.params.code, dbOnline, now),
-        loadTradingLayer(req.params.code, 'signal'),
-        loadTradingLayer(req.params.code, 'capital'),
-        loadTradingLayer(req.params.code, 'fundamental'),
+        needsSignal ? loadTradingLayer(req.params.code, 'signal') : emptyTradingLayer('当前流派未请求事件信号'),
+        needsCapital ? loadTradingLayer(req.params.code, 'capital') : emptyTradingLayer('当前流派未请求个股资金层'),
+        needsFundamental ? loadTradingLayer(req.params.code, 'fundamental') : emptyTradingLayer('当前流派未请求扩展基础面'),
+        needsDividend
+          ? loadLocalDividendLayer(storageConfig.snapshotRoot, req.params.code, quote.price, now)
+          : emptyTradingLayer('非价值投资派，无需加载分红历史'),
       ]);
+      const fundamental = needsDividend
+        ? mergeTradingLayers(localDividend, remoteFundamental)
+        : remoteFundamental;
       return reply.send(await agent.research({
         quote,
         daily,
@@ -606,7 +747,7 @@ export function registerMarketDataRoutes(
         reports,
         styles: body.data.styles,
         marketContext,
-        marketNews: selectOpinionNews(marketNews.items).slice(0, 14),
+        marketNews: selectOpinionNews(marketNews, now.getTime()).slice(0, 14),
         stockNews,
         marketLayers: { signal, capital, fundamental },
         question: body.data.question,
