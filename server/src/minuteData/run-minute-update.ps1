@@ -21,6 +21,31 @@ function Invoke-MinuteUpdateCommand {
   return $LASTEXITCODE
 }
 
+function Test-MinuteUpdateAllowed {
+  "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Checking CN trading day before automatic update." |
+    Out-File -LiteralPath $logPath -Append -Encoding utf8
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $guardOutput = @(& $npm run schedule:trading-day:check 2>&1)
+    $guardExitCode = $LASTEXITCODE
+    $guardOutput | Out-File -LiteralPath $logPath -Append -Encoding utf8
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  if ($guardExitCode -ne 0) {
+    throw "Trading-day guard failed with exit code $guardExitCode"
+  }
+  $decisionLine = $guardOutput |
+    Where-Object { $_ -is [string] -and $_.Trim().StartsWith('{') } |
+    Select-Object -Last 1
+  if (-not $decisionLine) {
+    throw 'Trading-day guard did not return a JSON decision'
+  }
+  $decision = $decisionLine | ConvertFrom-Json
+  return [bool]$decision.shouldRun
+}
+
 function Write-MinuteProgress {
   param([string]$Status, [string]$Phase, [string]$Message)
   $now = (Get-Date).ToUniversalTime().ToString('o')
@@ -43,6 +68,12 @@ function Write-MinuteProgress {
 Set-Location -LiteralPath $serverRoot
 "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Starting automatic minute update." |
   Out-File -LiteralPath $logPath -Append -Encoding utf8
+if (-not (Test-MinuteUpdateAllowed)) {
+  "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Skipped automatic minute update: non-trading day." |
+    Out-File -LiteralPath $logPath -Append -Encoding utf8
+  Write-MinuteProgress -Status 'completed' -Phase 'skipped-non-trading-day' -Message 'Skipped because the configured market is closed.'
+  exit 0
+}
 Write-MinuteProgress -Status 'running' -Phase 'starting' -Message 'Background scheduled task started.'
 
 $exitCode = Invoke-MinuteUpdateCommand -ScriptName 'minute:online:update'

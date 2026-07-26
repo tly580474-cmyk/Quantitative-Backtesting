@@ -20,6 +20,7 @@ import {
   listSyncJobs,
 } from '../repositories/syncJobRepository.js';
 import { getChinaMarketSession } from './marketSession.js';
+import { shouldSkipNonTradingPeriods } from '../../scheduling/tradingPeriodPolicy.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -228,7 +229,8 @@ async function schedulerTick(): Promise<void> {
 
   // Check if today is a trading day for any of the configured markets
   const today = session.tradeDate;
-  const anyMarketOpen = await resolveChinaTradingDay(config, today);
+  const anyMarketOpen = !shouldSkipNonTradingPeriods()
+    || await resolveChinaTradingDay(config, today);
 
   if (!anyMarketOpen) {
     console.log(`[syncScheduler] ${today} is not a trading day for configured markets. Skipping.`);

@@ -98,6 +98,9 @@ npm run minute:schedule:register
 
 计划任务优先运行 `minute:online:update`；在线源失败时才尝试本地 TDX 回补。每日主流程不再依赖人工下载 `.lc1`。任务使用 `StartWhenAvailable` 和 `IgnoreNew`，任务名为 `QuantBacktest-MinuteUpdate`。
 
+后台的“跳过非交易时段”开关（`SCHEDULE_SKIP_NON_TRADING_PERIODS=true`）默认开启。
+自动任务会依据 A 股交易日历跳过周末和休市日；手动执行上述 npm 命令不受影响。
+
 自动任务日志写入 `server/.logs/minute-data/minute-update.log`。注册后无需额外刷新 DuckDB；下一次查询会直接读取新发布的 Parquet。
 
 ## API

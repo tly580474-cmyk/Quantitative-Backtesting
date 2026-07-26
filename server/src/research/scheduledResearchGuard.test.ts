@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { decideScheduledResearchUpdate, shanghaiDate } from './scheduledResearchGuard.js';
 
 describe('scheduled research update guard', () => {
+  it('runs when the non-trading-period guard is disabled', () => {
+    expect(decideScheduledResearchUpdate({
+      date: '2026-07-18',
+      calendarStatuses: [],
+      latestDailyBarDate: null,
+      enabled: false,
+    })).toMatchObject({
+      shouldRun: true,
+      reason: 'guard-disabled',
+      evidence: 'configuration',
+    });
+  });
+
   it('skips weekends before consulting database evidence', () => {
     expect(decideScheduledResearchUpdate({
       date: '2026-07-18',

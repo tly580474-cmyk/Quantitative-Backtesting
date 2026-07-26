@@ -25,8 +25,9 @@ async function main(): Promise<void> {
     date,
     calendarStatuses: [],
     latestDailyBarDate: null,
+    enabled: config.SCHEDULE_SKIP_NON_TRADING_PERIODS === 'true',
   });
-  if (weekendDecision.reason === 'weekend') {
+  if (weekendDecision.reason === 'weekend' || weekendDecision.reason === 'guard-disabled') {
     console.log(JSON.stringify(weekendDecision));
     return;
   }
@@ -48,6 +49,7 @@ async function main(): Promise<void> {
       date,
       calendarStatuses: calendarRows.map((row) => row.isOpen === 1),
       latestDailyBarDate: latestRows[0]?.latestDate ?? null,
+      enabled: true,
     });
     console.log(JSON.stringify(decision));
   } finally {

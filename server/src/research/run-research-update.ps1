@@ -40,7 +40,7 @@ function Test-ResearchUpdateAllowed {
   $previousErrorActionPreference = $ErrorActionPreference
   try {
     $ErrorActionPreference = 'Continue'
-    $guardOutput = @(& $npm run snapshot:schedule:check 2>&1)
+    $guardOutput = @(& $npm run schedule:trading-day:check 2>&1)
     $guardExitCode = $LASTEXITCODE
     $guardOutput | Out-File -LiteralPath $logPath -Append -Encoding utf8
   } finally {

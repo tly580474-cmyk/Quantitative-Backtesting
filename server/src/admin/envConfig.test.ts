@@ -60,6 +60,9 @@ describe('admin env config', () => {
       AI_STRATEGY_ENABLED: 'yes',
     })).rejects.toThrow('true 或 false');
     await expect(updateEnvFile(join(root, '.env'), {
+      SCHEDULE_SKIP_NON_TRADING_PERIODS: 'yes',
+    })).rejects.toThrow('true 或 false');
+    await expect(updateEnvFile(join(root, '.env'), {
       RESEARCH_SNAPSHOT_UPDATE_TIME: '25:00',
     })).rejects.toThrow('HH:mm');
   });
@@ -96,5 +99,18 @@ describe('admin env config', () => {
         inputType: 'time',
       });
     }
+  });
+
+  it('exposes the non-trading-period policy as an enabled boolean option by default', () => {
+    const item = listAdminConfig({}).find(
+      (entry) => entry.key === 'SCHEDULE_SKIP_NON_TRADING_PERIODS',
+    );
+    expect(item).toMatchObject({
+      editable: true,
+      inputType: 'boolean',
+      configured: true,
+      maskedValue: 'true',
+      restartRequired: false,
+    });
   });
 });

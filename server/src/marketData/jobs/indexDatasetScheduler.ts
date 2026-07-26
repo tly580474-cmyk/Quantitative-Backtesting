@@ -1,5 +1,10 @@
 import type { TencentMarketDataProvider } from '../providers/tencentProvider.js';
 import { updateIndexDatasets } from './indexDatasetUpdater.js';
+import { getTradeDateStatus } from '../repositories/calendarRepository.js';
+import {
+  isWeekendInTimeZone,
+  shouldSkipNonTradingPeriods,
+} from '../../scheduling/tradingPeriodPolicy.js';
 
 export interface IndexDatasetSchedulerConfig {
   enabled: boolean;
@@ -79,6 +84,12 @@ async function tick(
 
   for (const trigger of triggers) {
     if (!isScheduledTimeDue(shanghaiTime, trigger.time)) continue;
+    if (
+      shouldSkipNonTradingPeriods()
+      && await isNonTradingDay(trigger.group, now, shanghaiDate)
+    ) {
+      continue;
+    }
 
     const activeKey = `${trigger.group}:${shanghaiDate}`;
     if (state.activeKeys.has(activeKey) || state.completedKeys.has(activeKey)) continue;
@@ -101,6 +112,20 @@ async function tick(
         state.activeKeys.delete(activeKey);
       });
   }
+}
+
+async function isNonTradingDay(
+  group: 'cn-index' | 'us-index',
+  now: Date,
+  shanghaiDate: string,
+): Promise<boolean> {
+  if (group === 'us-index') {
+    return isWeekendInTimeZone(now, 'America/New_York');
+  }
+  const calendarStatus = await getTradeDateStatus('SH', shanghaiDate);
+  return calendarStatus === null
+    ? isWeekendInTimeZone(now, 'Asia/Shanghai')
+    : !calendarStatus;
 }
 
 export function isScheduledTimeDue(current: string, scheduled: string): boolean {

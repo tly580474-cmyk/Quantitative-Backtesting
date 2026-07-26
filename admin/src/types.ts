@@ -129,7 +129,7 @@ export interface AdminConfigItem {
   secret: boolean;
   editable: boolean;
   restartRequired: boolean;
-  inputType?: 'text' | 'time';
+  inputType?: 'text' | 'time' | 'boolean';
   restartScope: 'db' | 'ai' | 'runtime' | 'market' | 'access';
   configured: boolean;
   maskedValue: string | null;

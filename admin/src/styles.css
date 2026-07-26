@@ -259,7 +259,7 @@ button:focus-visible, input:focus-visible {
 .login-description { color: var(--muted); line-height: 1.65; margin-bottom: 24px; }
 .login-form { display: grid; gap: 10px; }
 .login-form label, .config-dialog label { color: #d9e2ee; font-size: 13px; font-weight: 700; }
-.login-form input, .config-dialog input {
+.login-form input, .config-dialog input, .config-dialog select {
   width: 100%;
   min-height: 48px;
   padding: 0 13px;
@@ -432,7 +432,7 @@ button:focus-visible, input:focus-visible {
 .input-error {
   border-color: var(--status-critical) !important;
 }
-.config-dialog input {
+.config-dialog input, .config-dialog select {
   width: 100%;
   padding: 10px 14px;
   border: 1px solid var(--border-subtle);
@@ -443,7 +443,7 @@ button:focus-visible, input:focus-visible {
   outline: none;
   transition: border-color .15s ease;
 }
-.config-dialog input:focus {
+.config-dialog input:focus, .config-dialog select:focus {
   border-color: var(--accent-primary);
 }
 

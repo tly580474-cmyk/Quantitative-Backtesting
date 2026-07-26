@@ -10,7 +10,8 @@ export interface AdminConfigDefinition {
   secret: boolean;
   editable: boolean;
   restartRequired: boolean;
-  inputType?: 'text' | 'time';
+  inputType?: 'text' | 'time' | 'boolean';
+  defaultValue?: string;
   /**
    * 重启影响范围标签（见 §4.3）：
    * - db：需后端全量重启
@@ -217,6 +218,18 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     restartScope: 'market',
   },
   {
+    key: 'SCHEDULE_SKIP_NON_TRADING_PERIODS',
+    label: '跳过非交易时段',
+    category: 'market',
+    description: '开启后，自动行情、指数、分钟数据湖和研究快照任务会跳过对应市场的周末及交易日历已标记的休市日；交易日盘后任务和手动更新不受影响。',
+    secret: false,
+    editable: true,
+    restartRequired: false,
+    restartScope: 'market',
+    inputType: 'boolean',
+    defaultValue: 'true',
+  },
+  {
     key: 'MARKET_DATA_SYNC_TIME',
     label: 'MySQL 股票日线更新时间',
     category: 'market',
@@ -349,7 +362,7 @@ export function maskConfigValue(value: string, secret: boolean): string | null {
 
 export function listAdminConfig(values: NodeJS.ProcessEnv = process.env) {
   return ADMIN_CONFIG_DEFINITIONS.map((definition) => {
-    const value = values[definition.key]?.trim() ?? '';
+    const value = (values[definition.key] ?? definition.defaultValue ?? '').trim();
     return {
       ...definition,
       configured: value.length > 0,
@@ -427,8 +440,11 @@ function validateEnvValue(key: string, value: string): void {
       throw new Error('DB_PORT 必须是 1 到 65535 的整数');
     }
   }
-  if (key === 'AI_STRATEGY_ENABLED' && !['true', 'false'].includes(value)) {
-    throw new Error('AI_STRATEGY_ENABLED 只能是 true 或 false');
+  if (
+    ['AI_STRATEGY_ENABLED', 'SCHEDULE_SKIP_NON_TRADING_PERIODS'].includes(key)
+    && !['true', 'false'].includes(value)
+  ) {
+    throw new Error(`${key} 只能是 true 或 false`);
   }
   if (key === 'DUCKDB_MAX_CONCURRENT') {
     const concurrency = Number(value);

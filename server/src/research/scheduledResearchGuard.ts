@@ -2,13 +2,14 @@ export interface ScheduledResearchGuardInput {
   date: string;
   calendarStatuses: boolean[];
   latestDailyBarDate: string | null;
+  enabled?: boolean;
 }
 
 export interface ScheduledResearchGuardDecision {
   shouldRun: boolean;
   date: string;
-  reason: 'trading-day' | 'weekend' | 'exchange-holiday' | 'calendar-missing';
-  evidence: 'trading-calendar' | 'daily-bars' | 'calendar';
+  reason: 'guard-disabled' | 'trading-day' | 'weekend' | 'exchange-holiday' | 'calendar-missing';
+  evidence: 'configuration' | 'trading-calendar' | 'daily-bars' | 'calendar';
 }
 
 export function decideScheduledResearchUpdate(
@@ -16,6 +17,14 @@ export function decideScheduledResearchUpdate(
 ): ScheduledResearchGuardDecision {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
     throw new Error(`无效日期：${input.date}`);
+  }
+  if (input.enabled === false) {
+    return {
+      shouldRun: true,
+      date: input.date,
+      reason: 'guard-disabled',
+      evidence: 'configuration',
+    };
   }
   if (isWeekend(input.date)) {
     return {

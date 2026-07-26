@@ -75,8 +75,11 @@ function validateConfigValue(key: string, value: string): string | null {
       return 'DB_PORT 必须是 1 到 65535 的整数';
     }
   }
-  if (key === 'AI_STRATEGY_ENABLED' && !['true', 'false'].includes(value)) {
-    return 'AI_STRATEGY_ENABLED 只能是 true 或 false';
+  if (
+    ['AI_STRATEGY_ENABLED', 'SCHEDULE_SKIP_NON_TRADING_PERIODS'].includes(key)
+    && !['true', 'false'].includes(value)
+  ) {
+    return `${key} 只能是 true 或 false`;
   }
   if (key === 'DUCKDB_MAX_CONCURRENT') {
     const concurrency = Number(value);
@@ -953,7 +956,11 @@ function ConfigurationSection({
                     <p>{item.description}</p>
                   </div>
                   <div className="config-value">
-                    <span>{item.maskedValue ?? '未配置'}</span>
+                    <span>
+                      {item.inputType === 'boolean' && item.maskedValue
+                        ? (item.maskedValue === 'true' ? '已开启' : '已关闭')
+                        : (item.maskedValue ?? '未配置')}
+                    </span>
                     <small className={`scope-tag scope-${item.restartScope}`}>
                       {item.restartRequired ? RESTART_SCOPE_LABELS[item.restartScope] : '立即生效'}
                     </small>
@@ -983,7 +990,9 @@ function ConfigDialog({
   onSaved: (message: string) => Promise<void>;
 }) {
   const [value, setValue] = useState(() =>
-    item.inputType === 'time' ? (item.maskedValue ?? '') : '');
+    item.inputType === 'time' || item.inputType === 'boolean'
+      ? (item.maskedValue ?? (item.inputType === 'boolean' ? 'true' : ''))
+      : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showSecret, setShowSecret] = useState(false);
@@ -1022,18 +1031,33 @@ function ConfigDialog({
           <button className="icon-button" aria-label="关闭" onClick={onClose}><CloseOutlined /></button>
         </div>
         <form onSubmit={submit}>
-          <label htmlFor="config-value">{item.secret ? '输入新密钥' : '输入新值'}</label>
+          <label htmlFor="config-value">
+            {item.inputType === 'boolean' ? '选择状态' : (item.secret ? '输入新密钥' : '输入新值')}
+          </label>
           <div className="input-with-toggle">
-            <input
-              id="config-value"
-              autoFocus
-              type={item.secret && !showSecret ? 'password' : (item.inputType ?? 'text')}
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              placeholder={item.secret ? '不会显示现有密钥' : item.maskedValue ?? ''}
-              autoComplete="off"
-              className={validationError ? 'input-error' : ''}
-            />
+            {item.inputType === 'boolean' ? (
+              <select
+                id="config-value"
+                autoFocus
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                className={validationError ? 'input-error' : ''}
+              >
+                <option value="true">开启 — 跳过非交易时段</option>
+                <option value="false">关闭 — 每天按计划触发</option>
+              </select>
+            ) : (
+              <input
+                id="config-value"
+                autoFocus
+                type={item.secret && !showSecret ? 'password' : (item.inputType ?? 'text')}
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                placeholder={item.secret ? '不会显示现有密钥' : item.maskedValue ?? ''}
+                autoComplete="off"
+                className={validationError ? 'input-error' : ''}
+              />
+            )}
             {item.secret && (
               <button
                 type="button"

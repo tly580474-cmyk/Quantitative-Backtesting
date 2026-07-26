@@ -124,6 +124,10 @@ npm run snapshot:schedule:register
 
 任务名为 `QuantBacktest-ResearchSnapshot`，每天 18:00 执行，18:30 自动重试。执行顺序为：
 
+默认启用 `SCHEDULE_SKIP_NON_TRADING_PERIODS=true`。计划任务触发后会先检查 A 股
+交易日历，非交易日直接记为成功跳过；关闭后台“跳过非交易时段”开关后则每天执行。
+手动运行快照或参考数据命令不受该开关限制。
+
 ```text
 指数行情增量
   → 指数成分与权重批次抓取
