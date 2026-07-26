@@ -60,6 +60,7 @@ import {
   type MarketOpinionPushService,
 } from '../services/marketOpinionPushService.js';
 import { fetchSevenLayerSection, fetchSevenLayerSnapshot } from '../marketData/sevenLayerDataService.js';
+import { extractSelectionScoreContext } from '../marketData/selectionScoreContext.js';
 import { fetchCachedHotSectors, fetchSectorConstituents } from '../marketData/hotSectorService.js';
 import { fetchCninfoAnnouncements, type MainlandMarket } from '../marketData/http/cninfoClient.js';
 import { buildCanonicalNewsHash } from '../marketData/marketNewsDedup.js';
@@ -693,6 +694,22 @@ export function registerMarketDataRoutes(
     } catch (error) {
       req.log.error(error);
       return reply.status(502).send({ message: error instanceof Error ? error.message : '数据源模块获取失败' });
+    }
+  });
+
+  app.get<{ Params: { code: string } }>('/api/market-data/stocks/:code/selection-score-context', async (req, reply) => {
+    try {
+      const now = new Date();
+      const quote = await fetchStockQuote(req.params.code);
+      if (quote.type !== 'stock') return reply.status(400).send({ message: '选股评分仅支持个股' });
+      const [fundamental, dividend] = await Promise.all([
+        loadTradingLayer(req.params.code, 'fundamental'),
+        loadLocalDividendLayer(storageConfig.snapshotRoot, req.params.code, quote.price, now),
+      ]);
+      return reply.send(extractSelectionScoreContext(quote, fundamental, dividend));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '评分基础数据获取失败' });
     }
   });
 

@@ -1,0 +1,926 @@
+{
+  "contrarian": {
+    "style_name": "逆向抄底",
+    "risk_level": "进取",
+    "target_horizon": 5,
+    "factor_ids": [
+      "ma60_slope_5d",
+      "ma20_above_ma60",
+      "price_above_ma20",
+      "short_ma_slope",
+      "return_10d",
+      "return_20d",
+      "distance_to_20d_high",
+      "consecutive_down_days",
+      "volume_ratio",
+      "up_vs_down_volume",
+      "amount_20d_avg",
+      "breakout_20d",
+      "higher_lows",
+      "contraction",
+      "bullish_candle_ratio",
+      "macd_histogram",
+      "rsi_14",
+      "drawdown_20d",
+      "consecutive_large_bearish",
+      "pe_ttm",
+      "pb",
+      "ps_ttm",
+      "pe_change_5d",
+      "log_market_cap",
+      "log_float_market_cap",
+      "turnover_rate"
+    ],
+    "directions": {
+      "ma60_slope_5d": "lower-is-better",
+      "ma20_above_ma60": "lower-is-better",
+      "price_above_ma20": "lower-is-better",
+      "short_ma_slope": "lower-is-better",
+      "return_10d": "lower-is-better",
+      "return_20d": "lower-is-better",
+      "distance_to_20d_high": "research",
+      "consecutive_down_days": "higher-is-better",
+      "volume_ratio": "lower-is-better",
+      "up_vs_down_volume": "lower-is-better",
+      "amount_20d_avg": "lower-is-better",
+      "breakout_20d": "lower-is-better",
+      "higher_lows": "lower-is-better",
+      "contraction": "higher-is-better",
+      "bullish_candle_ratio": "lower-is-better",
+      "macd_histogram": "lower-is-better",
+      "rsi_14": "lower-is-better",
+      "drawdown_20d": "lower-is-better",
+      "consecutive_large_bearish": "lower-is-better",
+      "pe_ttm": "higher-is-better",
+      "pb": "higher-is-better",
+      "ps_ttm": "higher-is-better",
+      "pe_change_5d": "higher-is-better",
+      "log_market_cap": "lower-is-better",
+      "log_float_market_cap": "lower-is-better",
+      "turnover_rate": "lower-is-better"
+    },
+    "weights": {
+      "ma60_slope_5d": 4.513197439290033,
+      "ma20_above_ma60": 4.3975671425607175,
+      "price_above_ma20": 4.482475890132108,
+      "short_ma_slope": 4.043032952481078,
+      "return_10d": 4.017383797048282,
+      "return_20d": 5.102913583047118,
+      "distance_to_20d_high": 0.5254502864568996,
+      "consecutive_down_days": 1.2072018332693362,
+      "volume_ratio": 4.729639253206113,
+      "up_vs_down_volume": 3.635773104159233,
+      "amount_20d_avg": 7.028322044109009,
+      "breakout_20d": 8.64008593862183,
+      "higher_lows": 2.2729557704147747,
+      "contraction": 4.767457134033873,
+      "bullish_candle_ratio": 3.427460244968307,
+      "macd_histogram": 2.5053007243911325,
+      "rsi_14": 5.1354903690092515,
+      "drawdown_20d": 1.6404369280007736,
+      "consecutive_large_bearish": 3.4230125267453353,
+      "pe_ttm": 2.3807841068285236,
+      "pb": 4.671532792411444,
+      "ps_ttm": 3.631854140430356,
+      "pe_change_5d": 3.3643329542847784,
+      "log_market_cap": 2.7037133696778857,
+      "log_float_market_cap": 2.2584338617840714,
+      "turnover_rate": 5.852993842473402
+    },
+    "composite": {
+      "long_short_spread": 0.004265169450352713,
+      "monotonicity": 0.8327513884144789,
+      "layers": [
+        {
+          "layer": 1,
+          "sample_count": 746792,
+          "average_return": -0.000986126611152343
+        },
+        {
+          "layer": 2,
+          "sample_count": 746792,
+          "average_return": 0.0022681424545145643
+        },
+        {
+          "layer": 3,
+          "sample_count": 746792,
+          "average_return": 0.0030606275391307507
+        },
+        {
+          "layer": 4,
+          "sample_count": 746792,
+          "average_return": 0.0035226332008620243
+        },
+        {
+          "layer": 5,
+          "sample_count": 749216,
+          "average_return": 0.0032790428392003696
+        }
+      ]
+    },
+    "factor_reports": {
+      "ma60_slope_5d": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.04501807743950873,
+        "rank_ic_ir": -4.513197439290033,
+        "rank_ic_positive_rate": 0.38791593695271454,
+        "long_short_spread": -0.003219591313712376,
+        "monotonicity": -0.7886745746461841
+      },
+      "ma20_above_ma60": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.039745163358252365,
+        "rank_ic_ir": -4.3975671425607175,
+        "rank_ic_positive_rate": 0.3940714908456844,
+        "long_short_spread": -0.0032638990130776885,
+        "monotonicity": -0.7252360826033931
+      },
+      "price_above_ma20": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.04143038536532576,
+        "rank_ic_ir": -4.482475890132108,
+        "rank_ic_positive_rate": 0.37405223251895536,
+        "long_short_spread": -0.002495422641720001,
+        "monotonicity": -0.5057463689732561
+      },
+      "short_ma_slope": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.03606179399333268,
+        "rank_ic_ir": -4.043032952481078,
+        "rank_ic_positive_rate": 0.38545150501672243,
+        "long_short_spread": -0.0020582871776771384,
+        "monotonicity": -0.45054157183088583
+      },
+      "return_10d": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.035836980155271446,
+        "rank_ic_ir": -4.017383797048282,
+        "rank_ic_positive_rate": 0.38545150501672243,
+        "long_short_spread": -0.002034650116220149,
+        "monotonicity": -0.45012929439628296
+      },
+      "return_20d": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.0483052802668409,
+        "rank_ic_ir": -5.102913583047118,
+        "rank_ic_positive_rate": 0.3718381112984823,
+        "long_short_spread": -0.003441535893660138,
+        "monotonicity": -0.6914471919598993
+      },
+      "distance_to_20d_high": {
+        "direction": "research",
+        "avg_rank_ic": 0.005316929604545755,
+        "rank_ic_ir": 0.5254502864568996,
+        "rank_ic_positive_rate": 0.5341196293176074,
+        "long_short_spread": -0.0010159524505244533,
+        "monotonicity": -0.33612149321688994
+      },
+      "consecutive_down_days": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": 0.008082466288195356,
+        "rank_ic_ir": 1.2072018332693362,
+        "rank_ic_positive_rate": 0.5087136929460581,
+        "long_short_spread": 0.001114371226941366,
+        "monotonicity": 0.7231257619847211
+      },
+      "volume_ratio": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.026849853804319465,
+        "rank_ic_ir": -4.729639253206113,
+        "rank_ic_positive_rate": 0.38331929233361417,
+        "long_short_spread": -0.0014106169670817666,
+        "monotonicity": -0.5811648469698469
+      },
+      "up_vs_down_volume": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.024014094503469842,
+        "rank_ic_ir": -3.635773104159233,
+        "rank_ic_positive_rate": 0.404344193817878,
+        "long_short_spread": -0.0011428874113301039,
+        "monotonicity": -0.563065632203133
+      },
+      "amount_20d_avg": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.07037750360561282,
+        "rank_ic_ir": -7.028322044109009,
+        "rank_ic_positive_rate": 0.3150800336983993,
+        "long_short_spread": -0.005869372353104023,
+        "monotonicity": -0.9988024890959847
+      },
+      "breakout_20d": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.03424336576030679,
+        "rank_ic_ir": -8.64008593862183,
+        "rank_ic_positive_rate": 0.2721145745577085,
+        "long_short_spread": -0.0009267758568799282,
+        "monotonicity": -0.5390433676834911
+      },
+      "higher_lows": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.012595842022350054,
+        "rank_ic_ir": -2.2729557704147747,
+        "rank_ic_positive_rate": 0.45614035087719296,
+        "long_short_spread": -0.00038161115420183166,
+        "monotonicity": -0.7166449705253368
+      },
+      "contraction": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.05311165518533983,
+        "rank_ic_ir": -4.767457134033873,
+        "rank_ic_positive_rate": 0.34793597304128054,
+        "long_short_spread": -0.001725308430628839,
+        "monotonicity": -0.6632200299543027
+      },
+      "bullish_candle_ratio": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.020767481108354722,
+        "rank_ic_ir": -3.427460244968307,
+        "rank_ic_positive_rate": 0.41687552213868,
+        "long_short_spread": -0.0010250598055612508,
+        "monotonicity": -0.5551184774795089
+      },
+      "macd_histogram": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.0209670001990238,
+        "rank_ic_ir": -2.5053007243911325,
+        "rank_ic_positive_rate": 0.4390451832907076,
+        "long_short_spread": -0.0016073844906525211,
+        "monotonicity": -0.25923206867921905
+      },
+      "rsi_14": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.04547949746436664,
+        "rank_ic_ir": -5.1354903690092515,
+        "rank_ic_positive_rate": 0.37468566638725903,
+        "long_short_spread": -0.0027241336100039043,
+        "monotonicity": -0.7098806880962739
+      },
+      "drawdown_20d": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.017644007627600697,
+        "rank_ic_ir": -1.6404369280007736,
+        "rank_ic_positive_rate": 0.42965459140690815,
+        "long_short_spread": 0.00041285740505342416,
+        "monotonicity": 0.5298695996965002
+      },
+      "consecutive_large_bearish": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.019834764989390272,
+        "rank_ic_ir": -3.4230125267453353,
+        "rank_ic_positive_rate": 0.33443983402489624,
+        "long_short_spread": -3.674349866672564e-05,
+        "monotonicity": -0.0008896849492328919
+      },
+      "pe_ttm": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.012609953023307991,
+        "rank_ic_ir": -2.3807841068285236,
+        "rank_ic_positive_rate": 0.45854063018242125,
+        "long_short_spread": -0.0013022200747602177,
+        "monotonicity": -0.7890676268840762
+      },
+      "pb": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.043630138738688394,
+        "rank_ic_ir": -4.671532792411444,
+        "rank_ic_positive_rate": 0.4096185737976783,
+        "long_short_spread": -0.002553429379247386,
+        "monotonicity": -0.8828392106252242
+      },
+      "ps_ttm": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.023741857642892533,
+        "rank_ic_ir": -3.631854140430356,
+        "rank_ic_positive_rate": 0.4389632107023411,
+        "long_short_spread": -0.0012478383658985608,
+        "monotonicity": -0.8645943671428127
+      },
+      "pe_change_5d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.027914875468046687,
+        "rank_ic_ir": -3.3643329542847784,
+        "rank_ic_positive_rate": 0.4113238967527061,
+        "long_short_spread": -0.0023884591628407655,
+        "monotonicity": -0.5387013597505348
+      },
+      "log_market_cap": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.03411119886182291,
+        "rank_ic_ir": -2.7037133696778857,
+        "rank_ic_positive_rate": 0.3996683250414594,
+        "long_short_spread": -0.004767986631050817,
+        "monotonicity": -0.9295677522611839
+      },
+      "log_float_market_cap": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.027290120923819258,
+        "rank_ic_ir": -2.2584338617840714,
+        "rank_ic_positive_rate": 0.4253731343283582,
+        "long_short_spread": -0.003731289136911011,
+        "monotonicity": -0.9746809407136534
+      },
+      "turnover_rate": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.06194424872980787,
+        "rank_ic_ir": -5.852993842473402,
+        "rank_ic_positive_rate": 0.3490878938640133,
+        "long_short_spread": -0.0026224836434376193,
+        "monotonicity": -0.5642574991699408
+      }
+    }
+  },
+  "value": {
+    "style_name": "价值投资",
+    "risk_level": "稳健",
+    "target_horizon": 20,
+    "factor_ids": [
+      "pe_ttm",
+      "pb",
+      "ps_ttm",
+      "pe_change_5d",
+      "log_market_cap",
+      "log_float_market_cap",
+      "turnover_rate",
+      "drawdown_20d"
+    ],
+    "directions": {
+      "pe_ttm": "lower-is-better",
+      "pb": "lower-is-better",
+      "ps_ttm": "lower-is-better",
+      "pe_change_5d": "lower-is-better",
+      "log_market_cap": "higher-is-better",
+      "log_float_market_cap": "higher-is-better",
+      "turnover_rate": "lower-is-better",
+      "drawdown_20d": "lower-is-better"
+    },
+    "weights": {
+      "pe_ttm": 3.3867810081985077,
+      "pb": 7.026041251195054,
+      "ps_ttm": 5.900479730114984,
+      "pe_change_5d": 4.728192107182938,
+      "log_market_cap": 5.125938892269176,
+      "log_float_market_cap": 4.380160335888129,
+      "turnover_rate": 8.055722974522896,
+      "drawdown_20d": 2.4663567204352024
+    },
+    "composite": {
+      "long_short_spread": -0.0007128118141025417,
+      "monotonicity": -0.302311768360566,
+      "layers": [
+        {
+          "layer": 1,
+          "sample_count": 736779,
+          "average_return": 0.002953450256597343
+        },
+        {
+          "layer": 2,
+          "sample_count": 736779,
+          "average_return": 0.013975380201415937
+        },
+        {
+          "layer": 3,
+          "sample_count": 736779,
+          "average_return": 0.01061794312026904
+        },
+        {
+          "layer": 4,
+          "sample_count": 736779,
+          "average_return": 0.005730336120092411
+        },
+        {
+          "layer": 5,
+          "sample_count": 739235,
+          "average_return": 0.0022406384424948013
+        }
+      ]
+    },
+    "factor_reports": {
+      "pe_ttm": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.019239981550834732,
+        "rank_ic_ir": -3.3867810081985077,
+        "rank_ic_positive_rate": 0.42989084802686817,
+        "long_short_spread": -0.004704194550497854,
+        "monotonicity": -0.6456622373281826
+      },
+      "pb": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.06693012856896845,
+        "rank_ic_ir": -7.026041251195054,
+        "rank_ic_positive_rate": 0.3610411418975651,
+        "long_short_spread": -0.00999404886771182,
+        "monotonicity": -0.8839418403421649
+      },
+      "ps_ttm": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.03960038032816062,
+        "rank_ic_ir": -5.900479730114984,
+        "rank_ic_positive_rate": 0.39126784214945426,
+        "long_short_spread": -0.006139241982334906,
+        "monotonicity": -0.8898664665099633
+      },
+      "pe_change_5d": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.03780791878711788,
+        "rank_ic_ir": -4.728192107182938,
+        "rank_ic_positive_rate": 0.3996627318718381,
+        "long_short_spread": -0.00777083699692382,
+        "monotonicity": -0.623373411251666
+      },
+      "log_market_cap": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.06817250828157113,
+        "rank_ic_ir": -5.125938892269176,
+        "rank_ic_positive_rate": 0.32577665827036106,
+        "long_short_spread": -0.019149502515166117,
+        "monotonicity": -0.933719519119061
+      },
+      "log_float_market_cap": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.055268672013831045,
+        "rank_ic_ir": -4.380160335888129,
+        "rank_ic_positive_rate": 0.3534844668345928,
+        "long_short_spread": -0.014646733763407532,
+        "monotonicity": -0.9817021796695456
+      },
+      "turnover_rate": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.09044117695780682,
+        "rank_ic_ir": -8.055722974522896,
+        "rank_ic_positive_rate": 0.2871536523929471,
+        "long_short_spread": -0.010831992439729338,
+        "monotonicity": -0.6381793729873433
+      },
+      "drawdown_20d": {
+        "direction": "lower-is-better",
+        "avg_rank_ic": -0.026195294675582924,
+        "rank_ic_ir": -2.4663567204352024,
+        "rank_ic_positive_rate": 0.3967576791808874,
+        "long_short_spread": 0.0005198283166967218,
+        "monotonicity": 0.16157951217882366
+      }
+    }
+  },
+  "growth": {
+    "style_name": "成长型",
+    "risk_level": "稳中求进",
+    "target_horizon": 20,
+    "factor_ids": [
+      "return_20d",
+      "momentum_60d",
+      "pe_ttm",
+      "pe_change_5d",
+      "volume_ratio",
+      "amount_20d_avg",
+      "ma60_slope_5d",
+      "price_above_ma20",
+      "breakout_20d",
+      "return_10d"
+    ],
+    "directions": {
+      "return_20d": "higher-is-better",
+      "momentum_60d": "higher-is-better",
+      "pe_ttm": "higher-is-better",
+      "pe_change_5d": "higher-is-better",
+      "volume_ratio": "higher-is-better",
+      "amount_20d_avg": "higher-is-better",
+      "ma60_slope_5d": "higher-is-better",
+      "price_above_ma20": "higher-is-better",
+      "breakout_20d": "higher-is-better",
+      "return_10d": "higher-is-better"
+    },
+    "weights": {
+      "return_20d": 8.444568155540015,
+      "momentum_60d": 7.591870397667339,
+      "pe_ttm": 3.3867810081985077,
+      "pe_change_5d": 4.728192107182938,
+      "volume_ratio": 6.283252652167052,
+      "amount_20d_avg": 12.175328553849656,
+      "ma60_slope_5d": 6.866091248088094,
+      "price_above_ma20": 7.834003411446751,
+      "breakout_20d": 11.402270818411152,
+      "return_10d": 6.967083228478718
+    },
+    "composite": {
+      "long_short_spread": -0.01637410418403456,
+      "monotonicity": -0.8861585888747108,
+      "layers": [
+        {
+          "layer": 1,
+          "sample_count": 736779,
+          "average_return": 0.011898248837596307
+        },
+        {
+          "layer": 2,
+          "sample_count": 736779,
+          "average_return": 0.011993659101434618
+        },
+        {
+          "layer": 3,
+          "sample_count": 736779,
+          "average_return": 0.010266131135215047
+        },
+        {
+          "layer": 4,
+          "sample_count": 736779,
+          "average_return": 0.005857953363813164
+        },
+        {
+          "layer": 5,
+          "sample_count": 739235,
+          "average_return": -0.004475855346438254
+        }
+      ]
+    },
+    "factor_reports": {
+      "return_20d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.07676213370789368,
+        "rank_ic_ir": -8.444568155540015,
+        "rank_ic_positive_rate": 0.3125533731853117,
+        "long_short_spread": -0.01317454823629428,
+        "monotonicity": -0.8241167238376137
+      },
+      "momentum_60d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.0741834607633597,
+        "rank_ic_ir": -7.591870397667339,
+        "rank_ic_positive_rate": 0.3183023872679045,
+        "long_short_spread": -0.011324609688429106,
+        "monotonicity": -0.7683865725739091
+      },
+      "pe_ttm": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.019239981550834732,
+        "rank_ic_ir": -3.3867810081985077,
+        "rank_ic_positive_rate": 0.42989084802686817,
+        "long_short_spread": -0.004704194550497854,
+        "monotonicity": -0.6456622373281826
+      },
+      "pe_change_5d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.03780791878711788,
+        "rank_ic_ir": -4.728192107182938,
+        "rank_ic_positive_rate": 0.3996627318718381,
+        "long_short_spread": -0.00777083699692382,
+        "monotonicity": -0.623373411251666
+      },
+      "volume_ratio": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.031873864336144295,
+        "rank_ic_ir": -6.283252652167052,
+        "rank_ic_positive_rate": 0.3438566552901024,
+        "long_short_spread": -0.005612687980188332,
+        "monotonicity": -0.7221932604064628
+      },
+      "amount_20d_avg": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.12349137035947068,
+        "rank_ic_ir": -12.175328553849656,
+        "rank_ic_positive_rate": 0.1962457337883959,
+        "long_short_spread": -0.024149902478416786,
+        "monotonicity": -0.9969731386121633
+      },
+      "ma60_slope_5d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.06814533057314756,
+        "rank_ic_ir": -6.866091248088094,
+        "rank_ic_positive_rate": 0.3380656610470275,
+        "long_short_spread": -0.009809532704488989,
+        "monotonicity": -0.7239930167931315
+      },
+      "price_above_ma20": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.06738270665782306,
+        "rank_ic_ir": -7.834003411446751,
+        "rank_ic_positive_rate": 0.3319112627986348,
+        "long_short_spread": -0.01197010451940895,
+        "monotonicity": -0.7714402833850184
+      },
+      "breakout_20d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.04203480625427959,
+        "rank_ic_ir": -11.402270818411152,
+        "rank_ic_positive_rate": 0.2295221843003413,
+        "long_short_spread": -0.0004197761806156667,
+        "monotonicity": -0.2487230866341926
+      },
+      "return_10d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.05764824682762027,
+        "rank_ic_ir": -6.967083228478718,
+        "rank_ic_positive_rate": 0.3488569009314141,
+        "long_short_spread": -0.010550035274714391,
+        "monotonicity": -0.7140951750293686
+      }
+    }
+  },
+  "trend": {
+    "style_name": "趋势型",
+    "risk_level": "进取",
+    "target_horizon": 20,
+    "factor_ids": [
+      "ma60_slope_5d",
+      "ma20_above_ma60",
+      "price_above_ma20",
+      "short_ma_slope",
+      "ma_alignment_strength",
+      "turtle_breakout_20",
+      "breakout_20d",
+      "return_20d",
+      "return_10d",
+      "atr_20"
+    ],
+    "directions": {
+      "ma60_slope_5d": "higher-is-better",
+      "ma20_above_ma60": "higher-is-better",
+      "price_above_ma20": "higher-is-better",
+      "short_ma_slope": "higher-is-better",
+      "ma_alignment_strength": "higher-is-better",
+      "turtle_breakout_20": "higher-is-better",
+      "breakout_20d": "higher-is-better",
+      "return_20d": "higher-is-better",
+      "return_10d": "higher-is-better",
+      "atr_20": "higher-is-better"
+    },
+    "weights": {
+      "ma60_slope_5d": 6.866091248088094,
+      "ma20_above_ma60": 6.6433379820024525,
+      "price_above_ma20": 7.834003411446751,
+      "short_ma_slope": 6.978474153819842,
+      "ma_alignment_strength": 4.926345009244173,
+      "turtle_breakout_20": 0.4048277616961564,
+      "breakout_20d": 11.402270818411152,
+      "return_20d": 8.444568155540015,
+      "return_10d": 6.967083228478718,
+      "atr_20": 6.927667965640211
+    },
+    "composite": {
+      "long_short_spread": -0.013197293421097094,
+      "monotonicity": -0.7844298142298974,
+      "layers": [
+        {
+          "layer": 1,
+          "sample_count": 730128,
+          "average_return": 0.009194589129062805
+        },
+        {
+          "layer": 2,
+          "sample_count": 730128,
+          "average_return": 0.010845383367486661
+        },
+        {
+          "layer": 3,
+          "sample_count": 730128,
+          "average_return": 0.010279895842173975
+        },
+        {
+          "layer": 4,
+          "sample_count": 730128,
+          "average_return": 0.006783695582253
+        },
+        {
+          "layer": 5,
+          "sample_count": 732502,
+          "average_return": -0.0040027042920342875
+        }
+      ]
+    },
+    "factor_reports": {
+      "ma60_slope_5d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.06814533057314756,
+        "rank_ic_ir": -6.866091248088094,
+        "rank_ic_positive_rate": 0.3380656610470275,
+        "long_short_spread": -0.009809532704488989,
+        "monotonicity": -0.7239930167931315
+      },
+      "ma20_above_ma60": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.05698231726036126,
+        "rank_ic_ir": -6.6433379820024525,
+        "rank_ic_positive_rate": 0.35247349823321555,
+        "long_short_spread": -0.008505338964714945,
+        "monotonicity": -0.6052303274746899
+      },
+      "price_above_ma20": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.06738270665782306,
+        "rank_ic_ir": -7.834003411446751,
+        "rank_ic_positive_rate": 0.3319112627986348,
+        "long_short_spread": -0.01197010451940895,
+        "monotonicity": -0.7714402833850184
+      },
+      "short_ma_slope": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.05769472483361412,
+        "rank_ic_ir": -6.978474153819842,
+        "rank_ic_positive_rate": 0.34970364098221846,
+        "long_short_spread": -0.010502293221401858,
+        "monotonicity": -0.7117316425662882
+      },
+      "ma_alignment_strength": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.04874961113490533,
+        "rank_ic_ir": -4.926345009244173,
+        "rank_ic_positive_rate": 0.3551236749116608,
+        "long_short_spread": -0.0013878213635163195,
+        "monotonicity": -0.27291227662876894
+      },
+      "turtle_breakout_20": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.0036755022152887306,
+        "rank_ic_ir": -0.4048277616961564,
+        "rank_ic_positive_rate": 0.5405636208368916,
+        "long_short_spread": -0.004693186605217612,
+        "monotonicity": -0.6032984824948502
+      },
+      "breakout_20d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.04203480625427959,
+        "rank_ic_ir": -11.402270818411152,
+        "rank_ic_positive_rate": 0.2295221843003413,
+        "long_short_spread": -0.0004197761806156667,
+        "monotonicity": -0.2487230866341926
+      },
+      "return_20d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.07676213370789368,
+        "rank_ic_ir": -8.444568155540015,
+        "rank_ic_positive_rate": 0.3125533731853117,
+        "long_short_spread": -0.01317454823629428,
+        "monotonicity": -0.8241167238376137
+      },
+      "return_10d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.05764824682762027,
+        "rank_ic_ir": -6.967083228478718,
+        "rank_ic_positive_rate": 0.3488569009314141,
+        "long_short_spread": -0.010550035274714391,
+        "monotonicity": -0.7140951750293686
+      },
+      "atr_20": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.088174985306849,
+        "rank_ic_ir": -6.927667965640211,
+        "rank_ic_positive_rate": 0.32337883959044367,
+        "long_short_spread": -0.006589045710145057,
+        "monotonicity": -0.737214252828004
+      }
+    }
+  },
+  "short_term": {
+    "style_name": "短线打板",
+    "risk_level": "激进",
+    "target_horizon": 1,
+    "factor_ids": [
+      "limit_up_consecutive",
+      "volume_ratio",
+      "amount_20d_avg",
+      "breakout_20d",
+      "bias_6",
+      "kdj_j",
+      "intraday_strength",
+      "return_10d",
+      "return_20d",
+      "rsi_14"
+    ],
+    "directions": {
+      "limit_up_consecutive": "higher-is-better",
+      "volume_ratio": "higher-is-better",
+      "amount_20d_avg": "higher-is-better",
+      "breakout_20d": "higher-is-better",
+      "bias_6": "higher-is-better",
+      "kdj_j": "higher-is-better",
+      "intraday_strength": "higher-is-better",
+      "return_10d": "higher-is-better",
+      "return_20d": "higher-is-better",
+      "rsi_14": "higher-is-better"
+    },
+    "weights": {
+      "limit_up_consecutive": 6.659606086318449,
+      "volume_ratio": 2.1567830023994774,
+      "amount_20d_avg": 1.5774998897992718,
+      "breakout_20d": 4.215895464418961,
+      "bias_6": 1.8383195363472926,
+      "kdj_j": 1.0698298459751825,
+      "intraday_strength": 2.010311567189983,
+      "return_10d": 1.6890280105517987,
+      "return_20d": 1.7965553915279273,
+      "rsi_14": 2.1848519697619246
+    },
+    "composite": {
+      "long_short_spread": 0.0002943839828761424,
+      "monotonicity": 0.824941152548821,
+      "layers": [
+        {
+          "layer": 1,
+          "sample_count": 749466,
+          "average_return": 0.0008568957286615662
+        },
+        {
+          "layer": 2,
+          "sample_count": 749466,
+          "average_return": 0.0008056831007842046
+        },
+        {
+          "layer": 3,
+          "sample_count": 749466,
+          "average_return": 0.0008217119039153235
+        },
+        {
+          "layer": 4,
+          "sample_count": 749466,
+          "average_return": 0.0009649343888824825
+        },
+        {
+          "layer": 5,
+          "sample_count": 751868,
+          "average_return": 0.0011512797115377086
+        }
+      ]
+    },
+    "factor_reports": {
+      "limit_up_consecutive": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.02016172743971976,
+        "rank_ic_ir": -6.659606086318449,
+        "rank_ic_positive_rate": 0.30603804797353185,
+        "long_short_spread": -0.0003803806638826748,
+        "monotonicity": -0.5494988653603048
+      },
+      "volume_ratio": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.013763031963549329,
+        "rank_ic_ir": -2.1567830023994774,
+        "rank_ic_positive_rate": 0.4357682619647355,
+        "long_short_spread": 0.0008627547782689657,
+        "monotonicity": 0.8330619004244997
+      },
+      "amount_20d_avg": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.016640911539534876,
+        "rank_ic_ir": -1.5774998897992718,
+        "rank_ic_positive_rate": 0.4534005037783375,
+        "long_short_spread": 0.00034656478685796827,
+        "monotonicity": 0.9658217109191524
+      },
+      "breakout_20d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.017069825886525246,
+        "rank_ic_ir": -4.215895464418961,
+        "rank_ic_positive_rate": 0.380352644836272,
+        "long_short_spread": -0.00033729213980299155,
+        "monotonicity": -0.6383045622194764
+      },
+      "bias_6": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.018378348577709015,
+        "rank_ic_ir": -1.8383195363472926,
+        "rank_ic_positive_rate": 0.44979253112033196,
+        "long_short_spread": 1.3930028506665883e-05,
+        "monotonicity": 0.22222064670453998
+      },
+      "kdj_j": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.009865728529389732,
+        "rank_ic_ir": -1.0698298459751825,
+        "rank_ic_positive_rate": 0.4717138103161398,
+        "long_short_spread": 8.085746204716283e-05,
+        "monotonicity": 0.6825383377875337
+      },
+      "intraday_strength": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.016490522365792605,
+        "rank_ic_ir": -2.010311567189983,
+        "rank_ic_positive_rate": 0.44214876033057854,
+        "long_short_spread": -0.00044722766704648664,
+        "monotonicity": -0.7009124277567832
+      },
+      "return_10d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.016864904312033142,
+        "rank_ic_ir": -1.6890280105517987,
+        "rank_ic_positive_rate": 0.4558333333333333,
+        "long_short_spread": 0.0003959675118591911,
+        "monotonicity": 0.6230836759551059
+      },
+      "return_20d": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.018762502806274003,
+        "rank_ic_ir": -1.7965553915279273,
+        "rank_ic_positive_rate": 0.44537815126050423,
+        "long_short_spread": 0.0003781875745179976,
+        "monotonicity": 0.6534072024693903
+      },
+      "rsi_14": {
+        "direction": "higher-is-better",
+        "avg_rank_ic": -0.022241982329035032,
+        "rank_ic_ir": -2.1848519697619246,
+        "rank_ic_positive_rate": 0.45363408521303256,
+        "long_short_spread": 0.00028182743046023485,
+        "monotonicity": 0.9207541706360357
+      }
+    }
+  }
+}

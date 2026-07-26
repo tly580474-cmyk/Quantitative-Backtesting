@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateSelectionScore } from '../selectionScore';
+import { calculateSelectionScore, limitUpThreshold, SELECTION_STYLE_OPTIONS } from '../selectionScore';
 import type { KlinePoint } from '../types';
 
 function makeSeries(
@@ -23,7 +23,25 @@ function makeSeries(
   });
 }
 
-describe('data-driven stock selection score', () => {
+describe('multi-style stock selection score', () => {
+  it('publishes five styles with research-backed holding horizons', () => {
+    expect(SELECTION_STYLE_OPTIONS.map((item) => [item.value, item.horizon])).toEqual([
+      ['value', 60],
+      ['growth', 60],
+      ['contrarian', 20],
+      ['trend', 60],
+      ['limit-up', 10],
+    ]);
+  });
+
+  it('uses board-specific limit-up thresholds', () => {
+    expect(limitUpThreshold('600000')).toBe(0.095);
+    expect(limitUpThreshold('300001')).toBe(0.195);
+    expect(limitUpThreshold('688001')).toBe(0.195);
+    expect(limitUpThreshold('830001')).toBe(0.295);
+    expect(limitUpThreshold('920001')).toBe(0.295);
+  });
+
   it('requires enough cleaned daily candles for the longest factor', () => {
     const source = makeSeries(64, (index) => 100 + index);
     source.push({ ...source[0] });
@@ -40,7 +58,7 @@ describe('data-driven stock selection score', () => {
     expect(result.message).toContain('63 根有效日 K');
   });
 
-  it('returns a bounded weighted percentile and the research factor groups', () => {
+  it('returns a bounded contrarian score and explicitly includes benchmark comparison', () => {
     const stock = makeSeries(
       180,
       (index) => 100 + Math.sin(index / 7) * 4 + index * 0.02,
@@ -53,9 +71,10 @@ describe('data-driven stock selection score', () => {
     expect(result.score).toBeGreaterThanOrEqual(0);
     expect(result.score).toBeLessThanOrEqual(100);
     expect(result.sections.map((item) => item.key)).toEqual([
-      'volume',
+      'market',
       'trend',
       'momentum',
+      'volume',
       'pattern',
       'liquidity',
       'risk',
@@ -63,17 +82,17 @@ describe('data-driven stock selection score', () => {
     expect(result.sections.flatMap((item) => item.items).map((item) => item.label))
       .toEqual(expect.arrayContaining([
         '20 日突破强度',
-        '3 日 / 20 日均量比',
         '换手率',
         'RSI(14)',
         '20 日收益率',
-        '近 5 日 / 前 15 日波幅比',
+        '近5日/前15日波幅',
+        '相对沪深300 20日强弱',
         '当日量比',
-        'MA60 5 日斜率',
-        '价格相对 MA20 距离',
+        'MA60 5日斜率',
+        '价格相对 MA20',
       ]));
     expect(result.normalizedBaseScore).toBe(result.rawPositiveScore);
-    expect(result.assumptions[0]).toContain('PB');
+    expect(result.assumptions.some((item) => item.includes('沪深300'))).toBe(true);
   });
 
   it('reverses the old trend and momentum preference', () => {
@@ -117,6 +136,93 @@ describe('data-driven stock selection score', () => {
     expect(pullbackResult.score).toBeGreaterThan(breakoutResult.score!);
   });
 
+  it('uses the same market move to distinguish stock relative strength in every style', () => {
+    const benchmark = makeSeries(180, (index) => 100 + index * 0.2);
+    const strong = makeSeries(180, (index) => 100 + index * 0.45);
+    const weak = makeSeries(180, (index) => 100 + index * 0.05);
+
+    for (const style of ['value', 'growth', 'trend', 'limit-up'] as const) {
+      const strongResult = calculateSelectionScore(strong, benchmark, style);
+      const weakResult = calculateSelectionScore(weak, benchmark, style);
+      expect(strongResult.relativeStrength20d).toBeGreaterThan(0);
+      expect(weakResult.relativeStrength20d).toBeLessThan(0);
+      expect(strongResult.sections.find((item) => item.key === 'market')!.score)
+        .toBeGreaterThan(weakResult.sections.find((item) => item.key === 'market')!.score);
+    }
+
+    const contrarianStrong = calculateSelectionScore(strong, benchmark, 'contrarian');
+    const contrarianWeak = calculateSelectionScore(weak, benchmark, 'contrarian');
+    expect(contrarianWeak.sections.find((item) => item.key === 'market')!.score)
+      .toBeGreaterThan(contrarianStrong.sections.find((item) => item.key === 'market')!.score);
+  });
+
+  it('uses a shorter recent benchmark history for a long-listed stock', () => {
+    const stock = makeSeries(600, (index) => 100 + index * 0.1);
+    const benchmark = stock.slice(-120).map((item, index) => ({
+      ...item,
+      close: 100 + index * 0.05,
+      open: 100 + index * 0.05,
+      high: 101 + index * 0.05,
+      low: 99 + index * 0.05,
+    }));
+    const result = calculateSelectionScore(stock, benchmark, 'trend');
+    expect(result.benchmarkAvailable).toBe(true);
+    expect(result.relativeStrength20d).not.toBeNull();
+    expect(result.relativeStrength60d).not.toBeNull();
+    expect(result.sections.find((item) => item.key === 'market')?.items[0].available).toBe(true);
+  });
+
+  it('keeps dividend yield as the highest-weight value factor and exposes missing data', () => {
+    const stock = makeSeries(180, (index) => 100 + Math.sin(index / 10));
+    const benchmark = makeSeries(180, (index) => 100 + Math.sin(index / 12));
+    const complete = calculateSelectionScore(stock, benchmark, 'value', {
+      dividendYieldPct: 5,
+      peTtm: 10,
+      pb: 1,
+      roePct: 15,
+      marketCapYi: 800,
+    });
+    const missing = calculateSelectionScore(stock, benchmark, 'value', {
+      peTtm: 10,
+      pb: 1,
+      roePct: 15,
+      marketCapYi: 800,
+    });
+    const completeDividend = complete.sections
+      .flatMap((item) => item.items)
+      .find((item) => item.label === '近12个月股息率')!;
+    const missingDividend = missing.sections
+      .flatMap((item) => item.items)
+      .find((item) => item.label === '近12个月股息率')!;
+
+    expect(completeDividend.points).toBe(22);
+    expect(completeDividend.detail).toContain('权重 22%');
+    expect(missingDividend.available).toBe(false);
+    expect(missingDividend.detail).toContain('按中性 50 分占位');
+    expect(missing.dataCoveragePct).toBe(78);
+    expect(missing.assumptions.some((item) => item.includes('最高权重因子（22%）'))).toBe(true);
+  });
+
+  it('uses real financial growth instead of high valuation as a growth proxy', () => {
+    const stock = makeSeries(180, (index) => 100 + index * 0.15);
+    const benchmark = makeSeries(180, (index) => 100 + index * 0.1);
+    const fast = calculateSelectionScore(stock, benchmark, 'growth', {
+      revenueGrowthPct: 35,
+      netProfitGrowthPct: 50,
+      roePct: 18,
+      marketCapYi: 500,
+    });
+    const shrinking = calculateSelectionScore(stock, benchmark, 'growth', {
+      revenueGrowthPct: -10,
+      netProfitGrowthPct: -20,
+      roePct: 4,
+      marketCapYi: 500,
+    });
+    expect(fast.sections.find((item) => item.key === 'growth')!.score)
+      .toBeGreaterThan(shrinking.sections.find((item) => item.key === 'growth')!.score);
+    expect(fast.score).toBeGreaterThan(shrinking.score!);
+  });
+
   it('uses real traded amount for the liquidity hard filter', () => {
     const liquid = makeSeries(180, (index) => 10 + Math.sin(index / 6))
       .map((item) => ({ ...item, volume: 1_000, amount: 50_000_000 }));
@@ -131,7 +237,7 @@ describe('data-driven stock selection score', () => {
     expect(illiquidResult.score).toBeLessThanOrEqual(39);
     expect(illiquidResult.sections.find((entry) => entry.key === 'risk')?.items[0])
       .toMatchObject({ matched: true });
-    expect(liquidResult.assumptions).toContain('流动性硬过滤使用历史 K 线提供的真实成交额。');
+    expect(liquidResult.assumptions).toContain('流动性硬过滤使用历史K线提供的真实成交额。');
   });
 
   it('renormalizes weights when turnover history is unavailable', () => {
@@ -144,9 +250,11 @@ describe('data-driven stock selection score', () => {
     const result = calculateSelectionScore(stock, []);
 
     expect(result.status).toBe('ready');
-    expect(result.sections.some((item) => item.key === 'liquidity')).toBe(false);
+    expect(result.sections.some((item) => item.key === 'liquidity')).toBe(true);
     expect(result.assumptions.some((item) => item.includes('换手率'))).toBe(true);
+    const turnover = result.sections.flatMap((item) => item.items).find((item) => item.label === '换手率');
+    expect(turnover).toMatchObject({ available: false });
     const totalMax = result.sections.reduce((sum, item) => sum + (item.maxScore ?? 0), 0);
-    expect(totalMax).toBeCloseTo(100, 0);
+    expect(totalMax).toBe(100);
   });
 });

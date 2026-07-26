@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { App, Button, Checkbox, Collapse, Empty, InputNumber, Segmented, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { FilterOutlined, MinusOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ReloadOutlined, StarFilled } from '@ant-design/icons';
 import { apiFetch } from '../../api/client';
-import { calculateSelectionScore } from './selectionScore';
+import {
+  calculateSelectionScore,
+  SELECTION_STYLE_OPTIONS,
+  type SelectionScoreContext,
+  type SelectionStyleId,
+} from './selectionScore';
 import { klineCacheKey, marketDataCache } from './marketDataCache';
 import type {
   KlinePoint,
@@ -14,7 +19,8 @@ import type {
 } from './types';
 
 const { Text } = Typography;
-const SCORE_STORAGE_KEY = 'quant-watchlist-scores-v2';
+const SCORE_STORAGE_KEY = 'quant-watchlist-scores-v3';
+const SCORE_STYLE_KEY = 'quant-watchlist-score-style-v1';
 const SCREENER_STORAGE_KEY = 'quant-market-screener-v1';
 
 export const DEFAULT_SCREENER_CRITERIA: MarketScreenerCriteria = {
@@ -103,6 +109,12 @@ export default function StockSelectionWorkspace({
   const [scores, setScores] = useState<Record<string, WatchlistScoreSnapshot>>(
     () => readStored(SCORE_STORAGE_KEY, {}),
   );
+  const [scoreStyle, setScoreStyle] = useState<SelectionStyleId>(() => {
+    const stored = localStorage.getItem(SCORE_STYLE_KEY);
+    return SELECTION_STYLE_OPTIONS.some((item) => item.value === stored)
+      ? stored as SelectionStyleId
+      : 'contrarian';
+  });
   const [rankingLoading, setRankingLoading] = useState(false);
   const storedScreener = useMemo(
     () => readStored<{ criteria: MarketScreenerCriteria; snapshot: MarketScreenerSnapshot | null }>(
@@ -124,6 +136,9 @@ export default function StockSelectionWorkspace({
     localStorage.setItem(SCORE_STORAGE_KEY, JSON.stringify(scores));
   }, [scores]);
   useEffect(() => {
+    localStorage.setItem(SCORE_STYLE_KEY, scoreStyle);
+  }, [scoreStyle]);
+  useEffect(() => {
     localStorage.setItem(SCREENER_STORAGE_KEY, JSON.stringify({ criteria, snapshot: screenSnapshot }));
   }, [criteria, screenSnapshot]);
 
@@ -144,7 +159,14 @@ export default function StockSelectionWorkspace({
               )).items ?? [];
               marketDataCache.klines[key] = candles;
             }
-            const result = calculateSelectionScore(candles, benchmarkCandles);
+            const context: SelectionScoreContext = scoreStyle === 'value' || scoreStyle === 'growth'
+              ? await apiFetch<SelectionScoreContext>(
+                  `/api/market-data/stocks/${stock.code}/selection-score-context`,
+                  { timeoutMs: 90000 },
+                ).catch(() => ({}))
+              : {};
+            context.securityCode = stock.code;
+            const result = calculateSelectionScore(candles, benchmarkCandles, scoreStyle, context);
             return {
               code: stock.code,
               score: result.score,
@@ -168,28 +190,28 @@ export default function StockSelectionWorkspace({
         }));
         setScores((current) => ({
           ...current,
-          ...Object.fromEntries(updates.map((item) => [item.code, item])),
+          ...Object.fromEntries(updates.map((item) => [`${scoreStyle}:${item.code}`, item])),
         }));
       }
     } finally {
       setRankingLoading(false);
     }
-  }, [benchmarkCandles, watchlist]);
+  }, [benchmarkCandles, scoreStyle, watchlist]);
 
   useEffect(() => {
     if (!activeSections.includes('ranking')) return;
-    const missing = watchlist.filter((item) => item.type === 'stock' && !scores[item.code]);
+    const missing = watchlist.filter((item) => item.type === 'stock' && !scores[`${scoreStyle}:${item.code}`]);
     if (missing.length > 0 && !rankingLoading) void refreshScores(missing);
-  }, [activeSections, rankingLoading, refreshScores, scores, watchlist]);
+  }, [activeSections, rankingLoading, refreshScores, scoreStyle, scores, watchlist]);
 
   const rankingRows = useMemo(() => [...watchlist]
     .sort((a, b) => {
       const pinDelta = Number(pinnedCodes.includes(b.code)) - Number(pinnedCodes.includes(a.code));
       if (pinDelta !== 0) return pinDelta;
-      return (scores[b.code]?.score ?? -1) - (scores[a.code]?.score ?? -1);
+      return (scores[`${scoreStyle}:${b.code}`]?.score ?? -1) - (scores[`${scoreStyle}:${a.code}`]?.score ?? -1);
     })
-    .map((stock, index) => ({ ...stock, rank: index + 1, snapshot: scores[stock.code] })),
-  [pinnedCodes, scores, watchlist]);
+    .map((stock, index) => ({ ...stock, rank: index + 1, snapshot: scores[`${scoreStyle}:${stock.code}`] })),
+  [pinnedCodes, scoreStyle, scores, watchlist]);
 
   const runScreen = async (force = false) => {
     setScreenLoading(true);
@@ -213,9 +235,21 @@ export default function StockSelectionWorkspace({
     <div className="selection-toolbar">
       <div>
         <Text strong>自选股评分排名</Text>
-        <Text type="secondary">评分基于中期反转因子，建议约 10 个交易日重评；置顶优先，其余按分数降序。</Text>
+        <Text type="secondary">按所选风格独立评分，并统一与沪深300比较强弱；置顶优先，其余按分数降序。</Text>
       </div>
-      <Button icon={<ReloadOutlined />} loading={rankingLoading} onClick={() => void refreshScores()}>刷新评分</Button>
+      <Space>
+        <Select
+          value={scoreStyle}
+          aria-label="自选评分风格"
+          onChange={(value) => setScoreStyle(value)}
+          options={SELECTION_STYLE_OPTIONS.map((item) => ({
+            value: item.value,
+            label: `${item.label} · ${item.riskLabel} · ${item.horizon}日`,
+          }))}
+          style={{ minWidth: 220 }}
+        />
+        <Button icon={<ReloadOutlined />} loading={rankingLoading} onClick={() => void refreshScores()}>刷新评分</Button>
+      </Space>
     </div>
     <Table
       size="small"

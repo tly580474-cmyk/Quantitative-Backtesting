@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Collapse, Progress, Skeleton, Space, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Collapse, Progress, Select, Skeleton, Space, Tag, Tooltip, Typography } from 'antd';
 import { CheckCircleOutlined, InfoCircleOutlined, MinusCircleOutlined, WarningOutlined } from '@ant-design/icons';
-import { calculateSelectionScore, type SelectionScoreTier } from './selectionScore';
+import { apiFetch } from '../../api/client';
+import {
+  calculateSelectionScore,
+  SELECTION_STYLE_OPTIONS,
+  type SelectionScoreContext,
+  type SelectionScoreTier,
+  type SelectionStyleId,
+} from './selectionScore';
 import type { KlinePoint } from './types';
 
 const { Text, Title } = Typography;
+const SCORE_STYLE_KEY = 'quant-selection-score-style-v1';
 
 const TIER_COLORS: Record<SelectionScoreTier, string> = {
   core: '#cf1322',
@@ -14,17 +22,65 @@ const TIER_COLORS: Record<SelectionScoreTier, string> = {
 };
 
 export default function StockSelectionScore({
+  code,
   candles,
   benchmarkCandles,
   loading,
 }: {
+  code: string;
   candles: KlinePoint[];
   benchmarkCandles: KlinePoint[];
   loading: boolean;
 }) {
+  const [styleId, setStyleId] = useState<SelectionStyleId>(() => {
+    const stored = localStorage.getItem(SCORE_STYLE_KEY);
+    return SELECTION_STYLE_OPTIONS.some((item) => item.value === stored)
+      ? stored as SelectionStyleId
+      : 'contrarian';
+  });
+  const [scoreContext, setScoreContext] = useState<SelectionScoreContext>({});
+  const [contextCode, setContextCode] = useState<string | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
+  const needsFundamentals = styleId === 'value' || styleId === 'growth';
+
+  useEffect(() => {
+    localStorage.setItem(SCORE_STYLE_KEY, styleId);
+  }, [styleId]);
+
+  useEffect(() => {
+    if (!needsFundamentals) return;
+    let cancelled = false;
+    setContextLoading(true);
+    setContextError(null);
+    void apiFetch<SelectionScoreContext>(`/api/market-data/stocks/${code}/selection-score-context`, {
+      timeoutMs: 90000,
+    }).then((next) => {
+      if (cancelled) return;
+      setScoreContext(next);
+      setContextCode(code);
+    }).catch((error) => {
+      if (cancelled) return;
+      setScoreContext({});
+      setContextCode(code);
+      setContextError(error instanceof Error ? error.message : '评分基础数据加载失败');
+    }).finally(() => {
+      if (!cancelled) setContextLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [code, needsFundamentals]);
+
   const result = useMemo(
-    () => calculateSelectionScore(candles, benchmarkCandles),
-    [benchmarkCandles, candles],
+    () => calculateSelectionScore(
+      candles,
+      benchmarkCandles,
+      styleId,
+      {
+        ...(needsFundamentals && contextCode === code ? scoreContext : {}),
+        securityCode: code,
+      },
+    ),
+    [benchmarkCandles, candles, code, contextCode, needsFundamentals, scoreContext, styleId],
   );
   const [activeSections, setActiveSections] = useState<string[]>([]);
   const [activeDetails, setActiveDetails] = useState<string[]>([]);
@@ -32,9 +88,9 @@ export default function StockSelectionScore({
   useEffect(() => {
     setActiveSections([]);
     setActiveDetails([]);
-  }, [candles]);
+  }, [candles, styleId]);
 
-  if (loading && candles.length === 0) {
+  if ((loading && candles.length === 0) || (needsFundamentals && contextLoading && contextCode !== code)) {
     return (
       <section className="stock-selection-score" aria-label="选股评分">
         <Skeleton active paragraph={{ rows: 3 }} />
@@ -78,12 +134,32 @@ export default function StockSelectionScore({
 
         <div className="stock-score-summary">
           <Space wrap align="center">
-            <Title level={4} style={{ margin: 0 }}>选股评分</Title>
+            <Title level={4} style={{ margin: 0 }}>{result.styleLabel}评分</Title>
             <Tag color={tierColor}>{result.tierLabel}</Tag>
+            <Tag>{result.riskLabel}</Tag>
           </Space>
           <Text>{result.tierDescription}</Text>
           <Space wrap size={[6, 6]} className="stock-score-meta">
-            <Tag color="blue">反转复合分位 {result.rawPositiveScore}/100</Tag>
+            <Select
+              size="small"
+              value={styleId}
+              aria-label="选择评分风格"
+              onChange={(value) => setStyleId(value)}
+              options={SELECTION_STYLE_OPTIONS.map((item) => ({
+                value: item.value,
+                label: `${item.label} · ${item.riskLabel}`,
+              }))}
+              style={{ minWidth: 190 }}
+            />
+            <Tag color="blue">{result.styleLabel}复合分 {result.rawPositiveScore}/100</Tag>
+            <Tag color={result.dataCoveragePct >= 80 ? 'success' : result.dataCoveragePct >= 60 ? 'warning' : 'error'}>
+              数据覆盖 {result.dataCoveragePct}%
+            </Tag>
+            <Tag color={result.relativeStrength20d == null ? 'default' : result.relativeStrength20d >= 0 ? 'success' : 'error'}>
+              相对沪深300 {result.relativeStrength20d == null
+                ? '—'
+                : `${result.relativeStrength20d >= 0 ? '+' : ''}${(result.relativeStrength20d * 100).toFixed(2)}%`}
+            </Tag>
             <Tag color={result.riskDeduction > 0 ? 'error' : 'success'}>
               风控 -{result.riskDeduction}
             </Tag>
@@ -93,6 +169,7 @@ export default function StockSelectionScore({
               {result.inputSampleSize !== result.sampleSize ? `（原始 ${result.inputSampleSize} 根）` : ''}
             </Tag>
           </Space>
+          {contextError && <Text type="warning">基础数据降级：{contextError}</Text>}
         </div>
 
         <div className="stock-score-scale" aria-label="评分档位">
@@ -134,7 +211,9 @@ export default function StockSelectionScore({
                         className={`stock-score-rule${item.matched ? ' is-matched' : ''}${item.kind === 'penalty' ? ' is-penalty' : ''}`}
                         key={item.label}
                       >
-                        {item.matched
+                        {!item.available
+                          ? <InfoCircleOutlined aria-hidden />
+                          : item.matched
                           ? item.kind === 'penalty'
                             ? <WarningOutlined aria-hidden />
                             : <CheckCircleOutlined aria-hidden />
