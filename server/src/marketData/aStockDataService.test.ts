@@ -173,6 +173,7 @@ describe('A-share stock quote service', () => {
     expect(normalizeOnlineVolumeToShares(5_492.3, '002298', 'SZ')).toBe(549_230);
     expect(normalizeOnlineVolumeToShares(12_345, '510300', 'SH')).toBe(1_234_500);
     expect(normalizeOnlineVolumeToShares(12_345, '000001', 'SH')).toBe(12_345);
+    expect(normalizeOnlineVolumeToShares(6_914_646, '688165', 'SH')).toBe(6_914_646);
 
     const points = parseEastmoneyDailyKlines([
       '2026-07-24,7.73,8.10,8.10,7.67,5492.3,4440000,10.05,0.74,0,8.31',

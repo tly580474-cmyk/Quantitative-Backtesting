@@ -188,6 +188,50 @@ const READ_DIVIDEND_EVENT_COLUMNS = `{
   sourceKey: 'VARCHAR', sourceFingerprint: 'VARCHAR', fetchedAt: 'TIMESTAMP'
 }`;
 
+const FINANCIAL_REPORT_COLUMNS = [
+  'instrumentKey', 'market', 'symbol', 'name', 'reportPeriod', 'announcementDate',
+  'reportType', 'fiscalYear', 'fiscalQuarter', 'updateFlag',
+  'totalRevenue', 'revenue', 'operatingCost', 'totalOperatingCost',
+  'operatingProfit', 'totalProfit', 'incomeTax', 'netProfit', 'netProfitParent',
+  'totalAssets', 'totalLiabilities', 'totalEquity', 'equityParent',
+  'totalCurrentAssets', 'totalCurrentLiabilities', 'cashAndEquivalents',
+  'accountsReceivable', 'inventory', 'goodwill', 'shortTermBorrowings',
+  'longTermBorrowings', 'bondsPayable', 'netOperatingCashFlow',
+  'netInvestingCashFlow', 'netFinancingCashFlow', 'capitalExpenditure',
+  'freeCashFlow', 'eps', 'dilutedEps', 'bps', 'revenuePerShare',
+  'operatingCashFlowPerShare', 'roePct', 'roeWeightedPct', 'roeDilutedPct',
+  'roeCalculatedPct', 'roeCalculationMethod', 'roaPct', 'grossMarginPct',
+  'netMarginPct', 'debtToAssetsPct', 'currentRatio', 'quickRatio',
+  'assetTurnover', 'inventoryTurnover', 'receivablesTurnover',
+  'operatingCashFlowToRevenuePct', 'revenueYoyPct', 'netProfitYoyPct',
+  'sourceKey', 'sourceVersion', 'sourceFingerprint', 'fetchedAt',
+] as const;
+
+const READ_FINANCIAL_REPORT_COLUMNS = `{
+  instrumentKey: 'BIGINT', market: 'VARCHAR', symbol: 'VARCHAR', name: 'VARCHAR',
+  reportPeriod: 'DATE', announcementDate: 'DATE', reportType: 'VARCHAR',
+  fiscalYear: 'BIGINT', fiscalQuarter: 'BIGINT', updateFlag: 'BIGINT',
+  totalRevenue: 'DOUBLE', revenue: 'DOUBLE', operatingCost: 'DOUBLE',
+  totalOperatingCost: 'DOUBLE', operatingProfit: 'DOUBLE', totalProfit: 'DOUBLE',
+  incomeTax: 'DOUBLE', netProfit: 'DOUBLE', netProfitParent: 'DOUBLE',
+  totalAssets: 'DOUBLE', totalLiabilities: 'DOUBLE', totalEquity: 'DOUBLE',
+  equityParent: 'DOUBLE', totalCurrentAssets: 'DOUBLE', totalCurrentLiabilities: 'DOUBLE',
+  cashAndEquivalents: 'DOUBLE', accountsReceivable: 'DOUBLE', inventory: 'DOUBLE',
+  goodwill: 'DOUBLE', shortTermBorrowings: 'DOUBLE', longTermBorrowings: 'DOUBLE',
+  bondsPayable: 'DOUBLE', netOperatingCashFlow: 'DOUBLE',
+  netInvestingCashFlow: 'DOUBLE', netFinancingCashFlow: 'DOUBLE',
+  capitalExpenditure: 'DOUBLE', freeCashFlow: 'DOUBLE', eps: 'DOUBLE',
+  dilutedEps: 'DOUBLE', bps: 'DOUBLE', revenuePerShare: 'DOUBLE',
+  operatingCashFlowPerShare: 'DOUBLE', roePct: 'DOUBLE', roeWeightedPct: 'DOUBLE',
+  roeDilutedPct: 'DOUBLE', roeCalculatedPct: 'DOUBLE',
+  roeCalculationMethod: 'VARCHAR', roaPct: 'DOUBLE', grossMarginPct: 'DOUBLE',
+  netMarginPct: 'DOUBLE', debtToAssetsPct: 'DOUBLE', currentRatio: 'DOUBLE',
+  quickRatio: 'DOUBLE', assetTurnover: 'DOUBLE', inventoryTurnover: 'DOUBLE',
+  receivablesTurnover: 'DOUBLE', operatingCashFlowToRevenuePct: 'DOUBLE',
+  revenueYoyPct: 'DOUBLE', netProfitYoyPct: 'DOUBLE', sourceKey: 'VARCHAR',
+  sourceVersion: 'VARCHAR', sourceFingerprint: 'VARCHAR', fetchedAt: 'TIMESTAMP'
+}`;
+
 const SW_INDUSTRY_DEFINITION_COLUMNS = [
   'taxonomyKey', 'taxonomyStart', 'industryCode', 'industryName', 'industryLevel',
   'parentCode', 'indexCode', 'sourceKey', 'sourceVersion', 'fetchedAt',
@@ -328,6 +372,7 @@ export async function buildResearchSnapshot(
   const indexSnapshotSummary = await readIndexSnapshotSummary(pool);
   const indexMemberSummary = await readIndexMemberSummary(pool);
   const dividendSummary = await readDividendSummary(pool);
+  const financialSummary = await readFinancialSummary(pool);
   const swDefinitionSummary = await readSwDefinitionSummary(pool);
   const swMembershipSummary = await readSwMembershipSummary(pool);
   const swBarSummary = await readSwBarSummary(pool);
@@ -361,6 +406,10 @@ export async function buildResearchSnapshot(
     current?.manifest.datasets?.find((item) => item.name === 'dividend_events'),
     dividendSummary,
   );
+  const financialsCurrent = isDatasetCurrent(
+    current?.manifest.datasets?.find((item) => item.name === 'financial_reports'),
+    financialSummary,
+  );
   const swDefinitionsCurrent = isDatasetCurrent(
     current?.manifest.datasets?.find((item) => item.name === 'sw_industry_definitions'),
     swDefinitionSummary,
@@ -383,6 +432,7 @@ export async function buildResearchSnapshot(
     && indexSnapshotsCurrent
     && indexMembersCurrent
     && dividendsCurrent
+    && financialsCurrent
     && swDefinitionsCurrent
     && swMembershipsCurrent
     && swBarsCurrent
@@ -599,6 +649,71 @@ export async function buildResearchSnapshot(
       datasets.push(dividendDataset);
       onProgress(`分红事件完成：${dividendDataset.rows.toLocaleString()} 行`);
     }
+    if (Number(financialSummary.rowsCount) > 0) {
+      const financialDataset = await exportReferenceDataset(
+        config,
+        staging,
+        'financial_reports',
+        FINANCIAL_REPORT_COLUMNS,
+        READ_FINANCIAL_REPORT_COLUMNS,
+        `
+          SELECT report.instrument_key AS instrumentKey, instrument.market,
+                 instrument.symbol, instrument.name,
+                 DATE_FORMAT(report.report_period, '%Y-%m-%d') AS reportPeriod,
+                 DATE_FORMAT(report.announcement_date, '%Y-%m-%d') AS announcementDate,
+                 report.report_type AS reportType, report.fiscal_year AS fiscalYear,
+                 report.fiscal_quarter AS fiscalQuarter, report.update_flag AS updateFlag,
+                 report.total_revenue AS totalRevenue, report.revenue,
+                 report.operating_cost AS operatingCost,
+                 report.total_operating_cost AS totalOperatingCost,
+                 report.operating_profit AS operatingProfit, report.total_profit AS totalProfit,
+                 report.income_tax AS incomeTax, report.net_profit AS netProfit,
+                 report.net_profit_parent AS netProfitParent, report.total_assets AS totalAssets,
+                 report.total_liabilities AS totalLiabilities, report.total_equity AS totalEquity,
+                 report.equity_parent AS equityParent,
+                 report.total_current_assets AS totalCurrentAssets,
+                 report.total_current_liabilities AS totalCurrentLiabilities,
+                 report.cash_and_equivalents AS cashAndEquivalents,
+                 report.accounts_receivable AS accountsReceivable, report.inventory,
+                 report.goodwill, report.short_term_borrowings AS shortTermBorrowings,
+                 report.long_term_borrowings AS longTermBorrowings,
+                 report.bonds_payable AS bondsPayable,
+                 report.net_operating_cash_flow AS netOperatingCashFlow,
+                 report.net_investing_cash_flow AS netInvestingCashFlow,
+                 report.net_financing_cash_flow AS netFinancingCashFlow,
+                 report.capital_expenditure AS capitalExpenditure,
+                 report.free_cash_flow AS freeCashFlow, report.eps,
+                 report.diluted_eps AS dilutedEps, report.bps,
+                 report.revenue_per_share AS revenuePerShare,
+                 report.operating_cash_flow_per_share AS operatingCashFlowPerShare,
+                 report.roe_pct AS roePct, report.roe_weighted_pct AS roeWeightedPct,
+                 report.roe_diluted_pct AS roeDilutedPct,
+                 report.roe_calculated_pct AS roeCalculatedPct,
+                 report.roe_calculation_method AS roeCalculationMethod,
+                 report.roa_pct AS roaPct, report.gross_margin_pct AS grossMarginPct,
+                 report.net_margin_pct AS netMarginPct,
+                 report.debt_to_assets_pct AS debtToAssetsPct,
+                 report.current_ratio AS currentRatio, report.quick_ratio AS quickRatio,
+                 report.asset_turnover AS assetTurnover,
+                 report.inventory_turnover AS inventoryTurnover,
+                 report.receivables_turnover AS receivablesTurnover,
+                 report.operating_cash_flow_to_revenue_pct AS operatingCashFlowToRevenuePct,
+                 report.revenue_yoy_pct AS revenueYoyPct,
+                 report.net_profit_yoy_pct AS netProfitYoyPct,
+                 report.source_key AS sourceKey, report.source_version AS sourceVersion,
+                 report.source_fingerprint AS sourceFingerprint,
+                 DATE_FORMAT(report.fetched_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS fetchedAt
+          FROM financial_reports AS report
+          INNER JOIN instruments AS instrument
+            ON instrument.instrument_key=report.instrument_key
+          ORDER BY report.instrument_key, report.announcement_date, report.report_period
+        `,
+        'reportPeriod',
+        financialSummary,
+      );
+      datasets.push(financialDataset);
+      onProgress(`财务报表完成：${financialDataset.rows.toLocaleString()} 行`);
+    }
     if (Number(swDefinitionSummary.rowsCount) > 0) {
       const dataset = await exportReferenceDataset(
         config,
@@ -804,6 +919,17 @@ async function readDividendSummary(pool: Pool): Promise<ReferenceDatasetSummary>
            DATE_FORMAT(MAX(report_period), '%Y-%m-%d') AS maxDate,
            DATE_FORMAT(MAX(fetched_at), '%Y-%m-%dT%H:%i:%s.%fZ') AS sourceVersion
     FROM dividend_events
+  `);
+  return normalizeReferenceSummary(rows[0]);
+}
+
+async function readFinancialSummary(pool: Pool): Promise<ReferenceDatasetSummary> {
+  const [rows] = await pool.query<ReferenceDatasetSummary[]>(`
+    SELECT COUNT(*) AS rowsCount,
+           DATE_FORMAT(MIN(report_period), '%Y-%m-%d') AS minDate,
+           DATE_FORMAT(MAX(report_period), '%Y-%m-%d') AS maxDate,
+           DATE_FORMAT(MAX(fetched_at), '%Y-%m-%dT%H:%i:%s.%fZ') AS sourceVersion
+    FROM financial_reports
   `);
   return normalizeReferenceSummary(rows[0]);
 }

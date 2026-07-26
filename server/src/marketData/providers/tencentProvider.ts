@@ -369,7 +369,10 @@ function toTencentQuoteCode(symbol: string, market: string): string {
 }
 
 function volumeMultiplierForTencentCode(code: string): number {
-  return isIndexTencentCode(code) ? 1 : 100;
+  const symbol = stripMarketPrefix(code);
+  // Tencent reports STAR Market (688xxx) volume in shares, while ordinary
+  // A-share stock volume is reported in board lots.
+  return isIndexTencentCode(code) || symbol.startsWith('688') ? 1 : 100;
 }
 
 function isIndexTencentCode(code: string): boolean {

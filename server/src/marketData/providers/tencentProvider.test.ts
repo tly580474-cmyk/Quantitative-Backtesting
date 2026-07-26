@@ -64,6 +64,19 @@ describe('Tencent market data provider', () => {
     }]);
   });
 
+  it('does not multiply STAR Market kline volume because Tencent returns shares', () => {
+    const candles = parseCandles({
+      code: 0,
+      data: {
+        sh688165: {
+          day: [['2026-07-24', '15.00', '15.18', '15.50', '14.80', '6914646']],
+        },
+      },
+    }, 'sh688165', '688165', 'none');
+
+    expect(candles[0]?.volume).toBe(6_914_646);
+  });
+
   it('normalizes common A-share symbol formats', () => {
     expect(toTencentCode('600519')).toBe('sh600519');
     expect(toTencentCode('000858')).toBe('sz000858');
@@ -127,6 +140,24 @@ describe('Tencent market data provider', () => {
       volume: 244575082,
       turnover: 544456250000,
     }]);
+  });
+
+  it('does not multiply STAR Market quote volume', () => {
+    const fields = Array.from({ length: 53 }, () => '');
+    fields[3] = '15.18';
+    fields[4] = '15.00';
+    fields[5] = '15.00';
+    fields[30] = '20260724150000';
+    fields[33] = '15.50';
+    fields[34] = '14.80';
+    fields[36] = '6914646';
+    fields[37] = '10635';
+
+    expect(parseQuoteCandles(`v_sh688165="${fields.join('~')}";`)[0]).toMatchObject({
+      symbol: '688165',
+      volume: 6_914_646,
+      turnover: 106_350_000,
+    });
   });
 
   it('keeps successful quote chunks when another chunk fails', async () => {

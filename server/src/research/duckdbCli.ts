@@ -799,6 +799,7 @@ async function registerSnapshotViews(
     ['index_bars', 'index_bars'],
     ['index_constituent_snapshots', 'index_constituent_snapshots'],
     ['dividend_events', 'dividend_events'],
+    ['financial_reports', 'financial_reports'],
     ['sw_industry_definitions', 'sw_industry_definitions'],
     ['sw_industry_memberships', 'sw_industry_memberships'],
     ['sw_industry_bars', 'sw_industry_bars'],
@@ -813,6 +814,18 @@ async function registerSnapshotViews(
       SELECT * FROM read_parquet('${escapeSqlLiteral(path)}')
     `);
     views.push(viewName);
+  }
+  if (views.includes('financial_reports')) {
+    await connection.run(`
+      CREATE OR REPLACE VIEW financial_reports_latest AS
+      SELECT *
+      FROM financial_reports
+      QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY instrumentKey, reportPeriod
+        ORDER BY announcementDate DESC, updateFlag DESC, fetchedAt DESC
+      ) = 1
+    `);
+    views.push('financial_reports_latest');
   }
   if (views.includes('adjustment_factors')) {
     await connection.run(`

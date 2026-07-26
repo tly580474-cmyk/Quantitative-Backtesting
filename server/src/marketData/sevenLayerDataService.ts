@@ -6,6 +6,7 @@ import { fetchCninfoAnnouncements } from './http/cninfoClient.js';
 import { limitedFetchJson } from './http/eastmoneyClient.js';
 import { getStockBillboard } from './dragonTigerService.js';
 import { getStockNews } from './marketNewsService.js';
+import { getLatestFinancialReports } from './repositories/financialReportRepository.js';
 
 const EASTMONEY_DATACENTER_URL = 'https://datacenter-web.eastmoney.com/api/data/v1/get';
 const EASTMONEY_SECURITIES_URL = 'https://datacenter.eastmoney.com/securities/api/data/v1/get';
@@ -196,6 +197,16 @@ async function loadCapitalLayer(security: SecurityRef): Promise<SourceResult[]> 
 }
 
 async function loadFundamentalLayer(security: SecurityRef): Promise<SourceResult[]> {
+  const local = await source('本地标准化财务报表', async () => (
+    await getLatestFinancialReports(security.code, 8)
+  ).map((report) => ({
+    source: '本地标准化财务报表',
+    title: `${report.reportPeriod} ${report.reportType === 'annual' ? '年报' : '财报'}`,
+    date: report.announcementDate,
+    metrics: report.metrics,
+  })), 8);
+  if (local.records.length > 0) return [local];
+
   return Promise.all([
     source('公司画像与估值', () => eastmoneyJson(`${EASTMONEY_PUSH2_URL}/stock/get`, {
       secid: security.secid,

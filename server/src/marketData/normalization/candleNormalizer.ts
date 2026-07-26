@@ -8,6 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ProviderCandle } from '../providers/provider.js';
 import type { DailyCandle } from '../types.js';
+import { normalizeVolumeToShares } from './volumeUnit.js';
 
 // ─── Individual candle normalization ─────────────────────────────────
 
@@ -25,6 +26,10 @@ export function normalizeCandle(
   sourceId: string,
 ): DailyCandle {
   const now = new Date().toISOString();
+  const volumeDecision = normalizeVolumeToShares({
+    ...raw,
+    amount: raw.turnover,
+  });
 
   return {
     id: randomUUID(),
@@ -34,7 +39,7 @@ export function normalizeCandle(
     high: Number(raw.high),
     low: Number(raw.low),
     close: Number(raw.close),
-    volume: Number(raw.volume),
+    volume: Number(volumeDecision.volume ?? raw.volume),
     turnover: raw.turnover != null ? Number(raw.turnover) : undefined,
     turnoverRatePct: raw.turnoverRatePct != null ? Number(raw.turnoverRatePct) : undefined,
     sourceId,

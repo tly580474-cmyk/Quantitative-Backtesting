@@ -76,7 +76,7 @@ function validateConfigValue(key: string, value: string): string | null {
     }
   }
   if (
-    ['AI_STRATEGY_ENABLED', 'SCHEDULE_SKIP_NON_TRADING_PERIODS'].includes(key)
+    ['AI_STRATEGY_ENABLED', 'SCHEDULE_SKIP_NON_TRADING_PERIODS', 'FINANCIAL_DATA_ENABLED'].includes(key)
     && !['true', 'false'].includes(value)
   ) {
     return `${key} 只能是 true 或 false`;
@@ -783,7 +783,7 @@ function DatabaseBackupPanel({ status, starting, onStart, onDownload }: {
 
 function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressItem[] }) {
   return (
-    <Panel title="数据更新进度" subtitle="每 2 秒刷新 · 分钟湖与个股日 K 线均在后台执行" icon={<ClockCircleOutlined />}>
+    <Panel title="数据更新进度" subtitle="每 2 秒刷新 · 分钟湖、个股日 K 线与财务报表均在后台执行" icon={<ClockCircleOutlined />}>
       <div className="data-update-grid" aria-live="polite">
         {items.length === 0 ? (
           <div className="data-update-empty">正在读取后台任务状态…</div>
@@ -836,6 +836,7 @@ function formatUpdatePhase(phase: string): string {
     'up-to-date': '数据已是最新', 'source-stale': '在线数据源滞后',
     'local-fallback': '本地补偿导入', 'fallback-completed': '补偿导入完成',
     pending: '排队准备', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消',
+    '采集财务报表': '采集财务报表', '等待财报更新': '等待财报更新',
     '排队准备': '排队准备', '更新行情': '更新个股日 K 行情', '等待计划任务': '等待计划任务', '等待盘后更新': '等待盘后更新',
   };
   return labels[phase] ?? phase;

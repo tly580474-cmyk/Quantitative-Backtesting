@@ -59,6 +59,23 @@ def main() -> int:
             dividends = cursor.fetchone()
             cursor.execute(
                 """
+                SELECT COUNT(*) AS reports,
+                       COUNT(DISTINCT instrument_key) AS symbols,
+                       MIN(report_period) AS minDate,
+                       MAX(report_period) AS maxDate,
+                       MAX(fetched_at) AS latestFetchedAt,
+                       SUM(COALESCE(roe_weighted_pct, roe_pct, roe_calculated_pct) IS NOT NULL) AS roeRows,
+                       SUM(revenue IS NOT NULL OR total_revenue IS NOT NULL) AS revenueRows,
+                       SUM(net_profit_parent IS NOT NULL OR net_profit IS NOT NULL) AS netProfitRows,
+                       SUM(net_operating_cash_flow IS NOT NULL) AS operatingCashFlowRows,
+                       SUM(debt_to_assets_pct IS NOT NULL) AS debtRatioRows,
+                       SUM(gross_margin_pct IS NOT NULL) AS grossMarginRows
+                FROM financial_reports
+                """,
+            )
+            financial_reports = cursor.fetchone()
+            cursor.execute(
+                """
                 SELECT COUNT(*) AS snapshots, COUNT(DISTINCT index_code) AS indices,
                        SUM(member_count) AS members, MIN(constituent_date) AS minDate,
                        MAX(constituent_date) AS maxDate
@@ -148,6 +165,7 @@ def main() -> int:
             },
             "dividendRefresh": refresh_statuses,
             "dividendEvents": dividends,
+            "financialReports": financial_reports,
             "indexBars": {**index_bars, "missingDerivedReturns": missing_index_returns},
             "indexConstituents": constituents,
             "swIndustry": {

@@ -8,6 +8,10 @@ import type {
   DataFreshness,
 } from '../../marketData/types.js';
 import { getHistoryStorePolicy } from './historyStorePolicy.js';
+import {
+  markVolumeUnitCorrection,
+  normalizeVolumeToShares,
+} from '../normalization/volumeUnit.js';
 
 const {
   dailyCandles,
@@ -94,7 +98,19 @@ export async function getDailyCandles(
       .where(where),
   ]);
 
-  return { data: data as DailyCandle[], total: Number(countRow?.count ?? 0) };
+  const normalized = data.map((row) => {
+    const decision = normalizeVolumeToShares({
+      ...row,
+      amount: row.turnover,
+    });
+    return decision.correction
+      ? { ...row, volume: decision.volume ?? row.volume }
+      : row;
+  });
+  return {
+    data: normalized as DailyCandle[],
+    total: Number(countRow?.count ?? 0),
+  };
 }
 
 export async function getInstrumentDataSummaries(instrumentIds: string[]) {
@@ -158,7 +174,10 @@ export async function getHistoryDailyBars(
       .from(dailyBarsV2)
       .where(where),
   ]);
-  return { data, total: Number(countRow?.count ?? 0) };
+  return {
+    data: data.map(normalizeHistoryBarVolume),
+    total: Number(countRow?.count ?? 0),
+  };
 }
 
 export async function getLatestHistoryDailyBar(instrumentKey: number) {
@@ -168,7 +187,7 @@ export async function getLatestHistoryDailyBar(instrumentKey: number) {
     .where(eq(dailyBarsV2.instrumentKey, instrumentKey))
     .orderBy(desc(dailyBarsV2.tradeDate))
     .limit(1);
-  return row ?? null;
+  return row ? normalizeHistoryBarVolume(row) : null;
 }
 
 export async function getLatestHistoryDailyBars(
@@ -230,7 +249,7 @@ async function getLatestHistoryDailyBarsMatching(
         ),
       ));
   }
-  return result;
+  return result.map(normalizeHistoryBarVolume);
 }
 
 export async function getHistoryDailyBarsInRange(
@@ -238,7 +257,7 @@ export async function getHistoryDailyBarsInRange(
   startDate: string,
   endDate: string,
 ) {
-  return getDb()
+  const rows = await getDb()
     .select()
     .from(dailyBarsV2)
     .where(and(
@@ -247,15 +266,36 @@ export async function getHistoryDailyBarsInRange(
       lte(dailyBarsV2.tradeDate, endDate),
     ))
     .orderBy(dailyBarsV2.tradeDate);
+  return rows.map(normalizeHistoryBarVolume);
 }
 
 export async function upsertHistoryDailyBars(
   bars: HistoryDailyBarUpsert[],
 ): Promise<void> {
   if (bars.length === 0) return;
+  let correctedCount = 0;
+  const normalizedBars = bars.map((bar) => {
+    const decision = normalizeVolumeToShares(bar);
+    if (!decision.correction) return bar;
+    correctedCount += 1;
+    return {
+      ...bar,
+      volume: decision.volume,
+      sourceVersion: markVolumeUnitCorrection(
+        bar.sourceVersion,
+        decision.correction,
+      ),
+    };
+  });
+  if (correctedCount > 0) {
+    console.warn(
+      `[marketDataRepository] Corrected ${correctedCount}/${bars.length} ` +
+      'daily-bar volume unit(s) before persistence.',
+    );
+  }
   await getDb().transaction(async (tx) => {
-    for (let index = 0; index < bars.length; index += CHUNK_SIZE) {
-      const rows = bars.slice(index, index + CHUNK_SIZE).map((bar) => ({
+    for (let index = 0; index < normalizedBars.length; index += CHUNK_SIZE) {
+      const rows = normalizedBars.slice(index, index + CHUNK_SIZE).map((bar) => ({
         ...bar,
         isFinal: bar.isFinal ? 1 : 0,
       }));
@@ -280,6 +320,22 @@ export async function upsertHistoryDailyBars(
         });
     }
   });
+}
+
+function normalizeHistoryBarVolume<
+  T extends {
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number | null;
+    amount: number | null;
+  },
+>(bar: T): T {
+  const decision = normalizeVolumeToShares(bar);
+  return decision.correction
+    ? { ...bar, volume: decision.volume }
+    : bar;
 }
 
 export async function upsertDailyStockMetrics(

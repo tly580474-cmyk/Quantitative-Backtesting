@@ -83,14 +83,18 @@ export async function expireStaleCollectorRuns(jobType: string, olderThanMinutes
 }
 
 export async function latestCollectorRuns(): Promise<CollectorRun[]> {
-  const latest = getDb().select({
+  const jobTypes = await getDb().selectDistinct({
     jobType: marketDataCollectorRuns.jobType,
-    startedAt: sql<string>`MAX(${marketDataCollectorRuns.startedAt})`.as('started_at'),
-  }).from(marketDataCollectorRuns).groupBy(marketDataCollectorRuns.jobType).as('latest');
-  const rows = await getDb().select().from(marketDataCollectorRuns)
-    .innerJoin(latest, sql`${marketDataCollectorRuns.jobType} = ${latest.jobType} AND ${marketDataCollectorRuns.startedAt} = ${latest.startedAt}`)
-    .orderBy(desc(marketDataCollectorRuns.startedAt));
-  return rows.map(({ market_data_collector_runs: row }) => ({
+  }).from(marketDataCollectorRuns);
+  const rows = (await Promise.all(jobTypes.map(async ({ jobType }) => {
+    const [row] = await getDb().select().from(marketDataCollectorRuns)
+      .where(eq(marketDataCollectorRuns.jobType, jobType))
+      .orderBy(desc(marketDataCollectorRuns.startedAt))
+      .limit(1);
+    return row;
+  }))).filter((row): row is NonNullable<typeof row> => Boolean(row));
+  rows.sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+  return rows.map((row) => ({
     runKey: row.runKey,
     jobType: row.jobType,
     status: row.status as CollectorRun['status'],

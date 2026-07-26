@@ -218,6 +218,41 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     restartScope: 'market',
   },
   {
+    key: 'FINANCIAL_DATA_ENABLED',
+    label: '财务报表自动更新',
+    category: 'market',
+    description: '启用后优先使用已配置的 Tushare，并以新浪财经财务报表作为免 Token 备用源，更新 ROE、营收、净利润、现金流和财务质量指标。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'market',
+    inputType: 'boolean',
+    defaultValue: 'true',
+  },
+  {
+    key: 'FINANCIAL_DATA_UPDATE_TIME',
+    label: '财务报表更新时间',
+    category: 'market',
+    description: '财务报表与财务指标每日增量更新的触发时间（北京时间）。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'market',
+    inputType: 'time',
+    defaultValue: '19:00',
+  },
+  {
+    key: 'FINANCIAL_DATA_LOOKBACK_DAYS',
+    label: '财务公告回看天数',
+    category: 'market',
+    description: '每次自动更新重新检查最近若干天公告，用于吸收延迟披露与修订数据。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'market',
+    defaultValue: '21',
+  },
+  {
     key: 'SCHEDULE_SKIP_NON_TRADING_PERIODS',
     label: '跳过非交易时段',
     category: 'market',
@@ -441,10 +476,16 @@ function validateEnvValue(key: string, value: string): void {
     }
   }
   if (
-    ['AI_STRATEGY_ENABLED', 'SCHEDULE_SKIP_NON_TRADING_PERIODS'].includes(key)
+    ['AI_STRATEGY_ENABLED', 'SCHEDULE_SKIP_NON_TRADING_PERIODS', 'FINANCIAL_DATA_ENABLED'].includes(key)
     && !['true', 'false'].includes(value)
   ) {
     throw new Error(`${key} 只能是 true 或 false`);
+  }
+  if (key === 'FINANCIAL_DATA_LOOKBACK_DAYS') {
+    const days = Number(value);
+    if (!Number.isInteger(days) || days < 7 || days > 365) {
+      throw new Error('FINANCIAL_DATA_LOOKBACK_DAYS 必须是 7 到 365 的整数');
+    }
   }
   if (key === 'DUCKDB_MAX_CONCURRENT') {
     const concurrency = Number(value);

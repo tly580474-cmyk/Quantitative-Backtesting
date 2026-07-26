@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { SyncJob } from '../marketData/types.js';
-import { normalizeDailyProgress, normalizeMinuteProgress } from './dataUpdateProgress.js';
+import type { CollectorRun } from '../marketData/repositories/collectorRunRepository.js';
+import {
+  normalizeDailyProgress,
+  normalizeFinancialProgress,
+  normalizeMinuteProgress,
+} from './dataUpdateProgress.js';
 
 describe('admin data update progress', () => {
   it('converts minute updater heartbeats into a determinate progress item', () => {
@@ -29,5 +34,35 @@ describe('admin data update progress', () => {
     } as SyncJob);
     expect(progress.percent).toBe(60.5);
     expect(progress.phase).toBe('更新行情');
+  });
+
+  it('maps the latest financial collector run into the automatic update list', () => {
+    const progress = normalizeFinancialProgress({
+      runKey: 'financial_reports:2026-07-24:19:00',
+      jobType: 'financial_reports',
+      status: 'succeeded',
+      attempts: 1,
+      startedAt: '2026-07-24T11:00:00.000Z',
+      finishedAt: '2026-07-24T11:04:00.000Z',
+      details: {
+        source: 'sina',
+        apiRows: { symbols: 198, failedSymbols: 2 },
+        normalizedReports: 2400,
+        writtenReports: 2390,
+      },
+    } satisfies CollectorRun);
+    expect(progress.key).toBe('financial_reports');
+    expect(progress.status).toBe('completed');
+    expect(progress.total).toBe(200);
+    expect(progress.completed).toBe(198);
+    expect(progress.failed).toBe(2);
+    expect(progress.percent).toBe(100);
+    expect(progress.message).toContain('写入 2390 期');
+  });
+
+  it('shows an idle financial item before the first scheduled run', () => {
+    const progress = normalizeFinancialProgress(null);
+    expect(progress.status).toBe('idle');
+    expect(progress.phase).toBe('等待财报更新');
   });
 });

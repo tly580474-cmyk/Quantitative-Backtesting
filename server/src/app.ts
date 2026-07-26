@@ -28,6 +28,7 @@ import { startIndexDatasetScheduler } from './marketData/jobs/indexDatasetSchedu
 import { startDragonTigerScheduler } from './marketData/jobs/dragonTigerScheduler.js';
 import { startMarketNewsScheduler } from './marketData/jobs/marketNewsScheduler.js';
 import { startMarketOpinionPushScheduler } from './marketData/jobs/marketOpinionPushScheduler.js';
+import { startFinancialDataScheduler } from './marketData/jobs/financialDataScheduler.js';
 import { EmailSender } from './services/emailSender.js';
 import { MarketOpinionAgent } from './services/marketOpinionAgent.js';
 import { MarketOpinionPushService } from './services/marketOpinionPushService.js';
@@ -185,6 +186,17 @@ async function main(): Promise<void> {
       }, tencentProvider);
     }
 
+    if (config.FINANCIAL_DATA_ENABLED === 'true') {
+      startFinancialDataScheduler({
+        updateTime: config.FINANCIAL_DATA_UPDATE_TIME,
+        lookbackDays: Math.max(7, parseInt(config.FINANCIAL_DATA_LOOKBACK_DAYS, 10) || 21),
+      });
+      console.log(
+        `[FinancialData] Scheduler started at ${config.FINANCIAL_DATA_UPDATE_TIME} ` +
+        `(source: ${config.TUSHARE_TOKEN ? 'Tushare/Sina fallback' : 'Sina token-free'})`,
+      );
+    }
+
     if (config.DRAGON_TIGER_ENABLED === 'true') {
       startDragonTigerScheduler({
         syncTime: config.DRAGON_TIGER_SYNC_TIME,
@@ -292,12 +304,14 @@ async function main(): Promise<void> {
     const { stopDragonTigerScheduler } = await import('./marketData/jobs/dragonTigerScheduler.js');
     const { stopMarketNewsScheduler } = await import('./marketData/jobs/marketNewsScheduler.js');
     const { stopMarketOpinionPushScheduler } = await import('./marketData/jobs/marketOpinionPushScheduler.js');
+    const { stopFinancialDataScheduler } = await import('./marketData/jobs/financialDataScheduler.js');
     stopScheduler();
     stopIndexDatasetScheduler();
     stopMiningScheduler();
     stopDragonTigerScheduler();
     stopMarketNewsScheduler();
     stopMarketOpinionPushScheduler();
+    stopFinancialDataScheduler();
     await app.close();
     closeDb();
     await closePool(pool);

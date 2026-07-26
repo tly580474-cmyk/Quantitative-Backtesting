@@ -341,7 +341,9 @@ export function normalizeOnlineVolumeToShares(
   code: string,
   market: MarketCode,
 ): number {
-  const multiplier = ['SH', 'SZ', 'BJ'].includes(market) && inferType(code, market) !== 'index'
+  const multiplier = ['SH', 'SZ', 'BJ'].includes(market)
+    && inferType(code, market) !== 'index'
+    && !(market === 'SH' && code.startsWith('688'))
     ? 100
     : 1;
   return volume * multiplier;
