@@ -13,6 +13,8 @@
 | `index_constituents` | 指数成分明细与权重 |
 | `index_constituents_scd` | 按来源推导的成分有效期视图 |
 | `dividend_events` | 分红、送股和转增事件 |
+| `financial_reports` | 财务报表全部公告版本，适用于严格时点回测 |
+| `financial_reports_latest` | 每只证券、每个报告期的最新公告版本 |
 | `sw_industry_definitions` | SW2021 行业代码、名称、层级、父级和一级行业指数代码 |
 | `sw_industry_memberships` | 股票一级、二级、三级申万行业归属及有效区间 |
 | `sw_industry_bars` | 31 个申万一级行业历史日线 |
@@ -112,7 +114,8 @@ npm run index:backfill -- --end-date 20260715
 npm run dividend:probe
 ```
 
-`reference:status` 会分别显示分红从未处理、待重试、终态无数据、完成和轮换刷新数量，以及指数行情和成分快照覆盖范围。
+`reference:status` 会分别显示分红从未处理、待重试、终态无数据、完成和轮换刷新数量，
+财务报表总版本数、股票覆盖及核心字段覆盖，以及指数行情和成分快照覆盖范围。
 
 ## 5. 自动更新
 
@@ -127,6 +130,11 @@ npm run snapshot:schedule:register
 默认启用 `SCHEDULE_SKIP_NON_TRADING_PERIODS=true`。计划任务触发后会先检查 A 股
 交易日历，非交易日直接记为成功跳过；关闭后台“跳过非交易时段”开关后则每天执行。
 手动运行快照或参考数据命令不受该开关限制。
+
+财务报表由后端独立调度器按 `FINANCIAL_DATA_UPDATE_TIME` 更新，默认交易日 19:00
+执行。它不会使用东方财富作为本地财务库来源。财务更新晚于当日研究快照发布时间时，
+新财报会进入下一次快照；手动全量回补后应立即运行 `snapshot:build` 和
+`snapshot:verify`。
 
 ```text
 指数行情增量

@@ -104,9 +104,23 @@ npm run admin:preview
 - AI 功能开关、API Key、Base URL 和模型；
 - 行情数据源 API Key；
 - Tushare Token；
+- 财务报表自动更新开关、执行时间和公告回看天数；
 - DuckDB 并发与临时空间上限。
 
-## 7. 数据血缘与覆盖率
+## 7. 自动更新进度
+
+管理台“运行总览”每 2 秒刷新以下后台更新项：
+
+- 分钟湖数据；
+- 个股日 K 线；
+- 财务报表。
+
+财务报表卡片读取 `market_data_collector_runs` 的最新任务，显示来源、成功/失败股票数、
+标准化报告数和写入报告数。存在失败股票时，即使已有部分数据写入，卡片仍以警告状态
+展示；首次调度前显示“等待财报更新”。开启“跳过非交易时段”后，周末和休市日不会
+启动财务更新。
+
+## 8. 数据血缘与覆盖率
 
 管理台“运行总览”展示以下链路：
 
@@ -134,7 +148,7 @@ npm run factor:materializations:archive
 
 归档只把旧 `snapshot=<id>` 目录移出活动 `factor-values`，不会删除文件。
 
-## 8. 安全边界
+## 9. 安全边界
 
 - CORS 只允许本机 `localhost` 和 `127.0.0.1` 来源；
 - 所有受保护接口要求 `Authorization: Bearer <token>`；

@@ -10,10 +10,16 @@ from financial_update import (
     fiscal_metadata,
     map_api_rows,
     normalize_date,
+    result_status,
 )
 
 
 class FinancialUpdateTest(unittest.TestCase):
+    def test_result_status_preserves_partial_failures(self) -> None:
+        self.assertEqual(result_status(False, 0), "completed")
+        self.assertEqual(result_status(False, 2), "partial")
+        self.assertEqual(result_status(True, 2), "dry-run")
+
     def test_normalize_date(self) -> None:
         self.assertEqual(normalize_date("20260726"), "2026-07-26")
         self.assertEqual(normalize_date("2026-07-26"), "2026-07-26")

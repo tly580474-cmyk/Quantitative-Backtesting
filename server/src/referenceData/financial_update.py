@@ -165,6 +165,12 @@ def fiscal_metadata(report_period: str) -> tuple[int, int, str]:
     return year, quarter, report_type
 
 
+def result_status(dry_run: bool, failed_symbols: int) -> str:
+    if dry_run:
+        return "dry-run"
+    return "partial" if failed_symbols > 0 else "completed"
+
+
 def derive_metrics(record: dict[str, Any]) -> None:
     revenue = finite_number(record.get("revenue")) or finite_number(record.get("total_revenue"))
     cost = finite_number(record.get("operating_cost"))
@@ -380,13 +386,23 @@ def fill_calculated_roe(connection: pymysql.Connection) -> int:
            CONCAT(current.fiscal_year - 1, '-12-31'), '%Y-%m-%d'
          )
         SET current.roe_calculated_pct =
-              current.net_profit_parent
-              / NULLIF((current.equity_parent + COALESCE(previous.equity_parent, current.equity_parent)) / 2, 0)
-              * (4 / current.fiscal_quarter) * 100,
+              IF(
+                current.equity_parent > 0
+                AND COALESCE(previous.equity_parent, current.equity_parent) > 0,
+                current.net_profit_parent
+                / NULLIF((current.equity_parent + COALESCE(previous.equity_parent, current.equity_parent)) / 2, 0)
+                * (4 / current.fiscal_quarter) * 100,
+                NULL
+              ),
             current.roe_calculation_method =
-              IF(previous.equity_parent IS NULL,
-                 'annualized_profit_over_ending_parent_equity',
-                 'annualized_profit_over_average_parent_equity')
+              IF(
+                current.equity_parent <= 0
+                OR COALESCE(previous.equity_parent, current.equity_parent) <= 0,
+                'not_applicable_non_positive_parent_equity',
+                IF(previous.equity_parent IS NULL,
+                   'annualized_profit_over_ending_parent_equity',
+                   'annualized_profit_over_average_parent_equity')
+              )
         WHERE current.roe_pct IS NULL
           AND current.roe_weighted_pct IS NULL
           AND current.net_profit_parent IS NOT NULL
@@ -642,8 +658,9 @@ def main() -> int:
         ))
         written = 0 if args.dry_run else upsert_records(connection, records)
         calculated_roe = 0 if args.dry_run else fill_calculated_roe(connection)
+        failed_symbols = int(fetched_counts.get("failedSymbols", 0))
         print(json.dumps({
-            "status": "dry-run" if args.dry_run else "completed",
+            "status": result_status(args.dry_run, failed_symbols),
             "source": provider,
             "window": {"start": start_date.isoformat(), "end": end_date.isoformat()},
             "apiRows": fetched_counts,
