@@ -17,8 +17,17 @@ function Invoke-MinuteUpdateCommand {
 
   "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Running npm script: $ScriptName" |
     Out-File -LiteralPath $logPath -Append -Encoding utf8
-  & $npm run $ScriptName 2>&1 | Out-File -LiteralPath $logPath -Append -Encoding utf8
-  return $LASTEXITCODE
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    # Native tools legitimately use non-zero exit codes to signal a retryable
+    # dependency. Do not let PowerShell turn stderr into a terminating error.
+    $ErrorActionPreference = 'Continue'
+    & $npm run $ScriptName 2>&1 | Out-File -LiteralPath $logPath -Append -Encoding utf8
+    $commandExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  return $commandExitCode
 }
 
 function Test-MinuteUpdateAllowed {
@@ -76,8 +85,35 @@ if (-not (Test-MinuteUpdateAllowed)) {
 }
 Write-MinuteProgress -Status 'running' -Phase 'starting' -Message 'Background scheduled task started.'
 
-$exitCode = Invoke-MinuteUpdateCommand -ScriptName 'minute:online:update'
-if ($exitCode -ne 0) {
+$dependencyWaitMinutes = 30
+$configuredDependencyWait = [Environment]::GetEnvironmentVariable('MINUTE_REFERENCE_WAIT_MINUTES')
+if ($configuredDependencyWait -and [int]::TryParse($configuredDependencyWait, [ref]$dependencyWaitMinutes)) {
+  $dependencyWaitMinutes = [Math]::Max(0, $dependencyWaitMinutes)
+}
+$dependencyDeadline = (Get-Date).AddMinutes($dependencyWaitMinutes)
+$dependencyTimedOut = $false
+do {
+  $exitCode = Invoke-MinuteUpdateCommand -ScriptName 'minute:online:update'
+  if ($exitCode -ne 3) { break }
+  if ((Get-Date) -ge $dependencyDeadline) {
+    Write-MinuteProgress `
+      -Status 'failed' `
+      -Phase 'dependency-timeout' `
+      -Message "Final daily bars were not ready after waiting $dependencyWaitMinutes minutes."
+    $dependencyTimedOut = $true
+    $exitCode = 1
+    break
+  }
+  Write-MinuteProgress `
+    -Status 'pending' `
+    -Phase 'waiting-daily-reference' `
+    -Message 'Waiting for the final daily-bar update before publishing the minute lake.'
+  "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Final daily bars are not ready; retrying in 60 seconds." |
+    Out-File -LiteralPath $logPath -Append -Encoding utf8
+  Start-Sleep -Seconds 60
+} while ($true)
+
+if ($exitCode -ne 0 -and -not $dependencyTimedOut) {
   "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Online update failed with $exitCode; trying local TDX fallback." |
     Out-File -LiteralPath $logPath -Append -Encoding utf8
   Write-MinuteProgress -Status 'running' -Phase 'local-fallback' -Message 'Online update failed; running the local TDX fallback.'

@@ -38,6 +38,10 @@ PROGRESS_FILE_ENV = "MINUTE_UPDATE_PROGRESS_FILE"
 _progress_started_at: str | None = None
 
 
+class DependencyNotReadyError(RuntimeError):
+    """A required upstream dataset is still being produced and may be retried."""
+
+
 def write_progress(
     status: str,
     phase: str,
@@ -187,7 +191,7 @@ def main() -> int:
     }
     missing_reference_dates = [day for day, symbols in expected_by_date.items() if not symbols]
     if missing_reference_dates:
-        raise RuntimeError(
+        raise DependencyNotReadyError(
             "最终日线尚未准备好，拒绝在无独立对账源时发布：" + ", ".join(missing_reference_dates),
         )
 
@@ -627,6 +631,14 @@ def optional_number(value: Any) -> float | None:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
+    except DependencyNotReadyError as error:
+        write_progress("pending", "waiting-daily-reference", message=str(error))
+        print(json.dumps({
+            "status": "dependency-pending",
+            "dependency": "final-daily-bars",
+            "error": str(error),
+        }, ensure_ascii=False))
+        raise SystemExit(3)
     except Exception as error:
         write_progress("failed", "failed", message=str(error))
         print(json.dumps({"status": "failed", "error": str(error)}, ensure_ascii=False), file=sys.stderr)

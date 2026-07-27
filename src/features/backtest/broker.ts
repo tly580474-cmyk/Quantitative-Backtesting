@@ -1,5 +1,12 @@
 import type { Order, Trade, BacktestConfig } from '@/models';
 import { roundTo } from '@/utils/number';
+import {
+  applySlippage,
+  calculateCommission,
+  calculateSellTax,
+  normalizeStockBuyQuantity,
+  normalizeStockSellQuantity,
+} from '../../../shared/trading-rules/index.js';
 
 export interface FillResult {
   trade: Trade;
@@ -24,12 +31,10 @@ export function fillOrder(
     };
   }
 
-  const slippageFactor = config.slippageBps / 10000;
-
   if (order.side === 'buy') {
-    return fillBuy(order, candleOpen, cash, slippageFactor, config);
+    return fillBuy(order, candleOpen, cash, config);
   } else {
-    return fillSell(order, candleOpen, positionQuantity, slippageFactor, config);
+    return fillSell(order, candleOpen, positionQuantity, config);
   }
 }
 
@@ -37,10 +42,9 @@ function fillBuy(
   order: Order,
   open: number,
   cash: number,
-  slippageFactor: number,
   config: BacktestConfig,
 ): FillResult {
-  const fillPrice = open * (1 + slippageFactor);
+  const fillPrice = applySlippage(open, 'buy', config.slippageBps);
   const requestedSpend = order.quantity * fillPrice;
   const maxSpend = Math.min(
     cash * config.positionSizing.value,
@@ -50,9 +54,10 @@ function fillBuy(
 
   if (unitMode === 'stock') {
     const lotSize = 100;
-    const affordableQuantity = Math.floor(
-      Math.min(order.quantity, maxSpend / fillPrice) / lotSize,
-    ) * lotSize;
+    const affordableQuantity = normalizeStockBuyQuantity(
+      Math.min(order.quantity, maxSpend / fillPrice),
+      lotSize,
+    );
 
     if (affordableQuantity < lotSize) {
       return {
@@ -63,11 +68,19 @@ function fillBuy(
 
     let quantity = affordableQuantity;
     let amount = quantity * fillPrice;
-    let commission = Math.max(amount * config.commissionRate, config.minimumCommission);
+    let commission = calculateCommission(
+      amount,
+      config.commissionRate,
+      config.minimumCommission,
+    );
     while (quantity >= lotSize && amount + commission > cash) {
       quantity -= lotSize;
       amount = quantity * fillPrice;
-      commission = Math.max(amount * config.commissionRate, config.minimumCommission);
+      commission = calculateCommission(
+        amount,
+        config.commissionRate,
+        config.minimumCommission,
+      );
     }
 
     if (quantity < lotSize) {
@@ -92,7 +105,11 @@ function fillBuy(
         error: '现金不足',
       };
     }
-    let commission = Math.max(amount * config.commissionRate, config.minimumCommission);
+    let commission = calculateCommission(
+      amount,
+      config.commissionRate,
+      config.minimumCommission,
+    );
     if (amount + commission > cash) {
       amount = cash - commission;
       if (amount <= 0) {
@@ -101,7 +118,11 @@ function fillBuy(
           error: '现金不足',
         };
       }
-      commission = Math.max(amount * config.commissionRate, config.minimumCommission);
+      commission = calculateCommission(
+        amount,
+        config.commissionRate,
+        config.minimumCommission,
+      );
       if (amount + commission > cash) {
         amount = cash - commission;
       }
@@ -129,7 +150,11 @@ function fillBuy(
   let amount = Math.floor(
     Math.min(requestedSpend, maxAmount) / minimumTradeAmount,
   ) * minimumTradeAmount;
-  let commission = Math.max(amount * config.commissionRate, config.minimumCommission);
+  let commission = calculateCommission(
+    amount,
+    config.commissionRate,
+    config.minimumCommission,
+  );
 
   // Check if we can afford it
   if (amount + commission > cash) {
@@ -148,7 +173,11 @@ function fillBuy(
     }
 
     amount = Math.min(amount, affordableAmount);
-    commission = Math.max(amount * config.commissionRate, config.minimumCommission);
+    commission = calculateCommission(
+      amount,
+      config.commissionRate,
+      config.minimumCommission,
+    );
   }
 
   return createBuyFill(order, open, fillPrice, amount / fillPrice, amount, commission);
@@ -183,7 +212,6 @@ function fillSell(
   order: Order,
   open: number,
   positionQuantity: number,
-  slippageFactor: number,
   config: BacktestConfig,
 ): FillResult {
   if (positionQuantity <= 0) {
@@ -193,10 +221,10 @@ function fillSell(
     };
   }
 
-  const fillPrice = open * (1 - slippageFactor);
+  const fillPrice = applySlippage(open, 'sell', config.slippageBps);
   const requestedQuantity = Math.min(order.quantity, positionQuantity);
-  const quantity = config.tradingUnitMode === 'stock' && requestedQuantity < positionQuantity
-    ? Math.floor(requestedQuantity / 100) * 100
+  const quantity = config.tradingUnitMode === 'stock'
+    ? normalizeStockSellQuantity(requestedQuantity, positionQuantity)
     : requestedQuantity;
   if (quantity <= 0) {
     return {
@@ -205,8 +233,12 @@ function fillSell(
     };
   }
   const amount = quantity * fillPrice;
-  const commission = Math.max(amount * config.commissionRate, config.minimumCommission);
-  const tax = amount * config.sellTaxRate;
+  const commission = calculateCommission(
+    amount,
+    config.commissionRate,
+    config.minimumCommission,
+  );
+  const tax = calculateSellTax(amount, config.sellTaxRate);
 
   return {
     trade: {

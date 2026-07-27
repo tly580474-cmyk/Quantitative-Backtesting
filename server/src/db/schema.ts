@@ -11,6 +11,7 @@ import {
   bigint,
   primaryKey,
   text,
+  decimal,
 } from 'drizzle-orm/mysql-core';
 import { sql } from 'drizzle-orm';
 
@@ -871,4 +872,99 @@ export const factorMiningSchedules = mysqlTable('factor_mining_schedules', {
   updatedAt: varchar('updated_at', { length: 24 }).notNull(),
 }, (table) => ({
   enabledIdx: index('idx_fms_enabled_updated').on(table.enabled, table.updatedAt),
+}));
+
+// ─── Paper trading ───────────────────────────────────────────────
+export const paperAccounts = mysqlTable('paper_accounts', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 128 }).notNull(),
+  currency: varchar('currency', { length: 3 }).notNull().default('CNY'),
+  initialCash: decimal('initial_cash', { precision: 20, scale: 4 }).notNull(),
+  cashBalance: decimal('cash_balance', { precision: 20, scale: 4 }).notNull(),
+  frozenCash: decimal('frozen_cash', { precision: 20, scale: 4 }).notNull().default('0'),
+  commissionRate: decimal('commission_rate', { precision: 12, scale: 8 }).notNull().default('0.00030000'),
+  minimumCommission: decimal('minimum_commission', { precision: 20, scale: 4 }).notNull().default('5.0000'),
+  sellTaxRate: decimal('sell_tax_rate', { precision: 12, scale: 8 }).notNull().default('0.00050000'),
+  slippageBps: decimal('slippage_bps', { precision: 12, scale: 4 }).notNull().default('1.0000'),
+  status: varchar('status', { length: 16 }).notNull().default('active'),
+  createdAt: datetime('created_at', { mode: 'string', fsp: 3 }).notNull(),
+  updatedAt: datetime('updated_at', { mode: 'string', fsp: 3 }).notNull(),
+}, (table) => ({
+  statusUpdatedIdx: index('idx_pa_status_updated').on(table.status, table.updatedAt),
+}));
+
+export const paperOrders = mysqlTable('paper_orders', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  accountId: varchar('account_id', { length: 36 }).notNull(),
+  instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
+  clientOrderId: varchar('client_order_id', { length: 64 }).notNull(),
+  securityCode: varchar('security_code', { length: 20 }).notNull(),
+  securityName: varchar('security_name', { length: 255 }).notNull(),
+  market: varchar('market', { length: 16 }).notNull(),
+  side: varchar('side', { length: 8 }).notNull(),
+  orderType: varchar('order_type', { length: 16 }).notNull(),
+  timeInForce: varchar('time_in_force', { length: 8 }).notNull().default('day'),
+  quantity: decimal('quantity', { precision: 20, scale: 6 }).notNull(),
+  limitPrice: decimal('limit_price', { precision: 20, scale: 4 }),
+  status: varchar('status', { length: 24 }).notNull(),
+  filledQuantity: decimal('filled_quantity', { precision: 20, scale: 6 }).notNull().default('0'),
+  averageFillPrice: decimal('average_fill_price', { precision: 20, scale: 4 }),
+  frozenCash: decimal('frozen_cash', { precision: 20, scale: 4 }).notNull().default('0'),
+  frozenQuantity: decimal('frozen_quantity', { precision: 20, scale: 6 }).notNull().default('0'),
+  rejectCode: varchar('reject_code', { length: 64 }),
+  rejectReason: varchar('reject_reason', { length: 500 }),
+  ruleVersion: varchar('rule_version', { length: 64 }).notNull(),
+  submittedAt: datetime('submitted_at', { mode: 'string', fsp: 3 }).notNull(),
+  updatedAt: datetime('updated_at', { mode: 'string', fsp: 3 }).notNull(),
+}, (table) => ({
+  accountClientUnique: uniqueIndex('idx_po_account_client').on(table.accountId, table.clientOrderId),
+  accountStatusIdx: index('idx_po_account_status').on(table.accountId, table.status, table.submittedAt),
+  instrumentStatusIdx: index('idx_po_instrument_status').on(table.instrumentKey, table.status),
+}));
+
+export const paperPositions = mysqlTable('paper_positions', {
+  accountId: varchar('account_id', { length: 36 }).notNull(),
+  instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
+  securityCode: varchar('security_code', { length: 20 }).notNull(),
+  securityName: varchar('security_name', { length: 255 }).notNull(),
+  market: varchar('market', { length: 16 }).notNull(),
+  totalQuantity: decimal('total_quantity', { precision: 20, scale: 6 }).notNull().default('0'),
+  availableQuantity: decimal('available_quantity', { precision: 20, scale: 6 }).notNull().default('0'),
+  frozenQuantity: decimal('frozen_quantity', { precision: 20, scale: 6 }).notNull().default('0'),
+  averageCost: decimal('average_cost', { precision: 20, scale: 4 }).notNull().default('0'),
+  lastPrice: decimal('last_price', { precision: 20, scale: 4 }),
+  marketValue: decimal('market_value', { precision: 20, scale: 4 }).notNull().default('0'),
+  realizedPnl: decimal('realized_pnl', { precision: 20, scale: 4 }).notNull().default('0'),
+  updatedAt: datetime('updated_at', { mode: 'string', fsp: 3 }).notNull(),
+}, (table) => ({
+  accountInstrumentPk: primaryKey({ columns: [table.accountId, table.instrumentKey] }),
+  instrumentIdx: index('idx_pp_instrument').on(table.instrumentKey),
+}));
+
+export const paperTrades = mysqlTable('paper_trades', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  orderId: varchar('order_id', { length: 36 }).notNull(),
+  accountId: varchar('account_id', { length: 36 }).notNull(),
+  instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
+  executionRunId: varchar('execution_run_id', { length: 36 }).notNull(),
+  fillSequence: int('fill_sequence', { unsigned: true }).notNull(),
+  side: varchar('side', { length: 8 }).notNull(),
+  quantity: decimal('quantity', { precision: 20, scale: 6 }).notNull(),
+  rawPrice: decimal('raw_price', { precision: 20, scale: 4 }).notNull(),
+  fillPrice: decimal('fill_price', { precision: 20, scale: 4 }).notNull(),
+  amount: decimal('amount', { precision: 20, scale: 4 }).notNull(),
+  commission: decimal('commission', { precision: 20, scale: 4 }).notNull(),
+  tax: decimal('tax', { precision: 20, scale: 4 }).notNull(),
+  slippageCost: decimal('slippage_cost', { precision: 20, scale: 4 }).notNull(),
+  quoteTime: datetime('quote_time', { mode: 'string', fsp: 3 }).notNull(),
+  quoteSource: varchar('quote_source', { length: 64 }).notNull(),
+  ruleVersion: varchar('rule_version', { length: 64 }).notNull(),
+  createdAt: datetime('created_at', { mode: 'string', fsp: 3 }).notNull(),
+}, (table) => ({
+  orderRunSequenceUnique: uniqueIndex('idx_pt_order_run_seq').on(
+    table.orderId,
+    table.executionRunId,
+    table.fillSequence,
+  ),
+  accountCreatedIdx: index('idx_pt_account_created').on(table.accountId, table.createdAt),
 }));

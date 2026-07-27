@@ -578,14 +578,15 @@ async function executeIncrementalSync(
     quoteUpdates.push({ instrument, quote });
     const prior = previousBarByKey.get(instrument.instrumentKey);
     const priorOpenDate = priorOpenDateByMarket.get(instrument.market);
-    if (
-      priorOpenDate
-      && (!prior || prior.tradeDate < priorOpenDate)
-    ) {
+    const gapRange = resolveIncrementalGapRange({
+      priorTradeDate: prior?.tradeDate ?? null,
+      listDate: instrument.listDate ?? null,
+      priorOpenDate: priorOpenDate ?? null,
+    });
+    if (gapRange) {
       gapUpdates.push({
         instrument,
-        startDate: prior ? incrementDate(prior.tradeDate) : (instrument.listDate ?? '2010-01-01'),
-        endDate: priorOpenDate,
+        ...gapRange,
       });
     }
   }
@@ -1146,6 +1147,22 @@ function previousWeekday(today: string): string {
     value = addDays(value, -1);
   }
   return value;
+}
+
+export function resolveIncrementalGapRange(input: {
+  priorTradeDate: string | null;
+  listDate: string | null;
+  priorOpenDate: string | null;
+}): { startDate: string; endDate: string } | null {
+  if (!input.priorOpenDate) return null;
+  const startDate = input.priorTradeDate
+    ? incrementDate(input.priorTradeDate)
+    : (input.listDate ?? '2010-01-01');
+  if (startDate > input.priorOpenDate) return null;
+  return {
+    startDate,
+    endDate: input.priorOpenDate,
+  };
 }
 
 function deriveShares(

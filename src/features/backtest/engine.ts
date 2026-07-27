@@ -20,6 +20,12 @@ import {
 } from './portfolio';
 import { calculateMetrics } from './metrics';
 import { validateBacktestInput } from './validation';
+import {
+  applySlippage,
+  calculateCommission,
+  calculateSellTax,
+  normalizeStockBuyQuantity,
+} from '../../../shared/trading-rules/index.js';
 
 export interface BacktestInput {
   candles: Candle[];
@@ -111,13 +117,16 @@ function createBuyOrder(
   cash: number,
   config: BacktestConfig,
 ): Order | null {
-  const slippageFactor = config.slippageBps / 10000;
-  const estimatedFillPrice = nextCandle.open * (1 + slippageFactor);
+  const estimatedFillPrice = applySlippage(
+    nextCandle.open,
+    'buy',
+    config.slippageBps,
+  );
   const spendLimit = config.backtestMode === 'dca'
     ? Math.min(config.dca.amount, cash * config.positionSizing.value)
     : cash * config.positionSizing.value;
   const quantity = config.tradingUnitMode === 'stock'
-    ? Math.floor(spendLimit / estimatedFillPrice / 100) * 100
+    ? normalizeStockBuyQuantity(spendLimit / estimatedFillPrice)
     : Math.floor(spendLimit / (config.minimumTradeAmount ?? 1))
       * (config.minimumTradeAmount ?? 1) / estimatedFillPrice;
   if (quantity <= 0) return null;
@@ -181,13 +190,14 @@ function createTargetPositionOrder(
   if (Math.abs(valueDelta) < minimumValue) return null;
 
   const side = valueDelta > 0 ? 'buy' : 'sell';
-  const slippageFactor = config.slippageBps / 10000;
-  const estimatedFillPrice = nextCandle.open * (
-    side === 'buy' ? 1 + slippageFactor : 1 - slippageFactor
+  const estimatedFillPrice = applySlippage(
+    nextCandle.open,
+    side,
+    config.slippageBps,
   );
   let quantity = Math.abs(valueDelta) / estimatedFillPrice;
   if (config.tradingUnitMode === 'stock') {
-    quantity = Math.floor(quantity / 100) * 100;
+    quantity = normalizeStockBuyQuantity(quantity);
   } else {
     const minimumTradeAmount = config.minimumTradeAmount ?? 1;
     const amount = Math.floor(
@@ -235,7 +245,7 @@ function executeDcaPurchase(
     side: 'buy',
     orderType: 'market',
     quantity: config.tradingUnitMode === 'stock'
-      ? Math.floor(investmentAmount / candle.close / 100) * 100
+      ? normalizeStockBuyQuantity(investmentAmount / candle.close)
       : Math.floor(investmentAmount / (config.minimumTradeAmount ?? 1))
         * (config.minimumTradeAmount ?? 1) / candle.close,
     status: 'pending',
@@ -387,7 +397,7 @@ function processBar(
         state.pendingOrder = createSellOrder(
           signal,
           state.portfolio.positionQuantity,
-          nextCandle.open * (1 - config.slippageBps / 10000),
+          applySlippage(nextCandle.open, 'sell', config.slippageBps),
           config,
         );
       } else {
@@ -430,11 +440,15 @@ function processBar(
       quantity: state.portfolio.positionQuantity,
       rawPrice: candle.close,
       fillPrice: candle.close,
-      commission: Math.max(
-        state.portfolio.positionQuantity * candle.close * config.commissionRate,
+      commission: calculateCommission(
+        state.portfolio.positionQuantity * candle.close,
+        config.commissionRate,
         config.minimumCommission,
       ),
-      tax: state.portfolio.positionQuantity * candle.close * config.sellTaxRate,
+      tax: calculateSellTax(
+        state.portfolio.positionQuantity * candle.close,
+        config.sellTaxRate,
+      ),
       slippageCost: 0,
       amount: state.portfolio.positionQuantity * candle.close,
       forceClose: true,

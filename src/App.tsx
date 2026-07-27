@@ -17,6 +17,7 @@ import {
   ReloadOutlined,
   SettingOutlined,
   StarOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import zhCN from 'antd/locale/zh_CN';
@@ -58,6 +59,7 @@ const BacktestResultsPage = lazy(() => import('./features/backtestResults/Backte
 const StrategyStudioPage = lazy(() => import('./features/strategyStudio/StrategyStudioPage'));
 const MarketDataPage = lazy(() => import('./features/marketData/MarketDataPage'));
 const FactorResearchPage = lazy(() => import('./features/factorResearch/FactorResearchPage'));
+const PaperTradingPage = lazy(() => import('./features/paperTrading/PaperTradingPage'));
 
 interface MinuteCatalogResponse {
   status: 'ready' | 'unavailable';
@@ -150,6 +152,7 @@ const NAV_ITEMS: MenuProps['items'] = [
     label: '回测实验',
     children: [
       { key: '/backtest', icon: <ExperimentOutlined />, label: '策略回测' },
+      { key: '/paper-trading', icon: <SwapOutlined />, label: '模拟交易' },
     ],
   },
   {
@@ -167,6 +170,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/analysis': '行情分析',
   '/data': '数据管理',
   '/backtest': '策略回测',
+  '/paper-trading': '模拟交易',
   '/results': '回测结果',
   '/factors': '因子研究',
   '/studio': '策略工作室',
@@ -801,6 +805,7 @@ function AppContent() {
                 <Route path="/market-detail/:code" element={<MarketDetailRoute />} />
                 <Route path="/watchlist" element={<WatchlistRoute />} />
                 <Route path="/backtest" element={<BacktestRunner />} />
+                <Route path="/paper-trading" element={<PaperTradingPage />} />
                 <Route path="/results" element={<BacktestResultsPage />} />
                 <Route path="/factors" element={<FactorResearchPage />} />
                 <Route path="/studio" element={<StrategyStudioPage />} />

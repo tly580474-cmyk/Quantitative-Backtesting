@@ -17,6 +17,11 @@ import { registerSyncJobRoutes } from './routes/syncJobs.js';
 import { registerDataQualityRoutes } from './routes/dataQuality.js';
 import { registerFactorResearchRoutes } from './routes/factorResearch.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerPaperTradingRoutes } from './routes/paperTrading.js';
+import {
+  startPaperTradingScheduler,
+  stopPaperTradingScheduler,
+} from './paperTrading/scheduler.js';
 import { MockStrategyGenerationProvider } from './services/strategyGeneration/mockProvider.js';
 import { OpenAIStrategyGenerationProvider } from './services/strategyGeneration/openaiProvider.js';
 import type { StrategyGenerationProvider } from './services/strategyGeneration/provider.js';
@@ -267,6 +272,17 @@ async function main(): Promise<void> {
   }, opinionPushService);
   registerSyncJobRoutes(app, dbOnline);
   registerDataQualityRoutes(app, dbOnline);
+  registerPaperTradingRoutes(app, {
+    dbOnline,
+    pool,
+    minuteDataRoot: config.MINUTE_DATA_ROOT,
+  });
+  if (dbOnline) {
+    startPaperTradingScheduler({
+      pool,
+      minuteDataRoot: config.MINUTE_DATA_ROOT,
+    });
+  }
   registerAdminRoutes(app, {
     pool,
     dbOnline,
@@ -328,6 +344,7 @@ async function main(): Promise<void> {
     stopMarketNewsScheduler();
     stopMarketOpinionPushScheduler();
     stopFinancialDataScheduler();
+    stopPaperTradingScheduler();
     await app.close();
     closeDb();
     await closePool(pool);
