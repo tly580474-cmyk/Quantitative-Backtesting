@@ -7,6 +7,7 @@ import {
   matchActivePaperOrders,
   settlePaperPositionsT1,
 } from './service.js';
+import { recordAllPaperEquitySnapshots } from './equitySnapshot.js';
 
 export interface PaperTradingSchedulerOptions {
   pool: mysql.Pool;
@@ -18,9 +19,19 @@ export interface PaperTradingSchedulerOptions {
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 let lastSettlementDate = '';
+let lastSnapshotDate = '';
 
 export function shouldRunPaperTradingMatcher(session: ChinaMarketSession) {
   return session.isIntradayUpdateWindow;
+}
+
+/**
+ * 盘后快照触发条件：交易日 15:05 以后（isDailyBarFinal）才允许记录当日权益快照。
+ * 重启后若当日尚未生成快照，会在下一次 tick 自动补录，使用 ON DUPLICATE KEY UPDATE
+ * 保证幂等。
+ */
+export function shouldRunEquitySnapshot(session: ChinaMarketSession) {
+  return session.isDailyBarFinal;
 }
 
 export function startPaperTradingScheduler(options: PaperTradingSchedulerOptions) {
@@ -37,16 +48,29 @@ export function startPaperTradingScheduler(options: PaperTradingSchedulerOptions
         await settlePaperPositionsT1(options.pool, session.tradeDate);
         lastSettlementDate = session.tradeDate;
       }
-      if (!shouldRunPaperTradingMatcher(session)) return;
-      const result = await matchActivePaperOrders(
-        options.pool,
-        options.minuteDataRoot,
-        batchSize,
-      );
-      if (result.matched > 0 || result.failures.length > 0) {
-        console.log(
-          `[PaperTrading] Matcher scanned=${result.scanned} matched=${result.matched} failures=${result.failures.length}`,
+      if (shouldRunPaperTradingMatcher(session)) {
+        const result = await matchActivePaperOrders(
+          options.pool,
+          options.minuteDataRoot,
+          batchSize,
         );
+        if (result.matched > 0 || result.failures.length > 0) {
+          console.log(
+            `[PaperTrading] Matcher scanned=${result.scanned} matched=${result.matched} failures=${result.failures.length}`,
+          );
+        }
+      }
+      if (shouldRunEquitySnapshot(session) && lastSnapshotDate !== session.tradeDate) {
+        const snapshots = await recordAllPaperEquitySnapshots(
+          options.pool,
+          session.tradeDate,
+        );
+        lastSnapshotDate = session.tradeDate;
+        if (snapshots.length > 0) {
+          console.log(
+            `[PaperTrading] Equity snapshots recorded for ${snapshots.length} account(s) on ${session.tradeDate}`,
+          );
+        }
       }
     } catch (error) {
       console.error('[PaperTrading] Scheduler tick failed:', error);
@@ -68,4 +92,5 @@ export function stopPaperTradingScheduler() {
   timer = null;
   running = false;
   lastSettlementDate = '';
+  lastSnapshotDate = '';
 }

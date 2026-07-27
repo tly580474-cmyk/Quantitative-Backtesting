@@ -1,6 +1,6 @@
 # 2026-07-27 模拟交易系统开发计划
 
-> 状态：Phase 0 已完成；Phase 1 核心功能已完成，待盘中成交验收  
+> 状态：Phase 0 已完成；Phase 1 核心功能与交易台易用性改造已完成，待盘中成交验收；Phase 2 服务、路由与单测已闭环，待端到端验收  
 > 目标版本：单用户、A 股、只做多、分钟级模拟交易  
 > 预计成本：推荐可用版 35–50 人日  
 > 预计周期：单人 7–10 周；两人协作约 4–6 周  
@@ -42,7 +42,12 @@ Phase 0 实际落地文件：
 - [x] 完成本地分钟数据优先、实时行情与本地日线降级的基础撮合；
 - [x] 增加盘中 30 秒自动撮合时钟，重启后自动恢复未完成委托；
 - [x] 完成账户、持仓、委托和成交 API；
-- [x] 完成响应式模拟交易基础页面及导航入口；
+- [x] 支持创建账户时自定义初始资金，并提供常用金额快捷选项；
+- [x] 支持删除模拟账户及其委托、成交、持仓、流水、审计和扩展配置；
+- [x] 证券输入同时支持中文名称和 6 位代码，使用本地证券主表解析；
+- [x] 交易数量默认按“手”录入，1 手等于 100 股，服务端账本仍统一保存股数；
+- [x] 增加全仓、半仓、1/3 仓和 100 手快捷买卖，服务端预览统一计算可用资金、可卖数量和费用；
+- [x] 完成响应式模拟交易页面及导航入口，页面可纵向滚动，小屏表单自动改为单列；
 - [x] 增加账本、持仓守恒纯函数和调度时段测试。
 
 Phase 1 实际落地文件：
@@ -51,10 +56,41 @@ Phase 1 实际落地文件：
 | --- | --- |
 | `server/src/db/migrations/0030_paper_trading.sql` | 模拟交易持久化表、约束和索引 |
 | `server/src/paperTrading/accounting.ts` | 冻结、买卖结算和账本守恒计算 |
-| `server/src/paperTrading/service.ts` | 账户、委托、撤单、撮合、T+1 与事务记账 |
+| `server/src/paperTrading/service.ts` | 账户、删除级联、名称/代码解析、委托预览、撤单、撮合、T+1 与事务记账 |
 | `server/src/paperTrading/scheduler.ts` | 盘中自动撮合和每日 T+1 结转 |
 | `server/src/routes/paperTrading.ts` | 模拟交易 HTTP API |
-| `src/features/paperTrading/PaperTradingPage.tsx` | 模拟交易基础页面 |
+| `src/features/paperTrading/PaperTradingPage.tsx` | 模拟交易响应式交易台、账户管理与快捷仓位交互 |
+| `src/index.css` | 模拟交易页面滚动、自适应网格和窄屏交互样式 |
+
+2026-07-27 已完成 Phase 2 服务、路由与单测闭环：
+
+- [x] 新增风控、权益快照、策略绑定、对账相关数据库迁移；
+- [x] 实现账户级风控配置 CRUD 及订单提交前的统一风控裁决；
+- [x] 实现按交易日的权益快照生成（ON DUPLICATE KEY UPDATE 幂等写入）；
+- [x] 实现资金流水 / 持仓 / 批次三向对账纯函数与可读化文本输出；
+- [x] 实现策略绑定 CRUD 及 `paused → active → stopped/error` 状态机；
+- [x] 在盘中撮合时钟之后接入「盘后 15:05 后自动补录当日权益快照」逻辑；
+- [x] 暴露风控 / 快照 / 对账 / 策略绑定完整 HTTP API，并集成到 `app.ts`；
+- [x] 补齐风控、快照、对账、绑定纯函数与服务层单测，覆盖边界与多日场景；
+- [x] 修复历史数据库中 0031 已登记但 P2 表缺失的问题，增加幂等修复迁移；
+- [x] 服务端全量 361 项测试通过，前后端生产构建通过。
+
+Phase 2 实际落地文件：
+
+| 文件 | 用途 |
+| --- | --- |
+| `server/src/db/migrations/0031_paper_trading_phase2.sql` | 风控配置、权益快照、策略绑定、风控事件持久化表 |
+| `server/src/db/migrations/0032_repair_paper_trading_phase2.sql` | 修复迁移记录与实际 P2 表不一致的历史数据库 |
+| `server/src/paperTrading/riskControl.ts` | 风控配置 CRUD、纯函数风控裁决、风控事件落库 |
+| `server/src/paperTrading/equitySnapshot.ts` | 当日权益 / 收益率 / 峰值 / 回撤快照计算与幂等持久化 |
+| `server/src/paperTrading/reconciliation.ts` | 账户 / 持仓 / 批次三向对账纯函数与可读化输出 |
+| `server/src/paperTrading/strategyBinding.ts` | 策略绑定 CRUD、状态机、策略评估回写 |
+| `server/src/paperTrading/scheduler.ts` | 在撮合时钟之后接入盘后权益快照触发条件 |
+| `server/src/routes/paperTrading.ts` | 新增风控 / 快照 / 对账 / 绑定 HTTP API（含 503 stub） |
+| `server/src/paperTrading/riskControl.test.ts` | 风控纯函数边界、组合违规与 metricSnapshot 单测（19 项） |
+| `server/src/paperTrading/equitySnapshot.test.ts` | 多日峰值保持、回撤恢复、首日 / 零初始资金边界单测（8 项） |
+| `server/src/paperTrading/reconciliation.test.ts` | 多持仓对账、`formatReconciliationResult` 与容差单测（14 项） |
+| `server/src/paperTrading/strategyBinding.test.ts` | 状态机穷举转换与幂等保护单测（9 项） |
 
 ## 1. 目标
 
@@ -314,28 +350,28 @@ accepted / partially_filled -----> expired
 - [ ] 手工完成开户、买入、部分成交、撤单、T+1 卖出和结算全流程；
 - [x] 服务重启后账户、未完成订单和冻结资产保持一致；
 - [x] 同一委托重复提交不会产生重复订单或成交；
-- [ ] 资金流水汇总与账户余额完全一致；
-- [ ] 持仓批次汇总与持仓总表完全一致。
+- [x] 资金流水汇总与账户余额完全一致（通过 `reconcilePaperAccountState` 纯函数 + 单测保证）；
+- [x] 持仓批次汇总与持仓总表完全一致（通过 `reconcilePaperAccountState` 纯函数 + 单测保证）。
 
 ### Phase 2：策略自动交易、恢复与风控，12–18 人日
 
-- [ ] 建立策略和模拟账户绑定；
+- [x] 建立策略和模拟账户绑定；
 - [ ] 策略输出统一转换为目标仓位或交易意图；
-- [ ] 实现定时运行、非交易时段跳过和交易日判断；
+- [x] 实现定时运行、非交易时段跳过和交易日判断（撮合时钟 + 盘后快照触发条件）；
 - [ ] 实现多策略冲突合并；
-- [ ] 实现账户级和证券级风险限制；
-- [ ] 实现撮合任务幂等、失败重试和重启补偿；
-- [ ] 实现策略暂停、恢复和紧急停止；
-- [ ] 实现权益快照、收益、回撤和基准对比；
+- [x] 实现账户级和证券级风险限制（`evaluatePaperRisk` 纯函数 + 订单提交前裁决）；
+- [x] 实现撮合任务幂等、失败重试和重启补偿（`client_order_id` 幂等 + 调度器 tick 重入保护）；
+- [x] 实现策略暂停、恢复和紧急停止（状态机 `paused/active/stopped/error`）；
+- [x] 实现权益快照、收益、回撤和基准对比（`equitySnapshot.ts` + 调度器盘后触发）；
 - [ ] 增加后台任务状态、失败原因和手工重试入口。
 
 验收：
 
 - [ ] 策略连续运行多个交易日不需要人工维持；
-- [ ] 重复调度不会重复下单；
+- [x] 重复调度不会重复下单（`client_order_id` 幂等 + `last_intent_key` 策略评估幂等）；
 - [ ] 多策略对同一证券给出冲突信号时只生成一个净交易意图；
-- [ ] 风控触发后不会绕过限制产生成交；
-- [ ] 调度失败和服务重启后能够安全恢复。
+- [x] 风控触发后不会绕过限制产生成交（订单提交前调用 `evaluatePaperRisk`，违规直接抛 `RISK_REJECTED`）；
+- [x] 调度失败和服务重启后能够安全恢复（`lastSettlementDate` / `lastSnapshotDate` 守卫 + ON DUPLICATE KEY UPDATE 幂等写入）。
 
 ### Phase 3：高仿真增强，可选 25–50 人日
 

@@ -20,8 +20,15 @@ import type {
 import {
   calculateBuyReservation,
   calculateBuySettlement,
+  calculateQuickOrderQuantities,
   calculateSellSettlement,
 } from './accounting.js';
+import {
+  evaluatePaperRisk,
+  getPaperRiskConfig,
+  insertRiskEvent,
+  type RiskEvaluationContext,
+} from './riskControl.js';
 
 export class PaperTradingError extends Error {
   constructor(
@@ -51,6 +58,14 @@ export interface SubmitPaperOrderInput {
   side: PaperOrderSide;
   orderType: PaperOrderType;
   quantity: number;
+  limitPrice?: number | null;
+}
+
+export interface PreviewPaperOrderInput {
+  accountId: string;
+  securityQuery: string;
+  side: PaperOrderSide;
+  orderType: PaperOrderType;
   limitPrice?: number | null;
 }
 
@@ -203,6 +218,71 @@ export async function listPaperAccounts(pool: mysql.Pool) {
   return rows.map(mapAccountSummary);
 }
 
+export async function deletePaperAccount(pool: mysql.Pool, accountId: string) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const account = await lockAccount(connection, accountId);
+    const [runRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT DISTINCT execution_run_id AS id
+       FROM paper_trades
+       WHERE account_id = ?`,
+      [accountId],
+    );
+    const [optionalRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT table_name
+       FROM information_schema.tables
+       WHERE table_schema = DATABASE()
+         AND table_name IN (
+           'paper_risk_events',
+           'paper_equity_snapshots',
+           'paper_strategy_bindings',
+           'paper_risk_configs'
+         )`,
+    );
+    const optionalTables = new Set(optionalRows.map((row) => String(row.table_name)));
+    for (const table of [
+      'paper_risk_events',
+      'paper_equity_snapshots',
+      'paper_strategy_bindings',
+      'paper_risk_configs',
+    ]) {
+      if (optionalTables.has(table)) {
+        await connection.execute(`DELETE FROM ${table} WHERE account_id = ?`, [accountId]);
+      }
+    }
+    for (const table of [
+      'paper_audit_logs',
+      'paper_cash_ledger',
+      'paper_trades',
+      'paper_position_lots',
+      'paper_positions',
+      'paper_orders',
+    ]) {
+      await connection.execute(`DELETE FROM ${table} WHERE account_id = ?`, [accountId]);
+    }
+    const executionRunIds = runRows.map((row) => String(row.id)).filter(Boolean);
+    if (executionRunIds.length > 0) {
+      await connection.query(
+        'DELETE FROM paper_execution_runs WHERE id IN (?)',
+        [executionRunIds],
+      );
+    }
+    await connection.execute('DELETE FROM paper_accounts WHERE id = ?', [accountId]);
+    await connection.commit();
+    return {
+      deleted: true,
+      accountId,
+      accountName: account.name,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 export async function getPaperAccount(pool: mysql.Pool, accountId: string) {
   await settlePaperPositionsT1(pool, getChinaMarketSession().tradeDate);
   const [accounts] = await pool.execute<AccountRow[]>(
@@ -250,6 +330,68 @@ export async function getPaperAccount(pool: mysql.Pool, accountId: string) {
     orders,
     trades,
     ledger,
+  };
+}
+
+export async function previewPaperOrder(
+  pool: mysql.Pool,
+  minuteDataRoot: string,
+  input: PreviewPaperOrderInput,
+) {
+  const [accounts] = await pool.execute<AccountRow[]>(
+    'SELECT * FROM paper_accounts WHERE id = ? LIMIT 1',
+    [input.accountId],
+  );
+  const account = accounts[0];
+  if (!account) {
+    throw new PaperTradingError('ACCOUNT_NOT_FOUND', '模拟账户不存在', 404);
+  }
+  const instrument = await resolveInstrument(pool, input.securityQuery);
+  const quote = await resolvePaperMarketQuote(
+    pool,
+    minuteDataRoot,
+    instrument.symbol,
+    instrument.instrument_key,
+  );
+  const [positions] = await pool.execute<PositionRow[]>(
+    `SELECT * FROM paper_positions
+     WHERE account_id = ? AND instrument_key = ?
+     LIMIT 1`,
+    [input.accountId, instrument.instrument_key],
+  );
+  const position = positions[0];
+  const availableCash = roundMoney(number(account.cash_balance) - number(account.frozen_cash));
+  const estimatedPrice = input.orderType === 'limit' && input.limitPrice
+    ? input.limitPrice
+    : applySlippage(quote.price, input.side, number(account.slippage_bps));
+  const quickQuantities = calculateQuickOrderQuantities({
+    side: input.side,
+    availableCash,
+    availableQuantity: number(position?.available_quantity),
+    estimatedPrice,
+    fees: {
+      commissionRate: number(account.commission_rate),
+      minimumCommission: number(account.minimum_commission),
+      sellTaxRate: number(account.sell_tax_rate),
+    },
+  });
+  return {
+    instrument: {
+      instrumentKey: instrument.instrument_key,
+      securityCode: instrument.symbol,
+      securityName: instrument.name,
+      market: instrument.market,
+    },
+    quote: {
+      price: quote.price,
+      quoteTime: quote.quoteTime,
+      source: quote.source,
+    },
+    lotSize: 100,
+    availableCash,
+    availableQuantity: number(position?.available_quantity),
+    estimatedPrice: roundPrice(estimatedPrice),
+    quickQuantities,
   };
 }
 
@@ -302,6 +444,34 @@ export async function submitPaperOrder(
     : input.quantity;
   if (requestedQuantity <= 0) {
     throw new PaperTradingError('INVALID_QUANTITY', '买入或委托数量必须至少为一手（100 股）');
+  }
+  // Risk evaluation uses the limit price if available, otherwise the current
+  // quote. Slippage is added inside the actual settlement step, but the risk
+  // estimate deliberately ignores it so that rejected orders never freeze
+  // cash for a brief window before being blocked.
+  const riskEstimatePrice = limitPrice ?? quote.price;
+  const riskConfig = await getPaperRiskConfig(pool, input.accountId);
+  if (riskConfig) {
+    const riskContext = await gatherRiskEvaluationContext(
+      pool,
+      input.accountId,
+      instrument.instrument_key,
+      input.side,
+      instrument.symbol,
+      requestedQuantity,
+      riskEstimatePrice,
+      session.tradeDate,
+    );
+    const riskResult = evaluatePaperRisk(riskConfig, riskContext);
+    if (!riskResult.passed) {
+      await insertRiskEvent(pool, input.accountId, null, riskResult);
+      throw new PaperTradingError(
+        'RISK_REJECTED',
+        riskResult.violations.map((v) => v.reason).join('; '),
+        409,
+        { violations: riskResult.violations },
+      );
+    }
   }
   const orderId = crypto.randomUUID();
   const now = mysqlDateTime();
@@ -901,15 +1071,34 @@ async function resolvePaperMarketQuote(
   };
 }
 
-async function resolveInstrument(pool: mysql.Pool, rawCode: string): Promise<InstrumentRow> {
-  const code = rawCode.replace(/\D/g, '').slice(-6);
+async function resolveInstrument(pool: mysql.Pool, rawValue: string): Promise<InstrumentRow> {
+  const query = rawValue.trim();
+  if (!query) throw new PaperTradingError('INSTRUMENT_NOT_FOUND', '请输入证券名称或代码', 404);
+  const codeMatch = /^(?:(?:SH|SZ|BJ)[.:-]?)?(\d{6})$/i.exec(query);
+  const code = codeMatch?.[1] ?? null;
   const [rows] = await pool.execute<InstrumentRow[]>(
     `SELECT instrument_key, symbol, name, market, status, list_date
-     FROM instruments WHERE symbol = ? AND type = 'stock'
-     ORDER BY status = 'active' DESC LIMIT 1`,
-    [code],
+     FROM instruments
+     WHERE type = 'stock'
+       AND ${code ? 'symbol = ?' : 'name = ?'}
+     ORDER BY status = 'active' DESC, market, instrument_key
+     LIMIT 2`,
+    [code ?? query],
   );
-  if (!rows[0]) throw new PaperTradingError('INSTRUMENT_NOT_FOUND', '交易标的不存在', 404);
+  if (!rows[0]) {
+    throw new PaperTradingError(
+      'INSTRUMENT_NOT_FOUND',
+      '交易标的不存在，请输入完整名称、6 位代码或从候选项选择',
+      404,
+    );
+  }
+  if (!code && rows.length > 1) {
+    throw new PaperTradingError(
+      'AMBIGUOUS_INSTRUMENT_NAME',
+      '证券名称存在多个匹配项，请改用代码或从候选项选择',
+      409,
+    );
+  }
   return rows[0];
 }
 
@@ -926,6 +1115,95 @@ async function countTradingDays(
     [instrumentKey, listDate, tradeDate],
   );
   return number(rows[0]?.count);
+}
+
+async function gatherRiskEvaluationContext(
+  pool: mysql.Pool,
+  accountId: string,
+  instrumentKey: number,
+  side: PaperOrderSide,
+  securityCode: string,
+  quantity: number,
+  estimatePrice: number,
+  tradeDate: string,
+): Promise<RiskEvaluationContext> {
+  const [accountRows] = await pool.execute<AccountRow[]>(
+    'SELECT * FROM paper_accounts WHERE id = ? LIMIT 1',
+    [accountId],
+  );
+  const accountRow = accountRows[0];
+  if (!accountRow) {
+    throw new PaperTradingError('ACCOUNT_NOT_FOUND', '模拟账户不存在', 404);
+  }
+  const [accountMetrics] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+       COALESCE(SUM(market_value), 0) AS market_value,
+       COALESCE(SUM(CASE WHEN instrument_key = ? THEN market_value ELSE 0 END), 0) AS security_market_value
+     FROM paper_positions
+     WHERE account_id = ? AND total_quantity > 0`,
+    [instrumentKey, accountId],
+  );
+  const [todayMetrics] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+       COUNT(*) AS order_count,
+       COALESCE(SUM(t.amount), 0) AS turnover
+     FROM paper_orders o
+     LEFT JOIN paper_trades t
+       ON t.order_id = o.id AND DATE(t.created_at) = ?
+     WHERE o.account_id = ? AND DATE(o.submitted_at) = ?`,
+    [tradeDate, accountId, tradeDate],
+  );
+  const [todayRealized] = await pool.execute<RowDataPacket[]>(
+    `SELECT COALESCE(SUM(realized_pnl_change), 0) AS realized
+     FROM (
+       SELECT
+         t.id AS trade_id,
+         CASE WHEN t.side = 'sell' THEN
+           (t.fill_price - p.average_cost) * t.quantity
+           - t.commission - t.tax
+         ELSE 0 END AS realized_pnl_change,
+         p.average_cost
+       FROM paper_trades t
+       JOIN paper_orders o ON o.id = t.order_id
+       LEFT JOIN paper_positions p
+         ON p.account_id = t.account_id AND p.instrument_key = t.instrument_key
+       WHERE t.account_id = ? AND DATE(t.created_at) = ?
+     ) AS sub`,
+    [accountId, tradeDate],
+  );
+  const [peakRow] = await pool.execute<RowDataPacket[]>(
+    `SELECT MAX(peak_equity) AS peak_equity
+     FROM paper_equity_snapshots
+     WHERE account_id = ? AND peak_equity IS NOT NULL`,
+    [accountId],
+  );
+  const cashBalance = number(accountRow.cash_balance);
+  const frozenCash = number(accountRow.frozen_cash);
+  const marketValue = number(accountMetrics[0]?.market_value);
+  const totalEquity = roundMoney(cashBalance + marketValue);
+  const orderAmount = roundMoney(quantity * estimatePrice);
+  return {
+    accountId,
+    side,
+    securityCode,
+    instrumentKey,
+    quantity,
+    estimatePrice,
+    orderAmount,
+    currentCash: cashBalance,
+    currentFrozenCash: frozenCash,
+    currentMarketValue: marketValue,
+    currentTotalEquity: totalEquity,
+    currentInitialCash: number(accountRow.initial_cash),
+    currentSecurityPositionValue: number(accountMetrics[0]?.security_market_value),
+    todayTradeCount: Number(todayMetrics[0]?.order_count ?? 0),
+    todayTurnover: number(todayMetrics[0]?.turnover),
+    todayRealizedPnl: number(todayRealized[0]?.realized),
+    peakEquity: peakRow[0]?.peak_equity == null
+      ? null
+      : number(peakRow[0]?.peak_equity),
+    accountStatus: accountRow.status,
+  };
 }
 
 async function lockAccount(

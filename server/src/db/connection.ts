@@ -8,6 +8,7 @@ export function createPool(config: EnvConfig) {
     user: config.DB_USER,
     password: config.DB_PASSWORD,
     database: config.DB_NAME,
+    charset: 'utf8mb4',
     waitForConnections: true,
     connectionLimit: 10,
     idleTimeout: 60000,

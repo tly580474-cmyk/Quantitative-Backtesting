@@ -4,6 +4,8 @@ import {
   assertPositionBalances,
   calculateBuyReservation,
   calculateBuySettlement,
+  calculateMaxAffordableBuyQuantity,
+  calculateQuickOrderQuantities,
   calculateSellSettlement,
 } from './accounting.js';
 
@@ -52,5 +54,39 @@ describe('paper trading accounting', () => {
       availableQuantity: 700,
       frozenQuantity: 400,
     })).toThrow('守恒约束');
+  });
+
+  it('calculates an affordable whole-lot buy quantity including commission', () => {
+    expect(calculateMaxAffordableBuyQuantity(10_000, 10, fees)).toBe(900);
+    expect(calculateMaxAffordableBuyQuantity(1_004, 10, fees)).toBe(0);
+  });
+
+  it('builds buy and sell quick quantities within available assets', () => {
+    expect(calculateQuickOrderQuantities({
+      side: 'buy',
+      availableCash: 100_000,
+      availableQuantity: 0,
+      estimatedPrice: 10,
+      fees,
+    })).toEqual({
+      full: 9_900,
+      half: 4_900,
+      third: 3_300,
+      fixedHundredLots: 10_000,
+      fixedHundredLotsAvailable: false,
+    });
+    expect(calculateQuickOrderQuantities({
+      side: 'sell',
+      availableCash: 0,
+      availableQuantity: 1_550,
+      estimatedPrice: 10,
+      fees,
+    })).toEqual({
+      full: 1_550,
+      half: 700,
+      third: 500,
+      fixedHundredLots: 10_000,
+      fixedHundredLotsAvailable: false,
+    });
   });
 });

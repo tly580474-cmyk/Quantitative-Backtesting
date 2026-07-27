@@ -71,6 +71,65 @@ export function calculateSellSettlement(
   };
 }
 
+export function calculateMaxAffordableBuyQuantity(
+  availableCash: number,
+  estimatedPrice: number,
+  fees: PaperFeeConfig,
+  lotSize = 100,
+) {
+  if (
+    !Number.isFinite(availableCash)
+    || !Number.isFinite(estimatedPrice)
+    || !Number.isFinite(lotSize)
+    || availableCash <= 0
+    || estimatedPrice <= 0
+    || lotSize <= 0
+  ) return 0;
+  let quantity = Math.floor(availableCash / estimatedPrice / lotSize) * lotSize;
+  while (
+    quantity > 0
+    && calculateBuyReservation(quantity, estimatedPrice, fees).frozenCash > availableCash
+  ) {
+    quantity -= lotSize;
+  }
+  return Math.max(0, quantity);
+}
+
+export function calculateQuickOrderQuantities(input: {
+  side: 'buy' | 'sell';
+  availableCash: number;
+  availableQuantity: number;
+  estimatedPrice: number;
+  fees: PaperFeeConfig;
+  lotSize?: number;
+}) {
+  const lotSize = input.lotSize ?? 100;
+  const full = input.side === 'buy'
+    ? calculateMaxAffordableBuyQuantity(
+      input.availableCash,
+      input.estimatedPrice,
+      input.fees,
+      lotSize,
+    )
+    : Math.max(0, Math.floor(input.availableQuantity));
+  const fractionalQuantity = (ratio: number) => input.side === 'buy'
+    ? calculateMaxAffordableBuyQuantity(
+      input.availableCash * ratio,
+      input.estimatedPrice,
+      input.fees,
+      lotSize,
+    )
+    : Math.floor(input.availableQuantity * ratio / lotSize) * lotSize;
+  const fixedHundredLots = lotSize * 100;
+  return {
+    full,
+    half: fractionalQuantity(0.5),
+    third: fractionalQuantity(1 / 3),
+    fixedHundredLots,
+    fixedHundredLotsAvailable: full >= fixedHundredLots,
+  };
+}
+
 export function assertAccountBalances(input: {
   cashBalance: number;
   frozenCash: number;

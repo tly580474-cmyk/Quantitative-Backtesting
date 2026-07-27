@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AutoComplete,
   Button,
   Card,
   Col,
@@ -12,6 +13,7 @@ import {
   Row,
   Select,
   Space,
+  Spin,
   Statistic,
   Table,
   Tabs,
@@ -20,12 +22,15 @@ import {
   message,
 } from 'antd';
 import {
+  DeleteOutlined,
   PlusOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
+  SearchOutlined,
   SwapOutlined,
 } from '@ant-design/icons';
 import { apiFetch } from '@/api/client';
+import type { StockSearchItem } from '@/features/marketData/types';
 
 const { Text, Title } = Typography;
 
@@ -81,6 +86,31 @@ interface PaperAccountDetail extends PaperAccountSummary {
   ledger: Array<Record<string, unknown>>;
 }
 
+interface PaperOrderPreview {
+  instrument: {
+    instrumentKey: number;
+    securityCode: string;
+    securityName: string;
+    market: string;
+  };
+  quote: {
+    price: number;
+    quoteTime: string;
+    source: string;
+  };
+  lotSize: number;
+  availableCash: number;
+  availableQuantity: number;
+  estimatedPrice: number;
+  quickQuantities: {
+    full: number;
+    half: number;
+    third: number;
+    fixedHundredLots: number;
+    fixedHundredLotsAvailable: boolean;
+  };
+}
+
 const ACTIVE_ORDER_STATUSES = new Set(['accepted', 'partially_filled']);
 
 export default function PaperTradingPage() {
@@ -89,9 +119,18 @@ export default function PaperTradingPage() {
   const [detail, setDetail] = useState<PaperAccountDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [securityOptions, setSecurityOptions] = useState<StockSearchItem[]>([]);
+  const [securitySearching, setSecuritySearching] = useState(false);
+  const [orderPreview, setOrderPreview] = useState<PaperOrderPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const securitySearchSequence = useRef(0);
   const [accountForm] = Form.useForm();
   const [orderForm] = Form.useForm();
   const orderType = Form.useWatch('orderType', orderForm) ?? 'market';
+  const orderSide = Form.useWatch('side', orderForm) ?? 'buy';
+  const securityQuery = Form.useWatch('securityCode', orderForm) ?? '';
+  const limitPrice = Form.useWatch('limitPrice', orderForm);
   const selectedAccount = useMemo(
     () => accounts.find((item) => item.id === selectedAccountId),
     [accounts, selectedAccountId],
@@ -156,6 +195,93 @@ export default function PaperTradingPage() {
     await loadAccounts(false);
   };
 
+  const deleteAccount = async () => {
+    if (!selectedAccountId) return;
+    setDeletingAccount(true);
+    try {
+      await apiFetch(`/api/paper-trading/accounts/${selectedAccountId}`, {
+        method: 'DELETE',
+      });
+      message.success('模拟账户及其交易记录已删除');
+      setDetail(null);
+      setSelectedAccountId(undefined);
+      setOrderPreview(null);
+      await loadAccounts(false);
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const searchSecurities = useCallback(async (value: string) => {
+    const query = value.trim();
+    const sequence = securitySearchSequence.current + 1;
+    securitySearchSequence.current = sequence;
+    setOrderPreview(null);
+    if (!query) {
+      setSecurityOptions([]);
+      return;
+    }
+    setSecuritySearching(true);
+    try {
+      const result = await apiFetch<{ items: StockSearchItem[] }>(
+        `/api/market-data/stocks/search?q=${encodeURIComponent(query)}`,
+      );
+      if (sequence === securitySearchSequence.current) {
+        setSecurityOptions(result.items ?? []);
+      }
+    } catch {
+      if (sequence === securitySearchSequence.current) setSecurityOptions([]);
+    } finally {
+      if (sequence === securitySearchSequence.current) setSecuritySearching(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (
+      !selectedAccountId
+      || !securityQuery.trim()
+      || (orderType === 'limit' && !(Number(limitPrice) > 0))
+    ) {
+      setOrderPreview(null);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setPreviewLoading(true);
+      try {
+        const preview = await apiFetch<PaperOrderPreview>(
+          '/api/paper-trading/orders/preview',
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              accountId: selectedAccountId,
+              securityQuery: securityQuery.trim(),
+              side: orderSide,
+              orderType,
+              limitPrice: orderType === 'limit' ? Number(limitPrice) : null,
+            }),
+            signal: controller.signal,
+          },
+        );
+        setOrderPreview(preview);
+      } catch (error) {
+        if (!controller.signal.aborted) setOrderPreview(null);
+      } finally {
+        if (!controller.signal.aborted) setPreviewLoading(false);
+      }
+    }, 350);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [limitPrice, orderSide, orderType, securityQuery, selectedAccountId]);
+
+  const applyQuickQuantity = (quantityShares: number) => {
+    if (quantityShares <= 0) return;
+    orderForm.setFieldValue('quantityLots', quantityShares / 100);
+    void orderForm.validateFields(['quantityLots']);
+  };
+
   const submitOrder = async () => {
     if (!selectedAccountId) return;
     const values = await orderForm.validateFields();
@@ -167,12 +293,18 @@ export default function PaperTradingPage() {
           ...values,
           accountId: selectedAccountId,
           clientOrderId: crypto.randomUUID(),
+          securityCode: orderPreview?.instrument.securityCode ?? values.securityCode,
+          quantity: Number(values.quantityLots) * 100,
           limitPrice: values.orderType === 'limit' ? values.limitPrice : null,
+          quantityLots: undefined,
         }),
       },
     );
     message.success(result.matched ? '委托已模拟成交' : '委托已受理');
-    orderForm.resetFields(['securityCode', 'quantity', 'limitPrice']);
+    orderForm.resetFields(['securityCode', 'quantityLots', 'limitPrice']);
+    orderForm.setFieldValue('quantityLots', 1);
+    setOrderPreview(null);
+    setSecurityOptions([]);
     await refresh();
   };
 
@@ -220,6 +352,24 @@ export default function PaperTradingPage() {
           <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void refresh()}>
             刷新
           </Button>
+          <Popconfirm
+            title={`删除账户“${selectedAccount?.name ?? ''}”？`}
+            description="账户、持仓、委托、成交和资金流水将永久删除，无法恢复。"
+            okText="永久删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true, loading: deletingAccount }}
+            disabled={!selectedAccount}
+            onConfirm={() => void deleteAccount()}
+          >
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              disabled={!selectedAccount}
+              loading={deletingAccount}
+            >
+              删除账户
+            </Button>
+          </Popconfirm>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setAccountModalOpen(true)}>
             新建账户
           </Button>
@@ -242,29 +392,137 @@ export default function PaperTradingPage() {
           <Card title={<Space><SwapOutlined />手工委托</Space>} className="paper-trading-order-card">
             <Form
               form={orderForm}
-              layout="inline"
-              initialValues={{ side: 'buy', orderType: 'market' }}
+              layout="vertical"
+              initialValues={{ side: 'buy', orderType: 'market', quantityLots: 1 }}
               onFinish={() => void submitOrder()}
             >
-              <Form.Item name="securityCode" label="证券代码" rules={[{ required: true }, { pattern: /^(?:SH|SZ|BJ)?\d{6}$/i, message: '请输入 6 位 A 股代码' }]}>
-                <Input placeholder="例如 600519" style={{ width: 150 }} />
-              </Form.Item>
-              <Form.Item name="side" label="方向" rules={[{ required: true }]}>
-                <Select style={{ width: 100 }} options={[{ label: '买入', value: 'buy' }, { label: '卖出', value: 'sell' }]} />
-              </Form.Item>
-              <Form.Item name="orderType" label="类型" rules={[{ required: true }]}>
-                <Select style={{ width: 110 }} options={[{ label: '市价', value: 'market' }, { label: '限价', value: 'limit' }]} />
-              </Form.Item>
-              {orderType === 'limit' && (
-                <Form.Item name="limitPrice" label="委托价" rules={[{ required: true }]}>
-                  <InputNumber min={0.01} precision={2} />
+              <div className="paper-trading-order-grid">
+                <Form.Item
+                  name="securityCode"
+                  label="证券（名称/代码）"
+                  rules={[{ required: true, message: '请输入证券名称或代码' }]}
+                >
+                  <AutoComplete
+                    options={securityOptions.map((item) => ({
+                      value: item.code,
+                      label: (
+                        <div className="paper-security-option">
+                          <span><strong>{item.name}</strong> <Text type="secondary">{item.code}</Text></span>
+                          <Tag>{item.market}</Tag>
+                        </div>
+                      ),
+                    }))}
+                    onSearch={(value) => void searchSecurities(value)}
+                    onSelect={(code) => {
+                      const item = securityOptions.find((option) => option.code === code);
+                      orderForm.setFieldValue('securityCode', item?.code ?? code);
+                    }}
+                    notFoundContent={securitySearching
+                      ? <Spin size="small" />
+                      : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入名称、代码或拼音" />}
+                  >
+                    <Input
+                      prefix={<SearchOutlined />}
+                      placeholder="例如：贵州茅台、600519、茅台"
+                      aria-label="证券名称或代码"
+                    />
+                  </AutoComplete>
                 </Form.Item>
-              )}
-              <Form.Item name="quantity" label="数量（股）" rules={[{ required: true }]}>
-                <InputNumber min={100} step={100} precision={0} />
-              </Form.Item>
-              <Form.Item>
-                <Button type="primary" htmlType="submit">提交模拟委托</Button>
+                <Form.Item name="side" label="方向" rules={[{ required: true }]}>
+                  <Select options={[{ label: '买入', value: 'buy' }, { label: '卖出', value: 'sell' }]} />
+                </Form.Item>
+                <Form.Item name="orderType" label="类型" rules={[{ required: true }]}>
+                  <Select options={[{ label: '市价', value: 'market' }, { label: '限价', value: 'limit' }]} />
+                </Form.Item>
+                {orderType === 'limit' && (
+                  <Form.Item name="limitPrice" label="委托价（元）" rules={[{ required: true }]}>
+                    <InputNumber min={0.01} precision={2} style={{ width: '100%' }} />
+                  </Form.Item>
+                )}
+                <Form.Item
+                  name="quantityLots"
+                  label="数量（手）"
+                  extra="1 手 = 100 股；卖出全部持仓时可包含零股"
+                  rules={[
+                    { required: true, message: '请输入委托手数' },
+                    {
+                      validator: (_, value) => {
+                        const lots = Number(value);
+                        if (!Number.isFinite(lots) || lots <= 0) {
+                          return Promise.reject(new Error('委托手数必须大于 0'));
+                        }
+                        if (orderSide === 'buy' && !Number.isInteger(lots)) {
+                          return Promise.reject(new Error('买入必须按整手提交'));
+                        }
+                        return Promise.resolve();
+                      },
+                    },
+                  ]}
+                >
+                  <InputNumber
+                    min={orderSide === 'buy' ? 1 : 0.01}
+                    step={1}
+                    precision={orderSide === 'buy' ? 0 : 2}
+                    style={{ width: '100%' }}
+                  />
+                </Form.Item>
+              </div>
+
+              <div className="paper-trading-order-preview" aria-live="polite">
+                <div className="paper-trading-preview-summary">
+                  {previewLoading ? (
+                    <Space><Spin size="small" /><Text type="secondary">正在读取本地优先行情…</Text></Space>
+                  ) : orderPreview ? (
+                    <Space wrap>
+                      <Tag color="blue">
+                        {orderPreview.instrument.securityName} {orderPreview.instrument.securityCode}
+                      </Tag>
+                      <Text>参考价 <strong>{orderPreview.estimatedPrice.toFixed(2)} 元</strong></Text>
+                      <Text type="secondary">
+                        {orderSide === 'buy'
+                          ? `可用现金 ${money(orderPreview.availableCash)} 元`
+                          : `可卖 ${(orderPreview.availableQuantity / 100).toFixed(2)} 手`}
+                      </Text>
+                    </Space>
+                  ) : (
+                    <Text type="secondary">选择证券后可使用快捷仓位</Text>
+                  )}
+                </div>
+                <Space wrap className="paper-trading-quick-actions">
+                  <Text type="secondary">快捷数量</Text>
+                  <Button
+                    disabled={!orderPreview || orderPreview.quickQuantities.full <= 0}
+                    onClick={() => applyQuickQuantity(orderPreview?.quickQuantities.full ?? 0)}
+                  >
+                    全仓
+                  </Button>
+                  <Button
+                    disabled={!orderPreview || orderPreview.quickQuantities.half <= 0}
+                    onClick={() => applyQuickQuantity(orderPreview?.quickQuantities.half ?? 0)}
+                  >
+                    半仓
+                  </Button>
+                  <Button
+                    disabled={!orderPreview || orderPreview.quickQuantities.third <= 0}
+                    onClick={() => applyQuickQuantity(orderPreview?.quickQuantities.third ?? 0)}
+                  >
+                    1/3 仓
+                  </Button>
+                  <Button
+                    disabled={!orderPreview?.quickQuantities.fixedHundredLotsAvailable}
+                    onClick={() => applyQuickQuantity(
+                      orderPreview?.quickQuantities.fixedHundredLots ?? 0,
+                    )}
+                  >
+                    100 手
+                  </Button>
+                </Space>
+              </div>
+
+              <Form.Item className="paper-trading-submit">
+                <Button type="primary" htmlType="submit" size="large">
+                  提交模拟委托
+                </Button>
               </Form.Item>
             </Form>
           </Card>
@@ -354,13 +612,32 @@ export default function PaperTradingPage() {
         onOk={() => void createAccount()}
         destroyOnHidden
       >
-        <Form form={accountForm} layout="vertical" initialValues={{ initialCash: 1_000_000 }}>
+        <Form form={accountForm} layout="vertical">
           <Form.Item name="name" label="账户名称" rules={[{ required: true }]}>
             <Input placeholder="例如：价值投资模拟账户" />
           </Form.Item>
-          <Form.Item name="initialCash" label="初始资金（元）" rules={[{ required: true }]}>
-            <InputNumber min={10_000} max={1_000_000_000_000} precision={2} style={{ width: '100%' }} />
+          <Form.Item
+            name="initialCash"
+            label="初始资金（元）"
+            extra="初始资金仅在创建时确定，创建后不能直接修改。"
+            rules={[{ required: true, message: '请自定义账户初始资金' }]}
+          >
+            <InputNumber
+              min={10_000}
+              max={1_000_000_000_000}
+              precision={2}
+              placeholder="请输入初始资金"
+              style={{ width: '100%' }}
+            />
           </Form.Item>
+          <Space wrap className="paper-account-cash-presets">
+            <Text type="secondary">快捷金额</Text>
+            {[100_000, 500_000, 1_000_000, 5_000_000].map((amount) => (
+              <Button key={amount} onClick={() => accountForm.setFieldValue('initialCash', amount)}>
+                {amount / 10_000} 万
+              </Button>
+            ))}
+          </Space>
           <Text type="secondary">
             默认佣金万分之三、最低 5 元；卖出印花税按当前配置千分之零点五计算。
           </Text>
