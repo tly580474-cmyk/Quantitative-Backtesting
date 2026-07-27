@@ -2,7 +2,7 @@
 
 export type Market = 'SH' | 'SZ' | 'BJ';
 export type InstrumentType = 'stock' | 'index' | 'etf';
-export type InstrumentStatus = 'active' | 'delisted' | 'suspended';
+export type InstrumentStatus = 'pending' | 'active' | 'delisted' | 'suspended';
 export type SyncJobType = 'instruments' | 'calendar' | 'history' | 'incremental';
 export type SyncJobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type SyncItemStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';

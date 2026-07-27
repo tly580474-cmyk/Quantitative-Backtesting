@@ -10,7 +10,12 @@ import { validateCandleSet } from '../quality/validators.js';
 import { normalizeCandle, normalizeCandles } from '../normalization/candleNormalizer.js';
 import { listProviders } from '../providers/providerRegistry.js';
 
-import { listInstruments, upsertInstrument } from '../repositories/instrumentRepository.js';
+import {
+  listInstrumentIdentityKeys,
+  listInstruments,
+  upsertInstrument,
+  upsertInstruments,
+} from '../repositories/instrumentRepository.js';
 import { getOpenTradingDays, upsertCalendarEntries } from '../repositories/calendarRepository.js';
 import {
   getHistoryDailyBarsInRange,
@@ -214,16 +219,49 @@ async function executeInstrumentsSync(
   // Try the active provider first; if it returns empty, try others.
   // Some providers (e.g. Tencent) only support single-symbol lookups.
   let effectiveProvider = provider;
-  let firstPage = await provider.fetchInstruments({ market, cursor, pageSize: 100 });
-  if (firstPage.items.length === 0 && firstPage.hasMore === false) {
+  let firstPage;
+  let primaryError: unknown;
+  try {
+    firstPage = await provider.fetchInstruments({ market, cursor, pageSize: 100 });
+  } catch (error) {
+    primaryError = error;
+  }
+  if (!firstPage || (firstPage.items.length === 0 && firstPage.hasMore === false)) {
     for (const fallback of listProviders()) {
       if (fallback.id === provider.id) continue;
-      const page = await fallback.fetchInstruments({ market, cursor, pageSize: 100 });
-      if (page.items.length > 0 || page.hasMore) {
-        effectiveProvider = fallback;
-        firstPage = page;
-        break;
+      if (!fallback.getCapabilities().supportedDataTypes.includes('instruments')) continue;
+      try {
+        const page = await fallback.fetchInstruments({ market, cursor, pageSize: 100 });
+        if (page.items.length > 0 || page.hasMore) {
+          effectiveProvider = fallback;
+          firstPage = page;
+          break;
+        }
+      } catch (error) {
+        primaryError ??= error;
       }
+    }
+  }
+  if (!firstPage) throw primaryError ?? new Error('没有可用的证券主表数据源');
+  await assertPlausibleInstrumentUniverse(firstPage.items.length, market);
+  if (effectiveProvider.enrichInstruments) {
+    const existingKeys = await listInstrumentIdentityKeys('stock');
+    const newItems = firstPage.items.filter((item) => (
+      !existingKeys.has(`${item.market}:${item.symbol}:${item.type}`)
+      && !item.listDate
+    ));
+    if (newItems.length > 0) {
+      const enriched = await effectiveProvider.enrichInstruments(newItems);
+      const enrichmentMap = new Map(enriched.map((item) => [
+        `${item.market}:${item.symbol}:${item.type}`,
+        item,
+      ]));
+      firstPage = {
+        ...firstPage,
+        items: firstPage.items.map((item) => (
+          enrichmentMap.get(`${item.market}:${item.symbol}:${item.type}`) ?? item
+        )),
+      };
     }
   }
 
@@ -237,30 +275,32 @@ async function executeInstrumentsSync(
       ? await effectiveProvider.fetchInstruments({ market, cursor, pageSize: 100 })
       : firstPage;
 
-    for (const item of page.items) {
-      try {
-        await upsertInstrument({
-          id: crypto.randomUUID(),
-          market: item.market as never,
-          symbol: item.symbol,
-          name: item.name,
-          type: item.type as never,
-          listDate: item.listDate,
-          delistDate: item.delistDate,
-          status: item.delistDate ? 'delisted' : 'active',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-
-        // Record provider symbol mapping is handled inside the
-        // repository or a separate mapping call — for now we track
-        // success at the item level
+    const now = new Date().toISOString();
+    const normalizedItems: Instrument[] = page.items.map((item) => ({
+      id: crypto.randomUUID(),
+      market: item.market as never,
+      symbol: item.symbol,
+      name: item.name,
+      industry: item.industry,
+      type: item.type as never,
+      listDate: item.listDate,
+      delistDate: item.delistDate,
+      status: item.status ?? (item.delistDate ? 'delisted' : 'active'),
+      createdAt: now,
+      updatedAt: now,
+    }));
+    try {
+      await upsertInstruments(normalizedItems);
+      for (const _item of page.items) {
         onSuccess();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        onError({ symbol: item.symbol, error: message });
+        onProcessed();
       }
-      onProcessed();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      for (const item of page.items) {
+        onError({ symbol: item.symbol, error: message });
+        onProcessed();
+      }
     }
 
     cursor = page.cursor;
@@ -268,6 +308,26 @@ async function executeInstrumentsSync(
 
   // Update job progress
   await updateSyncJobProgress(job.id);
+}
+
+async function assertPlausibleInstrumentUniverse(
+  incomingCount: number,
+  market?: string,
+): Promise<void> {
+  if (incomingCount === 0) {
+    throw new Error('证券主表数据源返回空名单，已终止同步以保护现有数据');
+  }
+  const existing = await listInstruments({
+    market,
+    type: 'stock',
+    offset: 0,
+    limit: 1,
+  });
+  if (existing.total >= 1000 && incomingCount < Math.floor(existing.total * 0.7)) {
+    throw new Error(
+      `证券主表数据源仅返回 ${incomingCount} 条，低于当前 ${existing.total} 条的 70%，已终止同步`,
+    );
+  }
 }
 
 async function executeCalendarSync(
@@ -442,9 +502,10 @@ async function executeIncrementalSync(
     }
   }
 
-  const missingTargets = keyedTargets.filter(
+  let missingTargets = keyedTargets.filter(
     (instrument) => !quoteBySymbol.has(instrument.symbol),
   );
+  const primaryQuoteFailures = new Map<string, string>();
   if (provider.fetchCurrentDailyCandles && missingTargets.length > 0) {
     const retryResult = await fetchCurrentQuotesInChunks(
       provider,
@@ -455,8 +516,43 @@ async function executeIncrementalSync(
       quoteBySymbol.set(quote.symbol, quote);
     }
     for (const failure of retryResult.failures) {
-      failures.set(failure.instrument.id, failure.message);
+      primaryQuoteFailures.set(failure.instrument.id, failure.message);
     }
+    missingTargets = keyedTargets.filter(
+      (instrument) => !quoteBySymbol.has(instrument.symbol),
+    );
+  }
+
+  for (const fallback of listProviders()) {
+    if (missingTargets.length === 0) break;
+    if (fallback.id === provider.id || !fallback.fetchCurrentDailyCandles) continue;
+    try {
+      const rows = await fetchWithRetry(
+        () => fallback.fetchCurrentDailyCandles!({
+          instruments: missingTargets.map((instrument) => ({
+            symbol: instrument.symbol,
+            market: instrument.market,
+          })),
+        }),
+        `fetchCurrentDailyCandles:${fallback.id}`,
+      );
+      for (const quote of rows) {
+        if (quote.date === today) quoteBySymbol.set(quote.symbol, quote);
+      }
+      missingTargets = keyedTargets.filter(
+        (instrument) => !quoteBySymbol.has(instrument.symbol),
+      );
+    } catch (error) {
+      console.warn(
+        `[syncExecutor] ${fallback.id} 全市场行情降级失败：${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  for (const instrument of missingTargets) {
+    const message = primaryQuoteFailures.get(instrument.id);
+    if (message) failures.set(instrument.id, message);
   }
 
   const quoteUpdates: Array<{
@@ -916,10 +1012,11 @@ async function resolveOrCreateInstrument(
       market: item.market as never,
       symbol: item.symbol,
       name: item.name,
+      industry: item.industry,
       type: item.type as never,
       listDate: item.listDate,
       delistDate: item.delistDate,
-      status: item.delistDate ? 'delisted' : 'active',
+      status: item.status ?? (item.delistDate ? 'delisted' : 'active'),
       createdAt: now,
       updatedAt: now,
     });

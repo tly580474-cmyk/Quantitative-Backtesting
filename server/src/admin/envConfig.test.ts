@@ -69,6 +69,7 @@ describe('admin env config', () => {
 
   it('exposes schedule values as editable time fields', () => {
     const items = listAdminConfig({
+      INSTRUMENT_SYNC_TIME: '15:20',
       MARKET_DATA_SYNC_TIME: '15:30',
       MARKET_CN_INDEX_UPDATE_TIME: '20:00',
       MARKET_US_INDEX_UPDATE_TIME: '05:00',
@@ -82,6 +83,7 @@ describe('admin env config', () => {
       MINUTE_DATA_RETRY_TIME: '17:30',
     });
     for (const key of [
+      'INSTRUMENT_SYNC_TIME',
       'MARKET_DATA_SYNC_TIME',
       'MARKET_CN_INDEX_UPDATE_TIME',
       'MARKET_US_INDEX_UPDATE_TIME',
@@ -99,6 +101,19 @@ describe('admin env config', () => {
         inputType: 'time',
       });
     }
+  });
+
+  it('exposes the instrument master refresh as an enabled boolean option by default', () => {
+    const item = listAdminConfig({}).find(
+      (entry) => entry.key === 'INSTRUMENT_SYNC_ENABLED',
+    );
+    expect(item).toMatchObject({
+      editable: true,
+      inputType: 'boolean',
+      configured: true,
+      maskedValue: 'true',
+      restartRequired: true,
+    });
   });
 
   it('exposes the non-trading-period policy as an enabled boolean option by default', () => {

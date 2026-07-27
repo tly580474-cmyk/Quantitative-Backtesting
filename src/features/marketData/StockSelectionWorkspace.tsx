@@ -8,7 +8,7 @@ import {
   type SelectionScoreContext,
   type SelectionStyleId,
 } from './selectionScore';
-import { klineCacheKey, marketDataCache } from './marketDataCache';
+import { marketDataCache } from './marketDataCache';
 import type {
   KlinePoint,
   MarketScreenerCriteria,
@@ -22,6 +22,7 @@ const { Text } = Typography;
 const SCORE_STORAGE_KEY = 'quant-watchlist-scores-v3';
 const SCORE_STYLE_KEY = 'quant-watchlist-score-style-v1';
 const SCREENER_STORAGE_KEY = 'quant-market-screener-v1';
+const SCORE_CONTEXT_CACHE_MS = 5 * 60_000;
 
 export const DEFAULT_SCREENER_CRITERIA: MarketScreenerCriteria = {
   markets: ['SH', 'SZ'],
@@ -151,20 +152,26 @@ export default function StockSelectionWorkspace({
         const batch = scoreable.slice(index, index + 4);
         const updates = await Promise.all(batch.map(async (stock): Promise<WatchlistScoreSnapshot> => {
           try {
-            const key = klineCacheKey(stock.code, 'day');
-            let candles = marketDataCache.klines[key];
+            let candles = marketDataCache.scoreKlines[stock.code];
             if (!candles) {
               candles = (await apiFetch<{ items: KlinePoint[] }>(
-                `/api/market-data/stocks/${stock.code}/kline?period=day`,
+                `/api/market-data/stocks/${stock.code}/kline?period=day&localFirst=true`,
               )).items ?? [];
-              marketDataCache.klines[key] = candles;
+              marketDataCache.scoreKlines[stock.code] = candles;
             }
-            const context: SelectionScoreContext = scoreStyle === 'value' || scoreStyle === 'growth'
-              ? await apiFetch<SelectionScoreContext>(
+            let context: SelectionScoreContext = {};
+            if (scoreStyle === 'value' || scoreStyle === 'growth') {
+              const cachedContext = marketDataCache.scoreContexts[stock.code];
+              if (cachedContext && Date.now() - cachedContext.cachedAt < SCORE_CONTEXT_CACHE_MS) {
+                context = cachedContext.data;
+              } else {
+                context = await apiFetch<SelectionScoreContext>(
                   `/api/market-data/stocks/${stock.code}/selection-score-context`,
                   { timeoutMs: 90000 },
-                ).catch(() => ({}))
-              : {};
+                ).catch(() => ({}));
+                marketDataCache.scoreContexts[stock.code] = { data: context, cachedAt: Date.now() };
+              }
+            }
             context.securityCode = stock.code;
             const result = calculateSelectionScore(candles, benchmarkCandles, scoreStyle, context);
             return {

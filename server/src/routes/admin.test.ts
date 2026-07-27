@@ -95,6 +95,7 @@ describe('admin routes', () => {
     });
     expect(accepted.statusCode).toBe(200);
     expect(accepted.json().items.map((item: { key: string }) => item.key)).toEqual([
+      'instrument_master',
       'minute_lake',
       'daily_kline',
       'financial_reports',

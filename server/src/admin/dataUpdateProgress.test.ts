@@ -4,10 +4,29 @@ import type { CollectorRun } from '../marketData/repositories/collectorRunReposi
 import {
   normalizeDailyProgress,
   normalizeFinancialProgress,
+  normalizeInstrumentProgress,
   normalizeMinuteProgress,
 } from './dataUpdateProgress.js';
 
 describe('admin data update progress', () => {
+  it('shows the latest full-market instrument reconciliation', () => {
+    const progress = normalizeInstrumentProgress({
+      id: 'instrument-job',
+      jobType: 'instruments',
+      status: 'completed',
+      providerId: 'sina-instruments',
+      requestSnapshot: {},
+      totalItems: 5532,
+      completedItems: 5532,
+      failedItems: 0,
+      createdAt: '2026-07-27T02:32:30.000Z',
+      finishedAt: '2026-07-27T02:32:59.000Z',
+    } as SyncJob);
+    expect(progress.key).toBe('instrument_master');
+    expect(progress.percent).toBe(100);
+    expect(progress.message).toContain('5532');
+  });
+
   it('converts minute updater heartbeats into a determinate progress item', () => {
     const progress = normalizeMinuteProgress({
       status: 'running', phase: 'fetching-online', completed: 1250, total: 5000,

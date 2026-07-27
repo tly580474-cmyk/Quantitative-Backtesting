@@ -783,7 +783,7 @@ function DatabaseBackupPanel({ status, starting, onStart, onDownload }: {
 
 function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressItem[] }) {
   return (
-    <Panel title="数据更新进度" subtitle="每 2 秒刷新 · 分钟湖、个股日 K 线与财务报表均在后台执行" icon={<ClockCircleOutlined />}>
+    <Panel title="数据更新进度" subtitle="每 2 秒刷新 · 证券主表、分钟湖、个股日 K 线与财务报表均在后台执行" icon={<ClockCircleOutlined />}>
       <div className="data-update-grid" aria-live="polite">
         {items.length === 0 ? (
           <div className="data-update-empty">正在读取后台任务状态…</div>

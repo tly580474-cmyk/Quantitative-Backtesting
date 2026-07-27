@@ -9,10 +9,12 @@ import {
   type SelectionScoreTier,
   type SelectionStyleId,
 } from './selectionScore';
-import type { KlinePoint } from './types';
+import { marketDataCache } from './marketDataCache';
+import type { KlinePoint, StockQuote } from './types';
 
 const { Text, Title } = Typography;
 const SCORE_STYLE_KEY = 'quant-selection-score-style-v1';
+const SCORE_CONTEXT_CACHE_MS = 5 * 60_000;
 
 const TIER_COLORS: Record<SelectionScoreTier, string> = {
   core: '#cf1322',
@@ -26,11 +28,13 @@ export default function StockSelectionScore({
   candles,
   benchmarkCandles,
   loading,
+  quote,
 }: {
   code: string;
   candles: KlinePoint[];
   benchmarkCandles: KlinePoint[];
   loading: boolean;
+  quote?: StockQuote | null;
 }) {
   const [styleId, setStyleId] = useState<SelectionStyleId>(() => {
     const stored = localStorage.getItem(SCORE_STYLE_KEY);
@@ -50,13 +54,25 @@ export default function StockSelectionScore({
 
   useEffect(() => {
     if (!needsFundamentals) return;
+    const cached = marketDataCache.scoreContexts[code];
+    if (cached && Date.now() - cached.cachedAt < SCORE_CONTEXT_CACHE_MS) {
+      setScoreContext(cached.data);
+      setContextCode(code);
+      setContextLoading(false);
+      setContextError(null);
+      return;
+    }
     let cancelled = false;
     setContextLoading(true);
     setContextError(null);
-    void apiFetch<SelectionScoreContext>(`/api/market-data/stocks/${code}/selection-score-context`, {
+    const priceQuery = quote?.price != null && quote.price > 0
+      ? `?price=${encodeURIComponent(String(quote.price))}`
+      : '';
+    void apiFetch<SelectionScoreContext>(`/api/market-data/stocks/${code}/selection-score-context${priceQuery}`, {
       timeoutMs: 90000,
     }).then((next) => {
       if (cancelled) return;
+      marketDataCache.scoreContexts[code] = { data: next, cachedAt: Date.now() };
       setScoreContext(next);
       setContextCode(code);
     }).catch((error) => {
@@ -68,7 +84,16 @@ export default function StockSelectionScore({
       if (!cancelled) setContextLoading(false);
     });
     return () => { cancelled = true; };
-  }, [code, needsFundamentals]);
+  }, [code, needsFundamentals, quote?.price]);
+
+  const mergedScoreContext = useMemo<SelectionScoreContext>(() => ({
+    ...scoreContext,
+    peTtm: quote?.peTtm ?? scoreContext.peTtm,
+    pb: quote?.pb ?? scoreContext.pb,
+    marketCapYi: quote?.marketCapYi ?? scoreContext.marketCapYi,
+    floatMarketCapYi: quote?.floatMarketCapYi ?? scoreContext.floatMarketCapYi,
+    sources: [...new Set([...(scoreContext.sources ?? []), ...(quote?.source ?? [])])],
+  }), [quote, scoreContext]);
 
   const result = useMemo(
     () => calculateSelectionScore(
@@ -76,11 +101,13 @@ export default function StockSelectionScore({
       benchmarkCandles,
       styleId,
       {
-        ...(needsFundamentals && contextCode === code ? scoreContext : {}),
+        ...(needsFundamentals && contextCode === code ? mergedScoreContext : {}),
         securityCode: code,
+        securityName: quote?.name,
+        listDate: quote?.listDate,
       },
     ),
-    [benchmarkCandles, candles, code, contextCode, needsFundamentals, scoreContext, styleId],
+    [benchmarkCandles, candles, code, contextCode, mergedScoreContext, needsFundamentals, styleId],
   );
   const [activeSections, setActiveSections] = useState<string[]>([]);
   const [activeDetails, setActiveDetails] = useState<string[]>([]);
@@ -104,8 +131,18 @@ export default function StockSelectionScore({
         <Alert
           type="info"
           showIcon
-          message="选股评分暂不可用"
-          description={result.message}
+          message={result.tierLabel === '新股预热' ? '新股评分预热中' : '选股评分暂不可用'}
+          description={(
+            <Space direction="vertical" size={4}>
+              <span>{result.message}</span>
+              {result.tradingDayNumber != null && (
+                <Tag color="processing">
+                  上市第 {result.tradingDayNumber} 个交易日
+                  {result.lifecycle === 'early_listing' ? ' · 上市初期特殊交易阶段' : ''}
+                </Tag>
+              )}
+            </Space>
+          )}
         />
       </section>
     );
@@ -151,6 +188,10 @@ export default function StockSelectionScore({
               }))}
               style={{ minWidth: 190 }}
             />
+            <Tag color="cyan">本地数据优先</Tag>
+            {result.tradingDayNumber != null && (
+              <Tag color="processing">上市第 {result.tradingDayNumber} 个交易日</Tag>
+            )}
             <Tag color="blue">{result.styleLabel}复合分 {result.rawPositiveScore}/100</Tag>
             <Tag color={result.dataCoveragePct >= 80 ? 'success' : result.dataCoveragePct >= 60 ? 'warning' : 'error'}>
               数据覆盖 {result.dataCoveragePct}%

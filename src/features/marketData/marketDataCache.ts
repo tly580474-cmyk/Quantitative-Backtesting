@@ -1,4 +1,5 @@
 import type { AgentStatus, KlinePoint, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerSection, StockQuote, StockSearchItem, TradingStyleId } from './types';
+import type { SelectionScoreContext } from './selectionScore';
 
 interface AgentResultCache {
   content: string;
@@ -11,6 +12,8 @@ interface MarketDataPageCache {
   period: MarketKlinePeriod;
   quotes: Record<string, StockQuote>;
   klines: Record<string, KlinePoint[]>;
+  scoreKlines: Record<string, KlinePoint[]>;
+  scoreContexts: Record<string, { data: SelectionScoreContext; cachedAt: number }>;
   reports: Record<string, ResearchReport[]>;
   sevenLayer: Record<string, Partial<Record<SevenLayerSection['key'], SevenLayerSection>>>;
   indexQuotes?: StockQuote[];
@@ -26,6 +29,8 @@ export const marketDataCache: MarketDataPageCache = {
   period: 'day',
   quotes: {},
   klines: {},
+  scoreKlines: {},
+  scoreContexts: {},
   reports: {},
   sevenLayer: {},
   indexQuotes: undefined,

@@ -10,7 +10,7 @@ import {
 export type DataUpdateStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface DataUpdateProgressItem {
-  key: 'minute_lake' | 'daily_kline' | 'financial_reports';
+  key: 'instrument_master' | 'minute_lake' | 'daily_kline' | 'financial_reports';
   label: string;
   status: DataUpdateStatus;
   phase: string;
@@ -43,12 +43,40 @@ export async function collectDataUpdateProgress(
   serverRoot = resolve(process.cwd().replace(/[\\/]server$/, ''), 'server'),
   now = new Date(),
 ): Promise<{ generatedAt: string; items: DataUpdateProgressItem[] }> {
-  const [minute, daily, financial] = await Promise.all([
+  const [instrument, minute, daily, financial] = await Promise.all([
+    dbOnline ? readInstrumentProgress().catch((error) => failedInstrumentProgress(error)) : Promise.resolve(idleInstrumentProgress('数据库未连接')),
     readMinuteProgress(resolve(serverRoot, '.logs', 'minute-data', 'progress.json'), now),
     dbOnline ? readDailyProgress().catch((error) => failedDailyProgress(error)) : Promise.resolve(idleDailyProgress('数据库未连接')),
     dbOnline ? readFinancialProgress().catch((error) => failedFinancialProgress(error)) : Promise.resolve(idleFinancialProgress('数据库未连接')),
   ]);
-  return { generatedAt: now.toISOString(), items: [minute, daily, financial] };
+  return { generatedAt: now.toISOString(), items: [instrument, minute, daily, financial] };
+}
+
+export function normalizeInstrumentProgress(job: SyncJob | null): DataUpdateProgressItem {
+  if (!job) return idleInstrumentProgress();
+  const completed = positiveInteger(job.completedItems);
+  const failed = positiveInteger(job.failedItems);
+  const total = positiveInteger(job.totalItems);
+  return {
+    key: 'instrument_master',
+    label: '证券主表',
+    status: normalizeStatus(job.status),
+    phase: job.status === 'pending'
+      ? '排队准备'
+      : job.status === 'running' ? '发现并同步全市场证券' : job.status,
+    completed,
+    total,
+    failed,
+    percent: total > 0
+      ? clampPercent((completed + failed) / total * 100)
+      : job.status === 'completed' ? 100 : null,
+    startedAt: validTimestamp(job.startedAt),
+    updatedAt: validTimestamp(job.finishedAt ?? job.startedAt ?? job.createdAt),
+    finishedAt: validTimestamp(job.finishedAt),
+    message: failed > 0
+      ? `${failed} 只证券同步失败`
+      : job.status === 'completed' ? `来源 ${job.providerId}，已核对 ${completed} 只证券` : null,
+  };
 }
 
 export function normalizeMinuteProgress(value: MinuteProgressFile | null, now = new Date()): DataUpdateProgressItem {
@@ -153,6 +181,11 @@ async function readDailyProgress(): Promise<DataUpdateProgressItem> {
   return normalizeDailyProgress(result.data[0] ?? null);
 }
 
+async function readInstrumentProgress(): Promise<DataUpdateProgressItem> {
+  const result = await listSyncJobs({ jobType: 'instruments', limit: 1 });
+  return normalizeInstrumentProgress(result.data[0] ?? null);
+}
+
 async function readFinancialProgress(): Promise<DataUpdateProgressItem> {
   const runs = await latestCollectorRuns();
   return normalizeFinancialProgress(runs.find((run) => run.jobType === 'financial_reports') ?? null);
@@ -160,6 +193,23 @@ async function readFinancialProgress(): Promise<DataUpdateProgressItem> {
 
 function idleMinuteProgress(): DataUpdateProgressItem {
   return { key: 'minute_lake', label: '分钟湖数据', status: 'idle', phase: '等待计划任务', completed: 0, total: 0, failed: 0, percent: null, startedAt: null, updatedAt: null, finishedAt: null, message: null };
+}
+
+function idleInstrumentProgress(message: string | null = null): DataUpdateProgressItem {
+  return {
+    key: 'instrument_master',
+    label: '证券主表',
+    status: 'idle',
+    phase: '等待证券名单更新',
+    completed: 0,
+    total: 0,
+    failed: 0,
+    percent: null,
+    startedAt: null,
+    updatedAt: null,
+    finishedAt: null,
+    message,
+  };
 }
 
 function idleDailyProgress(message: string | null = null): DataUpdateProgressItem {
@@ -172,6 +222,15 @@ function idleFinancialProgress(message: string | null = null): DataUpdateProgres
 
 function failedDailyProgress(error: unknown): DataUpdateProgressItem {
   return { ...idleDailyProgress(), status: 'failed', phase: '读取进度失败', message: error instanceof Error ? error.message : String(error) };
+}
+
+function failedInstrumentProgress(error: unknown): DataUpdateProgressItem {
+  return {
+    ...idleInstrumentProgress(),
+    status: 'failed',
+    phase: '读取进度失败',
+    message: error instanceof Error ? error.message : String(error),
+  };
 }
 
 function failedFinancialProgress(error: unknown): DataUpdateProgressItem {

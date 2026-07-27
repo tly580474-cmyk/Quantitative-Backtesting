@@ -100,7 +100,7 @@ export function registerSyncJobRoutes(app: FastifyInstance, dbOnline: boolean): 
       }
 
       // Prevent concurrent sync jobs
-      const existingJob = await getRunningJob();
+      const existingJob = await getRunningJob('instruments');
       if (existingJob) {
         return reply.status(409).send(
           apiError(ErrorCodes.SYNC_IN_PROGRESS, `已有同步任务正在运行 (${existingJob.id})`),
@@ -145,7 +145,7 @@ export function registerSyncJobRoutes(app: FastifyInstance, dbOnline: boolean): 
         );
       }
 
-      const existingJob = await getRunningJob();
+      const existingJob = await getRunningJob('calendar');
       if (existingJob) {
         return reply.status(409).send(
           apiError(ErrorCodes.SYNC_IN_PROGRESS, `已有同步任务正在运行 (${existingJob.id})`),
@@ -190,7 +190,7 @@ export function registerSyncJobRoutes(app: FastifyInstance, dbOnline: boolean): 
         );
       }
 
-      const existingJob = await getRunningJob();
+      const existingJob = await getRunningJob('history');
       if (existingJob) {
         return reply.status(409).send(
           apiError(ErrorCodes.SYNC_IN_PROGRESS, `已有同步任务正在运行 (${existingJob.id})`),
@@ -235,7 +235,7 @@ export function registerSyncJobRoutes(app: FastifyInstance, dbOnline: boolean): 
         );
       }
 
-      const existingJob = await getRunningJob();
+      const existingJob = await getRunningJob('incremental');
       if (existingJob) {
         return reply.status(409).send(
           apiError(ErrorCodes.SYNC_IN_PROGRESS, `已有同步任务正在运行 (${existingJob.id})`),
@@ -345,7 +345,7 @@ export function registerSyncJobRoutes(app: FastifyInstance, dbOnline: boolean): 
       }
 
       // Only one job can run at a time
-      const existingJob = await getRunningJob();
+      const existingJob = await getRunningJob(originalJob.jobType);
       if (existingJob) {
         return reply.status(409).send(
           apiError(ErrorCodes.SYNC_IN_PROGRESS, `已有同步任务正在运行 (${existingJob.id})`),

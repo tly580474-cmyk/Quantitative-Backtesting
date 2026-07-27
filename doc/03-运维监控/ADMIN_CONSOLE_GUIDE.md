@@ -104,6 +104,7 @@ npm run admin:preview
 - AI 功能开关、API Key、Base URL 和模型；
 - 行情数据源 API Key；
 - Tushare Token；
+- 证券主表自动更新开关与更新时间；
 - 财务报表自动更新开关、执行时间和公告回看天数；
 - DuckDB 并发与临时空间上限。
 

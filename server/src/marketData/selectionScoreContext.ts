@@ -1,5 +1,3 @@
-import type { StockQuote } from './aStockDataService.js';
-
 export interface SelectionScoreContextRecord {
   source?: unknown;
   date?: unknown;
@@ -19,6 +17,15 @@ export interface SelectionScoreContext {
   debtRatioPct: number | null;
   asOf: string | null;
   sources: string[];
+}
+
+export interface SelectionScoreQuoteContext {
+  peTtm?: number | null;
+  pb?: number | null;
+  psTtm?: number | null;
+  marketCapYi?: number | null;
+  floatMarketCapYi?: number | null;
+  source?: string[];
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -54,7 +61,7 @@ function latestDate(records: SelectionScoreContextRecord[]): string | null {
 }
 
 export function extractSelectionScoreContext(
-  quote: StockQuote,
+  quote: SelectionScoreQuoteContext,
   fundamentalLayer: Record<string, unknown>,
   dividendLayer: Record<string, unknown>,
 ): SelectionScoreContext {
@@ -62,7 +69,7 @@ export function extractSelectionScoreContext(
   const dividends = recordsOf(dividendLayer);
   const records = [...fundamentals, ...dividends];
   const sources = [...new Set([
-    ...quote.source,
+    ...(quote.source ?? []),
     ...records.flatMap((record) => (
       typeof record.source === 'string' && record.source ? [record.source] : []
     )),
@@ -71,7 +78,7 @@ export function extractSelectionScoreContext(
   return {
     peTtm: quote.peTtm ?? metric(fundamentals, 'peTtm'),
     pb: quote.pb ?? metric(fundamentals, 'pb'),
-    psTtm: metric(fundamentals, 'psTtm', 'ps'),
+    psTtm: quote.psTtm ?? metric(fundamentals, 'psTtm', 'ps'),
     marketCapYi: quote.marketCapYi ?? (
       metric(fundamentals, 'totalMarketCap') != null
         ? metric(fundamentals, 'totalMarketCap')! / 100_000_000

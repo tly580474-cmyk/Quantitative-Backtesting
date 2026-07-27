@@ -27,6 +27,9 @@ import { shouldSkipNonTradingPeriods } from '../../scheduling/tradingPeriodPolic
 export interface SchedulerConfig {
   enabled: boolean;
   dailySyncTime: string; // HH:mm format, e.g. "18:30"
+  instrumentSyncEnabled?: boolean;
+  instrumentSyncTime?: string;
+  instrumentProviderId?: string;
   markets: string[];
   providerId: string;
   intradayIntervalMinutes: number;
@@ -37,6 +40,7 @@ interface SchedulerState {
   intervalId: ReturnType<typeof setInterval> | null;
   running: boolean;
   lastTriggeredSlot: string | null;
+  lastInstrumentTriggeredDate: string | null;
 }
 
 // ─── State ──────────────────────────────────────────────────────────
@@ -45,6 +49,8 @@ const state: SchedulerState = {
   config: {
     enabled: false,
     dailySyncTime: '18:30',
+    instrumentSyncEnabled: false,
+    instrumentSyncTime: '15:20',
     markets: [],
     providerId: '',
     intradayIntervalMinutes: 30,
@@ -52,6 +58,7 @@ const state: SchedulerState = {
   intervalId: null,
   running: false,
   lastTriggeredSlot: null,
+  lastInstrumentTriggeredDate: null,
 };
 
 // ─── Public API ─────────────────────────────────────────────────────
@@ -219,10 +226,15 @@ async function schedulerTick(): Promise<void> {
   const now = new Date();
   const session = getChinaMarketSession(now);
   const closeSlotKey = `${session.tradeDate}:close`;
+  const instrumentSyncTime = config.instrumentSyncTime ?? '15:20';
+  const isInstrumentRun = Boolean(config.instrumentSyncEnabled && config.instrumentProviderId)
+    && state.lastInstrumentTriggeredDate !== session.tradeDate
+    && session.isDailyBarFinal
+    && isScheduledCloseDue(session.minuteOfDay, instrumentSyncTime);
   const isCloseRun = state.lastTriggeredSlot !== closeSlotKey
     && session.isDailyBarFinal
     && isScheduledCloseDue(session.minuteOfDay, config.dailySyncTime);
-  if (!isCloseRun) return;
+  if (!isInstrumentRun && !isCloseRun) return;
   const trigger = 'close';
   const slotKey = closeSlotKey;
   if (state.lastTriggeredSlot === slotKey) return;
@@ -236,6 +248,26 @@ async function schedulerTick(): Promise<void> {
     console.log(`[syncScheduler] ${today} is not a trading day for configured markets. Skipping.`);
     return;
   }
+
+  if (isInstrumentRun) {
+    const instrumentAlreadyCompleted = await hasCompletedSyncToday('instruments');
+    if (instrumentAlreadyCompleted) {
+      state.lastInstrumentTriggeredDate = session.tradeDate;
+    } else {
+      try {
+        const jobId = await runDailyInstrumentSync(config);
+        state.lastInstrumentTriggeredDate = session.tradeDate;
+        console.log(`[syncScheduler] Completed daily instrument master sync: ${jobId}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[syncScheduler] Instrument master sync failed; keeping existing universe: ${message}`,
+        );
+      }
+    }
+  }
+
+  if (!isCloseRun) return;
 
   // Only the closing run is once-per-day. Intraday slots intentionally repeat.
   const alreadyCompleted = isCloseRun
@@ -258,6 +290,46 @@ async function schedulerTick(): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[syncScheduler] Could not start daily sync: ${message}`);
+  }
+}
+
+async function runDailyInstrumentSync(config: SchedulerConfig): Promise<string> {
+  const jobType: SyncJobType = 'instruments';
+  const providerId = config.instrumentProviderId;
+  if (!providerId) throw new Error('Instrument provider is not configured.');
+  const lockAcquired = await acquireLock(jobType);
+  if (!lockAcquired) throw new Error('Instrument sync is already running.');
+
+  try {
+    const provider = getProvider(providerId);
+    const jobId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await createSyncJob({
+      id: jobId,
+      jobType,
+      status: 'pending',
+      providerId,
+      requestSnapshot: {
+        trigger: 'close',
+      },
+      totalItems: 0,
+      completedItems: 0,
+      failedItems: 0,
+      createdAt: now,
+    } as SyncJob);
+    bindLockToJob(jobType, jobId);
+
+    const { getSyncJob } = await import('../repositories/syncJobRepository.js');
+    const job = await getSyncJob(jobId);
+    if (!job) throw new Error(`Failed to retrieve created job: ${jobId}`);
+    const result = await executeSyncJob(job, provider);
+    if (!result.success) {
+      const reason = result.errors[0]?.error ?? 'unknown error';
+      throw new Error(`Instrument master job ${jobId} failed: ${reason}`);
+    }
+    return jobId;
+  } finally {
+    await releaseLock(jobType);
   }
 }
 

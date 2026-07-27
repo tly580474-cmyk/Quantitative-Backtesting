@@ -727,10 +727,10 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   });
   const [klines, setKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(initialSelectedCode, marketDataCache.period, isEnhancedStockView)] ?? []);
   const [klineLoading, setKlineLoading] = useState(false);
-  const [scoreKlines, setScoreKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey(initialSelectedCode, 'day')] ?? []);
-  const [scoreCode, setScoreCode] = useState<string | null>(initialSelectedCode);
+  const [scoreKlines, setScoreKlines] = useState<KlinePoint[]>(() => marketDataCache.scoreKlines[initialSelectedCode] ?? []);
+  const [scoreCode, setScoreCode] = useState<string | null>(() => marketDataCache.scoreKlines[initialSelectedCode] ? initialSelectedCode : null);
   const [scoreKlineLoading, setScoreKlineLoading] = useState(false);
-  const [benchmarkKlines, setBenchmarkKlines] = useState<KlinePoint[]>(() => marketDataCache.klines[klineCacheKey('sh000300', 'day')] ?? []);
+  const [benchmarkKlines, setBenchmarkKlines] = useState<KlinePoint[]>(() => marketDataCache.scoreKlines.sh000300 ?? []);
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [indexQuotes, setIndexQuotes] = useState<StockQuote[]>(() => marketDataCache.indexQuotes ?? []);
   const [selectedIndexKeys, setSelectedIndexKeys] = useState<string[]>(readMarketIndexSelection);
@@ -879,8 +879,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   useEffect(() => {
     if (!isResearchView) return undefined;
     let cancelled = false;
-    const cacheKey = klineCacheKey(selectedCode, 'day');
-    const cached = marketDataCache.klines[cacheKey];
+    const cached = marketDataCache.scoreKlines[selectedCode];
     if (cached) {
       setScoreKlines(cached);
       setScoreCode(selectedCode);
@@ -890,17 +889,12 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
 
     setScoreKlines([]);
     setScoreCode(null);
-    if (period === 'day') {
-      setScoreKlineLoading(true);
-      return () => { cancelled = true; };
-    }
-
     setScoreKlineLoading(true);
-    void apiFetch<{ items: KlinePoint[] }>(`/api/market-data/stocks/${selectedCode}/kline?period=day`)
+    void apiFetch<{ items: KlinePoint[] }>(`/api/market-data/stocks/${selectedCode}/kline?period=day&localFirst=true`)
       .then((data) => {
         if (cancelled) return;
         const next = data.items ?? [];
-        marketDataCache.klines[cacheKey] = next;
+        marketDataCache.scoreKlines[selectedCode] = next;
         setScoreKlines(next);
         setScoreCode(selectedCode);
       })
@@ -916,6 +910,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     const compact = marketDataCache.klines[klineCacheKey(selectedCode, 'day')];
     const full = marketDataCache.klines[klineCacheKey(selectedCode, 'day', true)];
     if (klines.length > 0 && (compact === klines || full === klines)) {
+      marketDataCache.scoreKlines[selectedCode] = klines;
       setScoreKlines(klines);
       setScoreCode(selectedCode);
       setScoreKlineLoading(false);
@@ -925,19 +920,18 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   }, [isResearchView, klineLoading, klines, period, selectedCode]);
   useEffect(() => {
     if (!isResearchView) return undefined;
-    const cacheKey = klineCacheKey('sh000300', 'day');
-    const cached = marketDataCache.klines[cacheKey];
+    const cached = marketDataCache.scoreKlines.sh000300;
     if (cached) {
       setBenchmarkKlines(cached);
       return undefined;
     }
     let cancelled = false;
     setBenchmarkLoading(true);
-    void apiFetch<{ items: KlinePoint[] }>('/api/market-data/stocks/sh000300/kline?period=day')
+    void apiFetch<{ items: KlinePoint[] }>('/api/market-data/stocks/sh000300/kline?period=day&localFirst=true')
       .then((data) => {
         if (cancelled) return;
         const next = data.items ?? [];
-        marketDataCache.klines[cacheKey] = next;
+        marketDataCache.scoreKlines.sh000300 = next;
         setBenchmarkKlines(next);
       })
       .catch((error) => {
@@ -1358,7 +1352,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         <Card className="market-quote-card" variant="borderless"><Skeleton loading={quoteLoading} active paragraph={{ rows: 3 }}>
           {quote ? <><div className="market-quote-head"><div className="market-quote-meta"><Space align="baseline"><Title level={3}>{quote.name}</Title><Text type="secondary">{quote.code} · {quote.market}</Text></Space><Space wrap><Tag color="blue">{quote.industry || '行业待补充'}</Tag>{quote.source.map((s) => <Tag key={s}>{s}</Tag>)}</Space><Space wrap className="market-quote-actions"><Button icon={<ReloadOutlined />} onClick={() => loadQuote(selectedCode)}>刷新行情</Button><Button icon={<ExportOutlined />} loading={exporting === 'analysis'} onClick={openInAnalysis}>导入行情分析</Button><Button icon={<DownloadOutlined />} loading={exporting === 'excel'} onClick={exportExcel}>导出 Excel</Button>{isDetailView && (selectedIsInWatchlist ? <Button icon={<CheckOutlined />} disabled>已在自选</Button> : <Button type="primary" icon={<StarOutlined />} onClick={() => { addStock({ code: selectedCode, name: quote.name, market: quote.market, type: quote.type }); message.success(`${quote.name} 已加入自选`); }}>添加自选</Button>)}{isDetailView && supportsIndexConstituents(quote) && <Button icon={<ApartmentOutlined />} aria-label={`查看${quote.name}成分股`} onClick={() => setIndexConstituentOpen(true)}>成分股</Button>}</Space></div><div className="market-price-block"><span className={accent && `market-${accent}`}>{fmt(quote.price)}</span><Text className={accent && `market-${accent}`}>{fmt(quote.changeAmount)} / {fmt(quote.changePct)}%</Text></div></div>
           <div className="market-metrics-grid"><Metric label="今开 / 最高 / 最低" value={`${fmt(quote.open)} / ${fmt(quote.high)} / ${fmt(quote.low)}`} /><Metric label="昨收 / 涨停 / 跌停" value={`${fmt(quote.previousClose)} / ${fmt(quote.limitUp)} / ${fmt(quote.limitDown)}`} /><Metric label="换手率" value={`${fmt(quote.turnoverPct)}%`} /><Metric label="振幅" value={`${fmt(quote.amplitudePct)}%`} /><Metric label="量比" value={fmt(quote.volumeRatio)} /><Metric label="成交额" value={amount(quote.amountWan)} /><Metric label="PE(TTM) / PE(静)" value={`${fmt(quote.peTtm)} / ${fmt(quote.peStatic)}`} /><Metric label="PB" value={fmt(quote.pb)} /><Metric label="总市值" value={`${fmt(quote.marketCapYi)} 亿`} /><Metric label="流通市值" value={`${fmt(quote.floatMarketCapYi)} 亿`} /><Metric label="上市日期" value={quote.listDate || '—'} /><Metric label="所属行业" value={quote.industry || '—'} /></div>
-          {quote.type === 'stock' && <StockSelectionScore code={selectedCode} candles={scoreCode === selectedCode ? scoreKlines : []} benchmarkCandles={benchmarkKlines} loading={scoreKlineLoading || benchmarkLoading || scoreCode !== selectedCode} />}</> : <Empty description={`无法加载 ${selected?.name ?? selectedCode} 行情`} />}
+          {quote.type === 'stock' && <StockSelectionScore code={selectedCode} candles={scoreCode === selectedCode ? scoreKlines : []} benchmarkCandles={benchmarkKlines} loading={scoreKlineLoading || benchmarkLoading || scoreCode !== selectedCode} quote={quote} />}</> : <Empty description={`无法加载 ${selected?.name ?? selectedCode} 行情`} />}
         </Skeleton></Card>
         {quote && supportsIndexConstituents(quote) && <IndexConstituentDrawer
           index={{ code: quote.code, name: quote.name }}

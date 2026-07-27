@@ -1,10 +1,19 @@
 import type { KlinePoint } from './types';
+import {
+  normalPriceLimitRatio,
+  inferAshareBoard,
+  resolveListingLifecycle,
+  resolvePriceLimitRule,
+  type ListingLifecycle,
+} from './priceLimitRules';
 
 export type SelectionStyleId = 'contrarian' | 'value' | 'growth' | 'trend' | 'limit-up';
 export type SelectionScoreTier = 'core' | 'watch' | 'weak' | 'blocked';
 
 export interface SelectionScoreContext {
   securityCode?: string;
+  securityName?: string;
+  listDate?: string | null;
   peTtm?: number | null;
   pb?: number | null;
   psTtm?: number | null;
@@ -74,6 +83,9 @@ export interface SelectionScoreResult {
   asOf: string | null;
   inputSampleSize: number;
   sampleSize: number;
+  lifecycle: ListingLifecycle;
+  tradingDayNumber: number | null;
+  ipoNoLimitTradingDays: number;
   message?: string;
   assumptions: string[];
 }
@@ -263,19 +275,31 @@ function kdjJAt(candles: KlinePoint[], endIndex: number): number | null {
 }
 
 export function limitUpThreshold(securityCode = ''): number {
-  const code = securityCode.replace(/\D/g, '').slice(-6);
-  if (/^(4|8|920)/.test(code)) return 0.295;
-  if (/^(300|301|688|689)/.test(code)) return 0.195;
-  return 0.095;
+  return normalPriceLimitRatio(inferAshareBoard(securityCode)) - 0.005;
 }
 
-function consecutiveLimitUpsAt(candles: KlinePoint[], endIndex: number, securityCode?: string): number | null {
+function consecutiveLimitUpsAt(
+  candles: KlinePoint[],
+  endIndex: number,
+  context: SelectionScoreContext,
+): number | null {
   if (endIndex < 1) return null;
-  const threshold = limitUpThreshold(securityCode);
+  const firstListedIndex = context.listDate
+    ? candles.findIndex((item) => item.date >= context.listDate!)
+    : -1;
   let count = 0;
   for (let index = endIndex; index > 0; index -= 1) {
+    const tradingDayNumber = firstListedIndex >= 0 ? index - firstListedIndex + 1 : null;
+    const rule = resolvePriceLimitRule({
+      securityCode: context.securityCode ?? '',
+      listDate: context.listDate,
+      tradeDate: candles[index].date,
+      tradingDayNumber,
+      isRiskWarning: /^\*?ST/i.test(context.securityName ?? ''),
+    });
+    if (rule.detectionThreshold == null) break;
     const previous = candles[index].previousClose ?? candles[index - 1].close;
-    if (previous <= 0 || candles[index].close / previous - 1 < threshold) break;
+    if (previous <= 0 || candles[index].close / previous - 1 < rule.detectionThreshold) break;
     count += 1;
   }
   return count;
@@ -464,7 +488,7 @@ const STYLE_SPECS: Record<SelectionStyleId, StyleSpec> = {
       {
         id: 'limit_up_consecutive', label: '连续涨停天数', section: 'momentum', weight: 20, format: (value) => `${value} 天`,
         calculate: (candles, endIndex, _benchmark, context) => (
-          consecutiveLimitUpsAt(candles, endIndex, context.securityCode)
+          consecutiveLimitUpsAt(candles, endIndex, context)
         ),
         fixedScore: (value) => clamp(value / 3 * 100),
       },
@@ -644,6 +668,16 @@ export function calculateSelectionScore(
   const inputSampleSize = inputCandles.length;
   const candles = cleanCandles(inputCandles);
   const benchmark = alignBenchmark(candles, cleanCandles(inputBenchmarkCandles));
+  const listedCandles = context.listDate
+    ? candles.filter((item) => item.date >= context.listDate!)
+    : candles;
+  const lifecycleState = resolveListingLifecycle({
+    securityCode: context.securityCode ?? '',
+    listDate: context.listDate,
+    asOf: candles[candles.length - 1]?.date ?? null,
+    validTradingDays: listedCandles.length,
+    scoreWarmupDays: MIN_CANDLES,
+  });
   const relativeStrength20d = relativeReturnAt(candles, candles.length - 1, benchmark, 20);
   const relativeStrength60d = relativeReturnAt(candles, candles.length - 1, benchmark, 60);
   const base = {
@@ -657,6 +691,7 @@ export function calculateSelectionScore(
     inputSampleSize,
     sampleSize: candles.length,
     asOf: candles[candles.length - 1]?.date ?? null,
+    ...lifecycleState,
   };
 
   if (candles.length < MIN_CANDLES) {
@@ -665,7 +700,12 @@ export function calculateSelectionScore(
       status: 'insufficient',
       score: null,
       tier: null,
-      tierLabel: '数据不足',
+      tierLabel: context.listDate && (
+        lifecycleState.lifecycle === 'score_warmup'
+        || lifecycleState.lifecycle === 'early_listing'
+      )
+        ? '新股预热'
+        : '数据不足',
       tierDescription: '',
       rawPositiveScore: 0,
       normalizedBaseScore: 0,
@@ -673,7 +713,12 @@ export function calculateSelectionScore(
       forcedCooling: false,
       dataCoveragePct: 0,
       sections: [],
-      message: `收到 ${inputSampleSize} 根日 K，清洗并按日期去重后有 ${candles.length} 根有效日 K，至少需要 ${MIN_CANDLES} 根。`,
+      message: context.listDate && (
+        lifecycleState.lifecycle === 'score_warmup'
+        || lifecycleState.lifecycle === 'early_listing'
+      )
+        ? `新股评分预热中：当前有 ${listedCandles.length} 个有效交易日，正式评分至少需要 ${MIN_CANDLES} 个。`
+        : `收到 ${inputSampleSize} 根日 K，清洗并按日期去重后有 ${candles.length} 根有效日 K，至少需要 ${MIN_CANDLES} 根。`,
       assumptions: [],
     };
   }

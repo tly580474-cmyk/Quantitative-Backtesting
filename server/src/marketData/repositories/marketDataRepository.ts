@@ -61,6 +61,16 @@ export interface DailyStockMetricUpsert {
   isLimitUp: boolean;
 }
 
+export interface LatestStockValuation {
+  tradeDate: string;
+  price: number | null;
+  peTtm: number | null;
+  pb: number | null;
+  psTtm: number | null;
+  totalMarketCap: number | null;
+  floatMarketCap: number | null;
+}
+
 // ─── Daily Candles ──────────────────────────────────────────────────
 
 export async function getDailyCandles(
@@ -841,4 +851,46 @@ export async function getInstrumentKeyBySymbol(
     .where(and(eq(instruments.symbol, symbol), eq(instruments.market, market)))
     .limit(1);
   return row?.instrumentKey ?? null;
+}
+
+export async function getLatestStockValuation(symbolInput: string): Promise<LatestStockValuation | null> {
+  const symbol = symbolInput.replace(/\D/g, '').padStart(6, '0').slice(-6);
+  const [row] = await getDb()
+    .select({
+      tradeDate: dailyStockMetrics.tradeDate,
+      price: dailyBarsV2.close,
+      peTtm: dailyStockMetrics.peTtm,
+      pb: dailyStockMetrics.pb,
+      psTtm: dailyStockMetrics.psTtm,
+      totalMarketCap: dailyStockMetrics.totalMarketCap,
+      floatMarketCap: dailyStockMetrics.floatMarketCap,
+    })
+    .from(dailyStockMetrics)
+    .innerJoin(
+      instruments,
+      and(
+        eq(instruments.instrumentKey, dailyStockMetrics.instrumentKey),
+        eq(instruments.type, 'stock'),
+      ),
+    )
+    .leftJoin(
+      dailyBarsV2,
+      and(
+        eq(dailyBarsV2.instrumentKey, dailyStockMetrics.instrumentKey),
+        eq(dailyBarsV2.tradeDate, dailyStockMetrics.tradeDate),
+      ),
+    )
+    .where(eq(instruments.symbol, symbol))
+    .orderBy(desc(dailyStockMetrics.tradeDate))
+    .limit(1);
+  if (!row) return null;
+  return {
+    tradeDate: row.tradeDate,
+    price: row.price == null ? null : Number(row.price),
+    peTtm: row.peTtm == null ? null : Number(row.peTtm),
+    pb: row.pb == null ? null : Number(row.pb),
+    psTtm: row.psTtm == null ? null : Number(row.psTtm),
+    totalMarketCap: row.totalMarketCap == null ? null : Number(row.totalMarketCap),
+    floatMarketCap: row.floatMarketCap == null ? null : Number(row.floatMarketCap),
+  };
 }

@@ -162,7 +162,7 @@ export interface MetricsHistoryResponse {
 }
 
 export interface DataUpdateProgressItem {
-  key: 'minute_lake' | 'daily_kline' | 'financial_reports';
+  key: 'instrument_master' | 'minute_lake' | 'daily_kline' | 'financial_reports';
   label: string;
   status: 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   phase: string;

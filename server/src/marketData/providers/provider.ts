@@ -49,8 +49,10 @@ export interface ProviderInstrument {
   name: string;
   market: string;
   type: string;
+  industry?: string;
   listDate?: string;
   delistDate?: string;
+  status?: 'pending' | 'active' | 'delisted' | 'suspended';
 }
 
 export interface InstrumentPage {
@@ -120,6 +122,10 @@ export interface MarketDataProvider {
   getCapabilities(): ProviderCapabilities;
 
   fetchInstruments(request: InstrumentRequest): Promise<InstrumentPage>;
+
+  enrichInstruments?(
+    instruments: ProviderInstrument[],
+  ): Promise<ProviderInstrument[]>;
 
   fetchTradingCalendar(request: CalendarRequest): Promise<TradingDay[]>;
 

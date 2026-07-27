@@ -112,6 +112,18 @@ export async function getInstrumentByMarketSymbol(
   return (rows[0] as Instrument) ?? null;
 }
 
+export async function listInstrumentIdentityKeys(type = 'stock'): Promise<Set<string>> {
+  const rows = await getDb()
+    .select({
+      market: instruments.market,
+      symbol: instruments.symbol,
+      type: instruments.type,
+    })
+    .from(instruments)
+    .where(eq(instruments.type, type));
+  return new Set(rows.map((row) => `${row.market}:${row.symbol}:${row.type}`));
+}
+
 export async function createInstrument(instrument: Instrument): Promise<void> {
   await getDb().insert(instruments).values(instrument);
 }
@@ -133,7 +145,7 @@ export async function updateInstrument(
   updates: Partial<
     Pick<
       Instrument,
-      'name' | 'type' | 'listDate' | 'delistDate' | 'status' | 'updatedAt'
+      'name' | 'industry' | 'type' | 'listDate' | 'delistDate' | 'status' | 'updatedAt'
     >
   >,
 ): Promise<void> {
@@ -147,12 +159,34 @@ export async function upsertInstrument(instrument: Instrument): Promise<void> {
     .onDuplicateKeyUpdate({
       set: {
         name: sql`VALUES(${instruments.name})`,
-        listDate: sql`VALUES(${instruments.listDate})`,
-        delistDate: sql`VALUES(${instruments.delistDate})`,
+        industry: sql`COALESCE(VALUES(${instruments.industry}), ${instruments.industry})`,
+        listDate: sql`COALESCE(VALUES(${instruments.listDate}), ${instruments.listDate})`,
+        delistDate: sql`COALESCE(VALUES(${instruments.delistDate}), ${instruments.delistDate})`,
         status: sql`VALUES(${instruments.status})`,
         updatedAt: sql`VALUES(${instruments.updatedAt})`,
       },
     });
+}
+
+export async function upsertInstruments(instrumentList: Instrument[]): Promise<void> {
+  if (instrumentList.length === 0) return;
+  await getDb().transaction(async (tx) => {
+    for (let index = 0; index < instrumentList.length; index += CHUNK_SIZE) {
+      await tx
+        .insert(instruments)
+        .values(instrumentList.slice(index, index + CHUNK_SIZE))
+        .onDuplicateKeyUpdate({
+          set: {
+            name: sql`VALUES(${instruments.name})`,
+            industry: sql`COALESCE(VALUES(${instruments.industry}), ${instruments.industry})`,
+            listDate: sql`COALESCE(VALUES(${instruments.listDate}), ${instruments.listDate})`,
+            delistDate: sql`COALESCE(VALUES(${instruments.delistDate}), ${instruments.delistDate})`,
+            status: sql`VALUES(${instruments.status})`,
+            updatedAt: sql`VALUES(${instruments.updatedAt})`,
+          },
+        });
+    }
+  });
 }
 
 function buildConditions(

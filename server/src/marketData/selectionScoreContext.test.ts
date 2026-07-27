@@ -76,4 +76,33 @@ describe('selection score context', () => {
     expect(result.roePct).toBeNull();
     expect(result.sources).toEqual(['腾讯']);
   });
+
+  it('accepts a local valuation snapshot without fetching a full online quote', () => {
+    const result = extractSelectionScoreContext(
+      {
+        peTtm: 10.5,
+        pb: 1.2,
+        psTtm: 2.4,
+        marketCapYi: 800,
+        floatMarketCapYi: 620,
+        source: ['本地日线估值（2026-07-24）'],
+      },
+      {
+        records: [{
+          source: '本地标准化财务报表',
+          date: '2026-03-31',
+          metrics: { roe: 11.2, ps: 99 },
+        }],
+      },
+      { records: [] },
+    );
+    expect(result).toMatchObject({
+      peTtm: 10.5,
+      pb: 1.2,
+      psTtm: 2.4,
+      marketCapYi: 800,
+      roePct: 11.2,
+    });
+    expect(result.sources).toEqual(['本地日线估值（2026-07-24）', '本地标准化财务报表']);
+  });
 });

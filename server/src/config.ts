@@ -21,6 +21,8 @@ const envSchema = z.object({
   MARKET_DATA_API_KEY: z.string().default(''),
   MARKET_DATA_BASE_URL: z.string().default(''),
   TUSHARE_TOKEN: z.string().default(''),
+  INSTRUMENT_SYNC_ENABLED: z.enum(['true', 'false']).default('true'),
+  INSTRUMENT_SYNC_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('15:20'),
   MARKET_DATA_SYNC_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('15:30'),
   SCHEDULE_SKIP_NON_TRADING_PERIODS: z.enum(['true', 'false']).default('true'),
   MARKET_DATA_INTRADAY_INTERVAL_MINUTES: z.string().default('30'),

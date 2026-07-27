@@ -22,6 +22,8 @@ import { OpenAIStrategyGenerationProvider } from './services/strategyGeneration/
 import type { StrategyGenerationProvider } from './services/strategyGeneration/provider.js';
 import { registerProvider } from './marketData/providers/providerRegistry.js';
 import { primaryProvider } from './marketData/providers/primaryProvider.js';
+import { TushareInstrumentProvider } from './marketData/providers/tushareInstrumentProvider.js';
+import { SinaInstrumentProvider } from './marketData/providers/sinaInstrumentProvider.js';
 import { tencentProvider } from './marketData/providers/tencentProvider.js';
 import { startScheduler } from './marketData/jobs/syncScheduler.js';
 import { startIndexDatasetScheduler } from './marketData/jobs/indexDatasetScheduler.js';
@@ -157,7 +159,12 @@ async function main(): Promise<void> {
 
   // Phase 5: Market data platform
   if (dbOnline) {
-    const providers = [tencentProvider, primaryProvider]
+    const providers = [
+      tencentProvider,
+      ...(config.TUSHARE_TOKEN ? [new TushareInstrumentProvider(config.TUSHARE_TOKEN)] : []),
+      new SinaInstrumentProvider(),
+      primaryProvider,
+    ]
       .sort((a, b) => Number(b.id === config.MARKET_DATA_PROVIDER) - Number(a.id === config.MARKET_DATA_PROVIDER));
     for (const marketProvider of providers) {
       registerProvider(marketProvider);
@@ -168,6 +175,9 @@ async function main(): Promise<void> {
       startScheduler({
         enabled: true,
         dailySyncTime: config.MARKET_DATA_SYNC_TIME,
+        instrumentSyncEnabled: config.INSTRUMENT_SYNC_ENABLED === 'true',
+        instrumentSyncTime: config.INSTRUMENT_SYNC_TIME,
+        instrumentProviderId: config.TUSHARE_TOKEN ? 'tushare-instruments' : 'sina-instruments',
         markets: ['SH', 'SZ', 'BJ'],
         providerId: providers[0].id,
         intradayIntervalMinutes: Math.max(
@@ -176,6 +186,12 @@ async function main(): Promise<void> {
         ),
       });
       console.log(`[MarketData] Scheduler started, daily sync at ${config.MARKET_DATA_SYNC_TIME}`);
+      if (config.INSTRUMENT_SYNC_ENABLED === 'true') {
+        console.log(
+          `[MarketData] Instrument master sync scheduled at ${config.INSTRUMENT_SYNC_TIME} ` +
+          `(source: ${config.TUSHARE_TOKEN ? 'Tushare' : 'Sina token-free fallback'})`,
+        );
+      }
     }
 
     if (config.MARKET_INDEX_AUTO_UPDATE_ENABLED === 'true') {

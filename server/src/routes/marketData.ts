@@ -7,6 +7,7 @@ import {
   getDailyCandles,
   getDataFreshness,
   getHistoryDailyBars,
+  getLatestStockValuation,
   getPublishedHistoryAdjustment,
 } from '../marketData/repositories/marketDataRepository.js';
 import {
@@ -558,6 +559,9 @@ export function registerMarketDataRoutes(
       fullHistory: z.enum(['true', 'false'])
         .transform((value) => value === 'true')
         .default(false),
+      localFirst: z.enum(['true', 'false'])
+        .transform((value) => value === 'true')
+        .default(false),
     }).safeParse(req.query);
     if (!query.success) return reply.status(400).send({ message: '不支持的 K 线周期' });
     try {
@@ -612,6 +616,27 @@ export function registerMarketDataRoutes(
               ? daily
               : aggregateDailyKlines(daily, query.data.period);
             source = online.length > 0 ? 'database+online' : 'database';
+          }
+        } else if (query.data.localFirst) {
+          const database = await fetchStockFullHistoryFromDb(
+            req.params.code,
+            requestedAdjustmentMode,
+          );
+          effectiveAdjustmentMode = database.adjustmentMode;
+          if (database.items.length > 0) {
+            const daily = database.items.slice(-320);
+            items = query.data.period === 'day'
+              ? daily
+              : aggregateDailyKlines(daily, query.data.period);
+            source = 'database';
+          } else {
+            items = await fetchStockKline(
+              req.params.code,
+              query.data.period,
+              320,
+              requestedAdjustmentMode,
+            );
+            effectiveAdjustmentMode = requestedAdjustmentMode;
           }
         } else {
           items = await fetchStockKline(
@@ -698,15 +723,26 @@ export function registerMarketDataRoutes(
   });
 
   app.get<{ Params: { code: string } }>('/api/market-data/stocks/:code/selection-score-context', async (req, reply) => {
+    const query = z.object({
+      price: z.coerce.number().positive().optional(),
+    }).safeParse(req.query);
+    if (!query.success) return reply.status(400).send({ message: '评分价格参数无效' });
     try {
       const now = new Date();
-      const quote = await fetchStockQuote(req.params.code);
-      if (quote.type !== 'stock') return reply.status(400).send({ message: '选股评分仅支持个股' });
+      const valuation = await getLatestStockValuation(req.params.code);
+      const price = query.data.price ?? valuation?.price ?? null;
       const [fundamental, dividend] = await Promise.all([
         loadTradingLayer(req.params.code, 'fundamental'),
-        loadLocalDividendLayer(storageConfig.snapshotRoot, req.params.code, quote.price, now),
+        loadLocalDividendLayer(storageConfig.snapshotRoot, req.params.code, price, now),
       ]);
-      return reply.send(extractSelectionScoreContext(quote, fundamental, dividend));
+      return reply.send(extractSelectionScoreContext({
+        peTtm: valuation?.peTtm,
+        pb: valuation?.pb,
+        psTtm: valuation?.psTtm,
+        marketCapYi: valuation?.totalMarketCap == null ? null : valuation.totalMarketCap / 100_000_000,
+        floatMarketCapYi: valuation?.floatMarketCap == null ? null : valuation.floatMarketCap / 100_000_000,
+        source: valuation ? [`本地日线估值（${valuation.tradeDate}）`] : [],
+      }, fundamental, dividend));
     } catch (error) {
       req.log.error(error);
       return reply.status(502).send({ message: error instanceof Error ? error.message : '评分基础数据获取失败' });
