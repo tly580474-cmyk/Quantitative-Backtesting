@@ -240,6 +240,7 @@ function coverageRow(
     minDate: row?.minDate ?? null,
     maxDate: row?.maxDate ?? null,
     message: `${covered}/${total}，覆盖率 ${(assessment.coverage * 100).toFixed(2)}%`,
+    details: { passThreshold: threshold },
   };
 }
 
@@ -253,7 +254,14 @@ function indexCoverageRow(row: IndexCoverageSqlRow | undefined): CoverageMatrixR
     ...base,
     status: ready ? 'pass' : validDates >= 8 ? 'warn' : 'fail',
     message: `${indices}/6 个指数，${validDates} 个有效权重日期，${weightedSnapshots} 个加权快照`,
-    details: { indices, validDates, weightedSnapshots },
+    details: {
+      indices,
+      validDates,
+      weightedSnapshots,
+      requiredIndices: 6,
+      requiredValidDates: 12,
+      warningValidDates: 8,
+    },
   };
 }
 
@@ -291,6 +299,8 @@ async function minuteCoverageRow(
         root,
         preparedAt: text(value.preparedAt),
         tradingDays: fileCount,
+        authoritativeDate,
+        requirement: '分钟湖最大日期不得落后于 MySQL 权威日期',
       },
     };
   } catch (error) {

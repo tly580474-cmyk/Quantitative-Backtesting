@@ -5,6 +5,7 @@ import {
 } from '../marketData/jobs/marketSession.js';
 import {
   matchActivePaperOrders,
+  refreshPaperPositionQuotes,
   settlePaperPositionsT1,
 } from './service.js';
 import { recordAllPaperEquitySnapshots } from './equitySnapshot.js';
@@ -49,6 +50,15 @@ export function startPaperTradingScheduler(options: PaperTradingSchedulerOptions
         lastSettlementDate = session.tradeDate;
       }
       if (shouldRunPaperTradingMatcher(session)) {
+        const valuation = await refreshPaperPositionQuotes(
+          options.pool,
+          options.minuteDataRoot,
+        );
+        if (valuation.failures.length > 0) {
+          console.warn(
+            `[PaperTrading] Position quotes updated=${valuation.updated}/${valuation.scanned} failures=${valuation.failures.length}`,
+          );
+        }
         const result = await matchActivePaperOrders(
           options.pool,
           options.minuteDataRoot,
@@ -61,6 +71,7 @@ export function startPaperTradingScheduler(options: PaperTradingSchedulerOptions
         }
       }
       if (shouldRunEquitySnapshot(session) && lastSnapshotDate !== session.tradeDate) {
+        await refreshPaperPositionQuotes(options.pool, options.minuteDataRoot);
         const snapshots = await recordAllPaperEquitySnapshots(
           options.pool,
           session.tradeDate,

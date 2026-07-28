@@ -8,6 +8,7 @@ import {
   CloudServerOutlined,
   DashboardOutlined,
   DatabaseOutlined,
+  DownOutlined,
   DownloadOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
@@ -21,6 +22,7 @@ import {
   SafetyCertificateOutlined,
   SearchOutlined,
   SettingOutlined,
+  UpOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import {
@@ -1233,8 +1235,15 @@ function Panel({
 }
 
 function IssueCard({ check }: { check: DiagnosticCheck }) {
+  const hasDetails = Boolean(check.details?.length);
+  const [expanded, setExpanded] = useState(
+    check.id === 'data-coverage' && (check.level === 'critical' || check.level === 'warning'),
+  );
   return (
-    <article className={`issue-card level-border-${check.level}`}>
+    <article
+      className={`issue-card level-border-${check.level}`}
+      aria-label={`${check.title}：${check.summary}`}
+    >
       <span className="issue-icon"><StatusIcon level={check.level} /></span>
       <div>
         <div className="issue-heading">
@@ -1242,6 +1251,32 @@ function IssueCard({ check }: { check: DiagnosticCheck }) {
           <StatusBadge level={check.level} compact />
         </div>
         <p>{check.summary}</p>
+        {hasDetails && (
+          <>
+            <button
+              type="button"
+              className="issue-detail-toggle"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {expanded ? <UpOutlined /> : <DownOutlined />}
+              {expanded ? '收起详情' : `查看详情（${check.details!.length}）`}
+            </button>
+            {expanded && (
+              <dl className="issue-details">
+                {check.details!.map((detail, index) => (
+                  <div className={`issue-detail-row ${detail.level ? `is-${detail.level}` : ''}`} key={`${detail.label}-${index}`}>
+                    <dt>{detail.label}</dt>
+                    <dd>
+                      <strong>{detail.value}</strong>
+                      {detail.hint && <span>{detail.hint}</span>}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </>
+        )}
         {check.resolution && <div className="resolution"><strong>建议：</strong>{check.resolution}</div>}
       </div>
     </article>

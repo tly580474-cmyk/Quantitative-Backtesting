@@ -20,6 +20,7 @@ import type {
 import {
   calculateBuyReservation,
   calculateBuySettlement,
+  calculatePositionMark,
   calculateQuickOrderQuantities,
   calculateSellSettlement,
 } from './accounting.js';
@@ -283,8 +284,15 @@ export async function deletePaperAccount(pool: mysql.Pool, accountId: string) {
   }
 }
 
-export async function getPaperAccount(pool: mysql.Pool, accountId: string) {
+export async function getPaperAccount(
+  pool: mysql.Pool,
+  accountId: string,
+  minuteDataRoot?: string,
+) {
   await settlePaperPositionsT1(pool, getChinaMarketSession().tradeDate);
+  if (minuteDataRoot) {
+    await refreshPaperPositionQuotes(pool, minuteDataRoot, accountId);
+  }
   const [accounts] = await pool.execute<AccountRow[]>(
     'SELECT * FROM paper_accounts WHERE id = ? LIMIT 1',
     [accountId],
@@ -330,6 +338,74 @@ export async function getPaperAccount(pool: mysql.Pool, accountId: string) {
     orders,
     trades,
     ledger,
+  };
+}
+
+export async function refreshPaperPositionQuotes(
+  pool: mysql.Pool,
+  minuteDataRoot: string,
+  accountId?: string,
+) {
+  const params: string[] = [];
+  let accountFilter = '';
+  if (accountId) {
+    accountFilter = ' AND account_id = ?';
+    params.push(accountId);
+  }
+  const [positions] = await pool.execute<PositionRow[]>(
+    `SELECT * FROM paper_positions
+     WHERE total_quantity > 0${accountFilter}
+     ORDER BY account_id, instrument_key`,
+    params,
+  );
+  let updated = 0;
+  const failures: Array<{
+    accountId: string;
+    securityCode: string;
+    error: string;
+  }> = [];
+  const concurrency = 6;
+  for (let offset = 0; offset < positions.length; offset += concurrency) {
+    const batch = positions.slice(offset, offset + concurrency);
+    await Promise.all(batch.map(async (position) => {
+      try {
+        const quote = await resolvePaperMarketQuote(
+          pool,
+          minuteDataRoot,
+          position.security_code,
+          Number(position.instrument_key),
+        );
+        const mark = calculatePositionMark({
+          totalQuantity: number(position.total_quantity),
+          averageCost: number(position.average_cost),
+          lastPrice: quote.price,
+        });
+        await pool.execute(
+          `UPDATE paper_positions
+           SET last_price = ?, market_value = ?, updated_at = ?
+           WHERE account_id = ? AND instrument_key = ?`,
+          [
+            quote.price,
+            mark.marketValue,
+            mysqlDateTime(),
+            position.account_id,
+            position.instrument_key,
+          ],
+        );
+        updated += 1;
+      } catch (error) {
+        failures.push({
+          accountId: position.account_id,
+          securityCode: position.security_code,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }));
+  }
+  return {
+    scanned: positions.length,
+    updated,
+    failures,
   };
 }
 

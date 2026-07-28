@@ -138,7 +138,11 @@ export function registerPaperTradingRoutes(
   app.get<{ Params: { id: string } }>(
     '/api/paper-trading/accounts/:id',
     async (request, reply) =>
-      handle(reply, () => getPaperAccount(options.pool, request.params.id)),
+      handle(reply, () => getPaperAccount(
+        options.pool,
+        request.params.id,
+        options.minuteDataRoot,
+      )),
   );
 
   app.post('/api/paper-trading/accounts', async (request, reply) => {

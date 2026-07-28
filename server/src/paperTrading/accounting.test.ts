@@ -5,6 +5,7 @@ import {
   calculateBuyReservation,
   calculateBuySettlement,
   calculateMaxAffordableBuyQuantity,
+  calculatePositionMark,
   calculateQuickOrderQuantities,
   calculateSellSettlement,
 } from './accounting.js';
@@ -87,6 +88,17 @@ describe('paper trading accounting', () => {
       third: 500,
       fixedHundredLots: 10_000,
       fixedHundredLotsAvailable: false,
+    });
+  });
+
+  it('marks a position to the latest quote instead of the fill price', () => {
+    expect(calculatePositionMark({
+      totalQuantity: 2_600,
+      averageCost: 37.4149,
+      lastPrice: 34.75,
+    })).toEqual({
+      marketValue: 90_350,
+      unrealizedPnl: -6_928.74,
     });
   });
 });

@@ -230,6 +230,33 @@ button:focus-visible, input:focus-visible {
 .issue-heading { display: flex; align-items: center; gap: 12px; }
 .issue-heading .status-badge { margin-left: auto; }
 .issue-card p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.issue-detail-toggle {
+  min-height: 38px;
+  margin-top: 9px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #cdbfff;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.issue-detail-toggle:hover { color: #fff; background: #211b3d; }
+.issue-detail-toggle:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
+.issue-details { margin: 7px 0 0; padding: 3px 11px; border: 1px solid var(--border); border-radius: 8px; background: #080f1d; }
+.issue-detail-row { margin: 0; padding: 9px 0; display: grid; grid-template-columns: minmax(105px, .7fr) minmax(0, 2fr); gap: 12px; border-bottom: 1px solid var(--border); }
+.issue-detail-row:last-child { border-bottom: 0; }
+.issue-detail-row dt { color: var(--faint); font-size: 12px; }
+.issue-detail-row dd { min-width: 0; margin: 0; color: #d9e2ee; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.issue-detail-row dd strong { display: block; font-weight: 600; }
+.issue-detail-row dd span { display: block; margin-top: 3px; color: var(--faint); }
+.issue-detail-row.is-critical dd strong { color: #ff9caf; }
+.issue-detail-row.is-warning dd strong { color: #ffd38a; }
+.issue-detail-row.is-healthy dd strong { color: #7ceaa0; }
 .resolution { margin-top: 10px; padding: 9px 11px; border-radius: 7px; background: #172135; color: #c5d0df; font-size: 12px; line-height: 1.55; }
 
 .config-list { margin-top: 4px; }
@@ -313,6 +340,7 @@ button:focus-visible, input:focus-visible {
   .admin-header { min-height: 70px; padding: 10px 16px; }
   .mobile-menu { display: inline-flex !important; flex: 0 0 auto; }
   .admin-header h1 { font-size: 19px; }
+  .issue-detail-row { grid-template-columns: 1fr; gap: 4px; }
   .refresh-meta { display: none; }
   .header-actions .secondary-button { min-width: 44px; width: 44px; padding: 0; }
   .header-actions .secondary-button span:last-child { display: none; }

@@ -147,14 +147,14 @@ export default function PaperTradingPage() {
     });
   }, []);
 
-  const loadDetail = useCallback(async (accountId: string) => {
-    setLoading(true);
+  const loadDetail = useCallback(async (accountId: string, showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       setDetail(await apiFetch<PaperAccountDetail>(
         `/api/paper-trading/accounts/${accountId}`,
       ));
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, []);
 
@@ -181,6 +181,17 @@ export default function PaperTradingPage() {
     } else {
       setDetail(null);
     }
+  }, [loadDetail, selectedAccountId]);
+
+  useEffect(() => {
+    if (!selectedAccountId) return undefined;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void loadDetail(selectedAccountId, false).catch(() => {
+        // Keep the last successful valuation and retry on the next interval.
+      });
+    }, 15_000);
+    return () => window.clearInterval(timer);
   }, [loadDetail, selectedAccountId]);
 
   const createAccount = async () => {

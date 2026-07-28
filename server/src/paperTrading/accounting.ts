@@ -130,6 +130,26 @@ export function calculateQuickOrderQuantities(input: {
   };
 }
 
+export function calculatePositionMark(input: {
+  totalQuantity: number;
+  averageCost: number;
+  lastPrice: number;
+}) {
+  const { totalQuantity, averageCost, lastPrice } = input;
+  if (
+    ![totalQuantity, averageCost, lastPrice].every(Number.isFinite)
+    || totalQuantity < 0
+    || averageCost < 0
+    || lastPrice <= 0
+  ) {
+    throw new Error('持仓估值参数无效');
+  }
+  return {
+    marketValue: roundMoney(totalQuantity * lastPrice),
+    unrealizedPnl: roundMoney((lastPrice - averageCost) * totalQuantity),
+  };
+}
+
 export function assertAccountBalances(input: {
   cashBalance: number;
   frozenCash: number;

@@ -6,6 +6,12 @@ export interface DiagnosticCheck {
   level: HealthLevel;
   summary: string;
   resolution?: string;
+  details?: Array<{
+    label: string;
+    value: string;
+    level?: HealthLevel;
+    hint?: string;
+  }>;
 }
 
 export interface AdminOverview {
@@ -80,6 +86,7 @@ export interface AdminOverview {
         minDate: string | null;
         maxDate: string | null;
         message: string;
+        details?: Record<string, unknown>;
       }>;
     } | null;
     collectorHealth: {

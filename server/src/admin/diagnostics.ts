@@ -8,6 +8,7 @@ import {
   buildDataCoverageMatrix,
   readCoverageMatrixCache,
   writeCoverageMatrixCache,
+  type CoverageMatrixRow,
 } from '../research/dataCoverageMatrix.js';
 import { getDuckDBRuntimeStats } from '../research/duckdbRuntime.js';
 import { evaluateMarketCollectorHealth, readMarketCollectorState } from '../research/dataHealthGate.js';
@@ -18,12 +19,91 @@ import { metricsHistory } from './metricsHistory.js';
 
 export type HealthLevel = 'healthy' | 'warning' | 'critical' | 'disabled';
 
+export interface DiagnosticDetail {
+  label: string;
+  value: string;
+  level?: HealthLevel;
+  hint?: string;
+}
+
 interface DiagnosticCheck {
   id: string;
   title: string;
   level: HealthLevel;
   summary: string;
   resolution?: string;
+  details?: DiagnosticDetail[];
+}
+
+export function ensureDiagnosticDetails(checks: DiagnosticCheck[]): DiagnosticCheck[] {
+  return checks.map((check) => {
+    if (
+      check.level === 'healthy'
+      || check.level === 'disabled'
+      || (check.details && check.details.length > 0)
+    ) return check;
+    return {
+      ...check,
+      details: [
+        { label: '检查标识', value: check.id },
+        { label: '检测结果', value: check.summary, level: check.level },
+      ],
+    };
+  });
+}
+
+export function buildCoverageDiagnosticDetails(
+  rows: CoverageMatrixRow[],
+): DiagnosticDetail[] {
+  return rows
+    .filter((row) => row.status !== 'pass')
+    .map((row) => ({
+      label: row.label,
+      value: row.message,
+      level: row.status === 'fail' ? 'critical' : 'warning',
+      hint: [
+        `覆盖区间：${row.minDate ?? '不可用'} ~ ${row.maxDate ?? '不可用'}`,
+        formatDiagnosticRecord(row.details) || coverageRequirement(row.key),
+      ].filter(Boolean).join('；'),
+    }));
+}
+
+function coverageRequirement(key: string): string {
+  const requirements: Record<string, string> = {
+    daily_prices: '通过条件：覆盖率 ≥ 99%',
+    valuations: '通过条件：覆盖率 ≥ 95%',
+    adjustments: '通过条件：覆盖率 ≥ 99%',
+    dividends: '通过条件：覆盖率 = 100%',
+    sw_industry: '通过条件：覆盖率 ≥ 99%',
+    index_weights: '通过条件：6 个指数、至少 12 个有效权重日期和 12 个加权快照',
+    dragon_tiger: '通过条件：交易日覆盖率 ≥ 95%',
+    minute_lake: '通过条件：分钟湖最大日期不得落后于 MySQL 权威日期',
+  };
+  return requirements[key] ?? '通过条件：请查看数据覆盖规则';
+}
+
+function formatDiagnosticRecord(value: Record<string, unknown> | undefined): string {
+  if (!value) return '';
+  return Object.entries(value)
+    .map(([key, item]) => `${key}=${formatDiagnosticValue(item)}`)
+    .join('，');
+}
+
+function formatDiagnosticValue(value: unknown): string {
+  if (typeof value === 'number') {
+    return value > 0 && value <= 1 ? `${(value * 100).toFixed(2)}%` : String(value);
+  }
+  if (typeof value === 'string') return value;
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (value == null) return '不可用';
+  return JSON.stringify(value);
+}
+
+function detailsFromRecord(value: Record<string, unknown>): DiagnosticDetail[] {
+  return Object.entries(value).map(([label, item]) => ({
+    label,
+    value: formatDiagnosticValue(item),
+  }));
 }
 
 export async function collectAdminOverview(input: {
@@ -41,13 +121,13 @@ export async function collectAdminOverview(input: {
   ]);
   const configuration = inspectConfiguration(input.config, input.envFilePath);
   const configItems = listAdminConfig({ ...input.config, ...process.env });
-  const checks = [
+  const checks = ensureDiagnosticDetails([
     ...configuration.checks,
     ...database.checks,
     ...storage.checks,
     ...tasks.checks,
     ...governance.checks,
-  ];
+  ]);
   const criticalCount = checks.filter((item) => item.level === 'critical').length;
   const warningCount = checks.filter((item) => item.level === 'warning').length;
   const overall: HealthLevel = criticalCount > 0
@@ -318,6 +398,10 @@ async function inspectDataGovernance(pool: Pool, dbOnline: boolean, config: EnvC
             level: 'warning',
             summary: error instanceof Error ? error.message : '数据覆盖矩阵生成失败。',
             resolution: '运行 npm run data:coverage 并检查数据库迁移、权限和分钟 manifest。',
+            details: [
+              { label: '异常类型', value: error instanceof Error ? error.name : '未知异常' },
+              { label: '检查范围', value: 'MySQL 数据域、数据库迁移、分钟数据湖 manifest' },
+            ],
           });
           return null;
         })
@@ -338,6 +422,7 @@ async function inspectDataGovernance(pool: Pool, dbOnline: boolean, config: EnvC
       level: check.status === 'pass' ? 'healthy' : check.status === 'warn' ? 'warning' : 'critical',
       summary: check.message,
       resolution: check.status === 'pass' ? undefined : '检查采集任务运行记录、外部数据源连通性与采集开关配置。',
+      details: check.status === 'pass' ? undefined : detailsFromRecord(check.details),
     });
   }
   if (coverage) {
@@ -350,6 +435,7 @@ async function inspectDataGovernance(pool: Pool, dbOnline: boolean, config: EnvC
         ? `${coverage.rows.length} 个数据域全部通过覆盖检查。`
         : `${failing.length}/${coverage.rows.length} 个数据域未通过覆盖检查。`,
       resolution: failing.length > 0 ? '查看管理台数据血缘区域，或运行 npm run data:coverage。' : undefined,
+      details: buildCoverageDiagnosticDetails(failing),
     });
   }
   if (materialized && (materialized.stale > 0 || materialized.invalid > 0)) {
@@ -359,6 +445,18 @@ async function inspectDataGovernance(pool: Pool, dbOnline: boolean, config: EnvC
       level: materialized.invalid > 0 ? 'warning' : 'warning',
       summary: `${materialized.stale} 个结果引用旧快照，${materialized.invalid} 个结果 manifest 无效。`,
       resolution: '旧结果不会被当前快照复用；确认无研究引用后归档或清理对应 snapshot 目录。',
+      details: [
+        { label: '引用旧快照', value: String(materialized.stale), level: materialized.stale > 0 ? 'warning' : 'healthy' },
+        { label: 'manifest 无效', value: String(materialized.invalid), level: materialized.invalid > 0 ? 'warning' : 'healthy' },
+        { label: '占用空间', value: `${materialized.staleBytes} bytes` },
+        {
+          label: '涉及快照',
+          value: materialized.staleSnapshots.slice(0, 10).join('、') || '未记录',
+          hint: materialized.staleSnapshots.length > 10
+            ? `另有 ${materialized.staleSnapshots.length - 10} 个快照未展示`
+            : undefined,
+        },
+      ],
     });
   } else {
     checks.push({
@@ -452,6 +550,11 @@ async function inspectDatabase(pool: Pool, dbOnline: boolean) {
       level: latencyMs > 1000 ? 'warning' : 'healthy',
       summary: latencyMs > 1000 ? `连接正常，但诊断查询耗时 ${latencyMs}ms。` : `连接正常，诊断查询耗时 ${latencyMs}ms。`,
       resolution: latencyMs > 1000 ? '检查磁盘、慢查询、锁等待和主机负载。' : undefined,
+      details: latencyMs > 1000 ? [
+        { label: '当前耗时', value: `${latencyMs}ms`, level: 'warning' },
+        { label: '警告阈值', value: '1000ms' },
+        { label: 'MySQL 版本', value: String(versionRows[0]?.version ?? '未知') },
+      ] : undefined,
     });
     if (usage >= 0.8) {
       checks.push({
@@ -460,6 +563,12 @@ async function inspectDatabase(pool: Pool, dbOnline: boolean) {
         level: 'warning',
         summary: `当前连接占最大连接数的 ${Math.round(usage * 100)}%。`,
         resolution: '检查长连接和连接泄漏，确认连接池上限与 MySQL max_connections 是否匹配。',
+        details: [
+          { label: '当前连接', value: String(statuses.Threads_connected ?? 0) },
+          { label: '运行线程', value: String(statuses.Threads_running ?? 0) },
+          { label: '最大连接', value: String(variables.max_connections ?? 0) },
+          { label: '警告阈值', value: '80%' },
+        ],
       });
     }
     return {
@@ -480,6 +589,10 @@ async function inspectDatabase(pool: Pool, dbOnline: boolean) {
       level: 'critical',
       summary: error instanceof Error ? error.message : '数据库诊断查询失败。',
       resolution: '检查数据库权限、连接稳定性和迁移状态。',
+      details: [
+        { label: '异常类型', value: error instanceof Error ? error.name : '未知异常' },
+        { label: '检查范围', value: '版本、全局连接状态、max_connections' },
+      ],
     });
     return {
       checks,
@@ -534,6 +647,16 @@ async function inspectStorage(config: EnvConfig) {
         resolution: root.id === 'snapshot'
           ? '运行 snapshot:build、snapshot:verify 和 snapshot:publish。'
           : '检查数据准备或更新任务及目录配置。',
+        details: [
+          { label: '目录', value: root.path },
+          { label: '目录可访问', value: available ? '是' : '否', level: available ? 'healthy' : 'critical' },
+          ...(root.manifest ? [{
+            label: '发布清单',
+            value: root.manifest,
+            level: manifestAvailable === false ? 'warning' as const : 'healthy' as const,
+            hint: `清单存在：${manifestAvailable ? '是' : '否'}`,
+          }] : []),
+        ],
       });
     }
   }
@@ -551,6 +674,12 @@ async function inspectStorage(config: EnvConfig) {
         level: 'critical',
         summary: `研究数据所在磁盘已使用 ${Math.round(disk.usedPercent * 100)}%。`,
         resolution: '清理过期快照、DuckDB 临时目录和历史报告，或扩容磁盘。',
+        details: [
+          { label: '使用率', value: `${(disk.usedPercent * 100).toFixed(2)}%`, level: 'critical' },
+          { label: '总容量', value: `${disk.totalBytes} bytes` },
+          { label: '可用容量', value: `${disk.freeBytes} bytes` },
+          { label: '严重阈值', value: '90%' },
+        ],
       });
     } else if (disk.usedPercent >= 0.8) {
       checks.push({
@@ -559,6 +688,12 @@ async function inspectStorage(config: EnvConfig) {
         level: 'warning',
         summary: `研究数据所在磁盘已使用 ${Math.round(disk.usedPercent * 100)}%。`,
         resolution: '评估快照、分钟数据和报告增长速度，提前安排清理或扩容。',
+        details: [
+          { label: '使用率', value: `${(disk.usedPercent * 100).toFixed(2)}%`, level: 'warning' },
+          { label: '总容量', value: `${disk.totalBytes} bytes` },
+          { label: '可用容量', value: `${disk.freeBytes} bytes` },
+          { label: '警告阈值', value: '80%' },
+        ],
       });
     }
   } catch {
@@ -567,6 +702,11 @@ async function inspectStorage(config: EnvConfig) {
       title: '磁盘空间',
       level: 'warning',
       summary: '无法读取研究数据所在磁盘的容量信息。',
+      resolution: '检查研究快照目录是否存在、运行账户是否有读取权限，以及磁盘是否已挂载。',
+      details: [
+        { label: '检查路径', value: dirname(snapshotRoot) },
+        { label: '系统调用', value: 'statfs' },
+      ],
     });
   }
 
@@ -670,6 +810,12 @@ async function inspectTasks(pool: Pool, dbOnline: boolean) {
       level: 'warning',
       summary: `最近 24 小时有 ${failed} 个失败任务。`,
       resolution: '查看同步任务或因子挖掘任务的错误信息，确认是否需要重试或归档。',
+      details: [
+        { label: '同步任务失败', value: String(recentSyncFailures), level: recentSyncFailures > 0 ? 'warning' : 'healthy' },
+        { label: '因子挖掘失败', value: String(recentMiningFailures), level: recentMiningFailures > 0 ? 'warning' : 'healthy' },
+        { label: '统计窗口', value: '最近 24 小时' },
+        { label: '恢复判定', value: '同 runKey 存在更晚 completed 任务时不计入失败' },
+      ],
     });
   }
   return {
@@ -701,6 +847,11 @@ function inspectConfiguration(config: EnvConfig, envFilePath: string | URL) {
       level: 'critical',
       summary: 'ADMIN_API_TOKEN 未配置，管理 API 已禁用。',
       resolution: `在 ${resolve(envFilePath instanceof URL ? fileURLToPath(envFilePath) : envFilePath)} 中设置长随机令牌并重启服务。`,
+      details: [
+        { label: '配置项', value: 'ADMIN_API_TOKEN' },
+        { label: '配置文件', value: resolve(envFilePath instanceof URL ? fileURLToPath(envFilePath) : envFilePath) },
+        { label: '影响', value: '所有需要管理员令牌的 API 均不可用', level: 'critical' },
+      ],
     });
   }
   if (config.AI_STRATEGY_ENABLED === 'true' && !config.OPENAI_API_KEY.trim()) {
@@ -710,6 +861,11 @@ function inspectConfiguration(config: EnvConfig, envFilePath: string | URL) {
       level: 'warning',
       summary: 'AI 功能已启用，但 OPENAI_API_KEY 为空，当前会降级为 Mock Provider。',
       resolution: '配置 API Key，确认 Base URL 和模型名称后重启服务。',
+      details: [
+        { label: '功能开关', value: 'AI_STRATEGY_ENABLED=true' },
+        { label: '缺失配置', value: 'OPENAI_API_KEY', level: 'warning' },
+        { label: '当前降级行为', value: '使用 Mock Provider，不调用真实模型' },
+      ],
     });
   }
   return { checks };
