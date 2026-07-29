@@ -29,7 +29,7 @@ from factor_miner.fitness.metrics import fitness_of, mean_rankic
 from factor_miner.tree.generator import Generator
 from factor_miner.tree.node import Node
 from factor_miner.tree.serialize import canonical_key, from_prefix, to_prefix
-from factor_miner.utils.checkpoint import clear_checkpoint, load_checkpoint, save_checkpoint
+from factor_miner.utils.checkpoint import load_checkpoint, save_checkpoint
 
 logger = logging.getLogger("factor_miner")
 
@@ -38,16 +38,21 @@ _PANEL = None
 _FWD = None
 _CFG = None
 _SELECTED = None
+_ROLLING_VALID_DATES = None
 
 
-def _init_worker(panel, fwd, cfg, selected):
-    global _PANEL, _FWD, _CFG, _SELECTED
+def _init_worker(panel, fwd, cfg, selected, rolling_valid_dates=None):
+    global _PANEL, _FWD, _CFG, _SELECTED, _ROLLING_VALID_DATES
     _PANEL, _FWD, _CFG, _SELECTED = panel, fwd, cfg, selected
+    _ROLLING_VALID_DATES = rolling_valid_dates
 
 
 def _eval_one(prefix: str):
     node = from_prefix(prefix)
-    fit, detail = fitness_of(node, _PANEL, _FWD, _CFG, _SELECTED)
+    fit, detail = fitness_of(
+        node, _PANEL, _FWD, _CFG, _SELECTED,
+        rolling_valid_dates=_ROLLING_VALID_DATES,
+    )
     return fit, detail
 
 
@@ -76,13 +81,16 @@ def _rolling_folds(panel: pd.DataFrame, n_folds: int = 3):
 def _evaluate_population(pop: list[Node], panel: pd.DataFrame, fwd_col: str,
                          cfg: dict, selected_arrays, rolling_folds=None):
     n_jobs = int(cfg.get("evolution", {}).get("n_jobs", 1))
-    # walk-forward 需要在父进程保留完整历史再按验证掩码评分；为避免并行路径
-    # 静默绕过该门禁，启用 rolling 时强制走一致的单进程评价。
-    if n_jobs > 1 and rolling_folds is None:
+    rolling_valid_dates = None
+    if rolling_folds is not None:
+        panel_dates = panel.index.get_level_values(1)
+        rolling_valid_dates = [panel_dates[va_mask].unique()
+                               for _, va_mask in rolling_folds]
+    if n_jobs > 1:
         try:
             with ProcessPoolExecutor(
                 max_workers=n_jobs, initializer=_init_worker,
-                initargs=(panel, fwd_col, cfg, selected_arrays),
+                initargs=(panel, fwd_col, cfg, selected_arrays, rolling_valid_dates),
             ) as ex:
                 results = list(ex.map(_eval_one, [to_prefix(p) for p in pop]))
             for ind, (fit, detail) in zip(pop, results):
@@ -90,11 +98,6 @@ def _evaluate_population(pop: list[Node], panel: pd.DataFrame, fwd_col: str,
             return
         except Exception as exc:  # 并行失败回退单进程
             logger.warning("并行求值失败，回退单进程: %s", exc)
-    rolling_valid_dates = None
-    if rolling_folds is not None:
-        panel_dates = panel.index.get_level_values(1)
-        rolling_valid_dates = [panel_dates[va_mask].unique()
-                               for _, va_mask in rolling_folds]
     for ind in pop:
         fit, detail = fitness_of(ind, panel, fwd_col, cfg, selected_arrays,
                                  rolling_valid_dates=rolling_valid_dates)
@@ -167,6 +170,8 @@ def evolve(cfg: dict, panels: dict, resume: bool = False, ckpt_path: str = "outp
     best_val = -np.inf
     no_improve = 0
     best_node: Node | None = None
+    restored_from_checkpoint = False
+    valid: list[Node] = []
 
     # 断点恢复
     if resume:
@@ -179,6 +184,7 @@ def evolve(cfg: dict, panels: dict, resume: bool = False, ckpt_path: str = "outp
             best_node = from_prefix(st["best_prefix"]) if st.get("best_prefix") else None
             rng.setstate(st["rng_state"])
             pop = [from_prefix(p) for p in st["population"]]
+            restored_from_checkpoint = True
             logger.info("已从检查点恢复：从第 %d 代继续", start_gen)
 
     if not pop:
@@ -193,7 +199,7 @@ def evolve(cfg: dict, panels: dict, resume: bool = False, ckpt_path: str = "outp
         except Exception as exc:
             logger.warning("种子因子解析失败，跳过: %s (%s)", pf, exc)
     seed_keys = {canonical_key(s) for s in seeds}
-    if seeds:
+    if seeds and not restored_from_checkpoint:
         pop = [s.clone() for s in seeds] + \
               [gen.generate() for _ in range(max(0, pop_size - len(seeds)))]
         logger.info("种子因子保护：注入 %d 个种子因子", len(seeds))
@@ -223,6 +229,15 @@ def evolve(cfg: dict, panels: dict, resume: bool = False, ckpt_path: str = "outp
             pop = [gen.generate() for _ in range(pop_size)]
             no_improve += 1
             if no_improve >= patience:
+                save_checkpoint(ckpt_path, {
+                    "generation": g + 1,
+                    "trace": trace,
+                    "best_val": best_val,
+                    "no_improve": no_improve,
+                    "best_prefix": to_prefix(best_node) if best_node else None,
+                    "rng_state": rng.getstate(),
+                    "population": [to_prefix(p) for p in pop],
+                })
                 break
             continue
 
@@ -269,10 +284,6 @@ def evolve(cfg: dict, panels: dict, resume: bool = False, ckpt_path: str = "outp
                 logger.warning("第 %d 代触发早停：验证集 %d 代无改善 (疑似过拟合)", g, patience)
             else:
                 logger.warning("第 %d 代触发早停：验证集 %d 代无改善", g, patience)
-            break
-
-        # 检查点
-        if g % ckpt_freq == 0 or g == generations - 1:
             save_checkpoint(ckpt_path, {
                 "generation": g + 1,
                 "trace": trace,
@@ -282,6 +293,7 @@ def evolve(cfg: dict, panels: dict, resume: bool = False, ckpt_path: str = "outp
                 "rng_state": rng.getstate(),
                 "population": [to_prefix(p) for p in pop],
             })
+            break
 
         # 产生下一代
         diversity = rec["diversity"]
@@ -315,10 +327,21 @@ def evolve(cfg: dict, panels: dict, resume: bool = False, ckpt_path: str = "outp
             new_pop = seed_set + rest[:max(0, pop_size - len(seed_set))]
         pop = new_pop
 
+        # 检查点必须保存已经生成的下一代；否则恢复时会跳过一代繁衍。
+        if g % ckpt_freq == 0 or g == generations - 1:
+            save_checkpoint(ckpt_path, {
+                "generation": g + 1,
+                "trace": trace,
+                "best_val": best_val,
+                "no_improve": no_improve,
+                "best_prefix": to_prefix(best_node) if best_node else to_prefix(best),
+                "rng_state": rng.getstate(),
+                "population": [to_prefix(p) for p in pop],
+            })
+
     if best_node is None:
         best_node = valid[0].clone() if valid else pop[0]
 
-    # 进化结束清理检查点
-    clear_checkpoint(ckpt_path)
+    # 保留最终检查点，直到上层写入完成种子标记。这样两者之间异常退出仍可恢复。
     logger.info("进化完成：最优验证集适应度=%.4f", best_val)
     return best_node, trace

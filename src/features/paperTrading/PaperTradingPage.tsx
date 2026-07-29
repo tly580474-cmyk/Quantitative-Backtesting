@@ -31,6 +31,7 @@ import {
 } from '@ant-design/icons';
 import { apiFetch } from '@/api/client';
 import type { StockSearchItem } from '@/features/marketData/types';
+import PaperSecurityLink from './PaperSecurityLink';
 
 const { Text, Title } = Typography;
 
@@ -549,7 +550,15 @@ export default function PaperTradingPage() {
                     pagination={false}
                     dataSource={detail.positions}
                     columns={[
-                      { title: '证券', render: (_, row) => `${row.securityName} ${row.securityCode}` },
+                      {
+                        title: '证券',
+                        render: (_, row) => (
+                          <PaperSecurityLink
+                            securityName={row.securityName}
+                            securityCode={row.securityCode}
+                          />
+                        ),
+                      },
                       { title: '持仓', dataIndex: 'totalQuantity' },
                       { title: '可卖', dataIndex: 'availableQuantity' },
                       { title: '冻结', dataIndex: 'frozenQuantity' },
@@ -570,7 +579,15 @@ export default function PaperTradingPage() {
                     pagination={{ pageSize: 20 }}
                     columns={[
                       { title: '时间', dataIndex: 'submittedAt' },
-                      { title: '证券', render: (_, row) => `${row.securityName} ${row.securityCode}` },
+                      {
+                        title: '证券',
+                        render: (_, row) => (
+                          <PaperSecurityLink
+                            securityName={row.securityName}
+                            securityCode={row.securityCode}
+                          />
+                        ),
+                      },
                       { title: '方向', dataIndex: 'side', render: sideTag },
                       { title: '类型', render: (_, row) => row.orderType === 'market' ? '市价' : `限价 ${row.limitPrice}` },
                       { title: '委托/成交', render: (_, row) => `${row.quantity} / ${row.filledQuantity}` },
@@ -599,7 +616,15 @@ export default function PaperTradingPage() {
                     pagination={{ pageSize: 20 }}
                     columns={[
                       { title: '时间', dataIndex: 'created_at' },
-                      { title: '证券', render: (_, row) => `${row.security_name} ${row.security_code}` },
+                      {
+                        title: '证券',
+                        render: (_, row) => (
+                          <PaperSecurityLink
+                            securityName={String(row.security_name ?? '')}
+                            securityCode={String(row.security_code ?? '')}
+                          />
+                        ),
+                      },
                       { title: '方向', dataIndex: 'side', render: sideTag },
                       { title: '数量', dataIndex: 'quantity' },
                       { title: '成交价', dataIndex: 'fill_price', render: money },

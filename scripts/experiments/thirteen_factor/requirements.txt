@@ -1,0 +1,5 @@
+duckdb==1.4.3
+jinja2==3.1.6
+numpy>=2.3,<3
+pandas>=3.0,<4
+plotly==6.5.2

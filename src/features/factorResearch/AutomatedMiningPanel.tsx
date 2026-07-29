@@ -5,9 +5,10 @@ import type { ColumnsType } from 'antd/es/table';
 import {
   approveFactorCandidate, archiveMiningTask, cancelMiningTask, createMiningTask, deleteMiningTask,
   fetchFactorCandidates,
-  fetchMiningTasks, freezeFactorCandidate, publishFactorCandidate, rejectFactorCandidate,
+  fetchFactorCandidateAutomation, fetchMiningTasks, freezeFactorCandidate, publishFactorCandidate,
+  rejectFactorCandidate,
   startMiningTask, testFactorCandidate, fetchMiningTaskTrace,
-  createMiningSchedule,
+  createMiningSchedule, updateFactorCandidateAutomation,
   type FactorCandidate, type FactorMiningTask, type MiningEvolutionPoint,
 } from './api';
 
@@ -34,6 +35,7 @@ export default function AutomatedMiningPanel() {
     scheduleOnSnapshot: false,
     maxMemoryMb: 4096,
     timeoutMinutes: 240,
+    cpuWorkers: 2,
   }), []);
   const [tasks, setTasks] = useState<FactorMiningTask[]>([]);
   const [candidates, setCandidates] = useState<FactorCandidate[]>([]);
@@ -44,13 +46,17 @@ export default function AutomatedMiningPanel() {
   const [approvalCandidate, setApprovalCandidate] = useState<FactorCandidate>();
   const [approvedBy, setApprovedBy] = useState('');
   const [showArchivedTasks, setShowArchivedTasks] = useState(false);
+  const [autoTestingEnabled, setAutoTestingEnabled] = useState(false);
+  const [automationLoading, setAutomationLoading] = useState(false);
 
   const refresh = useCallback(async () => {
-    const [taskResult, candidateResult] = await Promise.all([
+    const [taskResult, candidateResult, automationResult] = await Promise.all([
       fetchMiningTasks(30, showArchivedTasks), fetchFactorCandidates(selectedTaskId),
+      fetchFactorCandidateAutomation(),
     ]);
     setTasks(taskResult.items);
     setCandidates(candidateResult.items);
+    setAutoTestingEnabled(automationResult.setting.enabled === 1);
   }, [selectedTaskId, showArchivedTasks]);
 
   useEffect(() => { void refresh(); }, [refresh]);
@@ -59,11 +65,25 @@ export default function AutomatedMiningPanel() {
     void fetchMiningTaskTrace(selectedTaskId).then((result) => setTrace(result.items)).catch(() => setTrace([]));
   }, [selectedTaskId, tasks]);
   useEffect(() => {
-    if (!tasks.some((task) => task.status === 'running')
+    if (!autoTestingEnabled && !tasks.some((task) => task.status === 'running')
       && !candidates.some((candidate) => candidate.status === 'testing')) return;
     const timer = window.setInterval(() => { void refresh(); }, 3000);
     return () => window.clearInterval(timer);
-  }, [tasks, candidates, refresh]);
+  }, [autoTestingEnabled, tasks, candidates, refresh]);
+
+  const toggleCandidateAutomation = async (enabled: boolean) => {
+    setAutomationLoading(true);
+    try {
+      const result = await updateFactorCandidateAutomation(enabled);
+      setAutoTestingEnabled(result.setting.enabled === 1);
+      message.success(enabled ? '自动锁定测试已开启' : '自动锁定测试已关闭');
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '自动锁定测试设置失败');
+    } finally {
+      setAutomationLoading(false);
+    }
+  };
 
   const runAction = async (id: string, action: () => Promise<unknown>, success: string) => {
     setActionId(id);
@@ -74,13 +94,17 @@ export default function AutomatedMiningPanel() {
 
   const createAndStart = async (values: { generations: number; population: number;
     sampleSymbols: number; seeds: string; scheduleOnSnapshot: boolean;
-    maxMemoryMb: number; timeoutMinutes: number }) => {
+    maxMemoryMb: number; timeoutMinutes: number; cpuWorkers: number }) => {
     setLoading(true);
     try {
       const seeds = values.seeds.split(',').map(Number).filter(Number.isInteger);
       const config = {
         data: { sample_symbols: values.sampleSymbols },
-        evolution: { population_size: values.population, generations: values.generations },
+        evolution: {
+          population_size: values.population,
+          generations: values.generations,
+          n_jobs: values.cpuWorkers,
+        },
         robustness: { search_seeds: seeds },
         resources: { maxMemoryMb: values.maxMemoryMb, timeoutMs: values.timeoutMinutes * 60_000 },
       };
@@ -205,6 +229,9 @@ export default function AutomatedMiningPanel() {
               <Form.Item name="maxMemoryMb" label="内存上限" rules={[{ required: true }]}>
                 <InputNumber min={256} max={32768} suffix="MB" style={{ width: '100%' }} />
               </Form.Item>
+              <Form.Item name="cpuWorkers" label="CPU 并行进程/任务" rules={[{ required: true }]}>
+                <InputNumber min={1} max={4} suffix="个" style={{ width: '100%' }} />
+              </Form.Item>
               <Form.Item name="timeoutMinutes" label="最长运行" rules={[{ required: true }]}>
                 <InputNumber min={1} max={1440} suffix="分钟" style={{ width: '100%' }} />
               </Form.Item>
@@ -286,8 +313,17 @@ export default function AutomatedMiningPanel() {
         </section>
       </div>
       <section className="factor-chart-box" style={{ marginTop: 16 }}>
-        <Space style={{ marginBottom: 12 }}><Title level={4} style={{ margin: 0 }}>候选审查</Title>
-          {selectedTaskId && <Tag color="blue">任务 {selectedTaskId.slice(0, 8)}</Tag>}</Space>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 12 }}>
+          <Space><Title level={4} style={{ margin: 0 }}>候选审查</Title>
+            {selectedTaskId && <Tag color="blue">任务 {selectedTaskId.slice(0, 8)}</Tag>}</Space>
+          <Tooltip title="开启后，服务端会逐个冻结并执行锁定测试；自动淘汰过拟合、最大回撤超过 15%、覆盖率低于 70% 或流动性暴露绝对值超过 0.3、与正式因子相关性超过 0.7 的候选。">
+            <Space>
+              <Text type="secondary">自动锁定测试</Text>
+              <Switch checked={autoTestingEnabled} loading={automationLoading}
+                aria-label="自动锁定测试" onChange={(enabled) => void toggleCandidateAutomation(enabled)} />
+            </Space>
+          </Tooltip>
+        </div>
         <Table rowKey="id" size="small" scroll={{ x: 1100 }} columns={candidateColumns}
           dataSource={candidates} pagination={{ pageSize: 10 }} />
       </section>

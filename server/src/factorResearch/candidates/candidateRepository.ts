@@ -1,10 +1,22 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import { validateAndAnalyzeFactorAst } from '../definitions/factorAst.js';
 import type { AstFactorExpression, FactorDefinition, FactorDirection } from '../definitions/schema.js';
 import { assertCandidateTransition, type FactorCandidateStatus } from './candidateState.js';
 import { evaluateCandidateReleaseGate } from './candidateGate.js';
+import { buildCandidateSignatures } from './candidateSignature.js';
+
+const FAMILY_FAILURE_THRESHOLD = 3;
+
+export class CandidateSuppressedError extends Error {
+  constructor(public readonly suppressionReason: 'exact_duplicate' | 'invalid_family') {
+    super(suppressionReason === 'exact_duplicate'
+      ? '该候选公式及方向已经被挖掘过'
+      : `该候选方向族已累计验证失败至少 ${FAMILY_FAILURE_THRESHOLD} 次`);
+    this.name = 'CandidateSuppressedError';
+  }
+}
 
 export interface CreateMiningTaskInput {
   snapshotId: string;
@@ -89,6 +101,24 @@ export async function updateMiningTask(id: string, update: {
   return getMiningTask(id);
 }
 
+export async function updateMiningTaskProgress(id: string, completedGenerations: number) {
+  const completed = Math.max(0, Math.trunc(completedGenerations));
+  await getDb().update(schema.factorMiningTasks).set({
+    completedGenerations: sql`GREATEST(${schema.factorMiningTasks.completedGenerations}, ${completed})`,
+  }).where(and(
+    eq(schema.factorMiningTasks.id, id),
+    eq(schema.factorMiningTasks.status, 'running'),
+  ));
+}
+
+export async function listRunningMiningTasks() {
+  return getDb().select().from(schema.factorMiningTasks)
+    .where(and(
+      eq(schema.factorMiningTasks.status, 'running'),
+      isNull(schema.factorMiningTasks.deletedAt),
+    ));
+}
+
 export async function createMiningSchedule(input: {
   name: string; config: Record<string, unknown>; totalGenerations: number;
   lastSnapshotId: string; lastTestEndDate: string;
@@ -123,6 +153,9 @@ export async function createFactorCandidate(input: CreateFactorCandidateInput) {
   }
   const analysis = validateAndAnalyzeFactorAst(input.expression.root);
   const now = new Date().toISOString();
+  const signatures = buildCandidateSignatures(input.expression, input.direction);
+  const suppression = await registerCandidateDiscovery(signatures, input.direction, now);
+  if (suppression) throw new CandidateSuppressedError(suppression);
   const candidate = {
     id: randomUUID(), taskId: input.taskId, name: input.name.trim(), formula: input.formula,
     expression: input.expression, direction: input.direction,
@@ -136,6 +169,106 @@ export async function createFactorCandidate(input: CreateFactorCandidateInput) {
   if (!candidate.name) throw new Error('候选因子名称不能为空');
   await getDb().insert(schema.factorCandidates).values(candidate);
   return candidate;
+}
+
+async function registerCandidateDiscovery(
+  signatures: { signature: string; familySignature: string },
+  direction: FactorDirection,
+  now: string,
+): Promise<'exact_duplicate' | 'invalid_family' | null> {
+  const [exact] = await getDb().select({
+    signature: schema.factorSearchFeedback.signature,
+  }).from(schema.factorSearchFeedback)
+    .where(eq(schema.factorSearchFeedback.signature, signatures.signature))
+    .limit(1);
+  if (exact) {
+    await getDb().update(schema.factorSearchFeedback).set({
+      seenCount: sql`${schema.factorSearchFeedback.seenCount} + 1`,
+      updatedAt: now,
+    }).where(eq(schema.factorSearchFeedback.signature, signatures.signature));
+    return 'exact_duplicate';
+  }
+
+  const family = await getDb().select({
+    failureCount: schema.factorSearchFeedback.failureCount,
+    successCount: schema.factorSearchFeedback.successCount,
+  }).from(schema.factorSearchFeedback)
+    .where(eq(schema.factorSearchFeedback.familySignature, signatures.familySignature));
+  const failures = family.reduce((sum, row) => sum + row.failureCount, 0);
+  const successes = family.reduce((sum, row) => sum + row.successCount, 0);
+  const invalidFamily = failures >= FAMILY_FAILURE_THRESHOLD && successes === 0;
+
+  try {
+    await getDb().insert(schema.factorSearchFeedback).values({
+      signature: signatures.signature,
+      familySignature: signatures.familySignature,
+      direction,
+      seenCount: 1,
+      failureCount: 0,
+      successCount: 0,
+      lastCandidateId: null,
+      lastReason: invalidFamily ? '命中跨任务无效方向过滤器' : null,
+      firstSeenAt: now,
+      updatedAt: now,
+    });
+  } catch (error) {
+    if ((error as { code?: string }).code === 'ER_DUP_ENTRY') return 'exact_duplicate';
+    throw error;
+  }
+  return invalidFamily ? 'invalid_family' : null;
+}
+
+async function recordCandidateOutcome(
+  candidate: NonNullable<Awaited<ReturnType<typeof getFactorCandidate>>>,
+  outcome: 'invalid' | 'valid',
+  reason: string,
+): Promise<void> {
+  const expression = candidate.expression as AstFactorExpression;
+  const direction = candidate.direction as FactorDirection;
+  const signatures = buildCandidateSignatures(expression, direction);
+  const now = new Date().toISOString();
+  await getDb().insert(schema.factorSearchFeedback).values({
+    signature: signatures.signature,
+    familySignature: signatures.familySignature,
+    direction,
+    seenCount: 1,
+    failureCount: outcome === 'invalid' ? 1 : 0,
+    successCount: outcome === 'valid' ? 1 : 0,
+    lastCandidateId: candidate.id,
+    lastReason: reason.slice(0, 1000),
+    firstSeenAt: now,
+    updatedAt: now,
+  }).onDuplicateKeyUpdate({
+    set: {
+      failureCount: outcome === 'invalid'
+        ? sql`GREATEST(${schema.factorSearchFeedback.failureCount}, 1)`
+        : sql`${schema.factorSearchFeedback.failureCount}`,
+      successCount: outcome === 'valid'
+        ? sql`GREATEST(${schema.factorSearchFeedback.successCount}, 1)`
+        : sql`${schema.factorSearchFeedback.successCount}`,
+      lastCandidateId: candidate.id,
+      lastReason: reason.slice(0, 1000),
+      updatedAt: now,
+    },
+  });
+}
+
+export async function listBlockedCandidateFamilySignatures(): Promise<string[]> {
+  const rows = await getDb().select({
+    familySignature: schema.factorSearchFeedback.familySignature,
+    failureCount: schema.factorSearchFeedback.failureCount,
+    successCount: schema.factorSearchFeedback.successCount,
+  }).from(schema.factorSearchFeedback);
+  const families = new Map<string, { failures: number; successes: number }>();
+  for (const row of rows) {
+    const current = families.get(row.familySignature) ?? { failures: 0, successes: 0 };
+    current.failures += row.failureCount;
+    current.successes += row.successCount;
+    families.set(row.familySignature, current);
+  }
+  return [...families.entries()]
+    .filter(([, value]) => value.failures >= FAMILY_FAILURE_THRESHOLD && value.successes === 0)
+    .map(([signature]) => signature);
 }
 
 export async function listFactorCandidates(taskId?: string, status?: FactorCandidateStatus) {
@@ -152,6 +285,35 @@ export async function getFactorCandidate(id: string) {
   const [candidate] = await getDb().select().from(schema.factorCandidates)
     .where(eq(schema.factorCandidates.id, id)).limit(1);
   return candidate ?? null;
+}
+
+export async function recordCandidateAutoGateResult(
+  id: string,
+  result: { passed: boolean; failures: string[] },
+) {
+  const candidate = await getFactorCandidate(id);
+  if (!candidate || candidate.status !== 'tested') return null;
+  const metrics = candidate.lockedTestMetrics && typeof candidate.lockedTestMetrics === 'object'
+    ? candidate.lockedTestMetrics as Record<string, unknown> : {};
+  const updatedAt = new Date().toISOString();
+  const updateResult = await getDb().update(schema.factorCandidates).set({
+    lockedTestMetrics: {
+      ...metrics,
+      autoGate: {
+        version: 1,
+        passed: result.passed,
+        failures: result.failures,
+        evaluatedAt: updatedAt,
+      },
+    },
+    updatedAt,
+  }).where(and(
+    eq(schema.factorCandidates.id, id),
+    eq(schema.factorCandidates.status, 'tested'),
+  ));
+  const header = Array.isArray(updateResult) ? updateResult[0] as { affectedRows?: number }
+    : updateResult as unknown as { affectedRows?: number };
+  return Number(header?.affectedRows ?? 0) === 1 ? getFactorCandidate(id) : null;
 }
 
 /** 单实例服务重启后，内存中的后台锁定测试已不存在，允许用户安全地重新执行。 */
@@ -177,7 +339,11 @@ export async function transitionFactorCandidate(
   const from = candidate.status as FactorCandidateStatus;
   if (to === 'approved') {
     const gate = evaluateCandidateReleaseGate(candidate.lockedTestMetrics, candidate.validationMetrics);
-    if (!gate.passed) throw new Error(`候选未通过发布硬门槛：${gate.failures.join('；')}`);
+    if (!gate.passed) {
+      const reason = `候选未通过发布硬门槛：${gate.failures.join('；')}`;
+      await recordCandidateOutcome(candidate, 'invalid', reason);
+      throw new Error(reason);
+    }
   }
   assertCandidateTransition(from, to, context);
   const now = new Date().toISOString();
@@ -196,7 +362,14 @@ export async function transitionFactorCandidate(
   if (Number(header?.affectedRows ?? 0) !== 1) {
     throw new Error('候选状态已被其他操作更新，请刷新后重试');
   }
-  return getFactorCandidate(id);
+  const updated = await getFactorCandidate(id);
+  if (updated && to === 'rejected') {
+    await recordCandidateOutcome(updated, 'invalid', context.rejectionReason ?? '候选被拒绝');
+  }
+  if (updated && to === 'approved') {
+    await recordCandidateOutcome(updated, 'valid', `由 ${context.approvedBy} 批准`);
+  }
+  return updated;
 }
 
 export function candidateToFactorDefinition(candidate: Awaited<ReturnType<typeof getFactorCandidate>>): FactorDefinition {

@@ -859,6 +859,28 @@ export const factorCandidates = mysqlTable('factor_candidates', {
   updatedAtIdx: index('idx_fc_updated_at').on(table.updatedAt),
 }));
 
+export const factorSearchFeedback = mysqlTable('factor_search_feedback', {
+  signature: varchar('signature', { length: 64 }).primaryKey(),
+  familySignature: varchar('family_signature', { length: 64 }).notNull(),
+  direction: varchar('direction', { length: 24 }).notNull(),
+  seenCount: int('seen_count', { unsigned: true }).notNull().default(1),
+  failureCount: int('failure_count', { unsigned: true }).notNull().default(0),
+  successCount: int('success_count', { unsigned: true }).notNull().default(0),
+  lastCandidateId: varchar('last_candidate_id', { length: 36 }),
+  lastReason: varchar('last_reason', { length: 1000 }),
+  firstSeenAt: varchar('first_seen_at', { length: 24 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+}, (table) => ({
+  familyDirectionIdx: index('idx_fsf_family_direction').on(table.familySignature, table.direction),
+  outcomeIdx: index('idx_fsf_outcome').on(table.failureCount, table.successCount),
+}));
+
+export const factorCandidateAutomationSettings = mysqlTable('factor_candidate_automation_settings', {
+  id: varchar('id', { length: 32 }).primaryKey(),
+  enabled: int('enabled', { unsigned: true }).notNull().default(0),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+});
+
 export const factorMiningSchedules = mysqlTable('factor_mining_schedules', {
   id: varchar('id', { length: 36 }).primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),

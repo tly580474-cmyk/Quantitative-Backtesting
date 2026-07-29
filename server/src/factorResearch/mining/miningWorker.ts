@@ -2,7 +2,13 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
-  createFactorCandidate, getMiningTask, updateMiningTask,
+  CandidateSuppressedError,
+  createFactorCandidate,
+  getMiningTask,
+  listBlockedCandidateFamilySignatures,
+  listRunningMiningTasks,
+  updateMiningTask,
+  updateMiningTaskProgress,
 } from '../candidates/candidateRepository.js';
 import type { AstFactorExpression, FactorDirection } from '../definitions/schema.js';
 
@@ -15,7 +21,12 @@ export interface MiningWorkerOptions {
   maxMemoryMb: number;
 }
 
-interface ActiveWorker { child: ChildProcessWithoutNullStreams; timeout: NodeJS.Timeout; canceled: boolean }
+interface ActiveWorker {
+  child: ChildProcessWithoutNullStreams;
+  timeout: NodeJS.Timeout;
+  canceled: boolean;
+  finalized: boolean;
+}
 const ACTIVE = new Map<string, ActiveWorker>();
 const AST_TERMINALS = ['open', 'high', 'low', 'close', 'volume', 'amount', 'vwap',
   'turnover', 'returns', 'log_mktcap'];
@@ -34,10 +45,12 @@ export async function startMiningWorker(taskId: string, options: MiningWorkerOpt
   const taskRoot = resolve(options.artifactRoot, 'mining', 'tasks', taskId);
   const outputRoot = join(taskRoot, 'output');
   await mkdir(outputRoot, { recursive: true });
+  const blockedFamilySignatures = await listBlockedCandidateFamilySignatures();
   const taskConfig = buildWorkerConfig(task.config as Record<string, unknown>, {
     snapshotRoot: resolve(options.snapshotRoot), outputRoot,
     totalGenerations: Number(asRecord((task.config as Record<string, unknown>).evolution).generations
       ?? task.totalGenerations),
+    blockedFamilySignatures,
   });
   const requestedResources = asRecord((task.config as Record<string, unknown>).resources);
   const effectiveTimeoutMs = Math.min(options.timeoutMs,
@@ -51,17 +64,27 @@ export async function startMiningWorker(taskId: string, options: MiningWorkerOpt
   const child = spawn(options.pythonExecutable, args, {
     cwd: taskRoot, windowsHide: true,
     env: { ...process.env, PYTHONUNBUFFERED: '1',
-      FACTOR_MINER_MAX_MEMORY_MB: String(effectiveMemoryMb) },
+      FACTOR_MINER_MAX_MEMORY_MB: String(effectiveMemoryMb),
+      OMP_NUM_THREADS: '1', OPENBLAS_NUM_THREADS: '1', MKL_NUM_THREADS: '1',
+      NUMEXPR_NUM_THREADS: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   const active: ActiveWorker = {
     child,
     canceled: false,
+    finalized: false,
     timeout: setTimeout(() => terminateWorker(taskId, '任务超过最大运行时间'), effectiveTimeoutMs),
   };
   ACTIVE.set(taskId, active);
-  await updateMiningTask(taskId, { status: 'running', startedAt: new Date().toISOString(),
-    finishedAt: null, errorMessage: null, artifactUri: outputRoot, workerPid: child.pid ?? null });
+  await updateMiningTask(taskId, {
+    status: 'running',
+    ...(!resume ? { completedGenerations: 0 } : {}),
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    errorMessage: null,
+    artifactUri: outputRoot,
+    workerPid: child.pid ?? null,
+  });
   let logBuffer = '';
   let lineBuffer = '';
   let seedIndex = 1;
@@ -74,18 +97,17 @@ export async function startMiningWorker(taskId: string, options: MiningWorkerOpt
     const lines = lineBuffer.split(/\r?\n/);
     lineBuffer = lines.pop() ?? '';
     for (const line of lines) {
-      const seedMatch = line.match(/随机种子\s+\d+（(\d+)\/(\d+)）/);
-      if (seedMatch) {
-        seedIndex = Math.max(1, Number(seedMatch[1]));
+      const parsedSeedIndex = parseMiningSeedIndex(line);
+      if (parsedSeedIndex !== null) {
+        seedIndex = parsedSeedIndex;
         const completedBeforeSeed = (seedIndex - 1) * generationsPerSeed;
-        void updateMiningTask(taskId, {
-          completedGenerations: Math.min(task.totalGenerations, completedBeforeSeed),
-        });
+        void updateMiningTaskProgress(taskId,
+          Math.min(task.totalGenerations, completedBeforeSeed));
       }
       const generationMatch = line.match(/Gen\s+(\d+)\s+\|/);
       if (!generationMatch) continue;
       const completed = (seedIndex - 1) * generationsPerSeed + Number(generationMatch[1]) + 1;
-      void updateMiningTask(taskId, { completedGenerations: Math.min(task.totalGenerations, completed) });
+      void updateMiningTaskProgress(taskId, Math.min(task.totalGenerations, completed));
     }
     // stdout/stderr 的 chunk 可能刚好不带换行；限制残片避免异常输出无限增长。
     if (lineBuffer.length > 16_384) {
@@ -95,11 +117,17 @@ export async function startMiningWorker(taskId: string, options: MiningWorkerOpt
   child.stdout.on('data', consume);
   child.stderr.on('data', consume);
   child.once('error', async (error) => {
+    const state = ACTIVE.get(taskId);
+    if (!state || state.finalized) return;
+    state.finalized = true;
+    clearTimeout(state.timeout);
+    ACTIVE.delete(taskId);
     await finishFailed(taskId, `worker 启动失败：${error.message}`);
   });
   child.once('close', async (code) => {
     const state = ACTIVE.get(taskId);
-    if (!state) return;
+    if (!state || state.finalized) return;
+    state.finalized = true;
     clearTimeout(state.timeout);
     ACTIVE.delete(taskId);
     if (state.canceled) return;
@@ -128,6 +156,7 @@ export async function cancelMiningWorker(taskId: string) {
   if (!task || task.status !== 'running') return false;
   if (active) {
     active.canceled = true;
+    active.finalized = true;
     clearTimeout(active.timeout);
     await killProcessTree(active.child);
     ACTIVE.delete(taskId);
@@ -142,8 +171,20 @@ export async function cancelMiningWorker(taskId: string) {
 
 export function isMiningWorkerActive(taskId: string): boolean { return ACTIVE.has(taskId); }
 
+export function parseMiningSeedIndex(line: string): number | null {
+  const match = line.match(
+    /FACTOR_MINER_SEED_PROGRESS\s+seed_index=(\d+)\s+seed_count=(\d+)/,
+  ) ?? line.match(/随机种子\s+\d+（(\d+)\/(\d+)）/);
+  if (!match) return null;
+  const index = Number(match[1]);
+  return Number.isInteger(index) && index > 0 ? index : null;
+}
+
 export function buildWorkerConfig(base: Record<string, unknown>, values: {
-  snapshotRoot: string; outputRoot: string; totalGenerations: number;
+  snapshotRoot: string;
+  outputRoot: string;
+  totalGenerations: number;
+  blockedFamilySignatures?: string[];
 }): Record<string, unknown> {
   const data: Record<string, unknown> = {
     ...asRecord(base.data), source: 'snapshot', snapshot_root: values.snapshotRoot,
@@ -154,7 +195,12 @@ export function buildWorkerConfig(base: Record<string, unknown>, values: {
     data,
     // Web worker 每代只写几十 KB 的检查点；逐代保存可避免超时/取消后
     // 丢失最多 checkpoint_freq-1 代（全市场单代通常需要数分钟）。
-    evolution: { ...asRecord(base.evolution), generations: values.totalGenerations, checkpoint_freq: 1 },
+    evolution: {
+      ...asRecord(base.evolution),
+      generations: values.totalGenerations,
+      checkpoint_freq: 1,
+      n_jobs: boundedCpuWorkers(asRecord(base.evolution).n_jobs),
+    },
     primitives: {
       ...asRecord(base.primitives),
       terminals: restrictList(asRecord(base.primitives).terminals, AST_TERMINALS),
@@ -162,22 +208,40 @@ export function buildWorkerConfig(base: Record<string, unknown>, values: {
     },
     report: { ...asRecord(base.report), out_dir: values.outputRoot },
     persistence: { ...asRecord(base.persistence), enabled: false },
+    search_memory: {
+      ...asRecord(base.search_memory),
+      blocked_family_signatures: values.blockedFamilySignatures ?? [],
+    },
   };
+}
+
+function boundedCpuWorkers(value: unknown): number {
+  const requested = Number(value ?? 2);
+  return Math.max(1, Math.min(4, Number.isFinite(requested) ? Math.trunc(requested) : 2));
 }
 
 async function importWorkerCandidates(taskId: string, outputRoot: string): Promise<number> {
   const rows = JSON.parse(await readFile(join(outputRoot, 'candidates.json'), 'utf8')) as Array<Record<string, unknown>>;
   const lineage = JSON.parse(await readFile(join(outputRoot, 'run_manifest.json'), 'utf8')) as Record<string, unknown>;
   let imported = 0;
+  let suppressed = 0;
   for (const row of rows) {
     if (row.ast_compatible !== true || typeof row.ast_json !== 'string') continue;
     const expression = JSON.parse(row.ast_json) as AstFactorExpression;
-    await createFactorCandidate({
-      taskId, name: `自动候选 ${imported + 1}`, formula: String(row.formula ?? row.prefix ?? ''),
-      expression, direction: inferDirection(row) as FactorDirection,
-      validationMetrics: row, sourceLineage: lineage,
-    });
-    imported += 1;
+    try {
+      await createFactorCandidate({
+        taskId, name: `自动候选 ${imported + 1}`, formula: String(row.formula ?? row.prefix ?? ''),
+        expression, direction: inferDirection(row) as FactorDirection,
+        validationMetrics: row, sourceLineage: lineage,
+      });
+      imported += 1;
+    } catch (error) {
+      if (!(error instanceof CandidateSuppressedError)) throw error;
+      suppressed += 1;
+    }
+  }
+  if (suppressed > 0) {
+    console.info(`[factorMining] task=${taskId} suppressed ${suppressed} duplicate/invalid-direction candidate(s)`);
   }
   return imported;
 }
@@ -190,9 +254,25 @@ async function terminateWorker(taskId: string, reason: string) {
   const active = ACTIVE.get(taskId);
   if (!active) return;
   active.canceled = true;
+  active.finalized = true;
   await killProcessTree(active.child);
   ACTIVE.delete(taskId);
   await finishFailed(taskId, reason);
+}
+
+export async function recoverInterruptedMiningTasks(): Promise<string[]> {
+  const tasks = await listRunningMiningTasks();
+  for (const task of tasks) {
+    const orphanPid = await findWorkerPid(task.id, task.workerPid);
+    if (orphanPid !== null) await killProcessId(orphanPid);
+    await updateMiningTask(task.id, {
+      status: 'failed',
+      errorMessage: '服务重启中断了进度监听；检查点与已完成进度已保留，请点击恢复继续',
+      finishedAt: new Date().toISOString(),
+      workerPid: null,
+    });
+  }
+  return tasks.map((task) => task.id);
 }
 
 async function finishFailed(taskId: string, message: string) {

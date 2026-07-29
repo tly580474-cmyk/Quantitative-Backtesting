@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from factor_miner.engine.evolve import evolve
-from factor_miner.tree.serialize import from_prefix, to_formula
+from factor_miner.tree.serialize import canonical_key, from_prefix, to_formula
 
 
 def test_synthetic_e2e(cfg, panels, tmp_path):
@@ -11,7 +11,8 @@ def test_synthetic_e2e(cfg, panels, tmp_path):
     cfg["evolution"]["checkpoint_freq"] = 2
     cfg["report"]["out_dir"] = str(tmp_path / "output")
 
-    best, trace = evolve(cfg, panels, ckpt_path=str(tmp_path / "ckpt.pkl"))
+    checkpoint = tmp_path / "ckpt.pkl"
+    best, trace = evolve(cfg, panels, ckpt_path=str(checkpoint))
     assert best is not None
     assert len(trace) >= 1
     # 每代记录关键统计
@@ -22,6 +23,13 @@ def test_synthetic_e2e(cfg, panels, tmp_path):
     assert isinstance(to_formula(best), str)
     # 候选表达式非空
     assert any(r["best_prefix"] for r in trace)
+    assert checkpoint.exists()
+
+    # 完成标记写入前若进程退出，最终检查点仍可恢复，且不会从第 0 代重跑。
+    resumed_best, resumed_trace = evolve(
+        cfg, panels, resume=True, ckpt_path=str(checkpoint))
+    assert canonical_key(resumed_best) == canonical_key(best)
+    assert resumed_trace == trace
 
 
 def test_same_snapshot_config_and_seed_reproduce_same_trace(cfg, panels, tmp_path):

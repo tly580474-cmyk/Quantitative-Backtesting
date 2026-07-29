@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import random
 
+from factor_miner.engine import evolve as evolve_module
 from factor_miner.engine.crossover import subtree_crossover
 from factor_miner.engine.mutation import mutate
 from factor_miner.engine.selection import elite, tournament
@@ -64,3 +65,41 @@ def test_elite_returns_top(cfg):
     top = elite(pop, 3)
     assert len(top) == 3
     assert all(t.fitness >= 17 for t in top)
+
+
+def test_rolling_validation_can_use_process_pool(cfg, panels, monkeypatch):
+    captured = {}
+
+    class InlineExecutor:
+        def __init__(self, max_workers, initializer, initargs):
+            captured["max_workers"] = max_workers
+            captured["rolling_valid_dates"] = initargs[-1]
+            initializer(*initargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def map(self, fn, values):
+            return [fn(value) for value in values]
+
+    monkeypatch.setattr(evolve_module, "ProcessPoolExecutor", InlineExecutor)
+    cfg["evolution"]["n_jobs"] = 2
+    panel = panels["train"]
+    folds = evolve_module._rolling_folds(panel, 3)
+    population = [Node("terminal", "close"), Node("terminal", "volume")]
+
+    evolve_module._evaluate_population(
+        population,
+        panel,
+        "forward_ret_5",
+        cfg,
+        [],
+        folds,
+    )
+
+    assert captured["max_workers"] == 2
+    assert len(captured["rolling_valid_dates"]) == len(folds)
+    assert all(ind.fitness is not None for ind in population)

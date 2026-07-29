@@ -36,6 +36,7 @@ import {
   listMiningTasks,
   listMiningSchedules,
   publishApprovedCandidate,
+  recordCandidateAutoGateResult,
   transitionFactorCandidate,
   updateMiningSchedule,
 } from '../factorResearch/candidates/candidateRepository.js';
@@ -49,6 +50,11 @@ import {
   assertLockedTestLineage,
 } from '../factorResearch/candidates/lockedTestValidation.js';
 import { ensureMaterializedFactor } from '../factorResearch/materialization/materializedFactor.js';
+import {
+  getCandidateAutomationSetting,
+  setCandidateAutomationEnabled,
+} from '../factorResearch/candidates/candidateAutomationRepository.js';
+import { evaluateAutoCandidateGate } from '../factorResearch/candidates/autoCandidateGate.js';
 
 interface FactorResearchRouteConfig {
   snapshotRoot: string;
@@ -196,6 +202,8 @@ export function registerFactorResearchRoutes(
     app.post('/api/factor-runs', stub);
     app.post('/api/factor-composites', stub);
     app.get('/api/factor-candidates', stub);
+    app.get('/api/factor-candidate-automation', stub);
+    app.put('/api/factor-candidate-automation', stub);
     app.post('/api/factor-mining-tasks', stub);
     app.get('/api/factor-mining-tasks', stub);
     app.post('/api/factor-mining-tasks/:id/start', stub);
@@ -215,6 +223,106 @@ export function registerFactorResearchRoutes(
     app.post('/api/factor-candidates/:id/publish', stub);
     return;
   }
+
+  let candidateAutomationBusy = false;
+  const processCandidateAutomation = async (): Promise<void> => {
+    if (candidateAutomationBusy) return;
+    candidateAutomationBusy = true;
+    try {
+      const setting = await getCandidateAutomationSetting();
+      if (setting.enabled !== 1) return;
+
+      const testedCandidates = await listFactorCandidates(undefined, 'tested');
+      for (const candidate of testedCandidates) {
+        const lockedMetrics = candidate.lockedTestMetrics && typeof candidate.lockedTestMetrics === 'object'
+          ? candidate.lockedTestMetrics as Record<string, unknown> : {};
+        const priorAutoGate = lockedMetrics.autoGate && typeof lockedMetrics.autoGate === 'object'
+          ? lockedMetrics.autoGate as Record<string, unknown> : {};
+        if (priorAutoGate.version === 1) continue;
+        const gate = evaluateAutoCandidateGate(candidate.validationMetrics, candidate.lockedTestMetrics);
+        const recorded = await recordCandidateAutoGateResult(candidate.id, gate);
+        if (!recorded) continue;
+        if (!gate.passed) {
+          await transitionFactorCandidate(candidate.id, 'rejected', {
+            rejectionReason: `自动淘汰：${gate.failures.join('；')}`.slice(0, 1000),
+          });
+        }
+      }
+
+      const frozenCandidates = await listFactorCandidates(undefined, 'frozen');
+      const draftCandidates = await listFactorCandidates(undefined, 'draft');
+      let candidate = frozenCandidates.at(-1) ?? draftCandidates.at(-1) ?? null;
+      if (!candidate) return;
+      if (candidate.status === 'draft') {
+        candidate = await transitionFactorCandidate(candidate.id, 'frozen', {});
+      }
+      if (!candidate) return;
+
+      const lineage = candidate.sourceLineage as Record<string, unknown>;
+      const splits = lineage.splits && typeof lineage.splits === 'object'
+        ? lineage.splits as Record<string, unknown> : {};
+      const test = splits.test && typeof splits.test === 'object'
+        ? splits.test as Record<string, unknown> : {};
+      const input = {
+        startDate: String(test.start ?? ''),
+        endDate: String(test.end ?? ''),
+        horizonDays: 5,
+        layers: 5,
+      };
+      try {
+        assertLockedTestLineage(candidate.sourceLineage, input);
+      } catch (error) {
+        await transitionFactorCandidate(candidate.id, 'rejected', {
+          rejectionReason: `自动锁定测试无法启动：${error instanceof Error ? error.message : String(error)}`,
+        });
+        return;
+      }
+      await assertResearchSnapshotFresh(config.pool, config.snapshotRoot);
+      const expression = candidate.expression as { root?: FactorAstNode };
+      const requiresMaterialization = Boolean(
+        expression.root && factorAstRequiresMaterialization(expression.root),
+      );
+      const materializationPrefix = requiresMaterialization
+        ? String((candidate.validationMetrics as Record<string, unknown>).prefix ?? '') : undefined;
+      if (requiresMaterialization && !materializationPrefix) {
+        await transitionFactorCandidate(candidate.id, 'rejected', {
+          rejectionReason: '自动锁定测试无法启动：复杂候选缺少可复现的前缀公式',
+        });
+        return;
+      }
+      const definition = candidateToFactorDefinition(candidate);
+      await transitionFactorCandidate(candidate.id, 'testing', {});
+      try {
+        await runLockedCandidateTest(candidate.id, definition, input, config, materializationPrefix);
+      } catch (error) {
+        app.log.error({ err: error, candidateId: candidate.id }, 'Automatic locked candidate test failed');
+        const latest = await getFactorCandidate(candidate.id);
+        if (latest?.status === 'testing') {
+          await transitionFactorCandidate(candidate.id, 'rejected', {
+            rejectionReason: `自动锁定测试执行失败：${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      }
+    } catch (error) {
+      app.log.error({ err: error }, 'Candidate automation cycle failed');
+    } finally {
+      candidateAutomationBusy = false;
+    }
+  };
+  const candidateAutomationTimer = setInterval(() => {
+    void processCandidateAutomation();
+  }, 5_000);
+  candidateAutomationTimer.unref();
+  app.addHook('onClose', async () => clearInterval(candidateAutomationTimer));
+
+  app.get('/api/factor-candidate-automation', async (_req, reply) => reply.send({
+    setting: await getCandidateAutomationSetting(),
+  }));
+  app.put<{ Body: { enabled?: boolean } }>('/api/factor-candidate-automation', async (req, reply) => {
+    const setting = await setCandidateAutomationEnabled(req.body?.enabled === true);
+    if (setting.enabled === 1) void processCandidateAutomation();
+    return reply.send({ setting });
+  });
 
   app.post<{ Body: { config?: Record<string, unknown>; lineage?: Record<string, unknown>;
     totalGenerations?: number; artifactUri?: string } }>('/api/factor-mining-tasks', async (req, reply) => {

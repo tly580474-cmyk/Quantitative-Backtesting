@@ -41,6 +41,10 @@ import { MarketOpinionAgent } from './services/marketOpinionAgent.js';
 import { MarketOpinionPushService } from './services/marketOpinionPushService.js';
 import { configureHistoryStorePolicy } from './marketData/repositories/historyStorePolicy.js';
 import { recoverInterruptedCandidateTests } from './factorResearch/candidates/candidateRepository.js';
+import {
+  recoverInterruptedMiningTasks,
+  startMiningWorker,
+} from './factorResearch/mining/miningWorker.js';
 import { getDuckDBRuntimeStats } from './research/duckdbRuntime.js';
 
 async function main(): Promise<void> {
@@ -121,10 +125,6 @@ async function main(): Promise<void> {
     }
     if (errors.length > 0) {
       console.error(`[DB] Migration errors: ${errors.join('; ')}`);
-    }
-    const recoveredTests = await recoverInterruptedCandidateTests();
-    if (recoveredTests > 0) {
-      console.warn(`[FactorResearch] Recovered ${recoveredTests} interrupted locked test(s).`);
     }
   }
 
@@ -315,18 +315,6 @@ async function main(): Promise<void> {
       timeoutMs: parseInt(config.OPENAI_TIMEOUT_MS, 10),
     },
   });
-  if (dbOnline) {
-    const { startMiningScheduler } = await import('./factorResearch/mining/miningScheduler.js');
-    startMiningScheduler({
-      pythonExecutable: config.FACTOR_MINER_PYTHON,
-      minerRoot: config.FACTOR_MINER_ROOT,
-      snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
-      artifactRoot: config.FACTOR_RESEARCH_ROOT,
-      timeoutMs: Math.max(60_000, parseInt(config.FACTOR_MINER_TIMEOUT_MS, 10) || 21_600_000),
-      maxMemoryMb: Math.max(256, parseInt(config.FACTOR_MINER_MAX_MEMORY_MB, 10) || 4096),
-    });
-  }
-
   // Graceful shutdown
   const shutdown = async () => {
     console.log('[Server] Shutting down...');
@@ -358,6 +346,53 @@ async function main(): Promise<void> {
   try {
     await app.listen({ port, host: '0.0.0.0' });
     console.log(`Server listening on http://localhost:${port}`);
+    // 只有成功取得监听端口的服务实例才有权接管后台任务。监督器可能在旧实例
+    // 仍存活时先启动替代实例；若在 listen 之前恢复，会误杀旧实例管理的 worker。
+    if (dbOnline) {
+      const recoveredTests = await recoverInterruptedCandidateTests();
+      if (recoveredTests > 0) {
+        console.warn(`[FactorResearch] Recovered ${recoveredTests} interrupted locked test(s).`);
+      }
+      const recoveredMiningTaskIds = await recoverInterruptedMiningTasks();
+      if (recoveredMiningTaskIds.length > 0) {
+        console.warn(
+          `[FactorResearch] Preserved progress for ${recoveredMiningTaskIds.length} interrupted mining task(s).`,
+        );
+      }
+      for (const taskId of recoveredMiningTaskIds) {
+        try {
+          await startMiningWorker(taskId, {
+            pythonExecutable: config.FACTOR_MINER_PYTHON,
+            minerRoot: config.FACTOR_MINER_ROOT,
+            snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
+            artifactRoot: config.FACTOR_RESEARCH_ROOT,
+            timeoutMs: Math.max(
+              60_000,
+              parseInt(config.FACTOR_MINER_TIMEOUT_MS, 10) || 21_600_000,
+            ),
+            maxMemoryMb: Math.max(
+              256,
+              parseInt(config.FACTOR_MINER_MAX_MEMORY_MB, 10) || 4096,
+            ),
+          }, true);
+          console.warn(`[FactorResearch] Automatically resumed mining task ${taskId}.`);
+        } catch (error) {
+          console.error(
+            `[FactorResearch] Failed to automatically resume mining task ${taskId}:`,
+            error,
+          );
+        }
+      }
+      const { startMiningScheduler } = await import('./factorResearch/mining/miningScheduler.js');
+      startMiningScheduler({
+        pythonExecutable: config.FACTOR_MINER_PYTHON,
+        minerRoot: config.FACTOR_MINER_ROOT,
+        snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
+        artifactRoot: config.FACTOR_RESEARCH_ROOT,
+        timeoutMs: Math.max(60_000, parseInt(config.FACTOR_MINER_TIMEOUT_MS, 10) || 21_600_000),
+        maxMemoryMb: Math.max(256, parseInt(config.FACTOR_MINER_MAX_MEMORY_MB, 10) || 4096),
+      });
+    }
   } catch (err) {
     app.log.error(err);
     process.exit(1);

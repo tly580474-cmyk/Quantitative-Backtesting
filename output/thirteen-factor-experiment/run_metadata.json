@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-07-29T18:25:00+0800",
+  "elapsedSeconds": 77.79,
+  "snapshotId": "eb260586-a8d0-4c24-9171-218b1222341c-20260729090319",
+  "snapshotCreatedAt": "2026-07-29T09:04:03.159Z",
+  "parameters": {
+    "startDate": "2015-01-05",
+    "rebalanceSessions": 5,
+    "portfolioSize": 100,
+    "minFactorCount": 10,
+    "costPerTradedNotional": 0.0015,
+    "randomSeed": 20260729
+  },
+  "environment": {
+    "python": "3.12.13 (main, Mar  3 2026, 15:01:35) [MSC v.1944 64 bit (AMD64)]",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "duckdb": "1.4.3",
+    "pandas": "3.0.1",
+    "numpy": "2.3.5"
+  },
+  "artifacts": [
+    "signal_panel_market_aligned.parquet",
+    "processed_scores_market_aligned.parquet",
+    "portfolio_selections_market_aligned.csv",
+    "period_returns_market_aligned.csv",
+    "factor_ic_market_aligned.csv",
+    "strategy_metrics_market_aligned.csv",
+    "thirteen_factor_experiment_report.html",
+    "run.log",
+    "experiment.duckdb"
+  ],
+  "conclusion": {
+    "verdict": "部分证实：排序有效，组合未胜基准",
+    "verdictDetail": "综合得分平均 Rank IC 为 0.044，Q5−Q1 的5日平均收益差为 0.31%；计入15bp/成交名义本金成本后，Top100 CAGR 为 9.74%，相对合格股票等权基准的 CAGR 差为 -0.35%。表现最好的单类别是“仅换手率”（CAGR 31.53%），说明有效性集中在少数子信号，不能据此宣称“13个等权更好”。",
+    "meanScoreRankIC": 0.04396301093389992,
+    "q5MinusQ1Mean5d": 0.0030784680484610507,
+    "q5MinusQ1AnnualizedApprox": 0.16756041799960397,
+    "positiveIndividualFactors": 11,
+    "materialPositiveFactors": 4,
+    "factorCount": 13,
+    "excessReturnApproxAnnualized": -0.021152276711774665,
+    "excessReturnTStat": -0.551866708085918,
+    "top100Cagr": 0.09738577662230563,
+    "top100Sharpe": 0.49528412062873306,
+    "top100MaxDrawdown": -0.4018113385219718,
+    "universeCagr": 0.10084070153626201,
+    "bottom100Cagr": -0.40481750017895046
+  }
+}

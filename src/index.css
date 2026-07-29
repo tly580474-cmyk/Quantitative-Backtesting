@@ -491,6 +491,10 @@
 .paper-trading-page > .ant-card, .paper-trading-page .ant-tabs, .paper-trading-page .ant-table-wrapper { min-width: 0; }
 .paper-trading-page .ant-tabs-content-holder { min-width: 0; overflow-x: auto; }
 .paper-trading-page .ant-table-wrapper { max-width: 100%; overflow-x: auto; }
+.paper-trading-security { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.paper-trading-security-link { border-radius: 3px; font-weight: 500; text-decoration: none; transition: color 180ms ease, background-color 180ms ease; }
+.paper-trading-security-link:hover { color: #0958d9; text-decoration: underline; text-underline-offset: 3px; }
+.paper-trading-security-link:focus-visible { outline: 2px solid #1677ff; outline-offset: 3px; }
 
 @media (max-width: 1400px) {
   .paper-trading-header > .ant-space { width: 100%; margin-left: 0; }

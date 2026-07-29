@@ -14,6 +14,7 @@ import logging
 import numpy as np
 import pandas as pd
 
+from factor_miner.analysis.search_memory import is_blocked_direction
 from factor_miner.engine.evaluator import as_series, evaluate_tree
 from factor_miner.tree.node import Node
 
@@ -207,6 +208,11 @@ def fitness_of(node: Node, panel: pd.DataFrame, fwd_col: str, cfg: dict,
     base = float(ic_series.mean()) if len(ic_series) else np.nan
     if not np.isfinite(base):
         return -np.inf, {}
+    if is_blocked_direction(node, base, cfg):
+        return -np.inf, {
+            "base": base,
+            "blocked_by_search_memory": True,
+        }
 
     # Walk-forward 选择适应度只需要按各验证窗聚合已经算好的“日频 RankIC”。
     # 旧路径会为每个个体再次求值整棵表达式，并在每一折重复做横截面排名；

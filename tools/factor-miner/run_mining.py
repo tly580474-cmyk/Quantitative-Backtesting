@@ -576,6 +576,13 @@ def main() -> None:
     for seed_index, seed in enumerate(seeds, start=1):
         cfg["evolution"]["seed"] = seed
         LOG.info("=== 随机种子 %d（%d/%d）===", seed, seed_index, len(seeds))
+        # 供外层任务调度器解析；必须保持纯 ASCII，避免 Windows 控制台代码页
+        # 导致中文日志按 UTF-8 解码后无法识别种子序号。
+        print(
+            f"FACTOR_MINER_SEED_PROGRESS seed_index={seed_index} "
+            f"seed_count={len(seeds)}",
+            flush=True,
+        )
         completed = _load_completed_seed(out_dir, seed) if args.resume else None
         if completed is not None:
             LOG.info("随机种子 %d 已完成，恢复时直接复用 %d 代轨迹", seed, len(completed))

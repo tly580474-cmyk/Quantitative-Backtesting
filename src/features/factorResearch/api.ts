@@ -46,6 +46,11 @@ export interface FactorCandidate {
   publishedFactorVersionId?: string | null;
   updatedAt: string;
 }
+export interface FactorCandidateAutomationSetting {
+  id: string;
+  enabled: number;
+  updatedAt: string;
+}
 export interface MiningEvolutionPoint {
   generation: string; seed?: string; best_train_fitness?: string;
   best_val_fitness?: string; diversity?: string; avg_complexity?: string;
@@ -388,6 +393,16 @@ export function deleteMiningTask(id: string) {
 export function fetchFactorCandidates(taskId?: string) {
   const query = taskId ? `?taskId=${encodeURIComponent(taskId)}` : '';
   return apiFetch<{ items: FactorCandidate[] }>(`/api/factor-candidates${query}`);
+}
+
+export function fetchFactorCandidateAutomation() {
+  return apiFetch<{ setting: FactorCandidateAutomationSetting }>('/api/factor-candidate-automation');
+}
+
+export function updateFactorCandidateAutomation(enabled: boolean) {
+  return apiFetch<{ setting: FactorCandidateAutomationSetting }>('/api/factor-candidate-automation', {
+    method: 'PUT', body: JSON.stringify({ enabled }),
+  });
 }
 
 export function freezeFactorCandidate(id: string) {
