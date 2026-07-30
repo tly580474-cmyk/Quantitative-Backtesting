@@ -1,8 +1,19 @@
-import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import {
   Alert,
   App,
   Button,
+  Collapse,
   DatePicker,
   Empty,
   Form,
@@ -20,8 +31,10 @@ import {
   BarChartOutlined,
   CalculatorOutlined,
   DatabaseOutlined,
+  FolderOpenOutlined,
   LineChartOutlined,
   ReloadOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ReactMarkdown from 'react-markdown';
@@ -167,6 +180,8 @@ export default function FactorResearchPage() {
   const [interpretation, setInterpretation] = useState<FactorReportInterpretation | null>(null);
   const [interpreting, setInterpreting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [topPanePercent, setTopPanePercent] = useState(54);
+  const splitPaneRef = useRef<HTMLElement | null>(null);
 
   const selectedFactor = useMemo(
     () => factors.find((item) => item.definition.id === selectedFactorId),
@@ -439,7 +454,7 @@ export default function FactorResearchPage() {
     {
       title: '因子',
       dataIndex: ['definition', 'name'],
-      width: 174,
+      width: 150,
       render: (_, row) => (
         <button
           type="button"
@@ -455,15 +470,14 @@ export default function FactorResearchPage() {
       ),
     },
     {
-      title: '方向',
-      width: 92,
-      render: (_, row) => directionLabel(row.definition.direction),
-    },
-    {
-      title: '预热',
-      dataIndex: ['definition', 'warmupDays'],
-      width: 58,
-      render: (value: number) => `${value} 日`,
+      title: '方向 / 预热',
+      width: 80,
+      render: (_, row) => (
+        <span className="factor-library-meta">
+          {directionLabel(row.definition.direction)}
+          <small>{row.definition.warmupDays} 日</small>
+        </span>
+      ),
     },
   ];
 
@@ -534,31 +548,42 @@ export default function FactorResearchPage() {
     },
   ];
 
-  return (
-    <div className="factor-page">
-      <div className="factor-page-head">
-        <div>
-          <Space size={8}>
-            <DatabaseOutlined />
-            <Text type="secondary">第六阶段</Text>
-          </Space>
-          <Title level={2}>因子研究</Title>
-        </div>
-        <Space wrap>
-          <Button icon={<ReloadOutlined />} onClick={() => { void loadFactors(); void loadRuns(); void loadSnapshotFreshness(true); }}>
-            刷新
-          </Button>
-          <Button
-            type="primary"
-            icon={<CalculatorOutlined />}
-            loading={running}
-            onClick={() => form.submit()}
-          >
-            运行研究
-          </Button>
-        </Space>
-      </div>
+  const updateSplitPosition = useCallback((clientY: number) => {
+    const bounds = splitPaneRef.current?.getBoundingClientRect();
+    if (!bounds || bounds.height <= 0) return;
+    const next = ((clientY - bounds.top) / bounds.height) * 100;
+    setTopPanePercent(Math.min(72, Math.max(32, next)));
+  }, []);
 
+  const handleSplitPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const handlePointerMove = (moveEvent: PointerEvent) => updateSplitPosition(moveEvent.clientY);
+    const handlePointerUp = () => {
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerUp);
+      document.body.classList.remove('is-resizing-factor-panes');
+    };
+    document.body.classList.add('is-resizing-factor-panes');
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
+    document.addEventListener('pointercancel', handlePointerUp);
+  }, [updateSplitPosition]);
+
+  const handleSplitKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    let next = topPanePercent;
+    if (event.key === 'ArrowUp') next -= 3;
+    else if (event.key === 'ArrowDown') next += 3;
+    else if (event.key === 'Home') next = 32;
+    else if (event.key === 'End') next = 72;
+    else return;
+    event.preventDefault();
+    setTopPanePercent(Math.min(72, Math.max(32, next)));
+  }, [topPanePercent]);
+
+  return (
+    <div className="factor-page factor-research-page">
       {error && (
         <Alert
           className="factor-alert"
@@ -568,18 +593,44 @@ export default function FactorResearchPage() {
         />
       )}
 
-      <SnapshotFreshnessBanner
-        freshness={snapshotFreshness}
-        loading={loadingSnapshot}
-        updating={updatingSnapshot}
-        onRefresh={() => { void loadSnapshotFreshness(true); }}
-        onUpdate={() => { void handleUpdateSnapshot(); }}
-      />
-
       <div className="factor-workbench">
-        <aside className="factor-console">
-          <section className="factor-panel factor-library-panel">
-            <WorkbenchPanel title="因子库" subtitle={`${factors.length} 个可用因子`}>
+        <aside className="factor-console" aria-label="因子研究操作区">
+          <div className="factor-console-head">
+            <div>
+              <Space size={7}>
+                <DatabaseOutlined />
+                <Text type="secondary">研究工作流</Text>
+              </Space>
+              <Title level={2}>研究操作</Title>
+            </div>
+            <Button
+              aria-label="刷新因子、任务与快照"
+              icon={<ReloadOutlined />}
+              loading={loadingFactors || loadingRuns || loadingSnapshot}
+              onClick={() => { void loadFactors(); void loadRuns(); void loadSnapshotFreshness(true); }}
+            />
+          </div>
+          <SnapshotFreshnessBanner
+            freshness={snapshotFreshness}
+            loading={loadingSnapshot}
+            updating={updatingSnapshot}
+            onRefresh={() => { void loadSnapshotFreshness(true); }}
+            onUpdate={() => { void handleUpdateSnapshot(); }}
+          />
+          <Collapse
+            className="factor-operation-collapse"
+            defaultActiveKey={['library', 'config']}
+            items={[
+              {
+                key: 'library',
+                label: (
+                  <span className="factor-collapse-label">
+                    <FolderOpenOutlined />
+                    <strong>因子库</strong>
+                    <small>{factors.length} 个可用因子</small>
+                  </span>
+                ),
+                children: (
               <Table
                 className="factor-library-table"
                 rowKey={(row) => row.versionId}
@@ -588,17 +639,22 @@ export default function FactorResearchPage() {
                 columns={factorColumns}
                 dataSource={factors}
                 pagination={false}
-                scroll={{ y: 300 }}
+                scroll={{ y: 280 }}
                 tableLayout="fixed"
               />
-            </WorkbenchPanel>
-          </section>
-
-          <section className="factor-panel factor-config-panel">
-            <WorkbenchPanel
-              title="运行配置"
-              subtitle={selectedFactor?.versionId ?? '选择因子后运行研究'}
-            >
+                ),
+              },
+              {
+                key: 'config',
+                label: (
+                  <span className="factor-collapse-label">
+                    <SettingOutlined />
+                    <strong>运行参数配置</strong>
+                    <small>{selectedFactor?.versionId ?? '请选择因子'}</small>
+                  </span>
+                ),
+                children: (
+                  <>
               <Tabs
                 size="small"
                 items={[
@@ -620,6 +676,9 @@ export default function FactorResearchPage() {
                           />
                         </Form.Item>
                         <SharedRunFields />
+                        <Button type="primary" htmlType="submit" loading={running} icon={<CalculatorOutlined />}>
+                          运行单因子
+                        </Button>
                       </Form>
                     ),
                   },
@@ -692,14 +751,23 @@ export default function FactorResearchPage() {
                   <Text type="secondary">{selectedFactor.definition.description}</Text>
                 </div>
               )}
-            </WorkbenchPanel>
-          </section>
+                  </>
+                ),
+              },
+            ]}
+          />
         </aside>
 
-        <main className="factor-research-canvas">
+        <main
+          ref={splitPaneRef}
+          className="factor-research-canvas"
+          style={{
+            gridTemplateRows: `minmax(220px, ${topPanePercent}fr) 12px minmax(250px, ${100 - topPanePercent}fr)`,
+          }}
+        >
           <section className="factor-panel factor-report-panel">
             <WorkbenchPanel
-              title="研究报告"
+              title="因子逐日收益 / IC 时序"
               subtitle={(report || compositeReport) ? `${(report ?? compositeReport)?.summary.tradingDays} 个交易日` : '运行或打开报告后展示'}
             >
               {compositeReport ? (
@@ -721,23 +789,46 @@ export default function FactorResearchPage() {
             </WorkbenchPanel>
           </section>
 
+          <div
+            className="factor-pane-resizer"
+            role="separator"
+            aria-label="调整数据区与任务区高度"
+            aria-orientation="horizontal"
+            aria-valuemin={32}
+            aria-valuemax={72}
+            aria-valuenow={Math.round(topPanePercent)}
+            tabIndex={0}
+            onPointerDown={handleSplitPointerDown}
+            onKeyDown={handleSplitKeyDown}
+          >
+            <span />
+          </div>
+
           <section className="factor-panel factor-history-panel">
-            <WorkbenchPanel title="运行历史" subtitle={`${runs.length} 条任务记录`}>
-              <Table
-                rowKey="id"
-                size="small"
-                loading={loadingRuns}
-                columns={runColumns}
-                dataSource={runs}
-                pagination={{ pageSize: 6, size: 'small' }}
-              />
-              <ReportInterpretationPanel
-                runId={reportRunId}
-                interpretation={interpretation}
-                loading={interpreting}
-                disabled={!reportRunId || (!report && !compositeReport)}
-                onInterpret={() => { void handleInterpretReport(); }}
-              />
+            <WorkbenchPanel title="任务与智能解读" subtitle={`${runs.length} 条任务记录`}>
+              <div className="factor-history-content">
+                <div className="factor-history-list">
+                  <div className="factor-subsection-title">
+                    <Text strong>运行历史任务</Text>
+                    <Text type="secondary">选择已完成任务查看报告</Text>
+                  </div>
+                  <Table
+                    rowKey="id"
+                    size="small"
+                    loading={loadingRuns}
+                    columns={runColumns}
+                    dataSource={runs}
+                    pagination={{ pageSize: 6, size: 'small' }}
+                  />
+                </div>
+                <ReportInterpretationPanel
+                  runId={reportRunId}
+                  interpretation={interpretation}
+                  loading={interpreting}
+                  disabled={!reportRunId || (!report && !compositeReport)}
+                  onInterpret={() => { void handleInterpretReport(); }}
+                />
+              </div>
             </WorkbenchPanel>
           </section>
         </main>

@@ -835,6 +835,13 @@ function AppContent() {
           onBack={location.pathname.startsWith('/market-detail/') ? () => navigate('/market-data') : undefined}
           topBar={topBar}
           headerNav={factorHeaderNav}
+          hidePageIdentity={factorWorkspaceActive}
+          navigationContext={factorWorkspaceActive ? (
+            <>
+              <span>第六阶段</span>
+              <strong>因子研究</strong>
+            </>
+          ) : undefined}
           center={
             <Suspense fallback={<PageSkeleton />}>
               <Routes>

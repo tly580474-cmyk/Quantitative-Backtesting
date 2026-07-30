@@ -19,6 +19,8 @@ interface AppLayoutProps {
   onBack?: () => void;
   topBar: ReactNode;
   headerNav?: ReactNode;
+  navigationContext?: ReactNode;
+  hidePageIdentity?: boolean;
   leftPanel?: ReactNode;
   center: ReactNode;
   bottom?: ReactNode;
@@ -32,6 +34,8 @@ export default function AppLayout({
   onBack,
   topBar,
   headerNav,
+  navigationContext,
+  hidePageIdentity = false,
   leftPanel,
   center,
   bottom,
@@ -59,6 +63,11 @@ export default function AppLayout({
             </div>
           )}
         </div>
+        {navigationContext && (
+          <div className="app-nav-context">
+            {navigationContext}
+          </div>
+        )}
         <Menu
           className="app-nav-menu"
           mode="inline"
@@ -80,23 +89,25 @@ export default function AppLayout({
       </Sider>
       <Layout className="app-main-shell">
         <Header className="app-header">
-          <div className="app-page-identity">
-            <Text type="secondary">当前工作区</Text>
-            <Text strong className="app-title">
-              {activeTitle}
-            </Text>
-            {onBack && (
-              <Button
-                size="small"
-                icon={<ArrowLeftOutlined />}
-                onClick={onBack}
-                aria-label="返回上一级"
-                style={{ marginLeft: 8, backgroundColor: '#e6f4ff', color: '#5e91e0', borderColor: 'transparent' }}
-              >
-                返回
-              </Button>
-            )}
-          </div>
+          {!hidePageIdentity && (
+            <div className="app-page-identity">
+              <Text type="secondary">当前工作区</Text>
+              <Text strong className="app-title">
+                {activeTitle}
+              </Text>
+              {onBack && (
+                <Button
+                  size="small"
+                  icon={<ArrowLeftOutlined />}
+                  onClick={onBack}
+                  aria-label="返回上一级"
+                  style={{ marginLeft: 8, backgroundColor: '#e6f4ff', color: '#5e91e0', borderColor: 'transparent' }}
+                >
+                  返回
+                </Button>
+              )}
+            </div>
+          )}
           {headerNav}
           <div className="app-header-tools">
             {topBar}
