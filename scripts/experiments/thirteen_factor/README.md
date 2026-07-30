@@ -14,4 +14,4 @@ python scripts/experiments/thirteen_factor/run_experiment.py
 所有运行缓存和完整明细写入被 Git 忽略的
 `tmp_output/thirteen_factor_experiment/`。
 
-可提交的最终报告和核心汇总位于 `output/thirteen-factor-experiment/`。
+实验报告和核心汇总统一写入 `tmp_output/thirteen_factor_experiment/`，仅保留在本地，不提交到远程仓库。

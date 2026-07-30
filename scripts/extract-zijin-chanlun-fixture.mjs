@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const sourcePath = resolve(root, 'output', 'zijin-mining-chanlun-daily.html');
+const sourcePath = resolve(root, 'tmp_output', 'zijin-mining-chanlun-daily.html');
 const fixturePath = resolve(
   root,
   'src',

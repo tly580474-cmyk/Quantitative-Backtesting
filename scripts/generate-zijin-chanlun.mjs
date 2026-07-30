@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const outputPath = resolve(__dirname, '..', 'output', 'zijin-mining-chanlun-daily.html');
+const outputPath = resolve(__dirname, '..', 'tmp_output', 'zijin-mining-chanlun-daily.html');
 const endpoint = new URL('https://push2his.eastmoney.com/api/qt/stock/kline/get');
 endpoint.search = new URLSearchParams({
   secid: '1.601899',
