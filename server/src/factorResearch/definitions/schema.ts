@@ -10,6 +10,16 @@ export type FactorDependency =
   | 'amount'
   | 'turnoverRatePct'
   | 'totalMarketCap'
+  | 'roe'
+  | 'grossMargin'
+  | 'operatingCashFlowToRevenue'
+  | 'freeCashFlowToEnterpriseValue'
+  | 'debtToAssets'
+  | 'receivablesTurnover'
+  | 'inventoryTurnover'
+  | 'revenueGrowth'
+  | 'netProfitGrowth'
+  | 'assetTurnover'
   | 'industry';
 
 export interface BuiltinFactorExpression {

@@ -60,6 +60,14 @@ def _apply_filters(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         df = df[df["inst_type"] != "index"]
     if u.get("exclude_st", True):
         df = df[df["is_st"].fillna(0) != 1]
+    allowed_markets = set(u.get("markets") or ["SH", "SZ"])
+    if "market" in df.columns:
+        df = df[df["market"].isin(allowed_markets)]
+    raw_symbol = df["symbol"].astype(str).str.split(".").str[-1]
+    if u.get("exclude_star_market", True):
+        df = df[~raw_symbol.str.startswith(("688", "689"))]
+    if u.get("exclude_beijing", True) and "market" in df.columns:
+        df = df[df["market"] != "BJ"]
     if u.get("exclude_suspended", True):
         df = df[df["volume"] > 0]
     if u.get("exclude_delisted", True):
@@ -80,6 +88,15 @@ def _apply_filters(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         up = r >= lim
         down = r <= -lim
         df = df[~(up | down)]
+    min_price = float(u.get("min_price", 0) or 0)
+    if min_price > 0:
+        df = df[df["close"] > min_price]
+    min_avg_amount = float(u.get("min_avg_amount_20", 0) or 0)
+    if min_avg_amount > 0:
+        ordered = df.sort_values(["symbol", "trade_date"])
+        avg_amount = ordered.groupby("symbol")["amount"].transform(
+            lambda values: values.rolling(20, min_periods=20).mean())
+        df = ordered[avg_amount >= min_avg_amount]
     logger.info("过滤后剩余 %d 行 (剔除 %d)", len(df), n0 - len(df))
     return df
 
@@ -250,10 +267,10 @@ def make_synthetic_panel(n_symbols: int = 50, n_dates: int = 500,
         open_ = close * (1 + rng.normal(0, 0.005, n_dates))
         industry = f"IND{s % 5}"
         # 潜因子：过去 label_window 日收益均值（可被 GP 学到的真实信号）
-        lat = pd.Series(ret).rolling(int(label_window), min_periods=2).mean().to_numpy()
         fwd = {}
         for w in windows:
             w = int(w)
+            lat = pd.Series(ret).rolling(w, min_periods=2).mean().to_numpy()
             fut = np.full(n_dates, np.nan)
             for t in range(n_dates - w):
                 sig = 0.0 if np.isnan(lat[t]) else lat[t]
@@ -273,6 +290,16 @@ def make_synthetic_panel(n_symbols: int = 50, n_dates: int = 500,
             "ps_ttm": rng.uniform(1, 20, n_dates),
             "returns": ret,
             "industry": industry,
+            "roe": rng.normal(10, 4, n_dates),
+            "gross_margin": rng.normal(30, 8, n_dates),
+            "operating_cash_flow_to_revenue": rng.normal(12, 5, n_dates),
+            "free_cash_flow_to_ev": rng.normal(0.04, 0.03, n_dates),
+            "debt_to_assets": rng.normal(45, 12, n_dates),
+            "receivables_turnover": rng.lognormal(1.5, 0.4, n_dates),
+            "inventory_turnover": rng.lognormal(1.2, 0.4, n_dates),
+            "revenue_growth": rng.normal(10, 15, n_dates),
+            "net_profit_growth": rng.normal(10, 20, n_dates),
+            "asset_turnover": rng.lognormal(-0.3, 0.3, n_dates),
             **fwd,
         }))
     df = pd.concat(frames, ignore_index=True)

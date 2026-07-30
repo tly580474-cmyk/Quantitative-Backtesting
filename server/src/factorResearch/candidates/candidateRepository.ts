@@ -300,7 +300,7 @@ export async function recordCandidateAutoGateResult(
     lockedTestMetrics: {
       ...metrics,
       autoGate: {
-        version: 1,
+        version: 2,
         passed: result.passed,
         failures: result.failures,
         evaluatedAt: updatedAt,

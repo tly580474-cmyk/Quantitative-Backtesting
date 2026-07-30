@@ -42,6 +42,10 @@ def test_build_panel_reads_published_snapshot(tmp_path, cfg):
         "end_date": str(dates[-1].date()), "train_end": str(dates[7].date()),
         "valid_end": str(dates[15].date()),
         "sample_symbols": 0, "verify_snapshot_checksums": True,
+        "label_window": 5, "label_windows": [5],
+    })
+    cfg["data"]["universe"].update({
+        "recent_listing_days": 0, "min_price": 0, "min_avg_amount_20": 0,
     })
 
     panels = build_panel(cfg)

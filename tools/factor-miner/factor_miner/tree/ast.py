@@ -10,6 +10,16 @@ TERMINAL_MAP = {
     "volume": "volume", "amount": "amount", "turnover": "turnoverRatePct",
     "returns": "returns", "vwap": "vwap",
     "log_mktcap": "log_mktcap",
+    "roe": "roe",
+    "gross_margin": "grossMargin",
+    "operating_cash_flow_to_revenue": "operatingCashFlowToRevenue",
+    "free_cash_flow_to_ev": "freeCashFlowToEnterpriseValue",
+    "debt_to_assets": "debtToAssets",
+    "receivables_turnover": "receivablesTurnover",
+    "inventory_turnover": "inventoryTurnover",
+    "revenue_growth": "revenueGrowth",
+    "net_profit_growth": "netProfitGrowth",
+    "asset_turnover": "assetTurnover",
 }
 SUPPORTED_OPERATORS = {
     "add", "sub", "mul", "div", "min", "max", "neg", "abs", "log",

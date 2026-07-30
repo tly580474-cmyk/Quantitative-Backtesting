@@ -321,6 +321,8 @@ async function main(): Promise<void> {
     const { stopScheduler } = await import('./marketData/jobs/syncScheduler.js');
     const { stopIndexDatasetScheduler } = await import('./marketData/jobs/indexDatasetScheduler.js');
     const { stopMiningScheduler } = await import('./factorResearch/mining/miningScheduler.js');
+    const { stopStrategyIterationScheduler } = await import(
+      './factorResearch/strategies/strategyIterationScheduler.js');
     const { stopDragonTigerScheduler } = await import('./marketData/jobs/dragonTigerScheduler.js');
     const { stopMarketNewsScheduler } = await import('./marketData/jobs/marketNewsScheduler.js');
     const { stopMarketOpinionPushScheduler } = await import('./marketData/jobs/marketOpinionPushScheduler.js');
@@ -328,6 +330,7 @@ async function main(): Promise<void> {
     stopScheduler();
     stopIndexDatasetScheduler();
     stopMiningScheduler();
+    stopStrategyIterationScheduler();
     stopDragonTigerScheduler();
     stopMarketNewsScheduler();
     stopMarketOpinionPushScheduler();
@@ -392,6 +395,9 @@ async function main(): Promise<void> {
         timeoutMs: Math.max(60_000, parseInt(config.FACTOR_MINER_TIMEOUT_MS, 10) || 21_600_000),
         maxMemoryMb: Math.max(256, parseInt(config.FACTOR_MINER_MAX_MEMORY_MB, 10) || 4096),
       });
+      const { startStrategyIterationScheduler } = await import(
+        './factorResearch/strategies/strategyIterationScheduler.js');
+      startStrategyIterationScheduler(pool);
     }
   } catch (err) {
     app.log.error(err);

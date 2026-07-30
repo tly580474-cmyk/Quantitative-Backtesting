@@ -61,6 +61,37 @@ export interface FactorMiningSchedule {
   lastTestEndDate?: string | null;
 }
 
+export type FactorStrategyStatus = 'draft' | 'validated' | 'paper' | 'champion' | 'rejected';
+export interface FactorStrategyVersion {
+  id: string;
+  name: string;
+  parentVersionId: string | null;
+  status: FactorStrategyStatus;
+  factorVersions: Array<{ versionId: string; family: string; weight: number }>;
+  compositeWeights: Record<string, number>;
+  universeConfig: Record<string, unknown>;
+  preprocessingConfig: Record<string, unknown>;
+  optimizerConfig: Record<string, unknown>;
+  costConfig: Record<string, unknown>;
+  snapshotId: string;
+  codeChecksum: string;
+  randomSeeds: number[];
+  paperAccountId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FactorStrategyPerformance {
+  strategy: FactorStrategyVersion;
+  evaluations: Array<Record<string, unknown>>;
+  observations: Array<{
+    rebalanceCycle: number;
+    observationDate: string;
+    metrics: Record<string, unknown>;
+    violations: string[];
+  }>;
+}
+
 export interface FactorCatalogItem {
   definition: FactorDefinition;
   versionId: string;
@@ -429,4 +460,19 @@ export function rejectFactorCandidate(id: string, reason: string) {
 
 export function publishFactorCandidate(id: string) {
   return apiFetch<{ versionId: string }>(`/api/factor-candidates/${id}/publish`, { method: 'POST' });
+}
+
+export function fetchFactorStrategies() {
+  return apiFetch<{ items: FactorStrategyVersion[] }>('/api/factor-strategies');
+}
+
+export function fetchFactorStrategyPerformance(id: string) {
+  return apiFetch<FactorStrategyPerformance>(`/api/factor-strategies/${id}/performance`);
+}
+
+export function startFactorStrategyPaper(id: string, paperAccountId: string) {
+  return apiFetch<{ strategy: FactorStrategyVersion; initialCapital: number }>(
+    `/api/factor-strategies/${id}/start-paper`,
+    { method: 'POST', body: JSON.stringify({ paperAccountId }) },
+  );
 }

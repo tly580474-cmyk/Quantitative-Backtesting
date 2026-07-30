@@ -897,6 +897,65 @@ export const factorMiningSchedules = mysqlTable('factor_mining_schedules', {
 }));
 
 // ─── Paper trading ───────────────────────────────────────────────
+export const factorStrategyVersions = mysqlTable('factor_strategy_versions', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  parentVersionId: varchar('parent_version_id', { length: 36 }),
+  status: varchar('status', { length: 16 }).notNull().default('draft'),
+  factorVersions: json('factor_versions').notNull(),
+  compositeWeights: json('composite_weights').notNull(),
+  universeConfig: json('universe_config').notNull(),
+  preprocessingConfig: json('preprocessing_config').notNull(),
+  optimizerConfig: json('optimizer_config').notNull(),
+  costConfig: json('cost_config').notNull(),
+  snapshotId: varchar('snapshot_id', { length: 128 }).notNull(),
+  codeChecksum: varchar('code_checksum', { length: 64 }).notNull(),
+  randomSeeds: json('random_seeds').notNull(),
+  paperAccountId: varchar('paper_account_id', { length: 36 }),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+}, (table) => ({
+  statusUpdatedIdx: index('idx_fsv_status_updated').on(table.status, table.updatedAt),
+}));
+
+export const factorStrategyEvaluations = mysqlTable('factor_strategy_evaluations', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  strategyVersionId: varchar('strategy_version_id', { length: 36 }).notNull(),
+  evaluationType: varchar('evaluation_type', { length: 24 }).notNull(),
+  metrics: json('metrics').notNull(),
+  gateResult: json('gate_result').notNull(),
+  artifactUri: varchar('artifact_uri', { length: 1024 }),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  versionCreatedIdx: index('idx_fse_version_created').on(table.strategyVersionId, table.createdAt),
+}));
+
+export const factorStrategyPaperObservations = mysqlTable('factor_strategy_paper_observations', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  strategyVersionId: varchar('strategy_version_id', { length: 36 }).notNull(),
+  rebalanceCycle: int('rebalance_cycle').notNull(),
+  observationDate: varchar('observation_date', { length: 10 }).notNull(),
+  metrics: json('metrics').notNull(),
+  violations: json('violations').notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  versionCycleUnique: uniqueIndex('idx_fspo_version_cycle')
+    .on(table.strategyVersionId, table.rebalanceCycle),
+}));
+
+export const factorStrategyPromotionAudits = mysqlTable('factor_strategy_promotion_audits', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  strategyVersionId: varchar('strategy_version_id', { length: 36 }).notNull(),
+  priorChampionId: varchar('prior_champion_id', { length: 36 }),
+  decision: varchar('decision', { length: 16 }).notNull(),
+  approvedBy: varchar('approved_by', { length: 128 }).notNull(),
+  reason: varchar('reason', { length: 1000 }),
+  gateResult: json('gate_result').notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  versionCreatedIdx: index('idx_fspa_version_created').on(table.strategyVersionId, table.createdAt),
+}));
+
 export const paperAccounts = mysqlTable('paper_accounts', {
   id: varchar('id', { length: 36 }).primaryKey(),
   name: varchar('name', { length: 128 }).notNull(),

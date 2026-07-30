@@ -16,6 +16,8 @@ import pandas as pd
 
 from factor_miner.analysis.search_memory import is_blocked_direction
 from factor_miner.engine.evaluator import as_series, evaluate_tree
+from factor_miner.fitness.preprocessing import preprocess_factor
+from factor_miner.tree.serialize import to_prefix
 from factor_miner.tree.node import Node
 
 logger = logging.getLogger("factor_miner")
@@ -201,6 +203,11 @@ def fitness_of(node: Node, panel: pd.DataFrame, fwd_col: str, cfg: dict,
     factor = as_series(factor, panel)
     if factor.isna().all():
         return -np.inf, {}
+    raw_factor = factor
+    prefix = to_prefix(node)
+    factor = preprocess_factor(
+        factor, panel,
+        market_cap_neutral=("market_cap" not in prefix and "log_mktcap" not in prefix))
 
     fwd = panel[fwd_col]
     label_rank = get_label_rank(panel, fwd_col)
@@ -248,8 +255,8 @@ def fitness_of(node: Node, panel: pd.DataFrame, fwd_col: str, cfg: dict,
     const_pen = 0.0
     cv = 0.0
     if lambda_const > 0:
-        cs_std = factor.groupby(level=1, group_keys=False).std().mean()
-        abs_mean = factor.abs().mean()
+        cs_std = raw_factor.groupby(level=1, group_keys=False).std().mean()
+        abs_mean = raw_factor.abs().mean()
         cv = float(cs_std / abs_mean) if abs_mean > 1e-12 else 0.0
         thresh = float(fc.get("const_cv_thresh", 0.01))
         if cv < thresh:

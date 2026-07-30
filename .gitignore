@@ -27,6 +27,7 @@ server/.logs/
 .workbuddy/
 *.tsbuildinfo
 tmp_output/
+tools/factor-miner/output/
 新建 文本文档.txt
 000852perf (1).xlsx
 

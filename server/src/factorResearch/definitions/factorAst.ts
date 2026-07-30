@@ -4,6 +4,10 @@ const TERMINALS = new Set<FactorAstTerminal>([
   'open', 'high', 'low', 'close', 'previousClose', 'volume', 'amount',
   'turnoverRatePct', 'returns', 'vwap',
   'totalMarketCap', 'log_mktcap',
+  'roe', 'grossMargin', 'operatingCashFlowToRevenue',
+  'freeCashFlowToEnterpriseValue', 'debtToAssets',
+  'receivablesTurnover', 'inventoryTurnover', 'revenueGrowth',
+  'netProfitGrowth', 'assetTurnover',
 ]);
 const ARITY: Record<string, number> = {
   add: 2, sub: 2, mul: 2, div: 2, min: 2, max: 2,

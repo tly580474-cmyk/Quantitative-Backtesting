@@ -60,6 +60,14 @@ def _snapshot_columns(terminals: set[str]) -> list[str]:
             columns.add("close")
         elif terminal == "log_mktcap":
             columns.add("totalMarketCap")
+        elif terminal in {
+            "roe", "gross_margin", "operating_cash_flow_to_revenue",
+            "free_cash_flow_to_ev", "debt_to_assets", "receivables_turnover",
+            "inventory_turnover", "revenue_growth", "net_profit_growth",
+            "asset_turnover",
+        }:
+            if terminal == "free_cash_flow_to_ev":
+                columns.add("totalMarketCap")
         else:
             raise ValueError(f"物化器不支持终端字段: {terminal}")
     return sorted(columns)

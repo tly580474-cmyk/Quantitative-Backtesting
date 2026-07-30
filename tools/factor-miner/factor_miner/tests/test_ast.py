@@ -28,6 +28,12 @@ def test_terminal_names_are_mapped_to_snapshot_schema():
     assert terminal["name"] == "turnoverRatePct"
 
 
+def test_fundamental_terminal_mapping_keeps_ast_v1_compatible():
+    expression = to_ast_expression(from_prefix("gross_margin"))
+    assert expression["version"] == 1
+    assert expression["root"] == {"type": "terminal", "name": "grossMargin"}
+
+
 def test_unsupported_gp_operator_is_rejected():
     with pytest.raises(ValueError, match="不支持算子"):
         to_ast_expression(from_prefix("(ts_corr close volume 20)"))

@@ -29,7 +29,10 @@ interface ActiveWorker {
 }
 const ACTIVE = new Map<string, ActiveWorker>();
 const AST_TERMINALS = ['open', 'high', 'low', 'close', 'volume', 'amount', 'vwap',
-  'turnover', 'returns', 'log_mktcap'];
+  'turnover', 'returns', 'log_mktcap', 'roe', 'gross_margin',
+  'operating_cash_flow_to_revenue', 'free_cash_flow_to_ev', 'debt_to_assets',
+  'receivables_turnover', 'inventory_turnover', 'revenue_growth',
+  'net_profit_growth', 'asset_turnover'];
 const AST_FUNCTIONS = ['add', 'sub', 'mul', 'div', 'min', 'max', 'neg', 'abs', 'log',
   'sqrt', 'sign', 'inv', 'cs_rank', 'cs_zscore', 'cs_neutralize', 'cs_indneutral',
   'ts_delay', 'ts_delta', 'ts_mean', 'ts_std', 'ts_min', 'ts_max', 'ts_sum'];

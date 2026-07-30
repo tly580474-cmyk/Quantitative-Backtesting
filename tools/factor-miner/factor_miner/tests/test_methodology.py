@@ -87,6 +87,8 @@ def test_rolling_fitness_reuses_daily_rankic_without_changing_value(cfg, panels)
 
     regular_fit, regular_detail = fitness_of(node, panel, fwd_col, cfg, [])
     factor = as_series(evaluate_tree(node, panel), panel)
+    from factor_miner.fitness.preprocessing import preprocess_factor
+    factor = preprocess_factor(factor, panel)
     fold_bases = [mean_rankic(factor[mask], panel.loc[mask, fwd_col])
                   for _, mask in folds]
     expected = float(np.mean([value for value in fold_bases if np.isfinite(value)]))

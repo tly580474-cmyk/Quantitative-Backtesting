@@ -23,6 +23,9 @@ def cfg() -> dict:
 
 
 @pytest.fixture
-def panels() -> dict:
+def panels(cfg) -> dict:
     from factor_miner.data.loader import make_synthetic_panel
-    return make_synthetic_panel(n_symbols=40, n_dates=200, seed=1, label_window=5)
+    window = int(cfg["data"]["label_window"])
+    return make_synthetic_panel(
+        n_symbols=40, n_dates=200, seed=1,
+        label_window=window, label_windows=sorted({5, window}))

@@ -41,6 +41,11 @@ def _cfg():
         cfg = yaml.safe_load(f)
     cfg["data"]["train_end"] = "2020-01-04"
     cfg["data"]["valid_end"] = "2020-01-07"
+    cfg["data"]["label_window"] = 5
+    cfg["data"]["label_windows"] = [5]
+    cfg["data"]["universe"].update({
+        "recent_listing_days": 0, "min_price": 0, "min_avg_amount_20": 0,
+    })
     return cfg
 
 

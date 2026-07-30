@@ -55,6 +55,7 @@ import {
   setCandidateAutomationEnabled,
 } from '../factorResearch/candidates/candidateAutomationRepository.js';
 import { evaluateAutoCandidateGate } from '../factorResearch/candidates/autoCandidateGate.js';
+import { registerFactorStrategyRoutes } from './factorStrategies.js';
 
 interface FactorResearchRouteConfig {
   snapshotRoot: string;
@@ -105,6 +106,10 @@ const factorAstNodeSchema: z.ZodType<FactorAstNode> = z.lazy(() => z.discriminat
   z.object({ type: z.literal('terminal'), name: z.enum([
     'open', 'high', 'low', 'close', 'previousClose', 'volume', 'amount',
     'turnoverRatePct', 'totalMarketCap', 'returns', 'vwap', 'log_mktcap',
+    'roe', 'grossMargin', 'operatingCashFlowToRevenue',
+    'freeCashFlowToEnterpriseValue', 'debtToAssets',
+    'receivablesTurnover', 'inventoryTurnover', 'revenueGrowth',
+    'netProfitGrowth', 'assetTurnover',
   ]) }),
   z.object({ type: z.literal('constant'), value: z.number().finite() }),
   z.object({
@@ -221,9 +226,18 @@ export function registerFactorResearchRoutes(
     app.post('/api/factor-candidates/:id/approve', stub);
     app.post('/api/factor-candidates/:id/reject', stub);
     app.post('/api/factor-candidates/:id/publish', stub);
+    app.get('/api/factor-strategies', stub);
+    app.post('/api/factor-strategies', stub);
+    app.post('/api/factor-strategies/optimize', stub);
+    app.post('/api/factor-strategies/:id/evaluate', stub);
+    app.post('/api/factor-strategies/:id/start-paper', stub);
+    app.post('/api/factor-strategies/:id/observations', stub);
+    app.get('/api/factor-strategies/:id/performance', stub);
+    app.post('/api/factor-strategies/:id/promote', stub);
     return;
   }
 
+  registerFactorStrategyRoutes(app, config.pool, config.miningWorker);
   let candidateAutomationBusy = false;
   const processCandidateAutomation = async (): Promise<void> => {
     if (candidateAutomationBusy) return;
@@ -238,7 +252,7 @@ export function registerFactorResearchRoutes(
           ? candidate.lockedTestMetrics as Record<string, unknown> : {};
         const priorAutoGate = lockedMetrics.autoGate && typeof lockedMetrics.autoGate === 'object'
           ? lockedMetrics.autoGate as Record<string, unknown> : {};
-        if (priorAutoGate.version === 1) continue;
+        if (priorAutoGate.version === 2) continue;
         const gate = evaluateAutoCandidateGate(candidate.validationMetrics, candidate.lockedTestMetrics);
         const recorded = await recordCandidateAutoGateResult(candidate.id, gate);
         if (!recorded) continue;

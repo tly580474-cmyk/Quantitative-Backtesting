@@ -28,6 +28,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { WorkbenchPanel } from '@/components/WorkbenchPanel';
 import AutomatedMiningPanel from './AutomatedMiningPanel';
+import StrategyIterationPanel from './StrategyIterationPanel';
 import {
   cancelFactorRun,
   fetchFactorRuns,
@@ -746,6 +747,11 @@ export default function FactorResearchPage() {
       <section className="factor-panel factor-automated-panel">
         <WorkbenchPanel title="自动因子挖掘" subtitle="验证筛选、锁定测试、人工批准、显式发布">
           <AutomatedMiningPanel />
+        </WorkbenchPanel>
+      </section>
+      <section className="factor-panel factor-automated-panel">
+        <WorkbenchPanel title="冠军 / 挑战者策略" subtitle="版本化研究、模拟盘观察、双基准验收与人工晋级">
+          <StrategyIterationPanel />
         </WorkbenchPanel>
       </section>
     </div>

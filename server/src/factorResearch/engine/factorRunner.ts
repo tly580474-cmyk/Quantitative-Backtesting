@@ -12,6 +12,10 @@ import type {
 } from '../definitions/schema.js';
 import { compileFactorSql, factorDirectionMultiplier } from './factorCompiler.js';
 import { summarizeFactorReport } from './evaluator.js';
+import {
+  buildPointInTimeFundamentalCte,
+  requiresPointInTimeFundamentals,
+} from './pointInTimeFundamentals.js';
 
 export interface RunFactorResearchOptions {
   snapshotRoot: string;
@@ -162,8 +166,15 @@ export async function runFactorResearch(
   const directionMultiplier = factorDirectionMultiplier(factor);
   const values = buildQueryValues(config, factor.warmupDays);
   const filterSql = buildFilterSql(config, values);
+  const needsFundamentals = requiresPointInTimeFundamentals(factor.dependencies);
+  const financialDataset = current.manifest.datasets?.find((item) => item.name === 'financial_reports');
+  if (needsFundamentals && !financialDataset) {
+    throw new Error('factor requires point-in-time fundamentals but the snapshot has no financial_reports dataset');
+  }
+  const financialPath = needsFundamentals && financialDataset
+    ? join(snapshotRoot, current.manifest.snapshotId, financialDataset.relativePath) : undefined;
   const commonCte = buildCommonCte(parquetGlob, factorSql, directionMultiplier, filterSql,
-    options.materializedValuesPath);
+    options.materializedValuesPath, financialPath, !factor.dependencies.includes('totalMarketCap'));
 
   const session = await openManagedDuckDB({ label: 'factor-run',
     config: { threads: '4', max_memory: '1GB' } });
@@ -292,22 +303,39 @@ function buildCommonCte(
   directionMultiplier: number,
   filterSql: string,
   materializedValuesPath?: string,
+  financialPath?: string,
+  marketCapNeutral = true,
 ): string {
+  const financialColumns = financialPath
+    ? `, financial_asof.roe, financial_asof.grossMargin,
+       financial_asof.operatingCashFlowToRevenue,
+       financial_asof.freeCashFlowToEnterpriseValue,
+       financial_asof.debtToAssets, financial_asof.receivablesTurnover,
+       financial_asof.inventoryTurnover, financial_asof.revenueGrowth,
+       financial_asof.netProfitGrowth, financial_asof.assetTurnover,
+       financial_asof.financialReportPeriod, financial_asof.financialAnnouncementDate,
+       financial_asof.financialSourceVersion`
+    : '';
+  const financialJoin = financialPath
+    ? ' LEFT JOIN financial_asof USING (tradeDate, instrumentKey)' : '';
   return `
     WITH bars AS (
       SELECT *
       FROM read_parquet('${escapeSqlLiteral(parquetGlob)}', hive_partitioning = true)
       WHERE tradeDate BETWEEN $sourceStartDate AND $sourceEndDate
       ${filterSql}
-    )${materializedJoinCte(materializedValuesPath)}, raw_source AS (
+    )${materializedJoinCte(materializedValuesPath)}
+    ${financialPath ? buildPointInTimeFundamentalCte(financialPath) : ''}, raw_source AS (
       SELECT bars.*${materializedValuesPath ? ', materialized.factorValue AS materializedFactorValue' : ''}
+             ${financialColumns}
       FROM bars${materializedValuesPath ? ' LEFT JOIN materialized USING (tradeDate, instrumentKey)' : ''}
+      ${financialJoin}
     ),
     source AS (
       SELECT *, DENSE_RANK() OVER (ORDER BY tradeDate) AS tradingDayIndex
       FROM raw_source
     ),
-    scored AS (
+    raw_scored AS (
       SELECT tradeDate,
              instrumentKey,
              market,
@@ -317,7 +345,7 @@ function buildCommonCte(
              totalMarketCap,
              close AS signalClose,
              tradingDayIndex AS signalDayIndex,
-             ${factorSql} AS factorValue,
+             ${factorSql} AS rawFactorValue,
              LEAD(open, 1) OVER instrument_window AS entryOpen,
              LEAD(volume, 1) OVER instrument_window AS entryVolume,
              LEAD(tradingDayIndex, 1) OVER instrument_window AS entryDayIndex,
@@ -331,7 +359,51 @@ function buildCommonCte(
         trailing_14 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 13 PRECEDING AND CURRENT ROW),
         trailing_20 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 19 PRECEDING AND CURRENT ROW),
         trailing_28 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 27 PRECEDING AND CURRENT ROW),
-        trailing_60 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 59 PRECEDING AND CURRENT ROW)
+          trailing_60 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 59 PRECEDING AND CURRENT ROW)
+    ),
+    winsor_bounds AS (
+      SELECT tradeDate,
+             QUANTILE_CONT(rawFactorValue, 0.01) AS p01,
+             QUANTILE_CONT(rawFactorValue, 0.99) AS p99
+      FROM raw_scored GROUP BY tradeDate
+    ),
+    winsorized AS (
+      SELECT raw_scored.*,
+             GREATEST(winsor_bounds.p01, LEAST(rawFactorValue, winsor_bounds.p99)) AS clippedFactorValue
+      FROM raw_scored JOIN winsor_bounds USING (tradeDate)
+    ),
+    standardized AS (
+      SELECT *,
+             (clippedFactorValue - AVG(clippedFactorValue) OVER (PARTITION BY tradeDate))
+             / NULLIF(STDDEV_SAMP(clippedFactorValue) OVER (PARTITION BY tradeDate), 0)
+               AS standardizedFactorValue
+      FROM winsorized
+    ),
+    industry_neutralized AS (
+      SELECT *,
+             standardizedFactorValue
+             - AVG(standardizedFactorValue) OVER (
+                 PARTITION BY tradeDate, COALESCE(industry, 'UNKNOWN')
+               ) AS industryFactorValue
+      FROM standardized
+    ),
+    size_stats AS (
+      SELECT tradeDate,
+             AVG(industryFactorValue) AS factorMean,
+             AVG(LN(NULLIF(totalMarketCap, 0))) AS sizeMean,
+             COALESCE(
+               COVAR_POP(industryFactorValue, LN(NULLIF(totalMarketCap, 0)))
+               / NULLIF(VAR_POP(LN(NULLIF(totalMarketCap, 0))), 0), 0
+             ) AS sizeBeta
+      FROM industry_neutralized GROUP BY tradeDate
+    ),
+    scored AS (
+      SELECT industry_neutralized.*,
+             ${marketCapNeutral
+    ? `(industryFactorValue - size_stats.factorMean
+                - size_stats.sizeBeta * (LN(NULLIF(totalMarketCap, 0)) - size_stats.sizeMean))`
+    : 'industryFactorValue'} AS factorValue
+      FROM industry_neutralized JOIN size_stats USING (tradeDate)
     ),
     analysis_rows AS (
       SELECT tradeDate,

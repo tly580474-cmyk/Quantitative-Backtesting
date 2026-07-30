@@ -78,6 +78,7 @@ def read_published_snapshot(cfg: dict) -> tuple[pd.DataFrame, dict]:
                                          filter=ds.field("instrumentKey").isin(keys))
         history_frame = history_table.to_pandas()
         list_dates = history_frame.groupby("instrumentKey")["tradeDate"].min().to_dict()
+    frame = _attach_point_in_time_financials(frame, snapshot_root, manifest)
     return _map_snapshot_columns(frame, list_dates), {
         "snapshot_id": snapshot_id,
         "source_version": manifest["sourceVersion"],
@@ -85,6 +86,35 @@ def read_published_snapshot(cfg: dict) -> tuple[pd.DataFrame, dict]:
         "row_count": len(frame),
         "partition_count": len(selected),
     }
+
+
+def _attach_point_in_time_financials(
+        bars: pd.DataFrame, snapshot_root: Path, manifest: dict) -> pd.DataFrame:
+    metadata = next((item for item in manifest.get("datasets", [])
+                     if item.get("name") == "financial_reports"), None)
+    if metadata is None:
+        return bars
+    reports = pd.read_parquet(snapshot_root / metadata["relativePath"])
+    if reports.empty:
+        return bars
+    reports["announcementDate"] = pd.to_datetime(reports["announcementDate"])
+    reports["reportPeriod"] = pd.to_datetime(reports["reportPeriod"])
+    bars = bars.copy()
+    bars["tradeDate"] = pd.to_datetime(bars["tradeDate"])
+    output = []
+    for instrument_key, group in bars.groupby("instrumentKey", sort=False):
+        history = reports[reports["instrumentKey"] == instrument_key].sort_values(
+            ["announcementDate", "reportPeriod", "updateFlag", "fetchedAt"])
+        left = group.sort_values("tradeDate")
+        if history.empty:
+            output.append(left)
+            continue
+        output.append(pd.merge_asof(
+            left, history.drop(columns=["instrumentKey"], errors="ignore"),
+            left_on="tradeDate", right_on="announcementDate",
+            direction="backward", allow_exact_matches=True,
+            suffixes=("", "_financial")))
+    return pd.concat(output, ignore_index=True)
 
 
 def _map_snapshot_columns(df: pd.DataFrame, list_dates: dict | None = None) -> pd.DataFrame:
@@ -97,6 +127,35 @@ def _map_snapshot_columns(df: pd.DataFrame, list_dates: dict | None = None) -> p
     out["is_st"] = out["name"].fillna("").astype(str).str.upper().str.contains("ST").astype(int)
     out["inst_type"] = "stock"
     out["delist_date"] = pd.NaT
+    out = out.rename(columns={
+        "grossMarginPct": "gross_margin",
+        "operatingCashFlowToRevenuePct": "operating_cash_flow_to_revenue",
+        "debtToAssetsPct": "debt_to_assets",
+        "receivablesTurnover": "receivables_turnover",
+        "inventoryTurnover": "inventory_turnover",
+        "revenueYoyPct": "revenue_growth",
+        "netProfitYoyPct": "net_profit_growth",
+        "assetTurnover": "asset_turnover",
+        "reportPeriod": "financial_report_period",
+        "announcementDate": "financial_announcement_date",
+        "sourceVersion": "financial_source_version",
+    })
+    roe_columns = [name for name in ["roeCalculatedPct", "roeWeightedPct", "roePct"]
+                   if name in out.columns]
+    if roe_columns:
+        out["roe"] = out[roe_columns].bfill(axis=1).iloc[:, 0]
+    if "freeCashFlow" in out.columns:
+        debt = sum((out.get(name, 0) for name in
+                    ["shortTermBorrowings", "longTermBorrowings", "bondsPayable"]))
+        enterprise_value = out["market_cap"] + debt - out.get("cashAndEquivalents", 0)
+        out["free_cash_flow_to_ev"] = out["freeCashFlow"] / enterprise_value.replace(0, pd.NA)
+    for column in [
+        "roe", "gross_margin", "operating_cash_flow_to_revenue", "free_cash_flow_to_ev",
+        "debt_to_assets", "receivables_turnover", "inventory_turnover",
+        "revenue_growth", "net_profit_growth", "asset_turnover",
+    ]:
+        if column not in out.columns:
+            out[column] = pd.NA
     return out
 
 

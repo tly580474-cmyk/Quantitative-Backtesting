@@ -186,12 +186,13 @@ def test_limit_filter_removes_limit_days():
 def test_seed_factors_injected_and_retained(cfg, panels):
     cfg = dict(cfg)
     cfg["evolution"] = dict(cfg["evolution"])
-    cfg["evolution"]["seed_factors"] = ["(ts_mean returns 5)"]
+    window = int(cfg["data"]["label_window"])
+    cfg["evolution"]["seed_factors"] = [f"(ts_mean returns {window})"]
     cfg["evolution"]["population_size"] = 30
     cfg["evolution"]["generations"] = 3
     cfg["evolution"]["max_depth"] = 5
     best, trace = evolve(cfg, panels, resume=False)
-    seed_prefix = "(ts_mean returns 5)"
+    seed_prefix = f"(ts_mean returns {window})"
     seen = [r["best_prefix"] for r in trace if r.get("best_prefix")]
     # 种子因子（合成数据的强信号）应在轨迹中出现
     assert seed_prefix in seen or to_prefix(best) == seed_prefix
