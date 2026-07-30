@@ -1338,6 +1338,36 @@ body {
   justify-content: flex-end;
 }
 
+.factor-section-nav {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.factor-section-nav .ant-btn {
+  min-height: 44px;
+  padding-inline: 16px;
+  border-radius: 7px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease;
+}
+
+.factor-section-nav .ant-btn-text {
+  color: #334155;
+}
+
+.factor-section-nav .ant-btn-text:hover {
+  color: #0958d9;
+  background: #eff6ff;
+}
+
+.factor-section-nav .ant-btn:focus-visible {
+  outline: 3px solid rgba(22, 119, 255, 0.28);
+  outline-offset: 2px;
+}
+
 .stock-info-bar {
   min-width: 0;
 }
@@ -2030,6 +2060,14 @@ body {
   flex: 0 0 auto;
   margin-top: 16px;
   margin-bottom: 4px;
+}
+
+.factor-section-page {
+  gap: 0;
+}
+
+.factor-section-panel {
+  flex: 0 0 auto;
 }
 
 .factor-console,
@@ -3005,6 +3043,20 @@ body {
 }
 
 @media (max-width: 991px) {
+  .app-header:has(.factor-section-nav) {
+    flex-wrap: wrap;
+  }
+
+  .factor-section-nav {
+    flex: 1 1 auto;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .factor-section-nav .ant-btn {
+    flex: 0 0 auto;
+  }
+
   .factor-page {
     overflow: auto;
   }
@@ -3127,6 +3179,16 @@ body {
 }
 
 @media (max-width: 575px) {
+  .factor-section-nav {
+    width: 100%;
+    order: 2;
+    padding-bottom: 2px;
+  }
+
+  .app-header:has(.factor-section-nav) .app-header-tools {
+    order: 3;
+  }
+
   .factor-page {
     padding: 12px 8px;
   }

@@ -18,6 +18,7 @@ import {
   SettingOutlined,
   StarOutlined,
   SwapOutlined,
+  TrophyOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import zhCN from 'antd/locale/zh_CN';
@@ -59,6 +60,9 @@ const BacktestResultsPage = lazy(() => import('./features/backtestResults/Backte
 const StrategyStudioPage = lazy(() => import('./features/strategyStudio/StrategyStudioPage'));
 const MarketDataPage = lazy(() => import('./features/marketData/MarketDataPage'));
 const FactorResearchPage = lazy(() => import('./features/factorResearch/FactorResearchPage'));
+const AutomatedFactorMiningPage = lazy(
+  () => import('./features/factorResearch/AutomatedFactorMiningPage'));
+const FactorStrategyPage = lazy(() => import('./features/factorResearch/FactorStrategyPage'));
 const PaperTradingPage = lazy(() => import('./features/paperTrading/PaperTradingPage'));
 
 interface MinuteCatalogResponse {
@@ -702,9 +706,22 @@ function AppContent() {
   const [batchSummary, setBatchSummary] = useState<string[] | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
+  const factorNavRef = useRef<HTMLElement | null>(null);
+  const factorWorkspaceActive = ['/factors', '/factor-mining', '/factor-strategies']
+    .includes(location.pathname);
   const activeKey = location.pathname === '/'
     ? '/market-data'
+    : factorWorkspaceActive ? '/factors'
     : location.pathname.startsWith('/') ? location.pathname : '/market-data';
+  useEffect(() => {
+    const activeButton = factorNavRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    activeButton?.scrollIntoView({
+      block: 'nearest',
+      inline: 'center',
+      behavior: reduceMotion ? 'auto' : 'smooth',
+    });
+  }, [location.pathname]);
 
   const handleImport = useCallback(async (files: File[]) => {
     const results = files.length === 1
@@ -776,6 +793,28 @@ function AppContent() {
       )}
     </>
   );
+  const factorHeaderNav = factorWorkspaceActive ? (
+    <nav ref={factorNavRef} className="factor-section-nav" aria-label="因子工作区">
+      <Button type={location.pathname === '/factors' ? 'primary' : 'text'}
+        icon={<DotChartOutlined />}
+        aria-current={location.pathname === '/factors' ? 'page' : undefined}
+        onClick={() => navigate('/factors')}>
+        因子研究
+      </Button>
+      <Button type={location.pathname === '/factor-mining' ? 'primary' : 'text'}
+        icon={<ExperimentOutlined />}
+        aria-current={location.pathname === '/factor-mining' ? 'page' : undefined}
+        onClick={() => navigate('/factor-mining')}>
+        自动因子挖掘
+      </Button>
+      <Button type={location.pathname === '/factor-strategies' ? 'primary' : 'text'}
+        icon={<TrophyOutlined />}
+        aria-current={location.pathname === '/factor-strategies' ? 'page' : undefined}
+        onClick={() => navigate('/factor-strategies')}>
+        冠军 / 挑战者策略
+      </Button>
+    </nav>
+  ) : undefined;
 
   return (
     <ConfigProvider
@@ -795,6 +834,7 @@ function AppContent() {
           onNavigate={(key) => navigate(key)}
           onBack={location.pathname.startsWith('/market-detail/') ? () => navigate('/market-data') : undefined}
           topBar={topBar}
+          headerNav={factorHeaderNav}
           center={
             <Suspense fallback={<PageSkeleton />}>
               <Routes>
@@ -808,6 +848,8 @@ function AppContent() {
                 <Route path="/paper-trading" element={<PaperTradingPage />} />
                 <Route path="/results" element={<BacktestResultsPage />} />
                 <Route path="/factors" element={<FactorResearchPage />} />
+                <Route path="/factor-mining" element={<AutomatedFactorMiningPage />} />
+                <Route path="/factor-strategies" element={<FactorStrategyPage />} />
                 <Route path="/studio" element={<StrategyStudioPage />} />
               </Routes>
             </Suspense>

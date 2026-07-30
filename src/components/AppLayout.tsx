@@ -18,6 +18,7 @@ interface AppLayoutProps {
   onNavigate: (key: string) => void;
   onBack?: () => void;
   topBar: ReactNode;
+  headerNav?: ReactNode;
   leftPanel?: ReactNode;
   center: ReactNode;
   bottom?: ReactNode;
@@ -30,6 +31,7 @@ export default function AppLayout({
   onNavigate,
   onBack,
   topBar,
+  headerNav,
   leftPanel,
   center,
   bottom,
@@ -95,6 +97,7 @@ export default function AppLayout({
               </Button>
             )}
           </div>
+          {headerNav}
           <div className="app-header-tools">
             {topBar}
           </div>
