@@ -13,25 +13,26 @@ export default function CandleDetail({ left = 8 }: { left?: number }) {
 
   return (
     <div
+      className="candle-detail"
       style={{
         position: 'absolute',
         top: 8,
         left,
-        background: 'rgba(255,255,255,0.95)',
-        border: '1px solid #E5E7EB',
+        background: 'var(--candle-detail-bg, rgba(255,255,255,0.95))',
+        border: '1px solid var(--candle-detail-border, #E5E7EB)',
         borderRadius: 8,
         padding: '12px 16px',
         fontSize: 12,
         minWidth: 210,
         maxHeight: 'calc(100vh - 80px)',
         overflowY: 'auto',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        boxShadow: 'var(--candle-detail-shadow, 0 2px 8px rgba(0,0,0,0.1))',
         zIndex: 10,
         pointerEvents: 'none',
         fontFamily: 'monospace',
       }}
     >
-      <div style={{ fontWeight: 600, marginBottom: 6, color: '#333' }}>
+      <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--candle-detail-title, #333)' }}>
         {time}
       </div>
       <Row label="开盘" value={data.open.toFixed(2)} />
@@ -64,9 +65,9 @@ export default function CandleDetail({ left = 8 }: { left?: number }) {
       {indicators.map((indicator) => (
         <div
           key={indicator.id}
-          style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #E5E7EB' }}
+          style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--candle-detail-border, #E5E7EB)' }}
         >
-          <div style={{ marginBottom: 2, fontWeight: 600, color: '#555' }}>
+          <div style={{ marginBottom: 2, fontWeight: 600, color: 'var(--candle-detail-heading, #555)' }}>
             {indicator.name}
           </div>
           {indicator.values.map((item) => (
@@ -101,8 +102,8 @@ function Row({
         padding: '1px 0',
       }}
     >
-      <span style={{ color: '#999' }}>{label}</span>
-      <span style={{ color: color ?? '#333' }}>{value}</span>
+      <span style={{ color: 'var(--candle-detail-label, #999)' }}>{label}</span>
+      <span style={{ color: color ?? 'var(--candle-detail-value, #333)' }}>{value}</span>
     </div>
   );
 }

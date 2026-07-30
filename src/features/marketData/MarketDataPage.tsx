@@ -11,6 +11,7 @@ import MarketKlineChart, {
   type MarketIndicatorVisibility,
 } from './MarketKlineChart';
 import StockSelectionScore from './StockSelectionScore';
+import { getChartSurfaceColors } from '@/theme';
 import StockSelectionWorkspace from './StockSelectionWorkspace';
 import HotSectorPanel from './HotSectorPanel';
 import DragonTigerPanel from './DragonTigerPanel';
@@ -614,6 +615,7 @@ function FlowStackedBarChart({ records }: { records: SevenLayerRecord[] }) {
 
 function DataSourceTrendChart({ source, records }: { source: string; records: SevenLayerRecord[] }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartSurface = useMemo(() => getChartSurfaceColors(), []);
   const seriesDefs = TREND_CHART_DEFS[source] ?? [];
   const points = records
     .map((record) => ({ date: metricDate(record), metrics: record.metrics }))
@@ -626,10 +628,10 @@ function DataSourceTrendChart({ source, records }: { source: string; records: Se
     const chart = createChart(container, {
       width: container.clientWidth,
       height: container.clientHeight,
-      layout: { background: { type: ColorType.Solid, color: '#fff' }, textColor: '#475569', fontSize: 12 },
-      grid: { vertLines: { color: '#eef2f7' }, horzLines: { color: '#eef2f7' } },
-      rightPriceScale: { borderColor: '#e2e8f0' },
-      timeScale: { borderColor: '#e2e8f0', timeVisible: false },
+      layout: { background: { type: ColorType.Solid, color: chartSurface.background }, textColor: chartSurface.text, fontSize: 12 },
+      grid: { vertLines: { color: chartSurface.grid }, horzLines: { color: chartSurface.grid } },
+      rightPriceScale: { borderColor: chartSurface.border },
+      timeScale: { borderColor: chartSurface.border, timeVisible: false },
       crosshair: { mode: 1 },
     });
     for (const definition of seriesDefs) {
@@ -659,7 +661,7 @@ function DataSourceTrendChart({ source, records }: { source: string; records: Se
     const observer = new ResizeObserver(resize);
     observer.observe(container);
     return () => { observer.disconnect(); chart.remove(); };
-  }, [points, seriesDefs]);
+  }, [chartSurface, points, seriesDefs]);
 
   if (points.length === 0 || seriesDefs.length === 0) return null;
   const latest = [...records]

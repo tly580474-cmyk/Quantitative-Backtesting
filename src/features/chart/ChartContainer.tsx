@@ -39,6 +39,7 @@ import { analyzeChanlun } from '@/features/chanlun';
 import { ChanStructurePrimitive } from './ChanStructurePrimitive';
 import { chartTimeKey, toChartTime } from './chartTime';
 import type { Candle } from '@/models';
+import { getChartSurfaceColors } from '@/theme';
 
 interface IndicatorPaneEntry {
   chart: IChartApi;
@@ -71,6 +72,7 @@ export default function ChartContainer({
   showChanPenCenters = false,
   showChanSegmentCenters = false,
 }: ChartContainerProps) {
+  const chartSurface = useMemo(() => getChartSurfaceColors(), []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
   const panesRef = useRef<HTMLDivElement>(null);
@@ -330,24 +332,24 @@ export default function ChartContainer({
 
     const chart = createChart(container, {
       layout: {
-        background: { type: ColorType.Solid, color: CHART_COLORS.background },
-        textColor: CHART_COLORS.text,
+        background: { type: ColorType.Solid, color: chartSurface.background },
+        textColor: chartSurface.text,
       },
       grid: {
-        vertLines: { color: CHART_COLORS.grid },
-        horzLines: { color: CHART_COLORS.grid },
+        vertLines: { color: chartSurface.grid },
+        horzLines: { color: chartSurface.grid },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: CHART_COLORS.crosshair, labelVisible: false },
-        horzLine: { color: CHART_COLORS.crosshair, labelVisible: false },
+        vertLine: { color: chartSurface.crosshair, labelVisible: false },
+        horzLine: { color: chartSurface.crosshair, labelVisible: false },
       },
       rightPriceScale: {
-        borderColor: '#D1D5DB',
+        borderColor: chartSurface.border,
         scaleMargins: { top: 0.05, bottom: 0.25 },
       },
       timeScale: {
-        borderColor: '#D1D5DB',
+        borderColor: chartSurface.border,
         timeVisible: true,
         secondsVisible: false,
       },
@@ -713,20 +715,20 @@ export default function ChartContainer({
 
         const chart = createChart(container, {
           layout: {
-            background: { type: ColorType.Solid, color: CHART_COLORS.background },
-            textColor: CHART_COLORS.text,
+            background: { type: ColorType.Solid, color: chartSurface.background },
+            textColor: chartSurface.text,
           },
           grid: {
-            vertLines: { color: CHART_COLORS.grid },
-            horzLines: { color: CHART_COLORS.grid },
+            vertLines: { color: chartSurface.grid },
+            horzLines: { color: chartSurface.grid },
           },
           crosshair: {
             mode: CrosshairMode.Normal,
-            vertLine: { color: CHART_COLORS.crosshair, labelVisible: false },
-            horzLine: { color: CHART_COLORS.crosshair, labelVisible: false },
+            vertLine: { color: chartSurface.crosshair, labelVisible: false },
+            horzLine: { color: chartSurface.crosshair, labelVisible: false },
           },
-          rightPriceScale: { borderColor: '#D1D5DB' },
-          timeScale: { borderColor: '#D1D5DB', visible: false },
+          rightPriceScale: { borderColor: chartSurface.border },
+          timeScale: { borderColor: chartSurface.border, visible: false },
           width: container.clientWidth,
           height: INDICATOR_PANE_HEIGHT,
         });
@@ -839,7 +841,7 @@ export default function ChartContainer({
         existingPanes.delete(id);
       }
     }
-  }, [separates, candles, actives]);
+  }, [separates, candles, actives, chartSurface]);
 
   return (
     <div

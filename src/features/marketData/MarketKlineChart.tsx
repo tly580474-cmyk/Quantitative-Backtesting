@@ -17,6 +17,7 @@ import { calculateChipDistribution } from './chipDistribution';
 import ChipProfile from './ChipProfile';
 import { analyzeChanlun } from '@/features/chanlun';
 import { ChanStructurePrimitive } from '@/features/chart/ChanStructurePrimitive';
+import { getChartSurfaceColors } from '@/theme';
 
 interface IndicatorPoint {
   ma5: number | null;
@@ -226,6 +227,7 @@ export default function MarketKlineChart({
   const [chipChartLayout, setChipChartLayout] = useState({ height: 0, revision: 0 });
   const [hover, setHover] = useState<HoverPoint | null>(null);
   const [subIndicator, setSubIndicator] = useState<IntradayIndicator>('volumeRatio');
+  const chartSurface = useMemo(() => getChartSurfaceColors(), []);
   const indicators = useMemo(() => calculateIndicators(data), [data]);
   const latest = indicators[indicators.length - 1];
   const isIntraday = period === 'intraday';
@@ -269,16 +271,16 @@ export default function MarketKlineChart({
     const times = data.map((item) => chartTime(item.date));
     const fixedRange = intradayRange(data[0].date);
     const baseOptions = {
-      layout: { background: { type: ColorType.Solid, color: '#fff' }, textColor: '#64748b' },
-      grid: { vertLines: { color: '#e8eef6' }, horzLines: { color: '#e8eef6' } },
-      crosshair: { vertLine: { color: '#94a3b8', labelVisible: false }, horzLine: { color: '#94a3b8', labelVisible: false } },
+      layout: { background: { type: ColorType.Solid, color: chartSurface.background }, textColor: chartSurface.text },
+      grid: { vertLines: { color: chartSurface.grid }, horzLines: { color: chartSurface.grid } },
+      crosshair: { vertLine: { color: chartSurface.crosshair, labelVisible: false }, horzLine: { color: chartSurface.crosshair, labelVisible: false } },
       localization: { timeFormatter: formatChinaTime },
-      rightPriceScale: { borderColor: '#e2e8f0' },
-      timeScale: { borderColor: '#e2e8f0', timeVisible: true, secondsVisible: false, rightOffset: 0, fixRightEdge: true, lockVisibleTimeRangeOnResize: true, tickMarkFormatter: formatChinaTime },
+      rightPriceScale: { borderColor: chartSurface.border },
+      timeScale: { borderColor: chartSurface.border, timeVisible: true, secondsVisible: false, rightOffset: 0, fixRightEdge: true, lockVisibleTimeRangeOnResize: true, tickMarkFormatter: formatChinaTime },
       handleScale: false,
       handleScroll: false,
     } as const;
-    const priceChart = createChart(priceEl, { ...baseOptions, width: priceEl.clientWidth, height: priceEl.clientHeight, leftPriceScale: { visible: true, borderColor: '#e2e8f0' } });
+    const priceChart = createChart(priceEl, { ...baseOptions, width: priceEl.clientWidth, height: priceEl.clientHeight, leftPriceScale: { visible: true, borderColor: chartSurface.border } });
     const volumeChart = createChart(volumeEl, { ...baseOptions, width: volumeEl.clientWidth, height: volumeEl.clientHeight, timeScale: { ...baseOptions.timeScale, visible: false } });
     const indicatorChart = indicatorEl && subIndicator !== 'none'
       ? createChart(indicatorEl, { ...baseOptions, width: indicatorEl.clientWidth, height: indicatorEl.clientHeight })
@@ -363,7 +365,7 @@ export default function MarketKlineChart({
       indicatorChart?.remove();
       setHover(null);
     };
-  }, [avgPrices, data, indicators, isIntraday, previousClose, subIndicator, volumeRatios]);
+  }, [avgPrices, chartSurface, data, indicators, isIntraday, previousClose, subIndicator, volumeRatios]);
 
   useEffect(() => {
     if (isIntraday) return undefined;
@@ -372,16 +374,16 @@ export default function MarketKlineChart({
     const times = data.map((item) => chartTime(item.date));
     const chart = createChart(el, {
       width: el.clientWidth, height: el.clientHeight,
-      layout: { background: { type: ColorType.Solid, color: '#fff' }, textColor: '#64748b' },
-      grid: { vertLines: { color: '#eef2f7' }, horzLines: { color: '#eef2f7' } },
-      crosshair: { vertLine: { color: '#94a3b8', labelVisible: false }, horzLine: { color: '#94a3b8', labelVisible: false } },
+      layout: { background: { type: ColorType.Solid, color: chartSurface.background }, textColor: chartSurface.text },
+      grid: { vertLines: { color: chartSurface.grid }, horzLines: { color: chartSurface.grid } },
+      crosshair: { vertLine: { color: chartSurface.crosshair, labelVisible: false }, horzLine: { color: chartSurface.crosshair, labelVisible: false } },
       rightPriceScale: {
-        borderColor: '#e2e8f0',
+        borderColor: chartSurface.border,
         minimumWidth: 68,
         scaleMargins: { top: 0.1, bottom: 0.25 },
       },
       timeScale: {
-        borderColor: '#e2e8f0',
+        borderColor: chartSurface.border,
         visible: !indicatorVisibility.rsi && !indicatorVisibility.macd,
         timeVisible: isIntraday,
         secondsVisible: false,
@@ -476,6 +478,7 @@ export default function MarketKlineChart({
     };
   }, [
     dailyDatasetKey,
+    chartSurface,
     data,
     indicators,
     isIntraday,
@@ -503,19 +506,19 @@ export default function MarketKlineChart({
       const chart = createChart(container, {
         width: container.clientWidth,
         height: container.clientHeight,
-        layout: { background: { type: ColorType.Solid, color: '#fff' }, textColor: '#64748b' },
-        grid: { vertLines: { color: '#f1f5f9' }, horzLines: { color: '#f1f5f9' } },
+        layout: { background: { type: ColorType.Solid, color: chartSurface.background }, textColor: chartSurface.text },
+        grid: { vertLines: { color: chartSurface.grid }, horzLines: { color: chartSurface.grid } },
         crosshair: {
-          vertLine: { color: '#94a3b8', labelVisible: false },
-          horzLine: { color: '#94a3b8', labelVisible: false },
+          vertLine: { color: chartSurface.crosshair, labelVisible: false },
+          horzLine: { color: chartSurface.crosshair, labelVisible: false },
         },
         rightPriceScale: {
-          borderColor: '#e2e8f0',
+          borderColor: chartSurface.border,
           minimumWidth: 68,
           scaleMargins: { top: 0.12, bottom: 0.12 },
         },
         timeScale: {
-          borderColor: '#e2e8f0',
+          borderColor: chartSurface.border,
           visible: showTimeScale,
           timeVisible: false,
           secondsVisible: false,
@@ -623,6 +626,7 @@ export default function MarketKlineChart({
       for (const chart of subcharts) chart.remove();
     };
   }, [
+    chartSurface,
     data,
     indicatorVisibility.macd,
     indicatorVisibility.rsi,

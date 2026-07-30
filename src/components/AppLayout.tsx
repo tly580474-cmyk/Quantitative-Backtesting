@@ -5,8 +5,11 @@ import {
   ArrowLeftOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  MoonOutlined,
+  SunOutlined,
 } from '@ant-design/icons';
 import { BrandLogo } from './BrandLogo';
+import type { ColorMode } from '../theme';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -24,6 +27,8 @@ interface AppLayoutProps {
   leftPanel?: ReactNode;
   center: ReactNode;
   bottom?: ReactNode;
+  colorMode: ColorMode;
+  onToggleColorMode: () => void;
 }
 
 export default function AppLayout({
@@ -39,6 +44,8 @@ export default function AppLayout({
   leftPanel,
   center,
   bottom,
+  colorMode,
+  onToggleColorMode,
 }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -83,6 +90,19 @@ export default function AppLayout({
               type="text"
               icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               onClick={() => setCollapsed((value) => !value)}
+            />
+          </Tooltip>
+          <Tooltip
+            title={colorMode === 'dark' ? '切换为亮色模式' : '切换为暗色模式'}
+            placement="right"
+          >
+            <Button
+              className="app-theme-toggle"
+              aria-label={colorMode === 'dark' ? '切换为亮色模式' : '切换为暗色模式'}
+              aria-pressed={colorMode === 'dark'}
+              type="text"
+              icon={colorMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+              onClick={onToggleColorMode}
             />
           </Tooltip>
         </div>

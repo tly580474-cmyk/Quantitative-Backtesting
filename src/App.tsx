@@ -1,6 +1,6 @@
 import { useState, useCallback, lazy, Suspense, useMemo, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Checkbox, ConfigProvider, App as AntApp, Button, DatePicker, Dropdown, Modal, Popover, Segmented, Space, Tag } from 'antd';
+import { Checkbox, ConfigProvider, App as AntApp, Button, DatePicker, Dropdown, Modal, Popover, Segmented, Space, Tag, theme as antdTheme } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   AreaChartOutlined,
@@ -53,6 +53,12 @@ import {
   exportAdjustedKlinesToExcel,
   resolveInstrumentBySymbol,
 } from './features/marketData/exportMarketData';
+import {
+  applyColorMode,
+  COLOR_MODE_STORAGE_KEY,
+  readColorMode,
+  type ColorMode,
+} from './theme';
 
 const ChartContainer = lazy(() => import('./features/chart/ChartContainer'));
 const DataLibrary = lazy(() => import('./features/dataLibrary/DataLibrary'));
@@ -711,12 +717,26 @@ function AppContent() {
   const location = useLocation();
   const navigate = useNavigate();
   const factorNavRef = useRef<HTMLElement | null>(null);
+  const [colorMode, setColorMode] = useState<ColorMode>(() => readColorMode());
   const factorWorkspaceActive = ['/factors', '/factor-mining', '/factor-strategies']
     .includes(location.pathname);
   const activeKey = location.pathname === '/'
     ? '/market-data'
     : factorWorkspaceActive ? '/factors'
     : location.pathname.startsWith('/') ? location.pathname : '/market-data';
+  useEffect(() => {
+    applyColorMode(colorMode);
+    localStorage.setItem(COLOR_MODE_STORAGE_KEY, colorMode);
+  }, [colorMode]);
+  const handleToggleColorMode = useCallback(() => {
+    const nextMode: ColorMode = colorMode === 'dark' ? 'light' : 'dark';
+    // Chart surfaces read the active DOM theme while mounting. Apply it before
+    // React remounts the routed workspace so canvases never pick up the previous
+    // mode during a light/dark transition.
+    applyColorMode(nextMode);
+    localStorage.setItem(COLOR_MODE_STORAGE_KEY, nextMode);
+    setColorMode(nextMode);
+  }, [colorMode]);
   useEffect(() => {
     const activeButton = factorNavRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -823,9 +843,11 @@ function AppContent() {
     <ConfigProvider
       locale={zhCN}
       theme={{
+        algorithm: colorMode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
           colorPrimary: '#1677FF',
           borderRadius: 6,
+          colorBgBase: colorMode === 'dark' ? '#0b1220' : '#ffffff',
         },
       }}
     >
@@ -835,6 +857,8 @@ function AppContent() {
           activeTitle={location.pathname.startsWith('/market-detail/') ? '行情详情' : PAGE_LABELS[activeKey] ?? '市场数据'}
           navigationItems={NAV_ITEMS}
           onNavigate={(key) => navigate(key)}
+          colorMode={colorMode}
+          onToggleColorMode={handleToggleColorMode}
           onBack={location.pathname.startsWith('/market-detail/') ? () => navigate('/market-data') : undefined}
           topBar={topBar}
           headerNav={factorHeaderNav}
@@ -846,7 +870,7 @@ function AppContent() {
             </>
           ) : undefined}
           center={
-            <Suspense fallback={<PageSkeleton />}>
+            <Suspense key={colorMode} fallback={<PageSkeleton />}>
               <Routes>
                 <Route path="/" element={<MarketDataRoute />} />
                 <Route path="/analysis" element={<MarketAnalysisRoute />} />
