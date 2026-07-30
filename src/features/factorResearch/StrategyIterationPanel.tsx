@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Descriptions, Drawer, Space, Table, Tag, Typography, message } from 'antd';
 import {
   fetchFactorStrategies,
@@ -19,6 +19,7 @@ export default function StrategyIterationPanel() {
   const [items, setItems] = useState<FactorStrategyVersion[]>([]);
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState<FactorStrategyPerformance | null>(null);
+  const initialLoadStarted = useRef(false);
   const champion = useMemo(() => items.find((item) => item.status === 'champion'), [items]);
   const challengers = useMemo(() => items.filter((item) =>
     item.status === 'validated' || item.status === 'paper'), [items]);
@@ -33,15 +34,19 @@ export default function StrategyIterationPanel() {
       setLoading(false);
     }
   };
-  useEffect(() => { void reload(); }, []);
+  useEffect(() => {
+    if (initialLoadStarted.current) return;
+    initialLoadStarted.current = true;
+    void reload();
+  }, []);
 
   return (
     <>
-      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      <Space orientation="vertical" size={12} style={{ width: '100%' }}>
         <Alert
           type="info"
           showIcon
-          message={`冠军：${champion?.name ?? '尚未指定'}；观察中的挑战者：${challengers.length}`}
+          title={`冠军：${champion?.name ?? '尚未指定'}；观察中的挑战者：${challengers.length}`}
           description="固定20个交易日调仓，100万元模拟资金；晋级必须完成6个周期、通过双基准门禁并由人工批准。系统不提供自动实盘发布。"
         />
         <Table
@@ -68,10 +73,10 @@ export default function StrategyIterationPanel() {
           ]}
         />
       </Space>
-      <Drawer width={720} open={Boolean(detail)} onClose={() => setDetail(null)}
+      <Drawer size="large" open={Boolean(detail)} onClose={() => setDetail(null)}
         title={detail ? `${detail.strategy.name} · 审计详情` : ''}>
         {detail && (
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
             <Descriptions bordered size="small" column={2} items={[
               { key: 'status', label: '状态', children: detail.strategy.status },
               { key: 'cycles', label: '模拟调仓周期',
