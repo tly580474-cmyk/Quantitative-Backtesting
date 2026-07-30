@@ -80,6 +80,7 @@ import { verifyCurrentResearchSnapshot } from '../research/snapshotVerifier.js';
 import { getMinuteDataCatalog, queryMinuteBars } from '../minuteData/minuteDataService.js';
 import { getMarketBillboard, getStockBillboard } from '../marketData/dragonTigerService.js';
 import { getMarketNews, getMarketOpinionNews, getStockNews } from '../marketData/marketNewsService.js';
+import { getFactorSelectionHistory } from '../marketData/factorStockSelection.js';
 
 const candlesQuerySchema = z.object({
   startDate: z.string().optional(),
@@ -548,6 +549,25 @@ export function registerMarketDataRoutes(
     } catch (error) {
       req.log.error(error);
       return reply.status(502).send({ message: error instanceof Error ? error.message : '市场技术筛选失败' });
+    }
+  });
+
+  app.get('/api/market-data/factor-selection', async (req, reply) => {
+    const query = z.object({
+      force: z.enum(['true', 'false']).default('false'),
+      limit: z.coerce.number().int().min(10).max(200).default(100),
+    }).safeParse(req.query);
+    if (!query.success) return reply.status(400).send({ message: '因子选股查询参数无效' });
+    try {
+      return reply.send(await getFactorSelectionHistory(storageConfig.snapshotRoot, {
+        force: query.data.force === 'true',
+        selectionSize: query.data.limit,
+      }));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({
+        message: error instanceof Error ? error.message : '13 因子选股失败',
+      });
     }
   });
 

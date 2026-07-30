@@ -188,6 +188,44 @@ export interface MarketScreenerSnapshot {
   updatedAt: string;
 }
 
+export interface FactorSelectionItem {
+  rank: number;
+  code: string;
+  name: string;
+  market: 'SH' | 'SZ';
+  industry: string;
+  selectionScore: number;
+  factorCount: number;
+  selectedPrice: number;
+  latestPrice: number;
+  returnSinceSelectionPct: number;
+  financialAsOf: string | null;
+}
+
+export interface FactorSelectionBatch {
+  tradeDate: string;
+  isLatest: boolean;
+  averageReturnPct: number;
+  positiveCount: number;
+  items: FactorSelectionItem[];
+}
+
+export interface FactorSelectionHistory {
+  strategy: '13因子-中性化';
+  snapshotId: string;
+  snapshotCreatedAt: string;
+  dataAsOf: string;
+  generatedAt: string;
+  methodology: {
+    factorCount: number;
+    minimumFactorCount: number;
+    selectionSize: number;
+    retainedSessions: number;
+    processing: string[];
+  };
+  batches: FactorSelectionBatch[];
+}
+
 export interface HotSectorItem {
   code: string;
   name: string;

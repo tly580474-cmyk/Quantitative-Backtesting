@@ -83,6 +83,7 @@ function crossTag(value: 'golden' | 'death' | 'none' | undefined) {
 
 interface StockSelectionWorkspaceProps {
   mode?: 'all' | 'ranking' | 'screen';
+  embedded?: boolean;
   watchlist: StockSearchItem[];
   selectedCode: string;
   pinnedCodes: string[];
@@ -96,6 +97,7 @@ interface StockSelectionWorkspaceProps {
 
 export default function StockSelectionWorkspace({
   mode = 'all',
+  embedded = false,
   watchlist,
   selectedCode,
   pinnedCodes,
@@ -390,6 +392,11 @@ export default function StockSelectionWorkspace({
       locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="设置条件并开始筛选；上次结果会自动保留" /> }}
     />
   </div>;
+
+  if (embedded) {
+    if (mode === 'screen') return screenerTab;
+    if (mode === 'ranking') return rankingTab;
+  }
 
   return <Collapse
     className="selection-workspace-collapse"

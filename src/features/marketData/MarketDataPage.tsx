@@ -1417,20 +1417,6 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       {overviewTab === 'dragonTiger' && <DragonTigerPanel onSelectStock={openInstrumentDetail} />}
       {overviewTab === 'news' && <MarketNewsPanel />}
     </section>
-    <section className="market-selection-section" aria-label="市场技术筛选">
-      <StockSelectionWorkspace
-        mode="screen"
-        watchlist={watchlist}
-        selectedCode={selectedCode}
-        pinnedCodes={pinnedCodes}
-        benchmarkCandles={[]}
-        onSelect={setSelectedCode}
-        onTogglePin={togglePinnedStock}
-        onAdd={addStock}
-        onRemove={removeStock}
-        onOpenDetail={openInstrumentDetail}
-      />
-    </section>
     </>}
     {isResearchView && <>
     {isWatchlistView && <section className="market-overview-header market-watchlist-header" aria-label="我的自选工具栏">

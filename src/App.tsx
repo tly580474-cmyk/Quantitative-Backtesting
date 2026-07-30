@@ -11,6 +11,7 @@ import {
   DotChartOutlined,
   DownloadOutlined,
   ExperimentOutlined,
+  FilterOutlined,
   FundProjectionScreenOutlined,
   LineChartOutlined,
   NodeIndexOutlined,
@@ -64,6 +65,7 @@ const AutomatedFactorMiningPage = lazy(
   () => import('./features/factorResearch/AutomatedFactorMiningPage'));
 const FactorStrategyPage = lazy(() => import('./features/factorResearch/FactorStrategyPage'));
 const PaperTradingPage = lazy(() => import('./features/paperTrading/PaperTradingPage'));
+const StockSelectionPage = lazy(() => import('./features/stockSelection/StockSelectionPage'));
 
 interface MinuteCatalogResponse {
   status: 'ready' | 'unavailable';
@@ -134,6 +136,7 @@ const NAV_ITEMS: MenuProps['items'] = [
       { key: '/market-data', icon: <DatabaseOutlined />, label: '市场数据' },
       { key: '/watchlist', icon: <StarOutlined />, label: '我的自选' },
       { key: '/data', icon: <ControlOutlined />, label: '数据管理' },
+      { key: '/stock-selection', icon: <FilterOutlined />, label: '选股' },
     ],
   },
   {
@@ -171,6 +174,7 @@ const NAV_ITEMS: MenuProps['items'] = [
 const PAGE_LABELS: Record<string, string> = {
   '/market-data': '市场数据',
   '/watchlist': '我的自选',
+  '/stock-selection': '选股',
   '/analysis': '行情分析',
   '/data': '数据管理',
   '/backtest': '策略回测',
@@ -850,6 +854,7 @@ function AppContent() {
                 <Route path="/market-data" element={<MarketDataRoute />} />
                 <Route path="/market-detail/:code" element={<MarketDetailRoute />} />
                 <Route path="/watchlist" element={<WatchlistRoute />} />
+                <Route path="/stock-selection" element={<StockSelectionPage />} />
                 <Route path="/backtest" element={<BacktestRunner />} />
                 <Route path="/paper-trading" element={<PaperTradingPage />} />
                 <Route path="/results" element={<BacktestResultsPage />} />
