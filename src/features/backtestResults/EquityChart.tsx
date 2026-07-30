@@ -14,7 +14,7 @@ import {
   type SeriesMarker,
   type ISeriesMarkersPluginApi,
 } from 'lightweight-charts';
-import { CHART_COLORS } from '@/features/chart/chartConfig';
+import { getChartSurfaceColors } from '@/theme';
 
 export interface EquitySeriesPoint {
   time: string;
@@ -69,23 +69,26 @@ export default function EquityChart({ series, height = 300 }: Props) {
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const surfaceColors = getChartSurfaceColors();
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: CHART_COLORS.background },
-        textColor: CHART_COLORS.text,
+        background: { type: ColorType.Solid, color: surfaceColors.background },
+        textColor: surfaceColors.text,
       },
       grid: {
-        vertLines: { color: CHART_COLORS.grid },
-        horzLines: { color: CHART_COLORS.grid },
+        vertLines: { color: surfaceColors.grid },
+        horzLines: { color: surfaceColors.grid },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
+        vertLine: { color: surfaceColors.crosshair },
+        horzLine: { color: surfaceColors.crosshair },
       },
       rightPriceScale: {
-        borderColor: '#D1D5DB',
+        borderColor: surfaceColors.border,
       },
       timeScale: {
-        borderColor: '#D1D5DB',
+        borderColor: surfaceColors.border,
         timeVisible: true,
       },
       width: containerRef.current.clientWidth,
@@ -93,6 +96,32 @@ export default function EquityChart({ series, height = 300 }: Props) {
     });
 
     chartRef.current = chart;
+
+    const syncChartTheme = () => {
+      const colors = getChartSurfaceColors();
+      chart.applyOptions({
+        layout: {
+          background: { type: ColorType.Solid, color: colors.background },
+          textColor: colors.text,
+        },
+        grid: {
+          vertLines: { color: colors.grid },
+          horzLines: { color: colors.grid },
+        },
+        crosshair: {
+          mode: CrosshairMode.Normal,
+          vertLine: { color: colors.crosshair },
+          horzLine: { color: colors.crosshair },
+        },
+        rightPriceScale: { borderColor: colors.border },
+        timeScale: { borderColor: colors.border },
+      });
+    };
+    const themeObserver = new MutationObserver(syncChartTheme);
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
 
     const handleCrosshairMove = (param: MouseEventParams<Time>) => {
       const tooltip = tooltipRef.current;
@@ -175,6 +204,7 @@ export default function EquityChart({ series, height = 300 }: Props) {
     observer.observe(containerRef.current);
 
     return () => {
+      themeObserver.disconnect();
       observer.disconnect();
       chart.unsubscribeCrosshairMove(handleCrosshairMove);
       chart.remove();
