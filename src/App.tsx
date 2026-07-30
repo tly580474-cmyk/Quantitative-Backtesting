@@ -781,18 +781,17 @@ function AppContent() {
     setSaveModalOpen(true);
   }, []);
 
-  const topBar = (
+  const topBar = activeKey === '/data' ? (
     <>
       <FileUploader onImport={handleImport} loading={loading} />
       {importResult && (
         <StockInfoBar
           result={importResult}
           onSaveToDb={handleSaveToDb}
-          showAdjustmentControl={activeKey === '/analysis'}
         />
       )}
     </>
-  );
+  ) : null;
   const factorHeaderNav = factorWorkspaceActive ? (
     <nav ref={factorNavRef} className="factor-section-nav" aria-label="因子工作区">
       <Button type={location.pathname === '/factors' ? 'primary' : 'text'}

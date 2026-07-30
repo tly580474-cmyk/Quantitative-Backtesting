@@ -23,6 +23,11 @@ import type { ImportResult } from '@/models';
 import { useCardDragReorder } from './useCardDragReorder';
 import { buildMarketIndexCards, buildMarketIndexDetailTarget, resolveMarketIndexSnapshot, type MarketIndexOption } from './marketIndexCards';
 import { normalizeNewsUrl } from './newsUrl';
+import {
+  calculateWatchlistMetrics,
+  resolveWatchlistBaselinePrice,
+  type WatchlistMetrics,
+} from './watchlistMetrics';
 
 const { Text, Title } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
@@ -67,6 +72,12 @@ const DEFAULT_WATCHLIST: StockSearchItem[] = [
   { code: '600519', name: '贵州茅台', market: 'SH', type: 'stock' },
   { code: '000001', name: '平安银行', market: 'SZ', type: 'stock' },
 ];
+const EMPTY_WATCHLIST_METRICS: WatchlistMetrics = {
+  currentPrice: null,
+  returnSinceAddedPct: null,
+  riskPrice: null,
+  riskDistancePct: null,
+};
 
 function supportsIndexConstituents(quote: StockQuote): boolean {
   return quote.type === 'index' && (
@@ -162,10 +173,14 @@ const TREND_CHART_DEFS: Record<string, Array<{ key: string; label: string; color
 };
 
 function readWatchlist(): StockSearchItem[] {
+  const now = new Date().toISOString();
   try {
     const stored = JSON.parse(localStorage.getItem(WATCHLIST_KEY) ?? '[]') as StockSearchItem[];
-    return Array.isArray(stored) && stored.length ? stored : DEFAULT_WATCHLIST;
-  } catch { return DEFAULT_WATCHLIST; }
+    const items = Array.isArray(stored) && stored.length ? stored : DEFAULT_WATCHLIST;
+    return items.map((item) => ({ ...item, addedAt: item.addedAt ?? now }));
+  } catch {
+    return DEFAULT_WATCHLIST.map((item) => ({ ...item, addedAt: now }));
+  }
 }
 function readPinnedCodes(): string[] {
   try {
@@ -251,6 +266,36 @@ function sentimentRangeLabel(msi: number) {
 function signed(value: number | null | undefined, digits = 2) {
   if (value == null) return '—';
   return value > 0 ? `+${fmt(value, digits)}` : fmt(value, digits);
+}
+
+function WatchlistMetricValues({
+  item,
+  metrics,
+  loading,
+}: {
+  item: StockSearchItem;
+  metrics: WatchlistMetrics | undefined;
+  loading: boolean;
+}) {
+  const values = metrics ?? EMPTY_WATCHLIST_METRICS;
+  const returnTone = values.returnSinceAddedPct == null
+    ? ''
+    : values.returnSinceAddedPct > 0 ? ' market-up' : values.returnSinceAddedPct < 0 ? ' market-down' : '';
+  const addedDate = item.addedAt?.slice(0, 10) ?? '首次加载';
+  return <span className="market-watchlist-metrics" aria-busy={loading}>
+    <Tooltip title={`基准：${addedDate} 加入自选时价格`}>
+      <span className="market-watchlist-metric">
+        <small>添加后</small>
+        <b className={returnTone}>{loading ? '加载中' : values.returnSinceAddedPct == null ? '待记录' : `${signed(values.returnSinceAddedPct)}%`}</b>
+      </span>
+    </Tooltip>
+    <Tooltip title="风控价：近 20 日结构低点与当前价减 2×ATR(20) 中取较高值，仅作风险参考">
+      <span className="market-watchlist-metric">
+        <small>风控价</small>
+        <b>{loading ? '加载中' : values.riskPrice == null ? '—' : fmt(values.riskPrice)}</b>
+      </span>
+    </Tooltip>
+  </span>;
 }
 
 function SentimentMetricStrip({ overview }: { overview: MarketSentimentOverview }) {
@@ -702,6 +747,8 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const initial = marketDataCache.watchlist ?? readWatchlist();
   const initialSelectedCode = instrumentCode || marketDataCache.selectedCode || initial[0]?.code || '600519';
   const [watchlist, setWatchlist] = useState<StockSearchItem[]>(initial);
+  const [watchlistMetrics, setWatchlistMetrics] = useState<Record<string, WatchlistMetrics>>({});
+  const [watchlistMetricsLoading, setWatchlistMetricsLoading] = useState(false);
   const [pinnedCodes, setPinnedCodes] = useState<string[]>(readPinnedCodes);
   const [selectedCode, setSelectedCode] = useState(initialSelectedCode);
   const [watchlistQuery, setWatchlistQuery] = useState('');
@@ -776,6 +823,67 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   useEffect(() => { marketDataCache.agentQuestion = agentQuestion; }, [agentQuestion]);
   useEffect(() => { marketDataCache.agentModel = agentModel; }, [agentModel]);
   useEffect(() => { marketDataCache.agentStyles = agentStyles; }, [agentStyles]);
+  useEffect(() => {
+    if (!isWatchlistView || watchlist.length === 0) return undefined;
+    let cancelled = false;
+    setWatchlistMetricsLoading(true);
+
+    void (async () => {
+      const entries: Array<[string, WatchlistMetrics, number | null]> = [];
+      for (let index = 0; index < watchlist.length; index += 2) {
+        const batch = watchlist.slice(index, index + 2);
+        const results = await Promise.all(batch.map(async (item) => {
+          let nextQuote = marketDataCache.quotes[item.code] ?? null;
+          let daily = marketDataCache.scoreKlines[item.code] ?? [];
+          const requests: Promise<void>[] = [];
+          if (!nextQuote) {
+            requests.push(apiFetch<StockQuote>(`/api/market-data/stocks/${item.code}/quote`)
+              .then((value) => {
+                nextQuote = value;
+                marketDataCache.quotes[item.code] = value;
+              })
+              .catch(() => undefined));
+          }
+          if (daily.length === 0) {
+            requests.push(apiFetch<{ items: KlinePoint[] }>(`/api/market-data/stocks/${item.code}/kline?period=day&localFirst=true`)
+              .then((value) => {
+                daily = value.items ?? [];
+                marketDataCache.scoreKlines[item.code] = daily;
+              })
+              .catch(() => undefined));
+          }
+          await Promise.all(requests);
+          const baselinePrice = resolveWatchlistBaselinePrice(item, nextQuote, daily);
+          const normalizedItem = item.addedPrice == null && baselinePrice != null
+            ? { ...item, addedPrice: baselinePrice }
+            : item;
+          return [
+            item.code,
+            calculateWatchlistMetrics(normalizedItem, nextQuote, daily),
+            baselinePrice,
+          ] as [string, WatchlistMetrics, number | null];
+        }));
+        entries.push(...results);
+      }
+      if (cancelled) return;
+      setWatchlistMetrics(Object.fromEntries(entries.map(([code, metrics]) => [code, metrics])));
+      const baselines = new Map(entries.map(([code, , price]) => [code, price]));
+      setWatchlist((current) => {
+        let changed = false;
+        const next = current.map((item) => {
+          const baseline = baselines.get(item.code);
+          if (item.addedPrice != null || baseline == null) return item;
+          changed = true;
+          return { ...item, addedPrice: baseline };
+        });
+        return changed ? next : current;
+      });
+    })().finally(() => {
+      if (!cancelled) setWatchlistMetricsLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [isWatchlistView, watchlist]);
 
   const loadQuote = useCallback(async (code: string) => {
     setQuoteLoading(true);
@@ -1008,7 +1116,13 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   };
   const addStock = (stock: StockSearchItem) => {
     setWatchlist((all) => {
-      const next = all.some((x) => x.code === stock.code) ? all : [...all, stock];
+      const cachedPrice = marketDataCache.quotes[stock.code]?.price;
+      const nextItem: StockSearchItem = {
+        ...stock,
+        addedAt: new Date().toISOString(),
+        addedPrice: cachedPrice != null && cachedPrice > 0 ? cachedPrice : undefined,
+      };
+      const next = all.some((x) => x.code === stock.code) ? all : [...all, nextItem];
       localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next));
       marketDataCache.watchlist = next;
       return next;
@@ -1344,7 +1458,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
             />
           </div>
           {filteredWatchlist.length
-            ? <div className="market-watchlist-items" aria-label="自选股列表">{filteredWatchlist.map((item) => <div key={item.code} className={`market-watchlist-item${item.code === selectedCode ? ' is-active' : ''}`}><button type="button" className="market-stock-select" aria-pressed={item.code === selectedCode} onClick={() => setSelectedCode(item.code)}><strong>{pinnedCodes.includes(item.code) && <span className="market-pinned-mark" aria-label="已置顶">置顶</span>}{item.name}</strong><span>{item.code} · {item.market}</span></button><Tooltip title="移出自选"><Button type="text" danger icon={<DeleteOutlined />} aria-label={`移除 ${item.name}`} onClick={() => removeStock(item.code)} /></Tooltip></div>)}</div>
+            ? <div className="market-watchlist-items" aria-label="自选股列表">{filteredWatchlist.map((item) => <div key={item.code} className={`market-watchlist-item${item.code === selectedCode ? ' is-active' : ''}`}><button type="button" className="market-stock-select" aria-pressed={item.code === selectedCode} onClick={() => setSelectedCode(item.code)}><span className="market-watchlist-identity"><strong>{pinnedCodes.includes(item.code) && <span className="market-pinned-mark" aria-label="已置顶">置顶</span>}{item.name}</strong><span>{item.code} · {item.market}</span></span><WatchlistMetricValues item={item} metrics={watchlistMetrics[item.code]} loading={watchlistMetricsLoading && !watchlistMetrics[item.code]} /></button><Tooltip title="移出自选"><Button type="text" danger icon={<DeleteOutlined />} aria-label={`移除 ${item.name}`} onClick={() => removeStock(item.code)} /></Tooltip></div>)}</div>
             : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未找到匹配的自选股" />}
         </> : <Empty description="搜索并加入第一只自选股" />}
       </aside>}

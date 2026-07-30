@@ -262,11 +262,17 @@
 .market-watchlist-items::-webkit-scrollbar-track { background: #f8fafc; }
 .market-watchlist-items::-webkit-scrollbar-thumb { border: 2px solid #f8fafc; border-radius: 999px; background: #cbd5e1; }
 .market-watchlist-items::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-.market-watchlist-item { display: flex; min-height: 60px; align-items: center; gap: 4px; padding: 5px 8px 5px 11px; border-inline-start: 3px solid transparent; transition: background-color .2s, border-color .2s; }
+.market-watchlist-item { display: flex; min-height: 94px; align-items: center; gap: 4px; padding: 7px 8px 7px 11px; border-inline-start: 3px solid transparent; transition: background-color .2s, border-color .2s; }
 .market-watchlist-item:hover { background: #f8fafc; }
 .market-watchlist-item.is-active { border-inline-start-color: #2563eb; background: #eff6ff; }
-.market-stock-select { display: flex; min-width: 0; min-height: 52px; flex: 1; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; border: 0; color: #0f172a; background: transparent; text-align: left; cursor: pointer; }
-.market-stock-select span { color: #64748b; font-size: 13px; }
+.market-stock-select { display: flex; min-width: 0; min-height: 78px; flex: 1; flex-direction: column; align-items: stretch; justify-content: center; gap: 7px; border: 0; color: #0f172a; background: transparent; text-align: left; cursor: pointer; }
+.market-watchlist-identity { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 8px; }
+.market-watchlist-identity > strong { overflow: hidden; color: #0f172a; text-overflow: ellipsis; white-space: nowrap; }
+.market-watchlist-identity > span { flex: 0 0 auto; color: #64748b; font-size: 12px; }
+.market-watchlist-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.market-watchlist-metric { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 4px 6px; border-radius: 5px; color: #475569; background: #f1f5f9; font-size: 12px; font-variant-numeric: tabular-nums; }
+.market-watchlist-metric small { color: #64748b; font-size: 11px; }
+.market-watchlist-metric b { overflow: hidden; color: #334155; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .market-stock-select:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; border-radius: 6px; }
 .market-main { display: flex; min-width: 0; flex-direction: column; gap: 14px; }
 .market-main .ant-card { border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 2px 8px rgba(15,23,42,.035); }
@@ -598,7 +604,7 @@
   .market-watchlist { position: static; }
   .market-watchlist-items { display: flex; max-height: none; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; touch-action: pan-x; }
   .market-watchlist-items::-webkit-scrollbar { display: none; }
-  .market-watchlist-item { min-width: min(190px, 72vw); min-height: 58px; border-inline-start: 0; border-bottom: 3px solid transparent; }
+  .market-watchlist-item { min-width: min(238px, 82vw); min-height: 94px; border-inline-start: 0; border-bottom: 3px solid transparent; }
   .market-watchlist-item.is-active { border-bottom-color: #2563eb; }
   .market-quote-head { grid-template-columns: 1fr auto; }
   .market-price-block { align-items: flex-start; }

@@ -67,6 +67,10 @@ export interface StockSearchItem {
   name: string;
   market: MarketCode;
   type: 'stock' | 'index' | 'etf';
+  /** ISO timestamp captured when the instrument entered the local watchlist. */
+  addedAt?: string;
+  /** Market price captured at add time; used as the return baseline. */
+  addedPrice?: number;
 }
 
 export interface StockQuote extends StockSearchItem {
