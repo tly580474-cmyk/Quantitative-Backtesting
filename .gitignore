@@ -25,6 +25,7 @@ server/.tmp/
 server/.logs/
 .claude/
 .workbuddy/
+.trae/documents/
 *.tsbuildinfo
 tmp_output/
 output/
