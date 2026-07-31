@@ -5,11 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "capabilities:generate": "node scripts/generate-strategy-capabilities.mjs",
+    "capabilities:check": "node scripts/generate-strategy-capabilities.mjs --check",
+    "prebuild": "npm run capabilities:generate",
     "build": "tsc -b && vite build",
     "admin:dev": "vite --config admin/vite.config.ts",
     "admin:build": "tsc -p admin/tsconfig.json --noEmit && vite build --config admin/vite.config.ts",
     "admin:preview": "vite preview --config admin/vite.config.ts",
     "preview": "vite preview",
+    "pretest": "npm run capabilities:check",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -11,10 +11,13 @@ import { DSL_CONTRACT, SYSTEM_PROMPT, USER_PROMPT_TEMPLATE } from './prompts.js'
 import {
   explanationSchema,
   formatValidationErrors,
-  normalizeStrategyCandidate,
   strategyDocumentSchema,
   StrategyOutputValidationError,
 } from './schema.js';
+import {
+  repairStrategyCandidate,
+  type StrategyRepairAudit,
+} from './repairMiddleware.js';
 
 /**
  * OpenAI-compatible strategy generation provider.
@@ -43,14 +46,15 @@ export class OpenAIStrategyGenerationProvider implements StrategyGenerationProvi
       SYSTEM_PROMPT,
       USER_PROMPT_TEMPLATE(request.prompt, request.dslVersion),
     );
-    const strategy = await this.validateAndRepair(rawStrategy, model, id);
+    const repaired = this.validateAndRepair(rawStrategy, id);
 
     return {
       generationId: id,
-      strategy,
+      strategy: repaired.strategy,
       summary: `基于 ${model} 生成的策略`,
       warnings: ['AI 生成策略仅供参考，请在信号预览中验证。'],
       requiresConfirmation: true,
+      repairAudit: repaired.audit,
     };
   }
 
@@ -62,14 +66,15 @@ export class OpenAIStrategyGenerationProvider implements StrategyGenerationProvi
       SYSTEM_PROMPT,
       `当前策略 DSL:\n${JSON.stringify(request.currentStrategy, null, 2)}\n\n修改要求: ${request.modification}\n\n${DSL_CONTRACT}\n\n只返回修改后的完整策略 JSON。`,
     );
-    const strategy = await this.validateAndRepair(rawStrategy, model, id);
+    const repaired = this.validateAndRepair(rawStrategy, id);
 
     return {
       generationId: id,
-      strategy,
+      strategy: repaired.strategy,
       summary: `已根据 "${request.modification}" 调整策略。`,
       warnings: [],
       requiresConfirmation: true,
+      repairAudit: repaired.audit,
     };
   }
 
@@ -112,40 +117,18 @@ export class OpenAIStrategyGenerationProvider implements StrategyGenerationProvi
     }
   }
 
-  private async validateAndRepair(
+  private validateAndRepair(
     candidate: unknown,
-    model: string,
     generationId: string,
-  ): Promise<Record<string, unknown>> {
-    const normalizedCandidate = normalizeStrategyCandidate(candidate, generationId);
-    const first = strategyDocumentSchema.safeParse(normalizedCandidate);
-    if (first.success) return this.attachGenerationMetadata(first.data, generationId);
-
-    const errors = formatValidationErrors(first.error);
-    const repaired = await this.requestJson(
-      model,
-      `${SYSTEM_PROMPT}\n${DSL_CONTRACT}`,
-      `下面的策略 JSON 未通过校验。请只修复结构和类型错误，不改变策略意图。\n\n校验错误:\n${errors.join('\n')}\n\n待修复 JSON:\n${JSON.stringify(normalizedCandidate, null, 2)}\n\n只返回修复后的完整 JSON。`,
-    );
-    const second = strategyDocumentSchema.safeParse(normalizeStrategyCandidate(repaired, generationId));
-    if (!second.success) {
-      throw new StrategyOutputValidationError(formatValidationErrors(second.error));
+  ): { strategy: Record<string, unknown>; audit: StrategyRepairAudit } {
+    const repaired = repairStrategyCandidate(candidate, generationId);
+    const parsed = strategyDocumentSchema.safeParse(repaired.candidate);
+    if (!parsed.success) {
+      throw new StrategyOutputValidationError(formatValidationErrors(parsed.error));
     }
-    return this.attachGenerationMetadata(second.data, generationId);
-  }
-
-  private attachGenerationMetadata(
-    strategy: Record<string, unknown>,
-    generationId: string,
-  ): Record<string, unknown> {
-    const metadata = strategy.metadata as Record<string, unknown>;
     return {
-      ...strategy,
-      metadata: {
-        ...metadata,
-        source: 'ai',
-        aiGenerationId: generationId,
-      },
+      strategy: parsed.data,
+      audit: repaired.audit,
     };
   }
 }

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { StrategyGenerationProvider } from '../services/strategyGeneration/provider.js';
 import { StrategyOutputValidationError } from '../services/strategyGeneration/schema.js';
+import { buildStrategyCapabilityRegistry } from '../services/strategyGeneration/capabilityRegistry.js';
 
 /**
  * Register AI strategy generation routes on the Fastify app.
@@ -12,6 +13,7 @@ export function registerAiRoutes(
   aiConfigured: boolean,
   currentModel: string,
   availableModels: string[],
+  loadPublishedFactorVersionIds: () => Promise<string[]> = async () => [],
 ): void {
   // GET /api/ai/status
   app.get('/api/ai/status', async (_req, reply) => {
@@ -22,6 +24,14 @@ export function registerAiRoutes(
       currentModel,
       availableModels,
     });
+  });
+
+  // Generated from the executable indicator registry; never maintain a second
+  // hand-written capability list in prompts or routes.
+  app.get('/api/ai/strategy-capabilities', async (_req, reply) => {
+    return reply.send(buildStrategyCapabilityRegistry(
+      await loadPublishedFactorVersionIds(),
+    ));
   });
 
   // POST /api/ai/strategies/generate
@@ -64,6 +74,13 @@ export function registerAiRoutes(
         datasetContext: body.datasetContext as { timeframe: string; availableFields: string[] } | undefined,
         dslVersion: (body.dslVersion as string) ?? '1.0',
       });
+      if (result.repairAudit) {
+        req.log.info({
+          event: 'strategy_schema_repair',
+          generationId: result.generationId,
+          audit: result.repairAudit,
+        }, 'Strategy schema repair audit');
+      }
 
       return reply.send(result);
     } catch (err) {
@@ -115,6 +132,13 @@ export function registerAiRoutes(
         model: body.model as string | undefined,
         dslVersion: (body.dslVersion as string) ?? '1.0',
       });
+      if (result.repairAudit) {
+        req.log.info({
+          event: 'strategy_schema_repair',
+          generationId: result.generationId,
+          audit: result.repairAudit,
+        }, 'Strategy schema repair audit');
+      }
       return reply.send(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

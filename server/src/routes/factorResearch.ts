@@ -56,6 +56,10 @@ import {
 } from '../factorResearch/candidates/candidateAutomationRepository.js';
 import { evaluateAutoCandidateGate } from '../factorResearch/candidates/autoCandidateGate.js';
 import { registerFactorStrategyRoutes } from './factorStrategies.js';
+import {
+  DistributedLockUnavailableError,
+  withMysqlDistributedLock,
+} from '../db/distributedLock.js';
 
 interface FactorResearchRouteConfig {
   snapshotRoot: string;
@@ -305,7 +309,18 @@ export function registerFactorResearchRoutes(
         return;
       }
       const definition = candidateToFactorDefinition(candidate);
-      await transitionFactorCandidate(candidate.id, 'testing', {});
+      await withMysqlDistributedLock(
+        config.pool,
+        `factor-candidate-locked-test:${candidate.id}`,
+        0,
+        async () => {
+          const latest = await getFactorCandidate(candidate.id);
+          if (latest?.status !== 'frozen') {
+            throw new Error('只有 frozen 候选可以执行锁定测试');
+          }
+          await transitionFactorCandidate(candidate.id, 'testing', {});
+        },
+      );
       try {
         await runLockedCandidateTest(candidate.id, definition, input, config, materializationPrefix);
       } catch (error) {
@@ -498,7 +513,18 @@ export function registerFactorResearchRoutes(
       try {
         await assertResearchSnapshotFresh(config.pool, config.snapshotRoot);
         const definition = candidateToFactorDefinition(candidate);
-        const testingCandidate = await transitionFactorCandidate(candidate.id, 'testing', {});
+        const testingCandidate = await withMysqlDistributedLock(
+          config.pool,
+          `factor-candidate-locked-test:${candidate.id}`,
+          0,
+          async () => {
+            const latest = await getFactorCandidate(candidate.id);
+            if (latest?.status !== 'frozen') {
+              throw new Error('只有 frozen 候选可以执行锁定测试');
+            }
+            return transitionFactorCandidate(candidate.id, 'testing', {});
+          },
+        );
         void runLockedCandidateTest(candidate.id, definition, parsed.data, config,
           materializationPrefix).catch(async (error) => {
           app.log.error({ err: error, candidateId: candidate.id }, 'Locked candidate test failed');
@@ -517,6 +543,12 @@ export function registerFactorResearchRoutes(
         return reply.status(202).send({ candidate: testingCandidate });
       } catch (error) {
         req.log.error(error);
+        if (error instanceof DistributedLockUnavailableError) {
+          return reply.status(409).send(apiError(
+            ErrorCodes.VALIDATION_ERROR,
+            '锁定测试正在由其他服务实例启动，请刷新后重试',
+          ));
+        }
         return reply.status(503).send(apiError(ErrorCodes.INTERNAL_ERROR,
           error instanceof Error ? error.message : '锁定测试启动失败'));
       }

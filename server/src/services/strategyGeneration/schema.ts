@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GENERATED_VISUAL_INDICATOR_CAPABILITIES } from './generatedIndicatorCapabilities.js';
 
 const operandSchema = z.discriminatedUnion('type', [
   z.object({
@@ -67,27 +68,12 @@ const ruleSchema: z.ZodType<Rule> = z.lazy(() => z.discriminatedUnion('type', [
   }),
 ]));
 
-const indicatorOutputs: Record<string, Set<string>> = {
-  sma: new Set(['sma1', 'sma2', 'sma3', 'sma4', 'sma5', 'sma6', 'sma7', 'sma8']),
-  ema: new Set(['ema1', 'ema2', 'ema3', 'ema4', 'ema5', 'ema6', 'ema7', 'ema8']),
-  boll: new Set(['upper', 'middle', 'lower']),
-  macd: new Set(['dif', 'dea', 'histogram']),
-  rsi: new Set(['rsi']),
-  kdj: new Set(['k', 'd', 'j']),
-  atr: new Set(['atr']),
-  cci: new Set(['cci']),
-  wr: new Set(['wr']),
-  obv: new Set(['obv']),
-  volumeMa: new Set(['volumeMa']),
-  volume: new Set(['volume', 'volumeAverage', 'volumeRatio']),
-  highLowBreakout: new Set(['previousHigh', 'previousLow']),
-  drawdown: new Set(['peak', 'drawdown']),
-  bias: new Set(['bias']),
-  volatility: new Set(['volatility', 'annualVolatility']),
-  volCluster: new Set(['volCluster']),
-  hold: new Set(['holdReturn', 'holdNav']),
-  reversal: new Set(['reversal']),
-};
+export const indicatorOutputs: Record<string, Set<string>> = Object.fromEntries(
+  GENERATED_VISUAL_INDICATOR_CAPABILITIES.map((indicator) => [
+    indicator.id,
+    new Set(indicator.outputs.map((output) => output.key)),
+  ]),
+);
 
 export const strategyDocumentSchema = z.object({
   schemaVersion: z.literal('1.0'),

@@ -1,3 +1,21 @@
+import {
+  GENERATED_ACCOUNT_FIELDS,
+  GENERATED_COMPARE_OPERATORS,
+  GENERATED_MARKET_FIELDS,
+  GENERATED_RISK_RULE_TYPES,
+  GENERATED_VISUAL_INDICATOR_CAPABILITIES,
+} from './generatedIndicatorCapabilities.js';
+
+function formatIndicatorCapabilities(): string {
+  return GENERATED_VISUAL_INDICATOR_CAPABILITIES.map((indicator) => {
+    const outputs = indicator.outputs.map((output) => output.key).join('/');
+    const params = indicator.params.map((param) => (
+      `${param.name}=${param.defaultValue}[${param.min},${param.max}]`
+    )).join('/');
+    return `- ${indicator.id}: ${indicator.name}，输出 ${outputs || '无'}，参数 ${params || '无'}`;
+  }).join('\n');
+}
+
 /**
  * System prompt for the OpenAI strategy generation model.
  * Strictly constrains the model to produce valid Strategy DSL v1.0.
@@ -17,34 +35,16 @@ export const SYSTEM_PROMPT = `你是一个量化交易策略生成助手。你�
 10. entry/exit 条件可以连续触发；回测器会根据用户选择按剩余资金/当前持仓的百分比逐步加减仓。不要在 DSL 中虚构仓位字段。
 
 ## 可用技术指标
-- sma: 简单移动平均，输出 sma1..sma8，参数 period1..period8
-- ema: 指数移动平均，输出 ema1..ema8，参数 period1..period8
-- boll: 布林带，输出 upper/middle/lower，参数 period/stdDev
-- macd: MACD，输出 dif/dea/histogram，参数 fast/slow/signal
-- rsi: 相对强弱，输出 rsi，参数 period
-- kdj: KDJ 随机，输出 k/d/j，参数 n/m1/m2
-- atr: 平均真实波幅，输出 atr，参数 period
-- cci: 商品通道，输出 cci，参数 period
-- wr: 威廉指标，输出 wr，参数 period
-- obv: 能量潮，输出 obv，无参数
-- volumeMa: 成交量均线，输出 volumeMa，参数 period
-- volume: 成交量，输出 volume/volumeAverage/volumeRatio（量比 1.5 表示当前量为均量的 1.5 倍），参数 period
-- highLowBreakout: 高低点突破，输出 previousHigh/previousLow（均为不含当前 K 线的前 N 根高低点），参数 period
-- drawdown: 回撤，输出 peak/drawdown（drawdown 为正小数，0.08 表示从区间峰值回撤 8%），参数 period
-- bias: BIAS 均线乖离率，输出 bias，参数 period
-- volatility: 波动率，输出 volatility/annualVolatility，参数 period
-- volCluster: 波动聚集，输出 volCluster，参数 period
-- hold: HOLD 买入持有收益，输出 holdReturn/holdNav，无参数
-- reversal: 反转因子，输出 reversal，参数 period
+${formatIndicatorCapabilities()}
 
 ## 可用行情字段
-- open, high, low, close, volume (全部为数值类型)
+- ${GENERATED_MARKET_FIELDS.join(', ')} (全部为数值类型)
 
 ## 可用账户字段
-- hasPosition (布尔), holdingDays (数值), unrealizedPnlPercent (数值)
+- ${GENERATED_ACCOUNT_FIELDS.join(', ')}
 
 ## 比较操作符
-- gt, gte, lt, lte, eq, crossesAbove, crossesBelow, between
+- ${GENERATED_COMPARE_OPERATORS.join(', ')}
 
 ## 输出格式
 你必须返回一个严格符合 Strategy DSL v1.0 JSON Schema 的 JSON 对象。包含:
@@ -54,7 +54,7 @@ export const SYSTEM_PROMPT = `你是一个量化交易策略生成助手。你�
 - indicators: 技术指标声明数组
 - entry: 买入条件 RuleGroup
 - exit: 卖出条件 RuleGroup
-- risk: 风控规则数组（stopLoss, takeProfit, trailingStop, maxHoldingDays, lossStreakCooldown）；trailingStop 表示当前价相对买入后持仓期最高价的回撤百分比；lossStreakCooldown 表示连续亏损后暂停买入
+- risk: 风控规则数组（${GENERATED_RISK_RULE_TYPES.join(', ')}）；trailingStop 表示当前价相对买入后持仓期最高价的回撤百分比；lossStreakCooldown 表示连续亏损后暂停买入
 - metadata`;
 
 export const DSL_CONTRACT = `

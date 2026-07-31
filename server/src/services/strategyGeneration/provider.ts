@@ -1,3 +1,5 @@
+import type { StrategyRepairAudit } from './repairMiddleware.js';
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type StrategyDocument = Record<string, any>;
 
@@ -28,6 +30,7 @@ export interface GenerateStrategyResult {
   summary: string;
   warnings: string[];
   requiresConfirmation: boolean;
+  repairAudit?: StrategyRepairAudit;
 }
 
 export interface StrategyExplanation {
