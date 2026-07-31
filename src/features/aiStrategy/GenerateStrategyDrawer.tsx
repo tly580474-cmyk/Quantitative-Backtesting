@@ -1,14 +1,23 @@
 import { useRef, useState } from 'react';
 import {
   Drawer, Button, Input, Select, Segmented, Typography, Space, Alert,
-  Tag, Spin, Divider, Card, App,
+  Tag, Spin, Divider, Card, App, Row, Col, Checkbox,
 } from 'antd';
 import { BulbOutlined, CheckCircleOutlined, EditOutlined } from '@ant-design/icons';
-import { getAIStatus, generateStrategy, refineStrategy } from './api';
-import type { AIStatus, GenerateStrategyResult } from './types';
+import { getAIStatus, generateStrategy, refineStrategy, toAIUserMessage } from './api';
+import type {
+  AIStatus,
+  GenerateStrategyResult,
+  StrategyConfirmationDraft,
+} from './types';
 import { useStrategyStudioStore } from '@/stores/useStrategyStudioStore';
 import { validateDocument } from '@/features/visualStrategies/validator';
 import { explainStrategy as explainVisualStrategy } from '@/features/visualStrategies/explainer';
+import { buildLocalConfirmationDraft } from './confirmation';
+import {
+  confirmExperimentVersion,
+  getExperimentCapabilityVersion,
+} from '@/features/experiments/api';
 
 const { TextArea } = Input;
 const { Text, Paragraph } = Typography;
@@ -23,6 +32,74 @@ type GenerationMode = 'generate' | 'refine';
 interface BoundGenerationResult {
   data: GenerateStrategyResult;
   mode: GenerationMode;
+}
+
+function StrategyConfirmationPanel({
+  confirmation,
+  confirmedIds,
+  onToggle,
+}: {
+  confirmation: StrategyConfirmationDraft;
+  confirmedIds: string[];
+  onToggle: (id: string, checked: boolean) => void;
+}) {
+  return (
+    <Card
+      size="small"
+      className="strategy-confirmation-panel"
+      title="生成前语义确认"
+      extra={<Tag color="gold">不写入策略逻辑</Tag>}
+    >
+      <Row gutter={[12, 12]} align="stretch">
+        <Col xs={24} lg={8}>
+          <section className="strategy-confirmation-column">
+            <Text strong>1. 原始描述</Text>
+            <Paragraph className="strategy-confirmation-source">
+              {confirmation.sourceText}
+            </Paragraph>
+          </section>
+        </Col>
+        <Col xs={24} lg={8}>
+          <section className="strategy-confirmation-column">
+            <Text strong>2. 结构化抽取</Text>
+            <Space direction="vertical" size={8} style={{ width: '100%', marginTop: 10 }}>
+              {confirmation.extractedFields.map((field) => (
+                <div className="strategy-confirmation-field" key={field.key}>
+                  <Text type="secondary">{field.label}</Text>
+                  <Text>{field.value}</Text>
+                  <Tag bordered={false}>{field.evidencePath}</Tag>
+                </div>
+              ))}
+            </Space>
+          </section>
+        </Col>
+        <Col xs={24} lg={8}>
+          <section className="strategy-confirmation-column">
+            <Text strong>3. 显式假设</Text>
+            <Paragraph type="secondary" style={{ margin: '4px 0 10px' }}>
+              逐项点选确认；假设不会被 Repair Middleware 写入交易规则。
+            </Paragraph>
+            <Space direction="vertical" size={10} style={{ width: '100%' }}>
+              {confirmation.assumptions.map((assumption) => (
+                <Checkbox
+                  key={assumption.id}
+                  checked={confirmedIds.includes(assumption.id)}
+                  onChange={(event) => onToggle(assumption.id, event.target.checked)}
+                  className="strategy-assumption-option"
+                >
+                  <Space direction="vertical" size={2}>
+                    <Text strong>{assumption.label}</Text>
+                    <Text>{assumption.selectedValue}</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>{assumption.reason}</Text>
+                  </Space>
+                </Checkbox>
+              ))}
+            </Space>
+          </section>
+        </Col>
+      </Row>
+    </Card>
+  );
 }
 
 function StrategyDraftSummary({
@@ -84,6 +161,8 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<BoundGenerationResult | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
+  const [confirmedAssumptionIds, setConfirmedAssumptionIds] = useState<string[]>([]);
+  const [freezingExperiment, setFreezingExperiment] = useState(false);
   const requestControllerRef = useRef<AbortController | null>(null);
 
   const importDocument = useStrategyStudioStore((s) => s.importDocument);
@@ -155,6 +234,16 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
 
       if (controller.signal.aborted) return;
 
+      // Rolling-deploy compatibility: an older server may not return the M1
+      // confirmation contract yet. Derive the same deterministic view from
+      // the validated DSL instead of crashing or asking another model.
+      if (!res.confirmation) {
+        res = {
+          ...res,
+          confirmation: buildLocalConfirmationDraft(prompt.trim(), res.strategy),
+        };
+      }
+
       // Validate the returned strategy
       const vr = validateDocument(res.strategy);
       if (!vr.valid) {
@@ -163,12 +252,13 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
       }
 
       setResult({ data: res, mode: requestMode });
+      setConfirmedAssumptionIds([]);
     } catch (err) {
       if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
         message.info('已取消策略生成');
         return;
       }
-      setGenError(err instanceof Error ? err.message : '生成失败');
+      setGenError(toAIUserMessage(err));
     } finally {
       if (requestControllerRef.current === controller) {
         requestControllerRef.current = null;
@@ -177,25 +267,58 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
     }
   };
 
-  const applyResult = () => {
+  const applyResult = async () => {
     if (!result) return;
-    if (result.mode === 'refine' && currentDocument) {
-      updateDocument((draft) => {
-        Object.assign(draft, result.data.strategy, {
-          id: currentDocument.id,
-          strategyVersion: currentDocument.strategyVersion,
-          metadata: {
-            ...result.data.strategy.metadata,
-            createdAt: currentDocument.metadata.createdAt,
-          },
-        });
+    setFreezingExperiment(true);
+    try {
+      const capabilityVersion = await getExperimentCapabilityVersion();
+      const strategyToFreeze = result.mode === 'refine' && currentDocument
+        ? {
+            ...result.data.strategy,
+            id: currentDocument.id,
+            strategyVersion: currentDocument.strategyVersion,
+            metadata: {
+              ...result.data.strategy.metadata,
+              createdAt: currentDocument.metadata.createdAt,
+            },
+          }
+        : result.data.strategy;
+      const frozen = await confirmExperimentVersion({
+        generationId: result.data.generationId,
+        name: result.data.strategy.name,
+        sourceText: result.data.confirmation.sourceText,
+        strategy: strategyToFreeze,
+        confirmation: {
+          ...result.data.confirmation,
+          assumptions: result.data.confirmation.assumptions.map((assumption) => ({
+            ...assumption,
+            confirmed: confirmedAssumptionIds.includes(assumption.id),
+          })),
+        },
+        capabilityVersion,
       });
-      message.success('AI 修改草稿已应用，请确认后保存');
-    } else {
-      importDocument(result.data.strategy);
-      message.success('AI 生成策略已导入到编辑器，请确认后保存');
+      const governedStrategy = {
+        ...strategyToFreeze,
+        metadata: {
+          ...strategyToFreeze.metadata,
+          experimentVersionId: frozen.experimentVersion.id,
+        },
+      };
+      if (result.mode === 'refine' && currentDocument) {
+        updateDocument((draft) => {
+          Object.assign(draft, governedStrategy);
+        });
+        message.success('实验版本已冻结，AI 修改草稿已应用');
+      } else {
+        importDocument(governedStrategy);
+        message.success('实验版本已冻结，策略已导入编辑器');
+      }
+      onClose();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '冻结实验版本失败');
+    } finally {
+      setFreezingExperiment(false);
     }
-    onClose();
   };
 
   const handleApply = () => {
@@ -220,6 +343,7 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
     setPrompt('');
     setResult(null);
     setGenError(null);
+    setConfirmedAssumptionIds([]);
   };
 
   // Check status on open
@@ -255,7 +379,7 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
       }
       open={open}
       onClose={handleClose}
-      width={480}
+      size={1120}
       afterOpenChange={(visible) => { if (visible) handleOpen(); }}
     >
       <Space direction="vertical" style={{ width: '100%' }} size="middle">
@@ -364,6 +488,19 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
         {result && (
           <div>
             <Divider />
+            <StrategyConfirmationPanel
+              confirmation={result.data.confirmation}
+              confirmedIds={confirmedAssumptionIds}
+              onToggle={(id, checked) => {
+                setConfirmedAssumptionIds((current) => (
+                  checked
+                    ? [...new Set([...current, id])]
+                    : current.filter((item) => item !== id)
+                ));
+              }}
+            />
+
+            <Divider />
             <StrategyDraftSummary result={result.data} mode={result.mode} />
 
             {result.data.warnings.length > 0 && (
@@ -379,8 +516,16 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
             )}
 
             <Space>
-              <Button type="primary" icon={<CheckCircleOutlined />} onClick={handleApply}>
-                {result.mode === 'refine' ? '应用修改草稿' : '导入到编辑器'}
+              <Button
+                type="primary"
+                icon={<CheckCircleOutlined />}
+                onClick={handleApply}
+                loading={freezingExperiment}
+                disabled={result.data.confirmation.assumptions.some(
+                  (item) => item.required && !confirmedAssumptionIds.includes(item.id),
+                )}
+              >
+                {result.mode === 'refine' ? '冻结实验并应用修改' : '冻结实验并导入编辑器'}
               </Button>
               <Button onClick={() => setResult(null)}>
                 重新生成

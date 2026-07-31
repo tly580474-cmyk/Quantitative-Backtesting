@@ -119,6 +119,7 @@ export const strategyDocumentSchema = z.object({
     createdAt: z.string().min(1),
     updatedAt: z.string().min(1),
     aiGenerationId: z.string().optional(),
+    experimentVersionId: z.string().uuid().optional(),
   }),
 }).superRefine((doc, ctx) => {
   const nodes = new Map(doc.indicators.map((node) => [node.id, node]));

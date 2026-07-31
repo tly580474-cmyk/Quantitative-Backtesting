@@ -18,6 +18,7 @@ import {
   repairStrategyCandidate,
   type StrategyRepairAudit,
 } from './repairMiddleware.js';
+import { buildStrategyConfirmationDraft } from './confirmationDraft.js';
 
 /**
  * OpenAI-compatible strategy generation provider.
@@ -54,6 +55,7 @@ export class OpenAIStrategyGenerationProvider implements StrategyGenerationProvi
       summary: `基于 ${model} 生成的策略`,
       warnings: ['AI 生成策略仅供参考，请在信号预览中验证。'],
       requiresConfirmation: true,
+      confirmation: buildStrategyConfirmationDraft(request.prompt, repaired.strategy),
       repairAudit: repaired.audit,
     };
   }
@@ -74,6 +76,7 @@ export class OpenAIStrategyGenerationProvider implements StrategyGenerationProvi
       summary: `已根据 "${request.modification}" 调整策略。`,
       warnings: [],
       requiresConfirmation: true,
+      confirmation: buildStrategyConfirmationDraft(request.modification, repaired.strategy),
       repairAudit: repaired.audit,
     };
   }

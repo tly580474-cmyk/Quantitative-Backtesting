@@ -4,6 +4,7 @@ import {
   AIServiceError,
   generateStrategy,
   getAIStatus,
+  toAIUserMessage,
 } from '../api';
 
 afterEach(() => {
@@ -59,5 +60,18 @@ describe('AI strategy API client', () => {
       details: ['entry: invalid'],
       message: '模型返回的策略未通过 DSL 校验',
     });
+  });
+
+  it('maps schema paths to deterministic Chinese guidance without another AI call', () => {
+    const error = new AIServiceError(
+      'invalid',
+      422,
+      'INVALID_MODEL_OUTPUT',
+      ['entry.children.0: Required', 'risk.0.value: Too big'],
+    );
+
+    expect(toAIUserMessage(error)).toContain('模型输出未通过策略结构校验');
+    expect(toAIUserMessage(error)).toContain('买入条件：Required');
+    expect(toAIUserMessage(error)).toContain('风控规则：Too big');
   });
 });

@@ -18,6 +18,7 @@ import { registerDataQualityRoutes } from './routes/dataQuality.js';
 import { registerFactorResearchRoutes } from './routes/factorResearch.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerPaperTradingRoutes } from './routes/paperTrading.js';
+import { registerExperimentRoutes } from './routes/experiments.js';
 import {
   startPaperTradingScheduler,
   stopPaperTradingScheduler,
@@ -164,6 +165,7 @@ async function main(): Promise<void> {
   registerDatasetRoutes(app, dbOnline);
   registerStrategyConfigRoutes(app, dbOnline);
   registerResultRoutes(app, dbOnline);
+  registerExperimentRoutes(app, dbOnline);
   registerVisualStrategyRoutes(app, dbOnline);
   registerExportRoutes(app, dbOnline);
 

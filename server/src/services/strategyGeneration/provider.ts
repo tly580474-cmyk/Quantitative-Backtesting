@@ -30,7 +30,30 @@ export interface GenerateStrategyResult {
   summary: string;
   warnings: string[];
   requiresConfirmation: boolean;
+  confirmation: StrategyConfirmationDraft;
   repairAudit?: StrategyRepairAudit;
+}
+
+export interface StrategyConfirmationField {
+  key: string;
+  label: string;
+  value: string;
+  evidencePath: string;
+}
+
+export interface StrategyConfirmationAssumption {
+  id: string;
+  label: string;
+  selectedValue: string;
+  options: string[];
+  reason: string;
+  required: boolean;
+}
+
+export interface StrategyConfirmationDraft {
+  sourceText: string;
+  extractedFields: StrategyConfirmationField[];
+  assumptions: StrategyConfirmationAssumption[];
 }
 
 export interface StrategyExplanation {

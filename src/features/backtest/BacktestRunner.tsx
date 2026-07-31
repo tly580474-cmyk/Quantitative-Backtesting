@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Button,
   Select,
@@ -26,6 +26,13 @@ import { getRepository } from '@/api/useRepository';
 import { computeChecksum } from '@/db/marketDataRepository';
 import { getStrategyById } from '@/features/strategies/registry';
 import type { MarketDataset } from '@/models';
+import {
+  cancelExperimentRun,
+  completeExperimentRun,
+  createExperimentRun,
+  failExperimentRun,
+} from '@/features/experiments/api';
+import { ENGINE_VERSION } from './version';
 
 const { Text } = Typography;
 
@@ -60,6 +67,9 @@ export default function BacktestRunner() {
   const visualStrategyDocument = useBacktestStore((s) => s.visualStrategyDocument);
   const addResult = useBacktestStore((s) => s.addResult);
   const setSignals = useBacktestStore((s) => s.setSignals);
+  const activeExperimentVersionId = useBacktestStore((s) => s.activeExperimentVersionId);
+  const activeExperimentName = useBacktestStore((s) => s.activeExperimentName);
+  const experimentRunIdRef = useRef<string | null>(null);
 
   const { run, cancel, status, progress, result, error } = useBacktest();
 
@@ -111,7 +121,7 @@ export default function BacktestRunner() {
     }
   };
 
-  const handleRun = () => {
+  const handleRun = async () => {
     if (!selectedDatasetId || candles.length === 0) return;
     const ds = datasets.find((d) => d.id === selectedDatasetId);
     if (!ds) return;
@@ -142,6 +152,35 @@ export default function BacktestRunner() {
       : strategySource === 'visual'
         ? visualStrategyDocument?.name || activeStrategyId
         : getStrategyById(activeStrategyId)?.name || activeStrategyId;
+    if (activeExperimentVersionId && config.backtestMode === 'strategy') {
+      try {
+        const experiment = await createExperimentRun({
+          experimentVersionId: activeExperimentVersionId,
+          idempotencyKey: `browser-${crypto.randomUUID()}`,
+          engineVersion: ENGINE_VERSION,
+          datasetSnapshot: {
+            id: ds.id,
+            name: ds.name,
+            symbol: ds.symbol,
+            startTime: runCandles[0].time,
+            endTime: runCandles[runCandles.length - 1].time,
+            checksum: cs,
+          },
+          config,
+          strategyParams: activeParams,
+        });
+        experimentRunIdRef.current = experiment.run.id;
+      } catch (experimentError) {
+        message.error(
+          experimentError instanceof Error
+            ? `实验运行创建失败：${experimentError.message}`
+            : '实验运行创建失败',
+        );
+        return;
+      }
+    } else {
+      experimentRunIdRef.current = null;
+    }
     run(
       runCandles,
       activeStrategyId,
@@ -161,10 +200,38 @@ export default function BacktestRunner() {
   // When result arrives, save it and set signals
   useEffect(() => {
     if (result && status === 'completed') {
-      addResult(result);
       setSignals(result.signals);
+      const experimentRunId = experimentRunIdRef.current;
+      void (async () => {
+        try {
+          await addResult(result);
+          if (experimentRunId) {
+            await completeExperimentRun(experimentRunId, result);
+            message.success('实验运行已完成并关联权威回测结果');
+          }
+        } catch (saveError) {
+          if (experimentRunId) {
+            await failExperimentRun(
+              experimentRunId,
+              saveError instanceof Error ? saveError.message : '回测结果持久化失败',
+            ).catch(() => undefined);
+          }
+          message.error('回测结果保存或实验关联失败');
+        } finally {
+          if (experimentRunIdRef.current === experimentRunId) {
+            experimentRunIdRef.current = null;
+          }
+        }
+      })();
     }
   }, [result, status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (status !== 'failed' || !error || !experimentRunIdRef.current) return;
+    const runId = experimentRunIdRef.current;
+    experimentRunIdRef.current = null;
+    void failExperimentRun(runId, error).catch(() => undefined);
+  }, [status, error]);
 
   const isRunning = status === 'running';
   const progressPercent = progress
@@ -178,11 +245,21 @@ export default function BacktestRunner() {
     setSettingsDockOpen((value) => !value);
   };
 
+  const handleCancel = () => {
+    cancel();
+    const runId = experimentRunIdRef.current;
+    experimentRunIdRef.current = null;
+    if (runId) void cancelExperimentRun(runId).catch(() => undefined);
+  };
+
   return (
     <div className="backtest-page">
       {/* Top bar */}
       <div className="backtest-toolbar">
         <Text strong className="backtest-dataset-label">数据集:</Text>
+        {activeExperimentVersionId && (
+          <Tag color="purple">实验：{activeExperimentName ?? '已冻结版本'}</Tag>
+        )}
         <Select
           value={selectedDatasetId}
           onChange={handleSelectDataset}
@@ -213,7 +290,7 @@ export default function BacktestRunner() {
           参数
         </Button>
         {isRunning && (
-          <Button danger icon={<StopOutlined />} onClick={cancel}>
+          <Button danger icon={<StopOutlined />} onClick={handleCancel}>
             取消
           </Button>
         )}

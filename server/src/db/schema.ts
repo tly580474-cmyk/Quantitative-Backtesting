@@ -408,6 +408,74 @@ export const backtestResults = mysqlTable('backtest_results', {
   startedAtIdx: index('idx_br_started_at').on(table.startedAt),
 }));
 
+export const strategyExperiments = mysqlTable('strategy_experiments', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  sourceText: text('source_text').notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+}, (table) => ({
+  updatedAtIdx: index('idx_se_updated_at').on(table.updatedAt),
+}));
+
+export const strategyExperimentVersions = mysqlTable('strategy_experiment_versions', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  experimentId: varchar('experiment_id', { length: 36 }).notNull(),
+  version: int('version').notNull(),
+  status: varchar('status', { length: 24 }).notNull(),
+  spec: json('spec').notNull(),
+  specHash: varchar('spec_hash', { length: 64 }).notNull(),
+  confirmation: json('confirmation').notNull(),
+  capabilityVersion: varchar('capability_version', { length: 64 }).notNull(),
+  compilerVersion: varchar('compiler_version', { length: 64 }).notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  experimentVersionUnique: uniqueIndex('idx_sev_experiment_version').on(table.experimentId, table.version),
+  specHashUnique: uniqueIndex('idx_sev_spec_hash').on(table.specHash),
+  statusCreatedIdx: index('idx_sev_status_created').on(table.status, table.createdAt),
+}));
+
+export const strategyExperimentRuns = mysqlTable('strategy_experiment_runs', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  experimentVersionId: varchar('experiment_version_id', { length: 36 }).notNull(),
+  status: varchar('status', { length: 24 }).notNull(),
+  idempotencyKey: varchar('idempotency_key', { length: 128 }).notNull(),
+  inputHash: varchar('input_hash', { length: 64 }).notNull(),
+  executionPlan: json('execution_plan').notNull(),
+  backtestResultId: varchar('backtest_result_id', { length: 36 }),
+  resultHash: varchar('result_hash', { length: 64 }),
+  errorCode: varchar('error_code', { length: 64 }),
+  errorMessage: varchar('error_message', { length: 1000 }),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  startedAt: varchar('started_at', { length: 24 }),
+  completedAt: varchar('completed_at', { length: 24 }),
+}, (table) => ({
+  idempotencyUnique: uniqueIndex('idx_ser_idempotency').on(table.idempotencyKey),
+  versionCreatedIdx: index('idx_ser_version_created').on(table.experimentVersionId, table.createdAt),
+  statusCreatedIdx: index('idx_ser_status_created').on(table.status, table.createdAt),
+}));
+
+export const strategyExperimentEvents = mysqlTable('strategy_experiment_events', {
+  id: bigint('id', { mode: 'number' }).autoincrement().primaryKey(),
+  runId: varchar('run_id', { length: 36 }).notNull(),
+  eventType: varchar('event_type', { length: 64 }).notNull(),
+  payload: json('payload').notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  runCreatedIdx: index('idx_see_run_created').on(table.runId, table.createdAt),
+}));
+
+export const strategyExperimentValidations = mysqlTable('strategy_experiment_validations', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  runId: varchar('run_id', { length: 36 }).notNull(),
+  validationType: varchar('validation_type', { length: 64 }).notNull(),
+  status: varchar('status', { length: 24 }).notNull(),
+  details: json('details').notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  runTypeUnique: uniqueIndex('idx_seval_run_type').on(table.runId, table.validationType),
+}));
+
 // ─── equity_points ───────────────────────────────────────────────
 export const equityPoints = mysqlTable('equity_points', {
   id: int('id').autoincrement().primaryKey(),

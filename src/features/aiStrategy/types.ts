@@ -24,6 +24,44 @@ export interface GenerateStrategyResult {
   summary: string;
   warnings: string[];
   requiresConfirmation: boolean;
+  confirmation: StrategyConfirmationDraft;
+  repairAudit?: StrategyRepairAudit;
+}
+
+export interface StrategyConfirmationField {
+  key: string;
+  label: string;
+  value: string;
+  evidencePath: string;
+}
+
+export interface StrategyConfirmationAssumption {
+  id: string;
+  label: string;
+  selectedValue: string;
+  options: string[];
+  reason: string;
+  required: boolean;
+}
+
+export interface StrategyConfirmationDraft {
+  sourceText: string;
+  extractedFields: StrategyConfirmationField[];
+  assumptions: StrategyConfirmationAssumption[];
+}
+
+export interface StrategyRepairAudit {
+  version: 1;
+  originalCandidate: unknown;
+  beforeHash: string;
+  afterHash: string;
+  changed: boolean;
+  operations: Array<{
+    path: Array<string | number>;
+    kind: string;
+    before: unknown;
+    after: unknown;
+  }>;
 }
 
 export interface RefineStrategyRequest {

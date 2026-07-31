@@ -8,6 +8,8 @@ describe('AI strategy local mock', () => {
     const ids = result.strategy.indicators.map((indicator) => indicator.indicatorId);
 
     expect(ids).toEqual(expect.arrayContaining(['volume', 'highLowBreakout', 'drawdown']));
+    expect(result.confirmation.sourceText).toContain('放量');
+    expect(result.confirmation.assumptions).toHaveLength(5);
     expect(validateDocument(result.strategy)).toMatchObject({ valid: true, errors: [] });
   });
 

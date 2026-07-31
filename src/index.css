@@ -3268,6 +3268,85 @@ body {
   overflow-wrap: anywhere;
 }
 
+.strategy-confirmation-panel {
+  margin-bottom: 16px;
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.strategy-confirmation-column {
+  height: 100%;
+  min-height: 260px;
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.strategy-confirmation-source {
+  margin: 12px 0 0 !important;
+  padding: 12px;
+  border-left: 3px solid #1677ff;
+  background: #f8fafc;
+  white-space: pre-wrap;
+}
+
+.strategy-confirmation-field {
+  display: grid;
+  grid-template-columns: minmax(82px, auto) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.strategy-assumption-option {
+  width: 100%;
+  align-items: flex-start;
+  padding: 9px 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 7px;
+  background: #f8fafc;
+}
+
+.strategy-assumption-option.ant-checkbox-wrapper-checked {
+  border-color: #69b1ff;
+  background: #e6f4ff;
+}
+
+html[data-theme='dark'] .strategy-confirmation-panel,
+html[data-theme='dark'] .strategy-confirmation-column {
+  border-color: #27466f;
+  background: #101c31;
+}
+
+html[data-theme='dark'] .strategy-confirmation-source,
+html[data-theme='dark'] .strategy-assumption-option {
+  border-color: #27466f;
+  background: #0b1628;
+}
+
+html[data-theme='dark'] .strategy-assumption-option.ant-checkbox-wrapper-checked {
+  border-color: #3d7edb;
+  background: #102b50;
+}
+
+html[data-theme='dark'] .strategy-confirmation-field {
+  border-bottom-color: #203552;
+}
+
+html[data-theme='dark'] .ai-strategy-summary,
+html[data-theme='dark'] .ai-strategy-summary .ant-card-head {
+  border-color: #27466f;
+  background: #101c31;
+}
+
+html[data-theme='dark'] .ai-strategy-summary-text {
+  border-color: #27466f;
+  background: #0b1628;
+  color: #dbeafe;
+}
+
 .equity-chart-wrapper {
   position: relative;
   width: 100%;

@@ -6,6 +6,7 @@ import type {
   ExplainStrategyRequest,
   StrategyExplanation,
 } from './provider.js';
+import { buildStrategyConfirmationDraft } from './confirmationDraft.js';
 
 /**
  * Mock provider for frontend development and testing without an API key.
@@ -394,6 +395,7 @@ export class MockStrategyGenerationProvider implements StrategyGenerationProvide
         '请确认技术指标参数是否符合您的预期。',
       ],
       requiresConfirmation: true,
+      confirmation: buildStrategyConfirmationDraft(request.prompt, strategy),
     };
   }
 
@@ -408,6 +410,7 @@ export class MockStrategyGenerationProvider implements StrategyGenerationProvide
       summary: `已根据 "${request.modification}" 调整策略。`,
       warnings: [],
       requiresConfirmation: true,
+      confirmation: buildStrategyConfirmationDraft(request.modification, updated),
     };
   }
 

@@ -1,5 +1,6 @@
 import type { VisualStrategyDocument } from '@/features/visualStrategies/types';
 import type { GenerateStrategyResult, StrategyExplanation } from './types';
+import { buildLocalConfirmationDraft } from './confirmation';
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -292,6 +293,7 @@ export async function localGenerate(prompt: string): Promise<GenerateStrategyRes
     summary: `基于 "${prompt}" 生成的策略，含 ${indicators.length} 个指标和 ${risk.length} 个风控规则。`,
     warnings: ['AI 生成策略仅供参考，请在信号预览中验证。', '请确认技术指标参数是否符合预期。'],
     requiresConfirmation: true,
+    confirmation: buildLocalConfirmationDraft(prompt, strategy),
   };
 }
 
@@ -315,6 +317,7 @@ export async function localRefine(
     summary: `已根据“${modification}”生成修改草稿。Mock 模式会保留原策略结构。`,
     warnings: ['当前为 Mock 演示模式，请配置 AI 服务以根据要求实际调整策略内容。'],
     requiresConfirmation: true,
+    confirmation: buildLocalConfirmationDraft(modification, strategy),
   };
 }
 

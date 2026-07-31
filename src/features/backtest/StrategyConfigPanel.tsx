@@ -20,6 +20,7 @@ export default function StrategyConfigPanel() {
   // Track visual strategy document for backtest
   const setStrategySource = useBacktestStore((s) => s.setStrategySource);
   const setVisualStrategyDocument = useBacktestStore((s) => s.setVisualStrategyDocument);
+  const setActiveExperiment = useBacktestStore((s) => s.setActiveExperiment);
 
   const [visualStrategies, setVisualStrategies] = useState<StoredVisualStrategy[]>([]);
 
@@ -49,10 +50,15 @@ export default function StrategyConfigPanel() {
       );
       setStrategySource('visual');
       setVisualStrategyDocument(visual.document);
+      setActiveExperiment(
+        visual.document.metadata.experimentVersionId ?? null,
+        visual.document.metadata.experimentVersionId ? visual.document.name : null,
+      );
       selectStrategy(id, defaultParams);
     } else {
       setStrategySource('builtin');
       setVisualStrategyDocument(null);
+      setActiveExperiment(null);
       selectStrategy(id);
     }
   };

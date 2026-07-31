@@ -34,6 +34,7 @@ export interface StrategyMetadata {
   createdAt: string;
   updatedAt: string;
   aiGenerationId?: string;
+  experimentVersionId?: string;
 }
 
 // ---- Indicator declaration ----

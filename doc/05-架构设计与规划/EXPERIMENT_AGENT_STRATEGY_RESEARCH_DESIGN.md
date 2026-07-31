@@ -1,6 +1,6 @@
 # 实验 Agent 策略研究技术设计（评审稿）
 
-> 文档状态：已批准实施（M0-M1 硬门禁已冻结）  
+> 文档状态：实施中（M2 单标的权威回测闭环已接入）
 > 更新日期：2026-07-31  
 > 适用范围：策略工作室、策略回测、回测结果与因子研究的后续扩展  
 > 本文只定义技术方案和实施边界，不代表相关功能已经完成。
@@ -54,6 +54,43 @@ npx vitest run src/services/strategyGeneration/repairMiddleware.test.ts \
   src/services/strategyGeneration/capabilityRegistry.test.ts \
   src/db/distributedLock.test.ts
 ```
+
+### M1 确认链路实施记录（2026-07-31）
+
+- 服务端对通过 Schema 校验的 Strategy DSL 确定性生成
+  `StrategyConfirmationDraft`，响应中明确分离 `sourceText`、
+  `extractedFields` 和 `assumptions`；显式假设不会反向写入策略规则。
+- 策略工作室的 AI 生成抽屉升级为“原始描述｜结构化抽取｜显式假设”三栏布局。
+  所有必选假设逐项确认前，“导入到编辑器/应用修改草稿”保持禁用。
+- 当前显式假设包括单标的范围、日线频率、下一交易时点成交、交易成本来源和回测
+  区间来源；这些值来自当前引擎能力边界，而不是由模型补写。
+- 前端对滚动升级期间缺少确认契约的旧服务端响应提供确定性回退：直接从已校验 DSL
+  构建相同确认视图，不再次调用 LLM。
+- 422 Schema 错误通过固定错误码和字段路径映射为中文提示，用户修改原始描述后重新
+  提交；系统不自动改写已确认的策略。
+
+### M2 首批实施记录（2026-07-31）
+
+- AI 三栏确认通过后，服务端创建不可变的单标的
+  `StrategyExperimentSpec v1`。当前支持范围固定为 A 股、日线、单标的、
+  `visual_strategy` 与 `T 日收盘信号 → T+1 开盘成交`；服务端再次使用
+  Strategy DSL Schema 校验，不能由前端绕过。
+- 新增 `strategy_experiments`、`strategy_experiment_versions`、
+  `strategy_experiment_runs`、`strategy_experiment_events` 和
+  `strategy_experiment_validations` 五类治理表。规格、执行计划和权威结果均保存
+  SHA-256；相同规格可以复用冻结版本，已运行版本不允许覆盖修改。
+- 运行采用两阶段协议：服务端先冻结数据快照、引擎版本、策略参数、成本与仓位配置，
+  再由现有浏览器 Web Worker 调用 `compileAndValidate()` 和
+  `runBacktestAsync()`。M2 不生成 Python/JavaScript 源码，也没有第二套撮合器。
+- 每次运行使用数据库唯一幂等键和输入 hash。并发重复请求返回同一运行；同一幂等键
+  携带不同输入时返回 `IDEMPOTENCY_CONFLICT`。完成、失败和取消通过带原状态条件的
+  CAS 更新，只有 `running` 可以进入终态。
+- 运行完成时先持久化现有 `backtest_results`，随后服务端重新计算权威结果 hash，
+  并核对冻结策略 ID/版本、数据快照、策略参数、回测配置和成交时序；任一不一致都
+  拒绝关联。编译、黄金样例门禁和执行时序作为独立校验记录保存。
+- 策略工作室保存的 AI 策略携带 `experimentVersionId`。在策略回测中选中该策略后，
+  顶部显示实验标识；运行、取消、失败与完成会同步实验状态。普通手工策略仍沿用原
+  回测路径，不会被错误挂接到实验版本。
 
 ## 1. 背景与结论
 

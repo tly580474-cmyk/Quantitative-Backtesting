@@ -30,6 +30,8 @@ interface BacktestState {
   // Visual strategy support
   strategySource: StrategySource;
   visualStrategyDocument: VisualStrategyDocument | null;
+  activeExperimentVersionId: string | null;
+  activeExperimentName: string | null;
 
   setConfig: (config: Partial<BacktestConfig>) => void;
   resetConfig: () => void;
@@ -37,6 +39,7 @@ interface BacktestState {
   setShowSignals: (mode: 'raw' | 'executed') => void;
   setStrategySource: (source: StrategySource) => void;
   setVisualStrategyDocument: (doc: VisualStrategyDocument | null) => void;
+  setActiveExperiment: (versionId: string | null, name?: string | null) => void;
 
   loadResults: () => Promise<void>;
   addResult: (result: BacktestResult) => Promise<void>;
@@ -55,6 +58,8 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
   selectedResultIds: [],
   strategySource: 'builtin',
   visualStrategyDocument: null,
+  activeExperimentVersionId: null,
+  activeExperimentName: null,
 
   setConfig: (partial) =>
     set((s) => ({ config: { ...s.config, ...partial } })),
@@ -67,6 +72,10 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
 
   setStrategySource: (source) => set({ strategySource: source }),
   setVisualStrategyDocument: (doc) => set({ visualStrategyDocument: doc }),
+  setActiveExperiment: (versionId, name = null) => set({
+    activeExperimentVersionId: versionId,
+    activeExperimentName: name,
+  }),
 
   loadResults: async () => {
     try {
@@ -87,6 +96,7 @@ export const useBacktestStore = create<BacktestState>((set, get) => ({
       set((s) => ({
         results: s.results.filter((r) => r.id !== result.id),
       }));
+      throw err;
     }
   },
 
