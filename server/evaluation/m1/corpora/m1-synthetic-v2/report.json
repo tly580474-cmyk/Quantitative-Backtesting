@@ -1,0 +1,359 @@
+{
+  "runId": "m1-synthetic-v2",
+  "target": 200,
+  "accepted": 200,
+  "rejected": 48,
+  "targets": {
+    "complete": 70,
+    "partial": 50,
+    "short_colloquial": 25,
+    "conflicting": 25,
+    "unsupported": 30
+  },
+  "acceptedByCategory": {
+    "complete": 70,
+    "partial": 50,
+    "short_colloquial": 25,
+    "conflicting": 25,
+    "unsupported": 30
+  },
+  "quality": {
+    "totalCandidates": 248,
+    "judgeBPassed": 207,
+    "judgeCPassed": 219,
+    "dualPassed": 200,
+    "binaryAgreement": 222,
+    "judgeBAverageScores": {
+      "accuracy": 4.306451612903226,
+      "evidenceGrounding": 4.737903225806452,
+      "ambiguityHandling": 4.415322580645161,
+      "capabilityCompliance": 4.939516129032258,
+      "diversityNaturalness": 4.645161290322581
+    },
+    "judgeCAverageScores": {
+      "accuracy": 4.383064516129032,
+      "evidenceGrounding": 4.854838709677419,
+      "ambiguityHandling": 4.342741935483871,
+      "capabilityCompliance": 4.959677419354839,
+      "diversityNaturalness": 4.649193548387097
+    },
+    "violations": [
+      {
+        "message": "exit_condition 的 evidenceQuote 为 '否则卖出'，不是原文片段，且条件逻辑可能不完整。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 的 evidenceQuote 为 '反之买入'，不是原文片段，且条件逻辑可能不完整。",
+        "count": 1
+      },
+      {
+        "message": "跟踪止损的触发条件'回撤5%就退出'与trailingStop的语义不完全匹配，trailingStop通常基于价格回撤，但未明确是价格回撤还是收益回撤，存在歧义。",
+        "count": 1
+      },
+      {
+        "message": "入场条件'从20日低点反弹超过3%'未明确使用哪个指标，可能指价格反弹，但未指定具体字段，存在歧义。",
+        "count": 1
+      },
+      {
+        "message": "MACD柱从负变正应使用crossesAbove而非gt，且证据引用不完整",
+        "count": 1
+      },
+      {
+        "message": "MACD柱从负变正应使用crossesAbove操作符，而非gt",
+        "count": 1
+      },
+      {
+        "message": "回撤率应为正数，此处使用-0.1错误",
+        "count": 1
+      },
+      {
+        "message": "volumeAverage5*1.5不是有效的指标引用，volumeAverage需要周期参数",
+        "count": 1
+      },
+      {
+        "message": "布林带收口条件未在extractedFacts中体现",
+        "count": 1
+      },
+      {
+        "message": "布林带收口条件未提取，且无法用现有指标表达",
+        "count": 1
+      },
+      {
+        "message": "RSI周期未指定，假设为默认值6，但用户可能期望其他周期，应澄清。",
+        "count": 1
+      },
+      {
+        "message": "布林带收口条件未在提取事实中体现，仅提取了上穿上轨和下穿中轨，可能遗漏关键条件。",
+        "count": 1
+      },
+      {
+        "message": "回撤周期未指定，假设默认60，但用户可能期望其他周期，应澄清。",
+        "count": 1
+      },
+      {
+        "message": "5日均量和10日均量未在能力清单中直接支持，可能需要使用volumeMa指标，但参数未指定，应澄清。",
+        "count": 1
+      },
+      {
+        "message": "波动率周期未指定，假设默认20，但用户可能期望其他周期，应澄清。",
+        "count": 1
+      },
+      {
+        "message": "assumptions中frequency字段basis为explicit_default，但原文未明确频率，应使用system_constraint或标注为推断",
+        "count": 1
+      },
+      {
+        "message": "assumptions中universe_type字段basis为system_constraint，但原文未明确单标的，应使用explicit_default或标注为推断",
+        "count": 1
+      },
+      {
+        "message": "assumptions.frequency 将用户未明确的频率默认设为1d，但原文未提及频率，属于把缺失语义当默认值",
+        "count": 1
+      },
+      {
+        "message": "assumptions.market 将市场默认设为cn_stock，但原文未提及市场，属于把缺失语义当默认值",
+        "count": 1
+      },
+      {
+        "message": "止损条件使用lt -3，但原文未明确止损方向，通常止损为亏损达到3%，应使用lte或lt，但方向应为负，此处合理，但未明确说明是亏损，可能隐含假设。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition使用gt previousHigh，但原文为突破20日高点，应使用crossesAbove，且未指定收盘价，存在歧义。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 使用 previousHigh 作为 value，但 previousHigh 是输出字段而非比较值，应使用具体价格或明确比较对象。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition使用gt middle，但原文为高于中轨，应使用gt，但未明确是股价，存在歧义。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 使用 middle 作为 value，但 middle 是输出字段而非比较值，应使用具体价格或明确比较对象。",
+        "count": 1
+      },
+      {
+        "message": "止盈条件使用gte，但原文为'大于80'，应为gt，但止盈规则通常为达到即触发，gte可接受，但严格来说应为gt，此处不视为违规。",
+        "count": 1
+      },
+      {
+        "message": "exit_condition的value为10，但未指定单位，原文为'回撤超过10%'，应包含单位%，但value中未体现，可能造成歧义。",
+        "count": 1
+      },
+      {
+        "message": "回撤条件未明确回撤的参考基准（如最高点周期），存在歧义。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 的 evidenceQuote 中未明确提及 'gte' 操作符，但语义上 '放大到2倍' 可理解为大于等于，属于合理推断，不构成违规。",
+        "count": 1
+      },
+      {
+        "message": "exit_condition 的 evidenceQuote 中未明确提及 'lte' 操作符，但语义上 '萎缩到一半' 可理解为小于等于，属于合理推断，不构成违规。",
+        "count": 1
+      },
+      {
+        "message": "stopLoss 的 evidenceQuote 中未明确提及 'lt' 操作符，但语义上 '亏损达到3%' 可理解为小于 -3%，属于合理推断，不构成违规。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 的 operator 应为 crossesAbove 而非 gte，因为原文是“放大到2倍”表示穿越而非持续大于等于",
+        "count": 1
+      },
+      {
+        "message": "exit_condition 的 operator 应为 crossesBelow 而非 lte，因为原文是“萎缩到一半”表示穿越而非持续小于等于",
+        "count": 1
+      },
+      {
+        "message": "stopLoss 的 operator 应为 lte 而非 lt，因为原文“亏损达到3%”通常包含等于3%的情况",
+        "count": 1
+      },
+      {
+        "message": "exit_condition 使用 'gt' 比较 previousHigh，但 previousHigh 是输出值而非数值，应使用 crossesAbove 或明确比较对象。",
+        "count": 1
+      },
+      {
+        "message": "回撤超过10%的表述未明确回撤的计算周期，存在歧义。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 的 operator 为 gt，但原文是'成交量大于5日均量的1.5倍'，应使用 gt 且 value 为 1.5，但缺少对'收盘价突破20日最高价'的提取，导致 entry_condition 不完整。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 的 evidenceQuote 仅引用成交量部分，未涵盖突破20日最高价的条件，引用不完整。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 只提取了 RSI14 条件，遗漏了'收盘价低于开盘价'的条件，导致条件不完整。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 和 exit_condition 的 value 为 '前期高点'/'前期低点'，但未指定具体周期，存在歧义，且未提出澄清。",
+        "count": 1
+      },
+      {
+        "message": "entryCondition 的 evidenceQuote 为 '20日高点突破'，但原文为 '20日高点突破'，未明确提及 'crossesAbove' 操作，且未指定突破的是前期高点还是当前价格，存在语义缺失。",
+        "count": 1
+      },
+      {
+        "message": "exitCondition 的 evidenceQuote 为 '收盘价跌破10日均线'，但原文为 '收盘价跌破10日均线'，未明确 '跌破' 是价格低于均线还是交叉，且未指定均线类型（SMA/EMA），存在歧义。",
+        "count": 1
+      },
+      {
+        "message": "entryCondition 使用 crossesAbove 但原文为'突破'，未明确是上穿还是下穿，且未澄清突破的定义（如收盘价突破还是盘中突破）",
+        "count": 1
+      },
+      {
+        "message": "exitCondition 使用 lt 但原文为'跌破'，未明确是收盘价跌破还是盘中跌破，且未澄清均线类型（SMA/EMA）",
+        "count": 1
+      },
+      {
+        "message": "stopLoss 使用 lt 但原文为'止损设在买入价的5%'，未明确触发条件（如收盘价低于买入价5%还是盘中触及）",
+        "count": 1
+      },
+      {
+        "message": "RSI7不在能力清单中，RSI指标仅支持period1/2/3，无7周期选项，属于不支持能力。",
+        "count": 1
+      },
+      {
+        "message": "RSI7 不在能力清单中，RSI 指标仅支持 period1/2/3，无 RSI7 参数，属于不支持的能力。",
+        "count": 1
+      },
+      {
+        "message": "最大持有10天映射为 risk_rule 且 operator 为 gt，但 maxHoldingDays 规则应使用 gte 或 lte，逻辑不明确。",
+        "count": 1
+      },
+      {
+        "message": "止盈条件'盈利达到8%'未明确是相对成本价还是其他基准，存在歧义。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 使用 highLowBreakout 的 previousHigh，但 exit_condition 使用 previousLow，两者周期不同（20 vs 10），但 highLowBreakout 指标只有一个 period 参数，无法同时支持两个不同周期，存在能力冲突。",
+        "count": 1
+      },
+      {
+        "message": "布林带收口条件'bandwidth'未在能力清单中定义，无法直接映射。",
+        "count": 1
+      },
+      {
+        "message": "止损条件'亏损超过5%'未明确基准，且'超过'与'lte'运算符不匹配。",
+        "count": 1
+      },
+      {
+        "message": "布林带收口条件提取为 entry_condition 且 operator 为 lt，value 为 bandwidth，但能力清单中无 bandwidth 输出，且收口条件无法用现有指标表达。",
+        "count": 1
+      },
+      {
+        "message": "止损条件 operator 为 lte，但语义为亏损超过5%止损，应使用 gt 或 gte，逻辑矛盾。",
+        "count": 1
+      },
+      {
+        "message": "extractedFacts[0].value 应为 'close' 而非 'close'，但 evidenceQuote 未明确是收盘价，存在歧义",
+        "count": 1
+      },
+      {
+        "message": "extractedFacts[0].value 应为 'dif' 而非 'dif'，但金叉通常指 DIF 上穿 DEA，此处 value 应为 'dea' 或比较对象不明确",
+        "count": 1
+      },
+      {
+        "message": "extractedFacts[1].value 应为 'dea' 而非 'dea'，但死叉通常指 DIF 下穿 DEA，此处 value 应为 'dif' 或比较对象不明确",
+        "count": 1
+      },
+      {
+        "message": "金叉和死叉的具体比较对象不明确，但提取事实中已指定DIF与DEA，与澄清项矛盾",
+        "count": 1
+      },
+      {
+        "message": "extractedFacts[0].value 应为 'lower' 而非 'lower'，但未明确是收盘价跌破还是盘中价跌破，存在歧义",
+        "count": 1
+      },
+      {
+        "message": "提取事实中买入条件为价格低于下轨，但澄清项问跌破方式，与事实矛盾",
+        "count": 1
+      },
+      {
+        "message": "网格交易能力不在权威能力清单中，但 unsupportedCapabilities 已标注，未违规",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 的 operator 为 lte，value 为 -3，但原文是“跌3%买一份”，应表示为跌幅达到3%，用 lte 表示价格变动小于等于 -3% 合理，但未明确基准价，存在歧义",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 的 operator 为 lte，value 为 -10，但原文是“回撤10%”，回撤通常表示为负值，但未明确基准，且 drawdown 指标需要峰值周期，澄清项已提出，但默认60日未在原文中，属于假设，应标注为假设而非澄清",
+        "count": 1
+      },
+      {
+        "message": "澄清项中默认60日回撤周期，但原文未提及，属于将缺失语义当默认值。",
+        "count": 1
+      },
+      {
+        "message": "exit_condition 缺失，原文有“等出现死叉再卖”，但未提取 exit_condition，属于遗漏",
+        "count": 1
+      },
+      {
+        "message": "extractedFacts中path为visualIndicators.macd，但MACD没有金叉/死叉参数，应使用DIF与DEA的交叉条件，且operator为eq不合理。",
+        "count": 1
+      },
+      {
+        "message": "extractedFacts中value为'金叉'/'死叉'，但MACD输出为DIF/DEA/柱，金叉死叉是衍生概念，应明确为DIF上穿/下穿DEA，否则语义不精确。",
+        "count": 1
+      },
+      {
+        "message": "extractedFacts中path为visualIndicators.ema，但EMA没有金叉/死叉参数，应使用两条EMA线的交叉，且operator为eq不合理。",
+        "count": 1
+      },
+      {
+        "message": "extractedFacts中value为'金叉'/'死叉'，但EMA输出为ema1-ema8，金叉死叉需明确为哪两条EMA交叉，否则语义不精确。",
+        "count": 1
+      },
+      {
+        "message": "extractedFacts中entry_condition的value为volumeRatio，但原文未指定具体阈值，且operator为gt，语义不完整；exit_condition同理。",
+        "count": 1
+      },
+      {
+        "message": "extractedFacts中entry_condition的value为volumeRatio，但原文未指定具体阈值，属于缺失语义被当作默认值",
+        "count": 1
+      },
+      {
+        "message": "evidenceQuote '成交量小于5日均量就不买' 未提供具体数值，但提取事实中 operator 为 'lt' 且 value 为 null，可能不完整。",
+        "count": 1
+      },
+      {
+        "message": "evidenceQuote '量比是1.2' 与 '成交量小于5日均量' 可能矛盾，但澄清项仅要求明确量比阈值，未明确成交量与量比的关系。",
+        "count": 1
+      },
+      {
+        "message": "事实提取中'成交量小于5日均量'的operator为lt但value为null，未提取具体数值，但原文未给出具体数值，可接受；但'量比是1.2'的operator为eq，value为1.2，但原文是疑问句，并非明确事实，应视为待澄清而非事实。",
+        "count": 1
+      },
+      {
+        "message": "风险规则支持takeProfit和stopLoss，但用户要求移动止盈止损，可能不支持，但描述为不支持移动止盈止损，而能力清单中无移动止盈止损，因此判断正确。",
+        "count": 1
+      },
+      {
+        "message": "风险规则支持takeProfit和stopLoss，但用户要求的是移动止盈止损，可能不支持，但takeProfit和stopLoss是固定百分比，移动止盈止损可能涉及trailingStop，但trailingStop是支持的，因此判断可能不准确。",
+        "count": 1
+      },
+      {
+        "message": "exit_condition 的 evidenceQuote '冲高就卖' 未明确具体阈值，但提取为 gt 且 value 为 null，可能造成歧义。",
+        "count": 1
+      },
+      {
+        "message": "第二条 entry_condition 的 evidenceQuote '今天就跟随买入' 并非明确条件，而是动作，提取为条件不准确。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 的 evidenceQuote '成交量异动' 未定义具体阈值，提取为 gt 且 value 为 null，不准确。",
+        "count": 1
+      },
+      {
+        "message": "entry_condition 的 evidenceQuote '根据IV的变化' 未明确具体条件，提取为 eq 且 value 为 'IV变化' 不准确。",
+        "count": 1
+      }
+    ]
+  }
+}

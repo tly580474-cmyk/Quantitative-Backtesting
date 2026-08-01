@@ -1,0 +1,28 @@
+{
+  "runId": "m1-synthetic-v2",
+  "target": 200,
+  "targets": {
+    "complete": 70,
+    "partial": 50,
+    "short_colloquial": 25,
+    "conflicting": 25,
+    "unsupported": 30
+  },
+  "promptVersion": "m1-synthetic-abc-v1",
+  "capabilityVersion": "9ce583e8c0018d3ef2233abec116033f1a9a9f33faa3de78022ecdd89b0d4c8b",
+  "models": {
+    "A": {
+      "model": "deepseek-v4-flash",
+      "baseURL": "https://api.deepseek.com/v1"
+    },
+    "B": {
+      "model": "deepseek-v4-flash",
+      "baseURL": "https://api.deepseek.com/v1"
+    },
+    "C": {
+      "model": "deepseek-v4-flash",
+      "baseURL": "https://api.deepseek.com/v1"
+    }
+  },
+  "createdAt": "2026-08-01T08:49:41.873Z"
+}

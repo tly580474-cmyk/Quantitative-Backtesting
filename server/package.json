@@ -73,6 +73,8 @@
     "factor:list": "tsx src/factorResearch/factorCli.ts list",
     "factor:run": "tsx src/factorResearch/factorCli.ts run",
     "factor:composite": "tsx src/factorResearch/factorCli.ts composite",
+    "m1:corpus:generate": "tsx src/evaluation/m1SyntheticCorpusCli.ts",
+    "m1:corpus:smoke": "tsx src/evaluation/m1SyntheticCorpusCli.ts --target=5 --batch-size=2 --run-id=smoke",
     "multi-asset:smoke": "tsx src/multiAsset/smokeCli.ts",
     "multi-asset:snapshot-smoke": "tsx src/multiAsset/snapshotSmokeCli.ts",
     "multi-asset:smoke:index500": "tsx src/multiAsset/snapshotSmokeCli.ts --universe=000905 --scope=foundation",
