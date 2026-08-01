@@ -19,6 +19,7 @@ import { registerFactorResearchRoutes } from './routes/factorResearch.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerPaperTradingRoutes } from './routes/paperTrading.js';
 import { registerExperimentRoutes } from './routes/experiments.js';
+import { registerMultiAssetRoutes } from './routes/multiAsset.js';
 import {
   startPaperTradingScheduler,
   stopPaperTradingScheduler,
@@ -48,6 +49,9 @@ import {
   startMiningWorker,
 } from './factorResearch/mining/miningWorker.js';
 import { getDuckDBRuntimeStats } from './research/duckdbRuntime.js';
+import { processMultiAssetRun } from './multiAsset/runService.js';
+import { recoverAndListQueuedMultiAssetRuns } from './multiAsset/repository.js';
+import { MultiAssetRunDispatcher } from './multiAsset/dispatcher.js';
 
 async function main(): Promise<void> {
   let requestedExitCode = 0;
@@ -137,6 +141,15 @@ async function main(): Promise<void> {
 
   // ── Fastify App ─────────────────────────────────────────────
   const app = Fastify({ logger: true, bodyLimit: 104857600 });
+  const multiAssetWorkerOptions = {
+    snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
+    pythonExecutable: config.FACTOR_MINER_PYTHON,
+  };
+  const multiAssetDispatcher = new MultiAssetRunDispatcher(
+    (runId) => processMultiAssetRun(runId, multiAssetWorkerOptions),
+    (runId, error) => app.log.error({ err: error, runId }, 'multi-asset worker failed'),
+    2,
+  );
 
   await app.register(cors, {
     origin: /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
@@ -149,6 +162,7 @@ async function main(): Promise<void> {
     status: 'ok',
     db: dbStatus.ok ? 'connected' : 'disconnected',
     duckdb: getDuckDBRuntimeStats(),
+    multiAsset: multiAssetDispatcher.stats(),
   }));
 
   // Register AI routes
@@ -171,6 +185,12 @@ async function main(): Promise<void> {
   registerStrategyConfigRoutes(app, dbOnline);
   registerResultRoutes(app, dbOnline);
   registerExperimentRoutes(app, dbOnline);
+  registerMultiAssetRoutes(
+    app,
+    dbOnline,
+    multiAssetWorkerOptions,
+    (runId) => multiAssetDispatcher.enqueue(runId),
+  );
   registerVisualStrategyRoutes(app, dbOnline);
   registerExportRoutes(app, dbOnline);
 
@@ -367,6 +387,11 @@ async function main(): Promise<void> {
     // 只有成功取得监听端口的服务实例才有权接管后台任务。监督器可能在旧实例
     // 仍存活时先启动替代实例；若在 listen 之前恢复，会误杀旧实例管理的 worker。
     if (dbOnline) {
+      const recoveredMultiAssetRuns = await recoverAndListQueuedMultiAssetRuns();
+      for (const runId of recoveredMultiAssetRuns) multiAssetDispatcher.enqueue(runId);
+      if (recoveredMultiAssetRuns.length > 0) {
+        console.warn(`[MultiAsset] Resumed ${recoveredMultiAssetRuns.length} queued or expired run(s).`);
+      }
       const recoveredTests = await recoverInterruptedCandidateTests();
       if (recoveredTests > 0) {
         console.warn(`[FactorResearch] Recovered ${recoveredTests} interrupted locked test(s).`);

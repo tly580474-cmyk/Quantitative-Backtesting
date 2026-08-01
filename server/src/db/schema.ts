@@ -554,6 +554,51 @@ export const strategyExperimentArtifactJobs = mysqlTable('strategy_experiment_ar
   expiresIdx: index('idx_seaj_expires').on(table.expiresAt),
 }));
 
+// ─── M4 multi-asset research plans and runs ─────────────────────
+export const multiAssetPlanVersions = mysqlTable('multi_asset_plan_versions', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('frozen'),
+  snapshotId: varchar('snapshot_id', { length: 128 }).notNull(),
+  planHash: varchar('plan_hash', { length: 64 }).notNull(),
+  plan: json('plan').notNull(),
+  snapshotConfig: json('snapshot_config').notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+}, (table) => ({
+  hashUnique: uniqueIndex('idx_mapv_hash').on(table.planHash),
+  snapshotCreatedIdx: index('idx_mapv_snapshot_created').on(table.snapshotId, table.createdAt),
+  statusCreatedIdx: index('idx_mapv_status_created').on(table.status, table.createdAt),
+}));
+
+export const multiAssetRuns = mysqlTable('multi_asset_runs', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  planVersionId: varchar('plan_version_id', { length: 36 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('queued'),
+  idempotencyKey: varchar('idempotency_key', { length: 128 }).notNull(),
+  inputHash: varchar('input_hash', { length: 64 }).notNull(),
+  initialCash: double('initial_cash').notNull(),
+  progress: json('progress').notNull(),
+  workerToken: varchar('worker_token', { length: 64 }),
+  leaseExpiresAt: varchar('lease_expires_at', { length: 24 }),
+  attemptCount: int('attempt_count').notNull().default(0),
+  rebalancePlan: json('rebalance_plan'),
+  executionResult: json('execution_result'),
+  resultHash: varchar('result_hash', { length: 64 }),
+  errorCode: varchar('error_code', { length: 64 }),
+  errorMessage: varchar('error_message', { length: 1000 }),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  startedAt: varchar('started_at', { length: 24 }),
+  completedAt: varchar('completed_at', { length: 24 }),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+}, (table) => ({
+  idempotencyUnique: uniqueIndex('idx_mar_idempotency').on(table.idempotencyKey),
+  planCreatedIdx: index('idx_mar_plan_created').on(table.planVersionId, table.createdAt),
+  statusCreatedIdx: index('idx_mar_status_created').on(table.status, table.createdAt),
+  statusLeaseIdx: index('idx_mar_status_lease').on(table.status, table.leaseExpiresAt),
+  resultHashIdx: index('idx_mar_result_hash').on(table.resultHash),
+}));
+
 // ─── equity_points ───────────────────────────────────────────────
 export const equityPoints = mysqlTable('equity_points', {
   id: int('id').autoincrement().primaryKey(),

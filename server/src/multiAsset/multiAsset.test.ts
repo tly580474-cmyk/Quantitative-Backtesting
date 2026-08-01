@@ -2,9 +2,32 @@ import { describe, expect, it } from 'vitest';
 import { generateRebalancePlan } from './duckdbPlanGenerator.js';
 import { executeRebalancePlan, assertPlanHasNoExecutionLedger } from './execution.js';
 import { BASIC_MULTI_ASSET_PLAN, BASIC_POINT_IN_TIME_ROWS } from './fixtures.js';
+import { generateRebalancePlanWithPython } from './pythonPlanWorker.js';
+import { buildMultiAssetRunInputHash } from './repository.js';
+import { assertCrossRuntimeParity, assertSnapshotConfigSemantics } from './runService.js';
 import { finalizeRebalancePlan, validateRebalancePlan } from './schema.js';
 
 describe('M4 multi-asset foundation', () => {
+  it('keeps persisted run identity stable and rejects infeasible snapshot requests', () => {
+    const left = buildMultiAssetRunInputHash({
+      planVersionId: 'plan-1', planHash: 'a'.repeat(64), initialCash: 1_000_000,
+    });
+    const right = buildMultiAssetRunInputHash({
+      initialCash: 1_000_000, planHash: 'a'.repeat(64), planVersionId: 'plan-1',
+    });
+    expect(left).toBe(right);
+    expect(() => assertSnapshotConfigSemantics({
+      indexCode: '000300', startDate: '2020-01-01', endDate: '2026-01-02',
+      frequency: 'weekly', topN: 10, weighting: 'equal',
+      maxGrossExposure: 0.95, maxSingleWeight: 0.1, minCashWeight: 0.05,
+    })).toThrow('首期单次多资产研究区间不能超过五年');
+    expect(() => assertSnapshotConfigSemantics({
+      indexCode: '000300', startDate: '2026-01-01', endDate: '2026-02-01',
+      frequency: 'weekly', topN: 2, weighting: 'equal',
+      maxGrossExposure: 0.95, maxSingleWeight: 0.1, minCashWeight: 0.05,
+    })).toThrow('入选数量与单标的权重上限无法达到目标总仓位');
+  });
+
   it('uses point-in-time membership and deterministically ranks weekly cross-sections', async () => {
     const plan = await generateRebalancePlan(BASIC_MULTI_ASSET_PLAN, BASIC_POINT_IN_TIME_ROWS);
     expect(plan.decisions).toHaveLength(2);
@@ -34,6 +57,46 @@ describe('M4 multi-asset foundation', () => {
     expect(plan.decisions).toHaveLength(1);
     expect(plan.decisions[0].decisionDate).toBe('2026-07-09');
     expect(plan.decisions[0].targets.map((target) => target.targetWeight)).toEqual([0.5, 0.4]);
+  });
+
+  it('keeps Python and DuckDB decisions identical and lets TypeScript execute either plan', async () => {
+    const [duckdbPlan, pythonPlan] = await Promise.all([
+      generateRebalancePlan(BASIC_MULTI_ASSET_PLAN, BASIC_POINT_IN_TIME_ROWS),
+      generateRebalancePlanWithPython({ plan: BASIC_MULTI_ASSET_PLAN, rows: BASIC_POINT_IN_TIME_ROWS }),
+    ]);
+    expect(pythonPlan.featureEngineVersion).toBe('python-cross-sectional-v1');
+    expect(pythonPlan.decisions).toEqual(duckdbPlan.decisions);
+    const bars = [
+      { tradeDate: '2026-07-03', instrumentKey: '600000.SH', open: 10, tradable: true },
+      { tradeDate: '2026-07-03', instrumentKey: '000002.SZ', open: 20, tradable: true },
+      { tradeDate: '2026-07-10', instrumentKey: '600000.SH', open: 11, tradable: true },
+      { tradeDate: '2026-07-10', instrumentKey: '000002.SZ', open: 19, tradable: true },
+      { tradeDate: '2026-07-10', instrumentKey: '000001.SZ', open: 12, tradable: true },
+      { tradeDate: '2026-07-10', instrumentKey: '600001.SH', open: 8, tradable: true },
+    ];
+    const duckdbResult = executeRebalancePlan({
+      sourcePlan: BASIC_MULTI_ASSET_PLAN, rebalancePlan: duckdbPlan, bars, initialCash: 100_000,
+    });
+    const pythonResult = executeRebalancePlan({
+      sourcePlan: BASIC_MULTI_ASSET_PLAN, rebalancePlan: pythonPlan, bars, initialCash: 100_000,
+    });
+    expect(pythonResult).toEqual(duckdbResult);
+
+    const scorePlan = {
+      ...BASIC_MULTI_ASSET_PLAN,
+      signalPlan: { ...BASIC_MULTI_ASSET_PLAN.signalPlan, weighting: 'score' as const },
+      rebalancePolicy: { ...BASIC_MULTI_ASSET_PLAN.rebalancePolicy, frequency: 'monthly' as const },
+    };
+    const [duckdbScore, pythonScore] = await Promise.all([
+      generateRebalancePlan(scorePlan, BASIC_POINT_IN_TIME_ROWS),
+      generateRebalancePlanWithPython({ plan: scorePlan, rows: BASIC_POINT_IN_TIME_ROWS }),
+    ]);
+    expect(pythonScore.decisions).toEqual(duckdbScore.decisions);
+    expect(() => assertCrossRuntimeParity(duckdbScore, {
+      ...pythonScore,
+      decisions: pythonScore.decisions.map((decision, index) => index === 0
+        ? { ...decision, targets: decision.targets.slice(1) } : decision),
+    })).toThrow('Python 与 DuckDB');
   });
 
   it('rejects a tampered plan and compute-plane ledger fields', async () => {

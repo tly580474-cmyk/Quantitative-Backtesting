@@ -1,0 +1,87 @@
+import { spawn } from 'node:child_process';
+import { resolve } from 'node:path';
+import {
+  multiAssetPlanSchema,
+  pointInTimeFeatureRowSchema,
+  validateRebalancePlan,
+  type RebalancePlan,
+} from './schema.js';
+
+const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+const MAX_INPUT_BYTES = 32 * 1024 * 1024;
+
+export async function generateRebalancePlanWithPython(options: {
+  plan: unknown;
+  rows: unknown[];
+  pythonExecutable?: string;
+  workerPath?: string;
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+}): Promise<RebalancePlan> {
+  const plan = multiAssetPlanSchema.parse(options.plan);
+  const rows = options.rows.map((row) => pointInTimeFeatureRowSchema.parse(row));
+  const input = JSON.stringify({ plan, rows });
+  if (Buffer.byteLength(input) > MAX_INPUT_BYTES) throw new Error('PYTHON_PLAN_INPUT_TOO_LARGE');
+  const workerPath = resolve(options.workerPath ?? resolve(process.cwd(), 'src/multiAsset/rebalance_worker.py'));
+  const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
+
+  return new Promise<RebalancePlan>((resolvePromise, rejectPromise) => {
+    const child = spawn(options.pythonExecutable ?? 'python', [workerPath], {
+      windowsHide: true,
+      shell: false,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: cleanPythonEnvironment(),
+    });
+    let stdout = Buffer.alloc(0);
+    let stderr = Buffer.alloc(0);
+    let settled = false;
+    const finish = (error?: Error, result?: RebalancePlan) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) rejectPromise(error);
+      else resolvePromise(result!);
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      finish(new Error('PYTHON_PLAN_WORKER_TIMEOUT'));
+    }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (settled) return;
+      stdout = Buffer.concat([stdout, chunk]);
+      if (stdout.byteLength > maxOutputBytes) {
+        child.kill();
+        finish(new Error('PYTHON_PLAN_OUTPUT_TOO_LARGE'));
+      }
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (settled) return;
+      stderr = Buffer.concat([stderr, chunk]).subarray(-64 * 1024);
+    });
+    child.on('error', (error) => finish(new Error(`PYTHON_PLAN_WORKER_START_FAILED:${error.message}`)));
+    child.on('close', (code) => {
+      if (settled) return;
+      if (code !== 0) {
+        finish(new Error(`PYTHON_PLAN_WORKER_FAILED:${code}:${stderr.toString('utf8').trim().slice(-1000)}`));
+        return;
+      }
+      try {
+        const parsed = JSON.parse(stdout.toString('utf8')) as unknown;
+        finish(undefined, validateRebalancePlan(parsed, plan));
+      } catch (error) {
+        finish(new Error(`PYTHON_PLAN_OUTPUT_INVALID:${error instanceof Error ? error.message : String(error)}`));
+      }
+    });
+    child.stdin.on('error', (error) => finish(new Error(`PYTHON_PLAN_INPUT_FAILED:${error.message}`)));
+    child.stdin.end(input);
+  });
+}
+
+function cleanPythonEnvironment(): NodeJS.ProcessEnv {
+  const allowed = ['PATH', 'Path', 'PATHEXT', 'SYSTEMROOT', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP'];
+  const env: NodeJS.ProcessEnv = { PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1', PYTHONNOUSERSITE: '1' };
+  for (const key of allowed) if (process.env[key] !== undefined) env[key] = process.env[key];
+  return env;
+}

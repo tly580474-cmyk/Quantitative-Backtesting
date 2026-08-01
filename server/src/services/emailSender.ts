@@ -149,31 +149,18 @@ export interface EmailHeaderData {
   highlights: EmailHighlightCard[];
 }
 
-// 金融主题装饰图 - K线上升趋势SVG（base64内嵌，清晰小巧）
-const HEADER_DECO_SVG_BASE64 = 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNjAgMTIwIiBmaWxsPSJub25lIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMWE3M2U4IiBzdG9wLW9wYWNpdHk9IjAuMTIiLz48c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMxYTczZTgiIHN0b3Atb3BhY2l0eT0iMC4wMyIvPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxyZWN0IHdpZHRoPSIxNjAiIGhlaWdodD0iMTIwIiBmaWxsPSJ1cmwoI2cpIiByeD0iMTQiLz48cGF0aCBkPSJNMjAgOTUgTDM1IDgwTDUwIDg1TDY1IDY1TDgwIDc1TDk1IDU1TDExMCA2MEwxMjUgNDVMMTQwIDU1IiBzdHJva2U9IiMxYTczZTgiIHN0cm9rZS13aWR0aD0iMyIgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PHJlY3QgeD0iMzAiIHk9Ijc1IiB3aWR0aD0iNSIgaGVpZ2h0PSIyMCIgcng9IjIuNSIgZmlsbD0iIzIyYzU3MiIvPjxyZWN0IHg9IjQ1IiB5PSI4MCIgd2lkdGg9IjUiIGhlaWdodD0iMTUiIHJ4PSIyLjUiIGZpbGw9IiNkMzJmMmZmIi8+PHJlY3QgeD0iNjAiIHk9IjYwIiB3aWR0aD0iNSIgaGVpZ2h0PSIyNSIgcng9IjIuNSIgZmlsbD0iIzIyYzU3MiIvPjxyZWN0IHg9Ijc1IiB5PSI3MCIgd2lkdGg9IjUiIGhlaWdodD0iMTUiIHJ4PSIyLjUiIGZpbGw9IiMyMmM1NzIiLz48cmVjdCB4PSI5MCIgeT0iNTAiIHdpZHRoPSI1IiBoZWlnaHQ9IjMwIiByeD0iMi41IiBmaWxsPSIjMjJjNTcyIi8+PHJlY3QgeD0iMTA1IiB5PSI1NSIgd2lkdGg9IjUiIGhlaWdodD0iMjAiIHJ4PSIyLjUiIGZpbGw9IiMyMmM1NzIiLz48cmVjdCB4PSIxMjAiIHk9IjQwIiB3aWR0aD0iNSIgaGVpZ2h0PSIyNSIgcng9IjIuNSIgZmlsbD0iIzIyYzU3MiIvPjxjaXJjbGUgY3g9IjE0MCIgY3k9IjU1IiByPSI2IiBmaWxsPSIjMWE3M2U4IiBmaWxsLW9wYWNpdHk9IjAuMTUiLz48Y2lyY2xlIGN4PSIxNDAiIGN5PSI1NSIgcj0iMyIgZmlsbD0iIzFhNzNlOCIvPjwvc3ZnPg==';
-
-const ICON_SVGS: Record<EmailHighlightCard['icon'], string> = {
-  chart: `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="' + BRAND_BLUE + '"><path d="M3 13c.55 0 1 .45 1 1v4c0 .55-.45 1-1 1s-1-.45-1-1v-4c0-.55.45-1 1-1zm4-4c.55 0 1 .45 1 1v8c0 .55-.45 1-1 1s-1-.45-1-1v-8c0-.55.45-1 1-1zm4-4c.55 0 1 .45 1 1v12c0 .55-.45 1-1 1s-1-.45-1-1V6c0-.55.45-1 1-1zm4-4c.55 0 1 .45 1 1v16c0 .55-.45 1-1 1s-1-.45-1-1V2c0-.55.45-1 1-1z"/></svg>')}`,
-  medal: `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="' + BRAND_BLUE + '"><path d="M12 2L9 5l3 3 3-3zm0 0l3 3-3 3-3-3zM5 9l14 1-7 10-5-5 7-2z"/></svg>')}`,
-  clock: `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="' + BRAND_BLUE + '"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18h-2v-6H7v-2h3V7h2v6h3v2h-3v5z"/></svg>')}`,
-  bull: `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="' + BRAND_BLUE + '"><path d="M3 17v-2l3-3 3 3 4-5 4 4 2-3v4l-4 3-4-5-4 5-4-4-3 3z"/></svg>')}`,
-  bear: `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#d32f2f"><path d="M3 7v2l3 3 3-3 4 5 4-4 2 3v-4l-4-3-4 5-4-5-4 4-3-3z"/></svg>')}`,
-  alert: `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#f59e0b"><path d="M1 21h22L12 2 1 21zm11-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>')}`,
-};
-
-function getHighlightIcon(icon: EmailHighlightCard['icon']): string {
-  return ICON_SVGS[icon] || ICON_SVGS.chart;
-}
-
 function renderHighlightCard(card: EmailHighlightCard): string {
-  const iconSrc = getHighlightIcon(card.icon);
+  const glyphs: Record<EmailHighlightCard['icon'], string> = {
+    chart: '▥', medal: '★', clock: '◷', bull: '↗', bear: '↘', alert: '!',
+  };
+  const glyph = glyphs[card.icon] ?? glyphs.chart;
   return `<td class="highlight-card-cell" width="33%" valign="top" style="padding:0 4px;box-sizing:border-box;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#fff;border-radius:14px;border:1px solid #e0e9f5;box-shadow:0 6px 18px rgba(26,115,232,0.10),0 2px 6px rgba(26,115,232,0.06);">
       <tr><td style="padding:14px 10px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
           <td width="36" style="padding-right:8px;vertical-align:middle;">
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="width:34px;height:34px;background:linear-gradient(135deg,#e8f0fe 0%,#d2e3fc 100%);border-radius:10px;box-shadow:inset 0 1px 2px rgba(255,255,255,0.8);margin:0 auto;"><tr><td align="center" valign="middle" style="padding:0;">
-              <img src="${iconSrc}" width="18" height="18" alt="" style="display:block;border:0;margin:0 auto;">
+              <span aria-hidden="true" style="display:block;color:${card.icon === 'bear' ? '#d32f2f' : card.icon === 'alert' ? '#f59e0b' : BRAND_BLUE};font-size:18px;font-weight:800;line-height:34px;text-align:center;">${glyph}</span>
             </td></tr></table>
           </td>
           <td style="vertical-align:middle;">
@@ -266,7 +253,15 @@ ${escapeHtml(prefix)}<br><span style="color:${BRAND_BLUE};">${escapeHtml(bluePar
 ${dataCutoffText ? `<p style="margin:0;font-size:13px;color:#4a6585;line-height:1.5;display:flex;align-items:center;">🕐 <span style="margin-left:4px;">${escapeHtml(dataCutoffText)}</span></p>` : ''}
 </td>
 <td class="header-deco" width="170" style="padding:24px 22px 0 0;vertical-align:top;text-align:right;">
-<img src="data:image/svg+xml;base64,${HEADER_DECO_SVG_BASE64}" width="150" alt="" style="display:block;border:0;border-radius:14px;box-shadow:0 6px 20px rgba(26,115,232,0.18);">
+<table role="presentation" width="150" cellpadding="0" cellspacing="0" border="0" aria-hidden="true" style="width:150px;height:104px;background:#f4f8ff;border:1px solid #c4dafc;border-radius:14px;box-shadow:0 6px 20px rgba(26,115,232,0.18);">
+<tr><td valign="bottom" align="center" style="padding:16px 12px 14px;">
+  <span style="display:inline-block;width:10px;height:20px;background:#9cc2fa;border-radius:3px 3px 0 0;margin:0 3px;"></span>
+  <span style="display:inline-block;width:10px;height:34px;background:#5b9bf3;border-radius:3px 3px 0 0;margin:0 3px;"></span>
+  <span style="display:inline-block;width:10px;height:28px;background:#7aacf2;border-radius:3px 3px 0 0;margin:0 3px;"></span>
+  <span style="display:inline-block;width:10px;height:48px;background:${BRAND_BLUE};border-radius:3px 3px 0 0;margin:0 3px;"></span>
+  <span style="display:inline-block;width:10px;height:58px;background:${BRAND_BLUE_DARK};border-radius:3px 3px 0 0;margin:0 3px;"></span>
+</td></tr>
+</table>
 </td>
 </tr>
 </table>

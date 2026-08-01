@@ -23,7 +23,21 @@ describe('market opinion email HTML', () => {
     const html = reportEmailHtml('测试', '<script>alert(1)</script> ![x](https://tracker.test/a.png) [x](javascript:alert(1))', '2026-07-19 13:14');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('<img');
+    expect(html).not.toContain('data:image');
+    expect(html).not.toContain('tracker.test');
     expect(html).not.toContain('javascript:');
+  });
+
+  it('keeps safe links while producing a self-contained image-free template', () => {
+    const html = reportEmailHtml('测试', '[研究报告](https://example.com/report)', '2026-07-19 13:14', {
+      kindLabel: '午报',
+      dateStr: '2026-07-19',
+      dataCutoffText: '数据截至 13:14',
+      highlights: [{ icon: 'chart', title: '市场温度', subtitle: '中性' }],
+    });
+    expect(html).toContain('href="https://example.com/report"');
+    expect(html).not.toContain('<img');
+    expect(html).not.toMatch(/\bsrc=/i);
   });
 });
 
