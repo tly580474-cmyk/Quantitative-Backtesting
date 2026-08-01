@@ -5,6 +5,7 @@ import { executeRebalancePlan } from './execution.js';
 import { generateRebalancePlanWithPython } from './pythonPlanWorker.js';
 import { defaultMultiAssetArtifactRoot, persistMultiAssetJsonArtifact } from './artifactStore.js';
 import { validateMultiAssetGovernanceBinding } from './governanceBinding.js';
+import { finalizeMultiAssetExtensionReport } from './extensionSchema.js';
 import {
   cancelClaimedMultiAssetRun,
   claimQueuedMultiAssetRun,
@@ -47,6 +48,9 @@ export async function processMultiAssetRun(
   runId: string,
   options: { snapshotRoot: string; pythonExecutable?: string; artifactRoot?: string },
 ) {
+  const runStartedAt = performance.now();
+  let peakRssBytes = process.memoryUsage().rss;
+  const sampleMemory = () => { peakRssBytes = Math.max(peakRssBytes, process.memoryUsage().rss); };
   const workerToken = randomUUID();
   const claimed = await claimQueuedMultiAssetRun(runId, workerToken, RUN_LEASE_MS);
   if (!claimed) return getMultiAssetRun(runId);
@@ -62,6 +66,7 @@ export async function processMultiAssetRun(
     await requireProgress(runId, workerToken, 'loading_snapshot', 10);
     await throwIfCancelled(runId, workerToken);
     const input = await loadSnapshotMomentumInput({ snapshotRoot: options.snapshotRoot, ...config });
+    sampleMemory();
     // Historical v1 plans predate filterAudit. Preserve their exact source-plan hash instead of
     // silently upgrading a frozen artifact during replay.
     if (!sourcePlan.universePlan.filterAudit) delete input.sourcePlan.universePlan.filterAudit;
@@ -71,13 +76,19 @@ export async function processMultiAssetRun(
     }
     await requireProgress(runId, workerToken, 'building_rebalance_plan', 35);
     await throwIfCancelled(runId, workerToken);
-    const [duckdbPlan, pythonPlan] = await Promise.all([
-      generateRebalancePlan(sourcePlan, input.rows),
+    const optimizerStartedAt = performance.now();
+    const [duckdbOutput, pythonPlan] = await Promise.all([
+      generateRebalancePlan(sourcePlan, input.rows).then((plan) => ({
+        plan,
+        durationMs: performance.now() - optimizerStartedAt,
+      })),
       generateRebalancePlanWithPython({
         plan: sourcePlan, rows: input.rows,
         pythonExecutable: options.pythonExecutable, timeoutMs: 120_000,
       }),
     ]);
+    const duckdbPlan = duckdbOutput.plan;
+    sampleMemory();
     assertCrossRuntimeParity(duckdbPlan, pythonPlan);
     await persistMultiAssetJsonArtifact({
       artifactRoot: options.artifactRoot ?? defaultMultiAssetArtifactRoot(options.snapshotRoot),
@@ -90,9 +101,45 @@ export async function processMultiAssetRun(
     const executionResult = executeRebalancePlan({
       sourcePlan, rebalancePlan: duckdbPlan, bars, initialCash: claimed.initialCash,
     });
+    sampleMemory();
     await persistMultiAssetJsonArtifact({
       artifactRoot: options.artifactRoot ?? defaultMultiAssetArtifactRoot(options.snapshotRoot),
       runId, kind: 'execution_result', value: executionResult,
+    });
+    const optimizerResults = duckdbPlan.decisions
+      .map((decision) => decision.optimizerResult).filter((result) => result !== undefined);
+    const industryDeviations = optimizerResults.map((result) => {
+      const actual = result.industryExposure ?? {};
+      const benchmark = result.benchmarkIndustryExposure ?? {};
+      const codes = [...new Set([...Object.keys(actual), ...Object.keys(benchmark)])];
+      return Math.max(0, ...codes.map((code) => Math.abs((actual[code] ?? 0) - (benchmark[code] ?? 0))));
+    });
+    const extensionReport = finalizeMultiAssetExtensionReport({
+      protocolVersion: '1.0',
+      runId,
+      sourcePlanHash: storedPlan.planHash,
+      rebalancePlanHash: duckdbPlan.planHash,
+      pythonPlanHash: pythonPlan.planHash,
+      metrics: {
+        factorCount: sourcePlan.factorPlan?.factors.length ?? 1,
+        averageUniverseSize: duckdbPlan.decisions.reduce((sum, decision) => sum + decision.eligibleUniverse.length, 0)
+          / duckdbPlan.decisions.length,
+        maximumUniverseSize: Math.max(...duckdbPlan.decisions.map((decision) => decision.eligibleUniverse.length)),
+        optimizerDecisionCount: optimizerResults.length,
+        optimizerPlanningDurationMs: duckdbOutput.durationMs,
+        totalDurationMs: performance.now() - runStartedAt,
+        peakRssBytes,
+        infeasibleRate: 0,
+        maximumIndustryDeviation: Math.max(0, ...industryDeviations),
+        averageTurnover: optimizerResults.length
+          ? optimizerResults.reduce((sum, result) => sum + result.turnover, 0) / optimizerResults.length
+          : 0,
+      },
+      generatedAt: new Date().toISOString(),
+    });
+    await persistMultiAssetJsonArtifact({
+      artifactRoot: options.artifactRoot ?? defaultMultiAssetArtifactRoot(options.snapshotRoot),
+      runId, kind: 'extension_report', value: extensionReport,
     });
     await throwIfCancelled(runId, workerToken);
     const resultHash = canonicalHash({

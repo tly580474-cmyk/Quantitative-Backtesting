@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "capabilities:generate": "node scripts/generate-strategy-capabilities.mjs",
-    "capabilities:check": "node scripts/generate-strategy-capabilities.mjs --check",
+    "capabilities:generate": "node scripts/generate-strategy-capabilities.mjs && node scripts/generate-multi-asset-capabilities.mjs",
+    "capabilities:check": "node scripts/generate-strategy-capabilities.mjs --check && node scripts/generate-multi-asset-capabilities.mjs --check",
     "prebuild": "npm run capabilities:generate",
     "build": "tsc -b && vite build",
     "admin:dev": "vite --config admin/vite.config.ts",

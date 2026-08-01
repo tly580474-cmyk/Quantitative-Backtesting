@@ -78,7 +78,11 @@ try {
   });
   const events = await listMultiAssetRunEvents(fullRun.run.id);
   const artifacts = await listMultiAssetRunArtifacts(fullRun.run.id);
-  if (completed?.status !== 'completed' || artifacts.length !== 2 || events.length < 5) {
+  const artifactKinds = new Set(artifacts.map((artifact) => artifact.kind));
+  if (completed?.status !== 'completed'
+    || !(['rebalance_plan', 'execution_result', 'extension_report'] as const)
+      .every((kind) => artifactKinds.has(kind))
+    || events.length < 5) {
     throw new Error(`FULL_RUN_INCOMPLETE:${completed?.status}:${artifacts.length}:${events.length}`);
   }
 

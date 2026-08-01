@@ -127,6 +127,76 @@ describe('M4 multi-asset foundation', () => {
     }));
   });
 
+  it('keeps Python and TypeScript identical for PIT fundamentals and industry-neutral optimization', async () => {
+    const factors = [
+      {
+        factorId: 'momentum_20', factorVersion: 'published-v1', direction: 'higher' as const,
+        missing: 'exclude' as const, normalization: 'zscore' as const, weight: 1,
+      },
+      {
+        factorId: 'roe', factorVersion: 'financial-reports-v1', direction: 'higher' as const,
+        missing: 'exclude' as const, normalization: 'zscore' as const, weight: 1,
+      },
+    ];
+    const plan = {
+      ...BASIC_MULTI_ASSET_PLAN,
+      planVersion: '1.2' as const,
+      factorPlan: { protocolVersion: '1.0' as const, weighting: 'equal' as const, factors },
+      fundamentalPlan: {
+        protocolVersion: '1.0' as const, datasetId: 'financial_reports', datasetChecksum: 'c'.repeat(64),
+        maxStalenessDays: 550, fields: ['roe' as const],
+      },
+      industryPlan: {
+        protocolVersion: '1.0' as const, datasetId: 'sw_industry_memberships',
+        datasetChecksum: 'd'.repeat(64), taxonomy: 'SW2021' as const, level: 1 as const,
+      },
+      optimizerSpec: {
+        protocolVersion: '1.0' as const,
+        objective: 'expected_return_minus_risk_and_turnover' as const,
+        mode: 'constrained' as const, riskAversion: 0.2, turnoverPenalty: 0.1,
+        maxTurnover: 0.9, maxHoldings: 4,
+        solver: {
+          name: 'deterministic_projection' as const, version: '1.0' as const,
+          tolerance: 1e-9, maxIterations: 200, seed: 7,
+        },
+        industryNeutral: {
+          protocolVersion: '1.0' as const, taxonomy: 'SW2021' as const, level: 1 as const,
+          benchmark: 'universe_equal' as const, maxActiveDeviation: 0.02, allowUnknown: false,
+        },
+      },
+      signalPlan: { ...BASIC_MULTI_ASSET_PLAN.signalPlan, topN: 4 },
+      portfolioPlan: { ...BASIC_MULTI_ASSET_PLAN.portfolioPlan, maxGrossExposure: 0.8, maxSingleWeight: 0.3, minCashWeight: 0.2 },
+    };
+    const rows = [
+      ['000001.SZ', 0.4, 12, 0.20, '801010'],
+      ['000002.SZ', 0.3, 11, 0.18, '801010'],
+      ['600000.SH', 0.2, 9, 0.12, '801020'],
+      ['600001.SH', 0.1, 8, 0.10, '801020'],
+    ].map(([instrumentKey, momentum, roe, riskProxy, industryCode]) => ({
+      decisionDate: '2026-07-02', executableFrom: '2026-07-03', instrumentKey: String(instrumentKey),
+      memberFrom: '2025-01-01', memberTo: null, featureValue: Number(momentum), riskProxy: Number(riskProxy),
+      factorValues: { momentum_20: Number(momentum), roe: Number(roe) },
+      fundamentalEvidence: {
+        reportPeriod: '2026-03-31', announcementDate: '2026-04-25', sourceVersion: 'report-v1',
+        ageDays: 68, missingFields: [],
+      },
+      industryEvidence: {
+        taxonomy: 'SW2021' as const, level1Code: String(industryCode), level1Name: `行业${industryCode}`,
+        effectiveFrom: '2025-01-01', effectiveTo: null, sourceVersion: 'sw-v1',
+      },
+    }));
+    const [typescriptResult, pythonResult] = await Promise.all([
+      generateRebalancePlan(plan, rows), generateRebalancePlanWithPython({ plan, rows }),
+    ]);
+    expect(typescriptResult.protocolVersion).toBe('1.2');
+    expect(typescriptResult.decisions[0].optimizerResult?.status).toBe('solved');
+    expect(typescriptResult.decisions[0].featureEvidence.every((item) => (
+      item.fundamentalEvidence && item.industryEvidence
+    ))).toBe(true);
+    expect(pythonResult.decisions).toEqual(typescriptResult.decisions);
+    expect(validateRebalancePlan(pythonResult, plan)).toEqual(pythonResult);
+  });
+
   it('rejects trained factor weights that overlap validation data', () => {
     expect(() => multiAssetPlanSchema.parse({
       ...BASIC_MULTI_ASSET_PLAN,

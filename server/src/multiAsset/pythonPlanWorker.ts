@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonicalHash } from '../experiments/schema.js';
+import { finalizeOptimizerResult } from './extensionSchema.js';
 import {
   finalizeRebalancePlan,
   hashMultiAssetPlan,
@@ -99,12 +100,36 @@ export async function generateRebalancePlanWithPython(options: {
                 const { evidenceHash: _transportHash, ...hashableEvidence } = item;
                 return { ...hashableEvidence, evidenceHash: canonicalHash(hashableEvidence) };
               });
+            const optimizerResult = decision.optimizerResult
+              ? (() => {
+                const { resultHash: _transportHash, ...hashableResult } = decision.optimizerResult;
+                const candidates = decision.optimizerResult.weights.map((item) => ({
+                  instrumentKey: item.instrumentKey,
+                  expectedReturn: item.expectedReturn,
+                  riskProxy: item.riskProxy,
+                  previousWeight: item.previousWeight,
+                  industryCode: item.industryCode,
+                }));
+                const inputHash = canonicalHash({
+                  decisionDate: decision.decisionDate,
+                  candidates,
+                  spec: plan.optimizerSpec!,
+                  limits: {
+                    grossExposure: plan.portfolioPlan.maxGrossExposure,
+                    maxSingleWeight: plan.portfolioPlan.maxSingleWeight,
+                    minCashWeight: plan.portfolioPlan.minCashWeight,
+                  },
+                });
+                return finalizeOptimizerResult({ ...hashableResult, inputHash });
+              })()
+              : undefined;
             return {
               ...decision,
               eligibleUniverse,
               universeHash: canonicalHash({ decisionDate: decision.decisionDate, members: eligibleUniverse }),
               featureEvidence,
               featureHash: canonicalHash(featureEvidence),
+              optimizerResult,
             };
           });
           const normalized = finalizeRebalancePlan({

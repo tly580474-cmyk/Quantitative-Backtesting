@@ -10,6 +10,7 @@ import {
   type PointInTimeFeatureRow,
   type RebalancePlan,
 } from './schema.js';
+import { solvePortfolioOptimizer } from './portfolioOptimizer.js';
 
 export const DUCKDB_FEATURE_ENGINE_VERSION = 'duckdb-cross-sectional-v1';
 export const MULTI_FACTOR_ENGINE_VERSION = 'cross-sectional-composite-v1';
@@ -36,20 +37,24 @@ export async function generateRebalancePlan(
     : await rankWithDuckDB(plan, rows);
   if (ranked.length === 0) throw new Error('NO_ELIGIBLE_POINT_IN_TIME_FEATURE_ROWS');
 
+  const previousWeights = new Map<string, number>();
   const decisions = [...new Set(ranked.map((row) => row.decisionDate))].sort().map((decisionDate) => {
     const sourceForDate = rows.filter((row) => row.decisionDate === decisionDate && isMemberAt(row, decisionDate));
     const eligibleUniverse = [...new Set(sourceForDate.map((row) => row.instrumentKey))].sort();
     const rankedForDate = new Map(ranked.filter((row) => row.decisionDate === decisionDate)
       .map((row) => [row.instrumentKey, row]));
     const featureEvidence = sourceForDate
-      .map(({ instrumentKey, featureValue, factorValues }) => {
+      .map(({ instrumentKey, featureValue, factorValues, fundamentalEvidence, industryEvidence }) => {
         const composite = rankedForDate.get(instrumentKey);
         const evidence = plan.factorPlan ? {
           instrumentKey,
           featureValue: composite?.featureValue ?? null,
-          factorValues: factorValues ?? {},
+          factorValues: Object.fromEntries(Object.entries(factorValues ?? {})
+            .map(([factorId, value]) => [factorId, value === 0 ? 0 : value])),
           normalizedFactors: composite?.normalizedFactors,
           compositeScore: composite?.featureValue,
+          fundamentalEvidence,
+          industryEvidence,
         } : { instrumentKey, featureValue };
         return plan.factorPlan
           ? { ...evidence, evidenceHash: canonicalHash(evidence) }
@@ -58,7 +63,46 @@ export async function generateRebalancePlan(
       .sort((left, right) => left.instrumentKey.localeCompare(right.instrumentKey));
     const selected = ranked.filter((row) => row.decisionDate === decisionDate
       && (!plan.factorPlan || row.rank <= plan.signalPlan.topN));
-    const weights = targetWeights(plan, selected);
+    const baselineWeights = targetWeights(plan, selected);
+    const sourceByInstrument = new Map(sourceForDate.map((row) => [row.instrumentKey, row]));
+    const optimizerResult = plan.optimizerSpec ? solvePortfolioOptimizer({
+      decisionDate,
+      candidates: selected.map((row) => ({
+        instrumentKey: row.instrumentKey,
+        expectedReturn: row.featureValue,
+        riskProxy: sourceByInstrument.get(row.instrumentKey)?.riskProxy ?? 0,
+        previousWeight: previousWeights.get(row.instrumentKey) ?? 0,
+        industryCode: sourceByInstrument.get(row.instrumentKey)?.industryEvidence?.level1Code ?? null,
+      })),
+      spec: plan.optimizerSpec,
+      limits: {
+        grossExposure: plan.portfolioPlan.maxGrossExposure,
+        maxSingleWeight: plan.portfolioPlan.maxSingleWeight,
+        minCashWeight: plan.portfolioPlan.minCashWeight,
+      },
+    }) : undefined;
+    if (optimizerResult && optimizerResult.status !== 'solved') {
+      throw new Error(`OPTIMIZER_${optimizerResult.status.toUpperCase()}:${optimizerResult.conflicts.join(',')}`);
+    }
+    const optimizedByInstrument = new Map(optimizerResult?.weights
+      .map((item) => [item.instrumentKey, item.optimizedWeight] as const) ?? []);
+    const targets = selected.map((row, index) => ({
+      instrumentKey: row.instrumentKey,
+      rank: row.rank,
+      score: row.featureValue,
+      targetWeight: optimizedByInstrument.get(row.instrumentKey) ?? baselineWeights[index],
+      reasonCodes: plan.factorPlan
+        ? [
+          ...Object.keys(row.factorValues ?? {}).sort().map((factorId) => {
+            const factor = plan.factorPlan!.factors.find((item) => item.factorId === factorId)!;
+            return `${factor.factorId}@${factor.factorVersion}`;
+          }),
+          `rank:${row.rank}`,
+        ]
+        : [`${plan.featurePlan.featureId}@${plan.featurePlan.featureVersion}`, `rank:${row.rank}`],
+    }));
+    previousWeights.clear();
+    targets.forEach((target) => previousWeights.set(target.instrumentKey, target.targetWeight));
     return {
       decisionDate,
       executableFrom: selected[0].executableFrom,
@@ -66,25 +110,12 @@ export async function generateRebalancePlan(
       universeHash: canonicalHash({ decisionDate, members: eligibleUniverse }),
       featureEvidence,
       featureHash: canonicalHash(featureEvidence),
-      targets: selected.map((row, index) => ({
-        instrumentKey: row.instrumentKey,
-        rank: row.rank,
-        score: row.featureValue,
-        targetWeight: weights[index],
-        reasonCodes: plan.factorPlan
-          ? [
-            ...Object.keys(row.factorValues ?? {}).sort().map((factorId) => {
-              const factor = plan.factorPlan!.factors.find((item) => item.factorId === factorId)!;
-              return `${factor.factorId}@${factor.factorVersion}`;
-            }),
-            `rank:${row.rank}`,
-          ]
-          : [`${plan.featurePlan.featureId}@${plan.featurePlan.featureVersion}`, `rank:${row.rank}`],
-      })),
+      targets,
+      optimizerResult,
     };
   });
   const output = finalizeRebalancePlan({
-    protocolVersion: plan.factorPlan ? '1.1' : '1.0',
+    protocolVersion: plan.planVersion === '1.2' ? '1.2' : plan.factorPlan ? '1.1' : '1.0',
     snapshotId: plan.snapshotId,
     featureEngineVersion: plan.factorPlan ? MULTI_FACTOR_ENGINE_VERSION : DUCKDB_FEATURE_ENGINE_VERSION,
     sourcePlanHash: hashMultiAssetPlan(plan),
@@ -141,11 +172,12 @@ function rankMultiFactor(plan: MultiAssetPlan, rows: PointInTimeFeatureRow[]): R
         decisionDate,
         executableFrom: row.executableFrom,
         instrumentKey: row.instrumentKey,
-        featureValue: score,
+        featureValue: roundCrossRuntime(score),
         factorValues: Object.fromEntries(factors.map((factor) => [
           factor.factorId, row.factorValues?.[factor.factorId] ?? null,
         ])),
-        normalizedFactors,
+        normalizedFactors: Object.fromEntries(Object.entries(normalizedFactors)
+          .map(([factorId, value]) => [factorId, roundCrossRuntime(value)])),
         rank: 0,
       }];
     }).sort((left, right) => right.featureValue - left.featureValue
@@ -192,7 +224,7 @@ function percentileRank(values: Array<{ instrumentKey: string; value: number }>)
   while (start < ordered.length) {
     let end = start;
     while (end + 1 < ordered.length && ordered[end + 1].value === ordered[start].value) end += 1;
-    const rank = ordered.length === 1 ? 0.5 : ((start + end) / 2) / (ordered.length - 1);
+    const rank = roundCrossRuntime(ordered.length === 1 ? 0.5 : ((start + end) / 2) / (ordered.length - 1));
     for (let index = start; index <= end; index += 1) result.set(ordered[index].instrumentKey, rank);
     start = end + 1;
   }
@@ -203,7 +235,14 @@ function zscore(values: Array<{ instrumentKey: string; value: number }>): Map<st
   const mean = values.reduce((sum, item) => sum + item.value, 0) / values.length;
   const variance = values.reduce((sum, item) => sum + (item.value - mean) ** 2, 0) / values.length;
   const deviation = Math.sqrt(variance);
-  return new Map(values.map((item) => [item.instrumentKey, deviation === 0 ? 0 : (item.value - mean) / deviation]));
+  return new Map(values.map((item) => [
+    item.instrumentKey,
+    roundCrossRuntime(deviation === 0 ? 0 : (item.value - mean) / deviation),
+  ]));
+}
+
+function roundCrossRuntime(value: number): number {
+  return Math.round(value * 1e8) / 1e8;
 }
 
 function quantile(ordered: number[], percentile: number): number {

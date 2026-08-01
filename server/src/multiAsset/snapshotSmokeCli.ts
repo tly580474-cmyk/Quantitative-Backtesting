@@ -1,11 +1,16 @@
 import { resolve } from 'node:path';
+import { loadConfig } from '../config.js';
 import { generateRebalancePlan } from './duckdbPlanGenerator.js';
 import { executeRebalancePlan } from './execution.js';
 import { generateRebalancePlanWithPython } from './pythonPlanWorker.js';
 import { loadSnapshotExecutionBars, loadSnapshotMomentumInput } from './snapshotInput.js';
 
-const snapshotRoot = resolve(process.argv[2] ?? './data/research-snapshots');
-const universeArg = process.argv[3] ?? '000300';
+const config = loadConfig();
+const option = (name: string) => process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3);
+const positionalSnapshotRoot = process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : undefined;
+const snapshotRoot = resolve(option('snapshot-root') ?? positionalSnapshotRoot ?? config.RESEARCH_SNAPSHOT_ROOT);
+const universeArg = option('universe') ?? process.argv[3] ?? '000300';
+const scope = option('scope') ?? process.argv[4] ?? 'foundation';
 const universeSpec = universeArg === 'all_a' ? {
   type: 'all_a' as const,
   markets: ['SH', 'SZ', 'BJ'] as const,
@@ -15,6 +20,25 @@ const universeSpec = universeArg === 'all_a' ? {
   minAverageAmount20: 0,
   excludeRiskNames: true,
 } : { type: 'index' as const, indexCode: universeArg };
+const factorPlan = scope === 'foundation' ? undefined : {
+  protocolVersion: '1.0' as const,
+  weighting: 'equal' as const,
+  factors: [
+    {
+      factorId: 'momentum_20', factorVersion: 'published-v1', direction: 'higher' as const,
+      missing: 'exclude' as const, winsorization: { method: 'percentile' as const, lower: 0.01, upper: 0.99 },
+      normalization: 'zscore' as const, weight: 1,
+    },
+    {
+      factorId: scope === 'fundamental' ? 'free_cash_flow_to_enterprise_value' : 'reversal_5',
+      factorVersion: scope === 'fundamental' ? 'financial-reports-v1' : 'published-v1',
+      direction: 'higher' as const, missing: 'exclude' as const,
+      winsorization: { method: 'percentile' as const, lower: 0.01, upper: 0.99 },
+      normalization: 'zscore' as const, weight: 1,
+    },
+  ],
+};
+const usesOptimizer = scope === 'optimizer' || scope === 'industry';
 const input = await loadSnapshotMomentumInput({
   snapshotRoot,
   universeSpec,
@@ -26,13 +50,32 @@ const input = await loadSnapshotMomentumInput({
   maxGrossExposure: 0.95,
   maxSingleWeight: 0.1,
   minCashWeight: 0.05,
+  factorPlan,
+  fundamentalFields: scope === 'fundamental' ? ['free_cash_flow_to_enterprise_value'] : undefined,
+  fundamentalMaxStalenessDays: scope === 'fundamental' ? 550 : undefined,
+  optimizerSpec: usesOptimizer ? {
+    protocolVersion: '1.0', objective: 'expected_return_minus_risk_and_turnover',
+    mode: 'constrained', riskAversion: 0.2, turnoverPenalty: 0.1,
+    maxTurnover: 0.8, maxHoldings: 10,
+    solver: { name: 'deterministic_projection', version: '1.0', tolerance: 1e-8, maxIterations: 500, seed: 42 },
+    industryNeutral: scope === 'industry' ? {
+      protocolVersion: '1.0', taxonomy: 'SW2021', level: 1,
+      benchmark: 'universe_equal', maxActiveDeviation: 0.02, allowUnknown: false,
+    } : undefined,
+  } : undefined,
 });
 const [duckdbPlan, pythonPlan] = await Promise.all([
   generateRebalancePlan(input.sourcePlan, input.rows),
   generateRebalancePlanWithPython({ plan: input.sourcePlan, rows: input.rows, timeoutMs: 60_000 }),
 ]);
 if (JSON.stringify(duckdbPlan.decisions) !== JSON.stringify(pythonPlan.decisions)) {
-  throw new Error('SNAPSHOT_CROSS_RUNTIME_PARITY_FAILED');
+  const differingIndex = duckdbPlan.decisions.findIndex((decision, index) => (
+    JSON.stringify(decision) !== JSON.stringify(pythonPlan.decisions[index])
+  ));
+  const duckDecision = duckdbPlan.decisions[differingIndex];
+  const pythonDecision = pythonPlan.decisions[differingIndex];
+  throw new Error(`SNAPSHOT_CROSS_RUNTIME_PARITY_FAILED:${differingIndex}:${duckDecision?.decisionDate}`
+    + `:${duckDecision?.optimizerResult?.resultHash}:${pythonDecision?.optimizerResult?.resultHash}`);
 }
 const bars = await loadSnapshotExecutionBars(snapshotRoot, duckdbPlan);
 const result = executeRebalancePlan({
@@ -43,7 +86,8 @@ const result = executeRebalancePlan({
 });
 
 process.stdout.write(`${JSON.stringify({
-  status: 'snapshot_foundation_smoke_passed',
+  status: `snapshot_${scope}_smoke_passed`,
+  scope,
   provenance: input.provenance,
   filterAudit: input.sourcePlan.universePlan.filterAudit?.map((audit) => ({
     decisionDate: audit.decisionDate,

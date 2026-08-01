@@ -67,6 +67,35 @@ export function requiresPointInTimeFundamentals(dependencies: FactorDependency[]
   return dependencies.some((dependency) => FUNDAMENTAL_DEPENDENCIES.has(dependency));
 }
 
+export interface FundamentalVersion<T extends Record<string, unknown> = Record<string, unknown>> {
+  reportPeriod: string;
+  announcementDate: string;
+  sourceVersion: string;
+  updateFlag?: number;
+  fetchedAt?: string;
+  values: T;
+}
+
+/** Pure reference implementation used by dynamic-future-data tests and audit tooling. */
+export function selectPointInTimeFundamental<T extends Record<string, unknown>>(
+  versions: FundamentalVersion<T>[],
+  decisionDate: string,
+  maxStalenessDays: number,
+): (FundamentalVersion<T> & { ageDays: number }) | null {
+  const decision = Date.parse(`${decisionDate}T00:00:00Z`);
+  const eligible = versions.filter((version) => version.announcementDate <= decisionDate)
+    .map((version) => ({
+      ...version,
+      ageDays: Math.floor((decision - Date.parse(`${version.announcementDate}T00:00:00Z`)) / 86_400_000),
+    }))
+    .filter((version) => version.ageDays >= 0 && version.ageDays <= maxStalenessDays)
+    .sort((left, right) => right.announcementDate.localeCompare(left.announcementDate)
+      || right.reportPeriod.localeCompare(left.reportPeriod)
+      || (right.updateFlag ?? 0) - (left.updateFlag ?? 0)
+      || (right.fetchedAt ?? '').localeCompare(left.fetchedAt ?? ''));
+  return eligible[0] ?? null;
+}
+
 export interface CrossSectionPreprocessConfig {
   winsorLower: number;
   winsorUpper: number;

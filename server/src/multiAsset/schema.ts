@@ -1,5 +1,15 @@
 import { z } from 'zod';
 import { canonicalHash } from '../experiments/schema.js';
+import {
+  fundamentalPlanSchema,
+  industryPlanSchema,
+  optimizerResultSchema,
+  optimizerSpecSchema,
+  pointInTimeFundamentalEvidenceSchema,
+  pointInTimeIndustryEvidenceSchema,
+  validateOptimizerResultHash,
+} from './extensionSchema.js';
+import { validatePortfolioOptimizerResult } from './portfolioOptimizer.js';
 
 const dateSchema = z.iso.date();
 const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -26,7 +36,7 @@ export const factorPlanSchema = z.strictObject({
 });
 
 export const multiAssetPlanSchema = z.strictObject({
-  planVersion: z.enum(['1.0', '1.1']),
+  planVersion: z.enum(['1.0', '1.1', '1.2']),
   snapshotId: z.string().trim().min(1).max(128),
   snapshotChecksum: hashSchema,
   calendarId: z.string().trim().min(1).max(80),
@@ -59,6 +69,9 @@ export const multiAssetPlanSchema = z.strictObject({
     missing: z.literal('exclude'),
   }),
   factorPlan: factorPlanSchema.optional(),
+  fundamentalPlan: fundamentalPlanSchema.optional(),
+  industryPlan: industryPlanSchema.optional(),
+  optimizerSpec: optimizerSpecSchema.optional(),
   signalPlan: z.strictObject({
     type: z.literal('cross_sectional_rank'),
     topN: z.number().int().min(1).max(2_000),
@@ -90,6 +103,9 @@ export const multiAssetPlanSchema = z.strictObject({
   if (plan.planVersion === '1.1' && !plan.factorPlan) {
     context.addIssue({ code: 'custom', path: ['factorPlan'], message: 'PLAN_1_1_FACTOR_PLAN_REQUIRED' });
   }
+  if (plan.planVersion === '1.2' && !plan.factorPlan && !plan.optimizerSpec && !plan.fundamentalPlan && !plan.industryPlan) {
+    context.addIssue({ code: 'custom', path: ['planVersion'], message: 'PLAN_1_2_EXTENSION_REQUIRED' });
+  }
   if (plan.factorPlan) {
     const ids = plan.factorPlan.factors.map((factor) => factor.factorId);
     if (new Set(ids).size !== ids.length) {
@@ -99,6 +115,17 @@ export const multiAssetPlanSchema = z.strictObject({
       if (!plan.factorPlan.trainedThrough || !plan.factorPlan.validationStartsAt
         || plan.factorPlan.trainedThrough >= plan.factorPlan.validationStartsAt) {
         context.addIssue({ code: 'custom', path: ['factorPlan'], message: 'TRAINING_WEIGHTS_MUST_PRECEDE_VALIDATION' });
+      }
+    }
+  }
+  if (plan.optimizerSpec?.industryNeutral && !plan.industryPlan) {
+    context.addIssue({ code: 'custom', path: ['industryPlan'], message: 'INDUSTRY_PLAN_REQUIRED' });
+  }
+  if (plan.fundamentalPlan) {
+    const configured = new Set(plan.factorPlan?.factors.map((factor) => factor.factorId) ?? []);
+    for (const field of plan.fundamentalPlan.fields) {
+      if (!configured.has(field)) {
+        context.addIssue({ code: 'custom', path: ['fundamentalPlan', 'fields'], message: `FUNDAMENTAL_FACTOR_NOT_CONFIGURED:${field}` });
       }
     }
   }
@@ -124,13 +151,16 @@ const rebalanceDecisionSchema = z.strictObject({
     normalizedFactors: z.record(z.string(), z.number().finite()).optional(),
     compositeScore: z.number().finite().optional(),
     evidenceHash: hashSchema.optional(),
+    fundamentalEvidence: pointInTimeFundamentalEvidenceSchema.optional(),
+    industryEvidence: pointInTimeIndustryEvidenceSchema.optional(),
   })).min(1).max(20_000),
   featureHash: hashSchema,
   targets: z.array(targetSchema).max(2_000),
+  optimizerResult: optimizerResultSchema.optional(),
 });
 
 export const rebalancePlanSchema = z.strictObject({
-  protocolVersion: z.enum(['1.0', '1.1']),
+  protocolVersion: z.enum(['1.0', '1.1', '1.2']),
   snapshotId: z.string().trim().min(1).max(128),
   featureEngineVersion: z.string().trim().min(1).max(128),
   sourcePlanHash: hashSchema,
@@ -146,6 +176,9 @@ export const pointInTimeFeatureRowSchema = z.strictObject({
   memberTo: dateSchema.nullable(),
   featureValue: z.number().finite().nullable(),
   factorValues: z.record(z.string(), z.number().finite().nullable()).optional(),
+  riskProxy: z.number().finite().nonnegative().optional(),
+  fundamentalEvidence: pointInTimeFundamentalEvidenceSchema.optional(),
+  industryEvidence: pointInTimeIndustryEvidenceSchema.optional(),
 });
 
 export type MultiAssetPlan = z.infer<typeof multiAssetPlanSchema>;
@@ -218,7 +251,22 @@ export function validateRebalancePlan(
       sourcePlan.portfolioPlan.maxGrossExposure,
       1 - sourcePlan.portfolioPlan.minCashWeight,
     );
-    if (weightSum > allowedGross + 1e-10) throw new Error('TARGET_WEIGHTS_EXCEED_GROSS_LIMIT');
+    if (weightSum > allowedGross + 1e-9) throw new Error('TARGET_WEIGHTS_EXCEED_GROSS_LIMIT');
+    if (decision.optimizerResult) {
+      if (!sourcePlan.optimizerSpec) throw new Error('OPTIMIZER_RESULT_WITHOUT_SPEC');
+      const optimizerResult = validateOptimizerResultHash(decision.optimizerResult);
+      validatePortfolioOptimizerResult(optimizerResult, sourcePlan.optimizerSpec, {
+        grossExposure: sourcePlan.portfolioPlan.maxGrossExposure,
+        maxSingleWeight: sourcePlan.portfolioPlan.maxSingleWeight,
+        minCashWeight: sourcePlan.portfolioPlan.minCashWeight,
+      });
+      const optimized = new Map(optimizerResult.weights.map((item) => [item.instrumentKey, item.optimizedWeight]));
+      for (const target of decision.targets) {
+        if (Math.abs((optimized.get(target.instrumentKey) ?? -1) - target.targetWeight) > sourcePlan.optimizerSpec.solver.tolerance) {
+          throw new Error('TARGET_WEIGHT_DIFFERS_FROM_OPTIMIZER_RESULT');
+        }
+      }
+    }
   }
   return plan;
 }

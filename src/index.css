@@ -5560,6 +5560,15 @@ html[data-theme='dark'] .multi-asset-review-summary { border-color: #26364d; bac
 
 .multi-asset-plan-form { margin-top: 20px; }
 .multi-asset-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.multi-asset-confirm-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+.multi-asset-confirm-grid .ant-card { min-width: 0; background: #f8fbff; }
+.multi-asset-confirm-grid .ant-card-body { padding: 12px; }
+html[data-theme='dark'] .multi-asset-confirm-grid .ant-card { background: #0f192b; border-color: #26364d; }
 
 html[data-theme='dark'] .multi-asset-page { background: #07111f; }
 html[data-theme='dark'] .multi-asset-hero,
@@ -5609,7 +5618,8 @@ html[data-theme='dark'] .multi-asset-artifacts { border-color: #2a3b56; }
   .multi-asset-stat-grid,
   .multi-asset-result-stats,
   .multi-asset-review-summary,
-  .multi-asset-form-grid { grid-template-columns: 1fr; }
+  .multi-asset-form-grid,
+  .multi-asset-confirm-grid { grid-template-columns: 1fr; }
   .multi-asset-progress-panel { align-items: flex-start; flex-direction: column; }
 }
 

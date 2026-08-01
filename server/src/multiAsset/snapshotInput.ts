@@ -7,6 +7,7 @@ import { openManagedDuckDB } from '../research/duckdbRuntime.js';
 import { readCurrentSnapshot } from '../research/snapshotManifest.js';
 import type { ExecutionBar } from './execution.js';
 import { factorPlanSchema } from './schema.js';
+import { optimizerSpecSchema } from './extensionSchema.js';
 import type { MultiAssetPlan, PointInTimeFeatureRow, RebalancePlan } from './schema.js';
 
 const commonSnapshotConfigShape = {
@@ -20,6 +21,12 @@ const commonSnapshotConfigShape = {
   minCashWeight: z.number().finite().min(0).max(1).default(0.05),
   factorVersionId: z.string().trim().min(1).max(96).optional(),
   factorPlan: factorPlanSchema.optional(),
+  fundamentalFields: z.array(z.enum([
+    'roe', 'revenue_growth', 'net_profit_growth', 'debt_to_assets',
+    'operating_cash_flow_quality', 'gross_margin', 'free_cash_flow_to_enterprise_value',
+  ])).min(1).max(7).optional(),
+  fundamentalMaxStalenessDays: z.number().int().min(30).max(1_500).optional(),
+  optimizerSpec: optimizerSpecSchema.optional(),
   strategyVersionId: z.string().uuid().optional(),
 };
 
@@ -83,27 +90,89 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
   if (!current) throw new Error('RESEARCH_SNAPSHOT_UNAVAILABLE');
   const members = current.manifest.datasets?.find((dataset) => dataset.name === 'index_constituents');
   const versions = current.manifest.datasets?.find((dataset) => dataset.name === 'index_constituent_snapshots');
+  const financials = current.manifest.datasets?.find((dataset) => dataset.name === 'financial_reports');
+  const industries = current.manifest.datasets?.find((dataset) => dataset.name === 'sw_industry_memberships');
   if (request.universeSpec.type === 'index' && (!members || !versions)) {
     throw new Error('POINT_IN_TIME_INDEX_DATASET_UNAVAILABLE');
   }
+  if (request.fundamentalFields?.length && !financials) throw new Error('POINT_IN_TIME_FINANCIAL_DATASET_UNAVAILABLE');
+  if (request.optimizerSpec?.industryNeutral && !industries) throw new Error('POINT_IN_TIME_INDUSTRY_DATASET_UNAVAILABLE');
 
   const barsPath = normalizePath(join(snapshotRoot, current.manifest.snapshotId, 'bars', 'year=*', '*.parquet'));
   const membersPath = members ? normalizePath(join(snapshotRoot, current.manifest.snapshotId, members.relativePath)) : '';
   const versionsPath = versions ? normalizePath(join(snapshotRoot, current.manifest.snapshotId, versions.relativePath)) : '';
+  const financialsPath = financials ? normalizePath(join(snapshotRoot, current.manifest.snapshotId, financials.relativePath)) : '';
+  const industriesPath = industries ? normalizePath(join(snapshotRoot, current.manifest.snapshotId, industries.relativePath)) : '';
   const momentumDefinition = BUILTIN_FACTORS.find((factor) => factor.id === 'momentum_20');
   if (!momentumDefinition) throw new Error('MOMENTUM_20_DEFINITION_MISSING');
   const momentumSql = compileBuiltinFactorSql(momentumDefinition);
   const configuredFactors = request.factorPlan
     ? [...request.factorPlan.factors].sort((left, right) => left.factorId.localeCompare(right.factorId))
     : [];
-  const factorSql = configuredFactors.map((factor, index) => {
+  const fundamentalFactorSql: Record<string, string> = {
+    roe: 'fundamental.roe',
+    revenue_growth: 'fundamental.revenueGrowth',
+    net_profit_growth: 'fundamental.netProfitGrowth',
+    debt_to_assets: 'fundamental.debtToAssets',
+    operating_cash_flow_quality: 'fundamental.operatingCashFlowQuality',
+    gross_margin: 'fundamental.grossMargin',
+    free_cash_flow_to_enterprise_value: 'fundamental.freeCashFlowToEnterpriseValue',
+  };
+  const factorSql = configuredFactors.flatMap((factor, index) => {
+    if (fundamentalFactorSql[factor.factorId]) return [];
     const definition = BUILTIN_FACTORS.find((item) => item.id === factor.factorId);
     if (!definition || definition.expression.type !== 'builtin') {
       throw new Error(`MULTI_ASSET_FACTOR_NOT_PUBLISHED:${factor.factorId}`);
     }
-    return `${compileBuiltinFactorSql(definition)} AS factor_${index}`;
+    return [`${compileBuiltinFactorSql(definition)} AS factor_${index}`];
   });
-  const factorSelect = configuredFactors.map((_factor, index) => `score.factor_${index}`).join(', ');
+  const factorSelect = configuredFactors.map((factor, index) => (
+    `${fundamentalFactorSql[factor.factorId] ?? `score.factor_${index}`} AS factor_${index}`
+  )).join(', ');
+  const volatilityDefinition = BUILTIN_FACTORS.find((factor) => factor.id === 'volatility_20');
+  if (!volatilityDefinition) throw new Error('VOLATILITY_20_DEFINITION_MISSING');
+  const riskProxySql = compileBuiltinFactorSql(volatilityDefinition);
+  const usesFundamentals = configuredFactors.some((factor) => fundamentalFactorSql[factor.factorId]);
+  const usesIndustry = Boolean(request.optimizerSpec?.industryNeutral);
+  const fundamentalMaxStalenessDays = request.fundamentalMaxStalenessDays ?? 550;
+  const fundamentalJoin = usesFundamentals ? `LEFT JOIN LATERAL (
+        SELECT f.reportPeriod, f.announcementDate, f.sourceVersion,
+               COALESCE(f.roeCalculatedPct, f.roeWeightedPct, f.roePct) AS roe,
+               f.revenueYoyPct AS revenueGrowth, f.netProfitYoyPct AS netProfitGrowth,
+               f.debtToAssetsPct AS debtToAssets, f.grossMarginPct AS grossMargin,
+               f.netOperatingCashFlow / NULLIF(f.revenue, 0) AS operatingCashFlowQuality,
+               f.freeCashFlow / NULLIF(
+                 score.totalMarketCap + COALESCE(f.shortTermBorrowings, 0)
+                 + COALESCE(f.longTermBorrowings, 0) + COALESCE(f.bondsPayable, 0)
+                 - COALESCE(f.cashAndEquivalents, 0), 0
+               ) AS freeCashFlowToEnterpriseValue
+        FROM read_parquet('${escapeSql(financialsPath)}') f
+        WHERE f.instrumentKey = score.instrumentKey
+          AND f.announcementDate <= decision.decisionDate
+          AND date_diff('day', f.announcementDate, decision.decisionDate) <= $fundamentalMaxStalenessDays
+        ORDER BY f.announcementDate DESC, f.reportPeriod DESC,
+                 COALESCE(f.updateFlag, 0) DESC, f.fetchedAt DESC
+        LIMIT 1
+      ) fundamental ON true` : '';
+  const industryJoin = usesIndustry ? `LEFT JOIN LATERAL (
+        SELECT i.level1Code, i.level1Name, CAST(i.effectiveFrom AS DATE) AS effectiveFrom,
+               CAST(i.effectiveTo AS DATE) AS effectiveTo, i.sourceVersion
+        FROM read_parquet('${escapeSql(industriesPath)}') i
+        WHERE i.taxonomyKey = 'SW2021' AND i.instrumentKey = score.instrumentKey
+          AND CAST(i.effectiveFrom AS DATE) <= decision.decisionDate
+          AND (i.effectiveTo IS NULL OR CAST(i.effectiveTo AS DATE) >= decision.decisionDate)
+        ORDER BY i.effectiveFrom DESC, i.fetchedAt DESC
+        LIMIT 1
+      ) industry ON true` : '';
+  const auditSelect = `score.riskProxy,
+             ${usesFundamentals ? 'fundamental.reportPeriod' : 'NULL::DATE'} AS financialReportPeriod,
+             ${usesFundamentals ? 'fundamental.announcementDate' : 'NULL::DATE'} AS financialAnnouncementDate,
+             ${usesFundamentals ? 'fundamental.sourceVersion' : 'NULL::VARCHAR'} AS financialSourceVersion,
+             ${usesIndustry ? 'industry.level1Code' : 'NULL::VARCHAR'} AS industryLevel1Code,
+             ${usesIndustry ? 'industry.level1Name' : 'NULL::VARCHAR'} AS industryLevel1Name,
+             ${usesIndustry ? 'industry.effectiveFrom' : 'NULL::DATE'} AS industryEffectiveFrom,
+             ${usesIndustry ? 'industry.effectiveTo' : 'NULL::DATE'} AS industryEffectiveTo,
+             ${usesIndustry ? 'industry.sourceVersion' : 'NULL::VARCHAR'} AS industrySourceVersion`;
   const session = await openManagedDuckDB({
     label: 'multi-asset-snapshot-input',
     config: { threads: '4', max_memory: '2GB' },
@@ -156,15 +225,17 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
         INNER JOIN membership_periods period USING (snapshotId)
         WHERE member.indexCode = $indexCode AND member.instrumentKey IS NOT NULL
       ), scored AS (
-        SELECT instrumentKey, tradeDate,
-               ${momentumSql} AS featureValue
+        SELECT instrumentKey, tradeDate, totalMarketCap,
+               ${momentumSql} AS featureValue,
+               ${riskProxySql} AS riskProxy
                ${factorSql.length ? `, ${factorSql.join(', ')}` : ''}
         FROM all_bars
-        WINDOW instrument_window AS (PARTITION BY instrumentKey ORDER BY tradeDate)
+        WINDOW instrument_window AS (PARTITION BY instrumentKey ORDER BY tradeDate),
+               trailing_20 AS (PARTITION BY instrumentKey ORDER BY tradeDate ROWS BETWEEN 19 PRECEDING AND CURRENT ROW)
       )
       SELECT decision.decisionDate, decision.executableFrom,
              CAST(member.instrumentKey AS VARCHAR) AS instrumentKey,
-             member.memberFrom, member.memberTo, score.featureValue
+             member.memberFrom, member.memberTo, score.featureValue, ${auditSelect}
              ${factorSelect ? `, ${factorSelect}` : ''},
              false AS excludedRiskName, false AS excludedHistory,
              false AS excludedDataIncomplete, false AS excludedSuspended,
@@ -176,6 +247,8 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
       LEFT JOIN scored score
         ON score.instrumentKey = member.instrumentKey
        AND score.tradeDate = decision.decisionDate
+      ${fundamentalJoin}
+      ${industryJoin}
       ORDER BY decision.decisionDate, member.instrumentKey`;
     const allASpec = request.universeSpec.type === 'all_a' ? request.universeSpec : null;
     const marketsSql = allASpec?.markets.map((market) => `'${market}'`).join(',') ?? "'SH','SZ'";
@@ -185,23 +258,25 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
         WHERE instrumentKey IS NOT NULL
         GROUP BY instrumentKey
       ), scored AS (
-        SELECT bar.instrumentKey, bar.market, bar.symbol, bar.name, bar.tradeDate,
+        SELECT bar.instrumentKey, bar.market, bar.symbol, bar.name, bar.tradeDate, bar.totalMarketCap,
                lifecycle.memberFrom,
                count(close) OVER instrument_history AS historyDays,
                count(close) OVER recent_window AS validBars20,
                count(CASE WHEN coalesce(volume, 0) > 0 THEN 1 END) OVER recent_window AS tradedBars20,
                avg(coalesce(amount, 0)) OVER recent_window AS averageAmount20,
-               ${momentumSql} AS featureValue
+               ${momentumSql} AS featureValue,
+               ${riskProxySql} AS riskProxy
                ${factorSql.length ? `, ${factorSql.join(', ')}` : ''}
         FROM all_bars bar
         INNER JOIN instrument_lifecycle lifecycle USING (instrumentKey)
         WINDOW instrument_history AS (PARTITION BY bar.instrumentKey ORDER BY bar.tradeDate ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW),
                recent_window AS (PARTITION BY bar.instrumentKey ORDER BY bar.tradeDate ROWS BETWEEN 19 PRECEDING AND CURRENT ROW),
+               trailing_20 AS (PARTITION BY bar.instrumentKey ORDER BY bar.tradeDate ROWS BETWEEN 19 PRECEDING AND CURRENT ROW),
                instrument_window AS (PARTITION BY bar.instrumentKey ORDER BY bar.tradeDate)
       )
       SELECT decision.decisionDate, decision.executableFrom,
              CAST(score.instrumentKey AS VARCHAR) AS instrumentKey,
-             score.memberFrom, NULL::DATE AS memberTo, score.featureValue
+             score.memberFrom, NULL::DATE AS memberTo, score.featureValue, ${auditSelect}
              ${factorSelect ? `, ${factorSelect}` : ''},
              ($excludeRiskNames AND regexp_matches(coalesce(score.name, ''), '(?i)(\\*?ST|退市|退)')) AS excludedRiskName,
              score.historyDays < $minHistoryDays AS excludedHistory,
@@ -210,6 +285,8 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
              score.averageAmount20 < $minAverageAmount20 AS excludedLiquidity
       FROM decision_dates decision
       INNER JOIN scored score ON score.tradeDate = decision.decisionDate
+      ${fundamentalJoin}
+      ${industryJoin}
       WHERE score.market IN (${marketsSql}) AND score.instrumentKey IS NOT NULL
       ORDER BY decision.decisionDate, score.instrumentKey`;
     const query = request.universeSpec.type === 'index'
@@ -217,6 +294,7 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
         indexCode: request.universeSpec.indexCode,
         startDate: request.startDate,
         endDate: request.endDate,
+        ...(usesFundamentals ? { fundamentalMaxStalenessDays } : {}),
       })
       : session.connection.runAndReadAll(allASql, {
         startDate: request.startDate,
@@ -226,6 +304,7 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
         minValidBars20: allASpec!.minValidBars20,
         maxSuspendedDays20: allASpec!.maxSuspendedDays20,
         minAverageAmount20: allASpec!.minAverageAmount20,
+        ...(usesFundamentals ? { fundamentalMaxStalenessDays } : {}),
       });
     const reader = await withDeadline(Promise.resolve(query), 90_000, 'ALL_A_CROSS_SECTION_TIMEOUT');
     const candidateRows = reader.getRowObjectsJson();
@@ -243,6 +322,26 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
         factor.factorId,
         row[`factor_${index}`] == null ? null : Number(row[`factor_${index}`]),
       ])) : undefined,
+      riskProxy: row.riskProxy == null ? undefined : Math.max(0, Number(row.riskProxy)),
+      fundamentalEvidence: usesFundamentals ? {
+        reportPeriod: row.financialReportPeriod == null ? null : String(row.financialReportPeriod),
+        announcementDate: row.financialAnnouncementDate == null ? null : String(row.financialAnnouncementDate),
+        sourceVersion: row.financialSourceVersion == null ? null : String(row.financialSourceVersion),
+        ageDays: row.financialAnnouncementDate == null ? null : Math.floor((
+          Date.parse(`${String(row.decisionDate)}T00:00:00Z`)
+          - Date.parse(`${String(row.financialAnnouncementDate)}T00:00:00Z`)
+        ) / 86_400_000),
+        missingFields: configuredFactors.filter((factor, index) => fundamentalFactorSql[factor.factorId]
+          && row[`factor_${index}`] == null).map((factor) => factor.factorId),
+      } : undefined,
+      industryEvidence: usesIndustry ? {
+        taxonomy: 'SW2021',
+        level1Code: row.industryLevel1Code == null ? null : String(row.industryLevel1Code),
+        level1Name: row.industryLevel1Name == null ? null : String(row.industryLevel1Name),
+        effectiveFrom: row.industryEffectiveFrom == null ? null : String(row.industryEffectiveFrom),
+        effectiveTo: row.industryEffectiveTo == null ? null : String(row.industryEffectiveTo),
+        sourceVersion: row.industrySourceVersion == null ? null : String(row.industrySourceVersion),
+      } : undefined,
     }));
     if (rows.length === 0) throw new Error('SNAPSHOT_POINT_IN_TIME_ROWS_EMPTY');
     const auditByDate = new Map<string, typeof candidateRows>();
@@ -281,7 +380,8 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
       ? canonicalHash({ members: members!.sha256, versions: versions!.sha256 })
       : canonicalHash({ snapshotChecksum: canonicalHash(current.manifest), universeSpec: request.universeSpec });
     const sourcePlan: MultiAssetPlan = {
-      planVersion: request.factorPlan ? '1.1' : '1.0',
+      planVersion: request.fundamentalFields?.length || request.optimizerSpec ? '1.2'
+        : request.factorPlan ? '1.1' : '1.0',
       snapshotId: current.manifest.snapshotId,
       snapshotChecksum: canonicalHash(current.manifest),
       calendarId: 'CN_XSHG_XSHE_1D',
@@ -300,6 +400,15 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
         missing: 'exclude',
       },
       factorPlan: request.factorPlan,
+    fundamentalPlan: request.fundamentalFields?.length ? {
+        protocolVersion: '1.0', datasetId: 'financial_reports', datasetChecksum: financials!.sha256,
+        maxStalenessDays: fundamentalMaxStalenessDays, fields: request.fundamentalFields,
+    } : undefined,
+    industryPlan: request.optimizerSpec?.industryNeutral ? {
+      protocolVersion: '1.0', datasetId: industries!.name, datasetChecksum: industries!.sha256,
+      taxonomy: 'SW2021', level: 1,
+    } : undefined,
+      optimizerSpec: request.optimizerSpec,
       signalPlan: { type: 'cross_sectional_rank', topN: request.topN, weighting: request.weighting },
       rebalancePolicy: { frequency: request.frequency, signalAt: 'close', fillAt: 'next_open' },
       portfolioPlan: {

@@ -16,6 +16,17 @@ export async function registerMultiAssetWorker(input: {
 }): Promise<string> {
   const id = randomUUID();
   const now = new Date().toISOString();
+  if (input.mode === 'embedded') {
+    await getDb().update(multiAssetWorkers).set({
+      status: 'stopped',
+      lastHeartbeatAt: now,
+      stoppedAt: now,
+    }).where(and(
+      eq(multiAssetWorkers.mode, input.mode),
+      eq(multiAssetWorkers.hostname, input.hostname),
+      ne(multiAssetWorkers.status, 'stopped'),
+    ));
+  }
   await getDb().insert(multiAssetWorkers).values({
     id,
     mode: input.mode,

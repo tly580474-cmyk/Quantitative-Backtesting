@@ -32,6 +32,21 @@ export interface SnapshotMultiAssetConfig {
       normalization: 'percentile' | 'zscore'; weight: number;
     }>;
   };
+  fundamentalFields?: Array<'roe' | 'revenue_growth' | 'net_profit_growth' | 'debt_to_assets' | 'operating_cash_flow_quality' | 'gross_margin' | 'free_cash_flow_to_enterprise_value'>;
+  fundamentalMaxStalenessDays?: number;
+  optimizerSpec?: {
+    protocolVersion: '1.0';
+    objective: 'expected_return_minus_risk_and_turnover';
+    mode: 'baseline' | 'constrained';
+    riskAversion: number; turnoverPenalty: number; maxTurnover: number; maxHoldings: number;
+    minPositionWeight?: number;
+    solver: { name: 'deterministic_projection'; version: '1.0'; tolerance: number; maxIterations: number; seed: number };
+    industryNeutral?: {
+      protocolVersion: '1.0'; taxonomy: 'SW2021'; level: 1;
+      benchmark: 'universe_equal' | 'index_weight'; maxActiveDeviation: number; allowUnknown: boolean;
+      absoluteBounds?: Record<string, { min?: number; max?: number }>;
+    };
+  };
   strategyVersionId?: string;
 }
 
@@ -99,12 +114,42 @@ export interface StoredMultiAssetRun {
   cancelRequestedAt: string | null;
   cancelledAt: string | null;
   rebalancePlan: null | {
-    protocolVersion: '1.0' | '1.1';
+    protocolVersion: '1.0' | '1.1' | '1.2';
     planHash: string;
     decisions: Array<{
       decisionDate: string;
       executableFrom: string;
+      featureEvidence: Array<{
+        instrumentKey: string;
+        featureValue: number | null;
+        normalizedFactors?: Record<string, number>;
+        fundamentalEvidence?: {
+          reportPeriod: string | null; announcementDate: string | null; sourceVersion: string | null;
+          ageDays: number | null; missingFields: string[];
+        };
+        industryEvidence?: {
+          taxonomy: 'SW2021'; level1Code: string | null; level1Name: string | null;
+          effectiveFrom: string | null; effectiveTo: string | null; sourceVersion: string | null;
+        };
+      }>;
       targets: Array<{ instrumentKey: string; targetWeight: number; rank: number; score: number }>;
+      optimizerResult?: {
+        status: 'solved' | 'infeasible' | 'timeout' | 'numerical';
+        turnover: number; grossExposure: number;
+        comparison?: {
+          baseline: { expectedReturn: number; riskProxy: number; turnover: number; concentration: number };
+          optimized: { expectedReturn: number; riskProxy: number; turnover: number; concentration: number };
+        } | null;
+        weights: Array<{
+          instrumentKey: string; baselineWeight: number; optimizedWeight: number;
+          previousWeight: number; industryCode: string | null;
+        }>;
+        industryExposure?: Record<string, number>;
+        baselineIndustryExposure?: Record<string, number>;
+        benchmarkIndustryExposure?: Record<string, number>;
+        constraintMargins: Record<string, number>;
+        conflicts: string[];
+      };
     }>;
   };
   executionResult: null | {
@@ -125,7 +170,7 @@ export interface StoredMultiAssetRun {
 export interface MultiAssetRunArtifact {
   id: string;
   runId: string;
-  kind: 'rebalance_plan' | 'execution_result';
+  kind: 'rebalance_plan' | 'execution_result' | 'extension_report';
   contentHash: string;
   storageUri: string;
   byteSize: number;

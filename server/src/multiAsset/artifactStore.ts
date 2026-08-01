@@ -9,7 +9,7 @@ const MAX_MULTI_ASSET_ARTIFACT_BYTES = 64 * 1024 * 1024;
 export async function persistMultiAssetJsonArtifact(input: {
   artifactRoot: string;
   runId: string;
-  kind: 'rebalance_plan' | 'execution_result';
+  kind: 'rebalance_plan' | 'execution_result' | 'extension_report';
   value: unknown;
 }) {
   const root = resolve(input.artifactRoot);
