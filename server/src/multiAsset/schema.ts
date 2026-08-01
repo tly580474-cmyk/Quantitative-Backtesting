@@ -5,8 +5,28 @@ const dateSchema = z.iso.date();
 const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const instrumentKeySchema = z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_.:-]+$/);
 
+export const factorPlanSchema = z.strictObject({
+  protocolVersion: z.literal('1.0'),
+  weighting: z.enum(['equal', 'manual', 'training_ic', 'training_rank_ic']),
+  trainedThrough: dateSchema.optional(),
+  validationStartsAt: dateSchema.optional(),
+  factors: z.array(z.strictObject({
+    factorId: z.string().trim().min(1).max(128),
+    factorVersion: z.string().trim().min(1).max(96),
+    direction: z.enum(['higher', 'lower']),
+    missing: z.enum(['exclude', 'cross_sectional_median']),
+    winsorization: z.strictObject({
+      method: z.literal('percentile'),
+      lower: z.number().finite().min(0).max(0.49),
+      upper: z.number().finite().min(0.51).max(1),
+    }).optional(),
+    normalization: z.enum(['percentile', 'zscore']),
+    weight: z.number().finite(),
+  })).min(2).max(32),
+});
+
 export const multiAssetPlanSchema = z.strictObject({
-  planVersion: z.literal('1.0'),
+  planVersion: z.enum(['1.0', '1.1']),
   snapshotId: z.string().trim().min(1).max(128),
   snapshotChecksum: hashSchema,
   calendarId: z.string().trim().min(1).max(80),
@@ -14,6 +34,23 @@ export const multiAssetPlanSchema = z.strictObject({
     type: z.literal('point_in_time'),
     datasetId: z.string().trim().min(1).max(128),
     datasetChecksum: hashSchema,
+    filterAudit: z.array(z.strictObject({
+      decisionDate: dateSchema,
+      candidates: z.number().int().nonnegative(),
+      eligible: z.number().int().nonnegative(),
+      excludedRiskName: z.number().int().nonnegative(),
+      excludedHistory: z.number().int().nonnegative(),
+      excludedDataIncomplete: z.number().int().nonnegative(),
+      excludedSuspended: z.number().int().nonnegative(),
+      excludedLiquidity: z.number().int().nonnegative(),
+      eligibleUniverseHash: hashSchema,
+      exclusions: z.array(z.strictObject({
+        instrumentKey: instrumentKeySchema,
+        reasonCodes: z.array(z.enum([
+          'risk_name', 'insufficient_history', 'incomplete_bars', 'suspended', 'insufficient_liquidity',
+        ])).min(1).max(5),
+      })).max(20_000),
+    })).max(530).optional(),
   }),
   featurePlan: z.strictObject({
     featureId: z.string().trim().min(1).max(128),
@@ -21,6 +58,7 @@ export const multiAssetPlanSchema = z.strictObject({
     direction: z.enum(['higher', 'lower']),
     missing: z.literal('exclude'),
   }),
+  factorPlan: factorPlanSchema.optional(),
   signalPlan: z.strictObject({
     type: z.literal('cross_sectional_rank'),
     topN: z.number().int().min(1).max(2_000),
@@ -48,6 +86,22 @@ export const multiAssetPlanSchema = z.strictObject({
     strategyVersionId: z.string().uuid().optional(),
     role: z.enum(['research', 'challenger', 'champion']),
   }).optional(),
+}).superRefine((plan, context) => {
+  if (plan.planVersion === '1.1' && !plan.factorPlan) {
+    context.addIssue({ code: 'custom', path: ['factorPlan'], message: 'PLAN_1_1_FACTOR_PLAN_REQUIRED' });
+  }
+  if (plan.factorPlan) {
+    const ids = plan.factorPlan.factors.map((factor) => factor.factorId);
+    if (new Set(ids).size !== ids.length) {
+      context.addIssue({ code: 'custom', path: ['factorPlan', 'factors'], message: 'DUPLICATE_FACTOR_ID' });
+    }
+    if (plan.factorPlan.weighting.startsWith('training_')) {
+      if (!plan.factorPlan.trainedThrough || !plan.factorPlan.validationStartsAt
+        || plan.factorPlan.trainedThrough >= plan.factorPlan.validationStartsAt) {
+        context.addIssue({ code: 'custom', path: ['factorPlan'], message: 'TRAINING_WEIGHTS_MUST_PRECEDE_VALIDATION' });
+      }
+    }
+  }
 });
 
 const targetSchema = z.strictObject({
@@ -55,7 +109,7 @@ const targetSchema = z.strictObject({
   rank: z.number().int().positive(),
   score: z.number().finite(),
   targetWeight: z.number().finite().min(0).max(1),
-  reasonCodes: z.array(z.string().trim().min(1).max(80)).max(20),
+  reasonCodes: z.array(z.string().trim().min(1).max(80)).max(40),
 });
 
 const rebalanceDecisionSchema = z.strictObject({
@@ -66,13 +120,17 @@ const rebalanceDecisionSchema = z.strictObject({
   featureEvidence: z.array(z.strictObject({
     instrumentKey: instrumentKeySchema,
     featureValue: z.number().finite().nullable(),
+    factorValues: z.record(z.string(), z.number().finite().nullable()).optional(),
+    normalizedFactors: z.record(z.string(), z.number().finite()).optional(),
+    compositeScore: z.number().finite().optional(),
+    evidenceHash: hashSchema.optional(),
   })).min(1).max(20_000),
   featureHash: hashSchema,
   targets: z.array(targetSchema).max(2_000),
 });
 
 export const rebalancePlanSchema = z.strictObject({
-  protocolVersion: z.literal('1.0'),
+  protocolVersion: z.enum(['1.0', '1.1']),
   snapshotId: z.string().trim().min(1).max(128),
   featureEngineVersion: z.string().trim().min(1).max(128),
   sourcePlanHash: hashSchema,
@@ -87,6 +145,7 @@ export const pointInTimeFeatureRowSchema = z.strictObject({
   memberFrom: dateSchema,
   memberTo: dateSchema.nullable(),
   featureValue: z.number().finite().nullable(),
+  factorValues: z.record(z.string(), z.number().finite().nullable()).optional(),
 });
 
 export type MultiAssetPlan = z.infer<typeof multiAssetPlanSchema>;
@@ -94,7 +153,15 @@ export type RebalancePlan = z.infer<typeof rebalancePlanSchema>;
 export type PointInTimeFeatureRow = z.infer<typeof pointInTimeFeatureRowSchema>;
 
 export function hashMultiAssetPlan(plan: MultiAssetPlan): string {
-  return canonicalHash(multiAssetPlanSchema.parse(plan));
+  const parsed = multiAssetPlanSchema.parse(plan);
+  return canonicalHash(parsed.factorPlan ? {
+    ...parsed,
+    factorPlan: {
+      ...parsed.factorPlan,
+      factors: [...parsed.factorPlan.factors]
+        .sort((left, right) => left.factorId.localeCompare(right.factorId)),
+    },
+  } : parsed);
 }
 
 export function hashRebalancePlan(plan: Omit<RebalancePlan, 'planHash'>): string {

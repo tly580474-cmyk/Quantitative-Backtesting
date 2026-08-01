@@ -11,11 +11,13 @@ import hashlib
 import json
 import sys
 import os
+import math
 from datetime import date
 from typing import Any
 
 
 ENGINE_VERSION = "python-cross-sectional-v1"
+MULTI_FACTOR_ENGINE_VERSION = "python-cross-sectional-composite-v1"
 
 
 def apply_resource_limits() -> None:
@@ -88,7 +90,7 @@ def target_weights(plan: dict[str, Any], selected: list[dict[str, Any]]) -> list
     if plan["signalPlan"]["weighting"] == "equal":
         weight = min(gross / len(selected), cap)
         return [weight for _ in selected]
-    direction = plan["featurePlan"]["direction"]
+    direction = "higher" if plan.get("factorPlan") else plan["featurePlan"]["direction"]
     values = [
         row["featureValue"] if direction == "higher" else -row["featureValue"]
         for row in selected
@@ -98,6 +100,80 @@ def target_weights(plan: dict[str, Any], selected: list[dict[str, Any]]) -> list
     total = sum(strengths)
     preliminary = [gross * value / total for value in strengths]
     return cap_and_redistribute(preliminary, cap, gross)
+
+
+def quantile(values: list[float], percentile: float) -> float:
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * percentile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
+
+
+def percentile_rank(values: list[tuple[str, float]]) -> dict[str, float]:
+    ordered = sorted(values, key=lambda item: (item[1], item[0]))
+    output: dict[str, float] = {}
+    start = 0
+    while start < len(ordered):
+        end = start
+        while end + 1 < len(ordered) and ordered[end + 1][1] == ordered[start][1]:
+            end += 1
+        rank = 0.5 if len(ordered) == 1 else ((start + end) / 2) / (len(ordered) - 1)
+        for index in range(start, end + 1):
+            output[ordered[index][0]] = rank
+        start = end + 1
+    return output
+
+
+def normalize_factor(
+    source: list[dict[str, Any]], factor: dict[str, Any]
+) -> dict[str, float]:
+    raw = [(row["instrumentKey"], row.get("factorValues", {}).get(factor["factorId"])) for row in source]
+    available = [value for _, value in raw if value is not None]
+    if not available:
+        return {}
+    fill = quantile(available, 0.5)
+    completed = [
+        (key, value if value is not None else fill)
+        for key, value in raw
+        if value is not None or factor["missing"] == "cross_sectional_median"
+    ]
+    winsor = factor.get("winsorization")
+    if winsor:
+        low = quantile([value for _, value in completed], winsor["lower"])
+        high = quantile([value for _, value in completed], winsor["upper"])
+        completed = [(key, min(high, max(low, value))) for key, value in completed]
+    directed = [
+        (key, value if factor["direction"] == "higher" else -value)
+        for key, value in completed
+    ]
+    if factor["normalization"] == "percentile":
+        return percentile_rank(directed)
+    mean = sum(value for _, value in directed) / len(directed)
+    deviation = math.sqrt(sum((value - mean) ** 2 for _, value in directed) / len(directed))
+    return {key: 0.0 if deviation == 0 else (value - mean) / deviation for key, value in directed}
+
+
+def rank_multi_factor(plan: dict[str, Any], source: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    factor_plan = plan["factorPlan"]
+    factors = sorted(factor_plan["factors"], key=lambda factor: factor["factorId"])
+    raw_weights = [1.0 if factor_plan["weighting"] == "equal" else factor["weight"] for factor in factors]
+    scale = sum(abs(weight) for weight in raw_weights)
+    if scale <= 0:
+        raise ValueError("MULTI_FACTOR_WEIGHT_SUM_ZERO")
+    weights = [weight / scale for weight in raw_weights]
+    normalized = {factor["factorId"]: normalize_factor(source, factor) for factor in factors}
+    scored = []
+    for row in source:
+        key = row["instrumentKey"]
+        if any(key not in normalized[factor["factorId"]] for factor in factors):
+            continue
+        vector = {factor["factorId"]: normalized[factor["factorId"]][key] for factor in factors}
+        score = sum(vector[factor["factorId"]] * weights[index] for index, factor in enumerate(factors))
+        scored.append({**row, "featureValue": score, "normalizedFactors": vector})
+    return sorted(scored, key=lambda row: (-row["featureValue"], row["instrumentKey"]))
 
 
 def generate(payload: dict[str, Any]) -> dict[str, Any]:
@@ -125,17 +201,31 @@ def generate(payload: dict[str, Any]) -> dict[str, Any]:
         if len(executable_dates) != 1:
             raise ValueError("INCONSISTENT_EXECUTABLE_DATE")
         eligible_universe = sorted({row["instrumentKey"] for row in source})
-        feature_evidence = sorted(
-            [
-                {"instrumentKey": row["instrumentKey"], "featureValue": row["featureValue"]}
-                for row in source
-            ],
-            key=lambda item: item["instrumentKey"],
-        )
-        ranked = [row for row in source if row["featureValue"] is not None]
-        reverse = plan["featurePlan"]["direction"] == "higher"
-        ranked.sort(key=lambda row: row["instrumentKey"])
-        ranked.sort(key=lambda row: row["featureValue"], reverse=reverse)
+        if plan.get("factorPlan"):
+            ranked = rank_multi_factor(plan, source)
+            ranked_by_key = {row["instrumentKey"]: row for row in ranked}
+            feature_evidence = []
+            for row in sorted(source, key=lambda item: item["instrumentKey"]):
+                composite = ranked_by_key.get(row["instrumentKey"])
+                evidence = {
+                    "instrumentKey": row["instrumentKey"],
+                    "featureValue": composite["featureValue"] if composite else None,
+                    "factorValues": row.get("factorValues", {}),
+                }
+                if composite:
+                    evidence["normalizedFactors"] = composite["normalizedFactors"]
+                    evidence["compositeScore"] = composite["featureValue"]
+                evidence["evidenceHash"] = canonical_hash(evidence)
+                feature_evidence.append(evidence)
+        else:
+            feature_evidence = sorted(
+                [{"instrumentKey": row["instrumentKey"], "featureValue": row["featureValue"]} for row in source],
+                key=lambda item: item["instrumentKey"],
+            )
+            ranked = [row for row in source if row["featureValue"] is not None]
+            reverse = plan["featurePlan"]["direction"] == "higher"
+            ranked.sort(key=lambda row: row["instrumentKey"])
+            ranked.sort(key=lambda row: row["featureValue"], reverse=reverse)
         selected = ranked[: plan["signalPlan"]["topN"]]
         weights = target_weights(plan, selected)
         targets = [
@@ -144,10 +234,12 @@ def generate(payload: dict[str, Any]) -> dict[str, Any]:
                 "rank": index + 1,
                 "score": row["featureValue"],
                 "targetWeight": weights[index],
-                "reasonCodes": [
-                    f'{plan["featurePlan"]["featureId"]}@{plan["featurePlan"]["featureVersion"]}',
-                    f"rank:{index + 1}",
-                ],
+                "reasonCodes": ([
+                    f'{factor["factorId"]}@{factor["factorVersion"]}'
+                    for factor in sorted(plan["factorPlan"]["factors"], key=lambda item: item["factorId"])
+                ] if plan.get("factorPlan") else [
+                    f'{plan["featurePlan"]["featureId"]}@{plan["featurePlan"]["featureVersion"]}'
+                ]) + [f"rank:{index + 1}"],
             }
             for index, row in enumerate(selected)
         ]
@@ -166,9 +258,9 @@ def generate(payload: dict[str, Any]) -> dict[str, Any]:
         )
 
     output = {
-        "protocolVersion": "1.0",
+        "protocolVersion": "1.1" if plan.get("factorPlan") else "1.0",
         "snapshotId": plan["snapshotId"],
-        "featureEngineVersion": ENGINE_VERSION,
+        "featureEngineVersion": MULTI_FACTOR_ENGINE_VERSION if plan.get("factorPlan") else ENGINE_VERSION,
         "sourcePlanHash": canonical_hash(plan),
         "decisions": decisions,
     }

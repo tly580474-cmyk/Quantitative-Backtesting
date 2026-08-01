@@ -21,7 +21,7 @@ try {
     name: 'M4 worker lease concurrency smoke',
     snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
     config: {
-      indexCode: '000300', startDate: '2026-06-01', endDate: '2026-07-30',
+      universeSpec: { type: 'index', indexCode: '000300' }, startDate: '2026-06-01', endDate: '2026-07-30',
       frequency: 'weekly', topN: 10, weighting: 'equal',
       maxGrossExposure: 0.95, maxSingleWeight: 0.1, minCashWeight: 0.05,
     },

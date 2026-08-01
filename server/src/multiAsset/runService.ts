@@ -62,6 +62,9 @@ export async function processMultiAssetRun(
     await requireProgress(runId, workerToken, 'loading_snapshot', 10);
     await throwIfCancelled(runId, workerToken);
     const input = await loadSnapshotMomentumInput({ snapshotRoot: options.snapshotRoot, ...config });
+    // Historical v1 plans predate filterAudit. Preserve their exact source-plan hash instead of
+    // silently upgrading a frozen artifact during replay.
+    if (!sourcePlan.universePlan.filterAudit) delete input.sourcePlan.universePlan.filterAudit;
     if (hashMultiAssetPlan(input.sourcePlan) !== storedPlan.planHash
       || input.sourcePlan.snapshotId !== sourcePlan.snapshotId) {
       throw codedError('FROZEN_PLAN_BINDING_MISMATCH', '当前只读快照与冻结计划不一致，必须创建新计划版本');
@@ -139,12 +142,16 @@ export function assertCrossRuntimeParity(duckdbPlan: RebalancePlan, pythonPlan: 
   }
 }
 
-export function assertSnapshotConfigSemantics(config: SnapshotMultiAssetConfig): void {
+export function assertSnapshotConfigSemantics(configInput: SnapshotMultiAssetConfig | unknown): void {
+  const config = snapshotMultiAssetConfigSchema.parse(configInput);
   const start = Date.parse(`${config.startDate}T00:00:00Z`);
   const end = Date.parse(`${config.endDate}T00:00:00Z`);
   if (start > end) throw codedError('MULTI_ASSET_DATE_RANGE_INVALID', '开始日期不能晚于结束日期');
   if (end - start > 5 * 366 * 24 * 60 * 60 * 1000) {
     throw codedError('MULTI_ASSET_DATE_RANGE_TOO_LARGE', '首期单次多资产研究区间不能超过五年');
+  }
+  if (config.universeSpec.type === 'all_a' && end - start > 2 * 366 * 24 * 60 * 60 * 1000) {
+    throw codedError('ALL_A_DATE_RANGE_TOO_LARGE', '全 A 单次研究区间不能超过两年，请拆分计划以控制资源占用');
   }
   const gross = Math.min(config.maxGrossExposure, 1 - config.minCashWeight);
   if (config.topN * config.maxSingleWeight + 1e-12 < gross) {

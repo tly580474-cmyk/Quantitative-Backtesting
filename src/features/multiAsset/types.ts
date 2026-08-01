@@ -2,7 +2,15 @@ export type MultiAssetRunStatus = 'queued' | 'running' | 'completed' | 'failed'
   | 'retry_wait' | 'dead_letter' | 'cancelled';
 
 export interface SnapshotMultiAssetConfig {
-  indexCode: '000300' | '000905';
+  universeSpec?: {
+    type: 'index'; indexCode: '000300' | '000905';
+  } | {
+    type: 'all_a'; markets: Array<'SH' | 'SZ' | 'BJ'>;
+    minHistoryDays: number; minValidBars20: number; maxSuspendedDays20: number;
+    minAverageAmount20: number; excludeRiskNames: boolean;
+  };
+  /** Read-only compatibility for plans frozen before universeSpec was introduced. */
+  indexCode?: '000300' | '000905';
   startDate: string;
   endDate: string;
   frequency: 'weekly' | 'monthly';
@@ -12,6 +20,18 @@ export interface SnapshotMultiAssetConfig {
   maxSingleWeight: number;
   minCashWeight: number;
   factorVersionId?: string;
+  factorPlan?: {
+    protocolVersion: '1.0';
+    weighting: 'equal' | 'manual' | 'training_ic' | 'training_rank_ic';
+    trainedThrough?: string;
+    validationStartsAt?: string;
+    factors: Array<{
+      factorId: string; factorVersion: string; direction: 'higher' | 'lower';
+      missing: 'exclude' | 'cross_sectional_median';
+      winsorization?: { method: 'percentile'; lower: number; upper: number };
+      normalization: 'percentile' | 'zscore'; weight: number;
+    }>;
+  };
   strategyVersionId?: string;
 }
 
@@ -23,6 +43,7 @@ export interface StoredMultiAssetPlan {
   planHash: string;
   plan: {
     featurePlan?: { featureId?: string; featureVersion?: string };
+    factorPlan?: SnapshotMultiAssetConfig['factorPlan'];
     executionPlan?: {
       commissionRate?: number;
       minimumCommission?: number;
@@ -78,7 +99,7 @@ export interface StoredMultiAssetRun {
   cancelRequestedAt: string | null;
   cancelledAt: string | null;
   rebalancePlan: null | {
-    protocolVersion: '1.0';
+    protocolVersion: '1.0' | '1.1';
     planHash: string;
     decisions: Array<{
       decisionDate: string;

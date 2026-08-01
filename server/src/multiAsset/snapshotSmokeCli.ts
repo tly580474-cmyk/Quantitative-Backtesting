@@ -5,10 +5,19 @@ import { generateRebalancePlanWithPython } from './pythonPlanWorker.js';
 import { loadSnapshotExecutionBars, loadSnapshotMomentumInput } from './snapshotInput.js';
 
 const snapshotRoot = resolve(process.argv[2] ?? './data/research-snapshots');
-const indexCode = process.argv[3] ?? '000300';
+const universeArg = process.argv[3] ?? '000300';
+const universeSpec = universeArg === 'all_a' ? {
+  type: 'all_a' as const,
+  markets: ['SH', 'SZ', 'BJ'] as const,
+  minHistoryDays: 120,
+  minValidBars20: 20,
+  maxSuspendedDays20: 5,
+  minAverageAmount20: 0,
+  excludeRiskNames: true,
+} : { type: 'index' as const, indexCode: universeArg };
 const input = await loadSnapshotMomentumInput({
   snapshotRoot,
-  indexCode,
+  universeSpec,
   startDate: '2026-06-01',
   endDate: '2026-07-30',
   frequency: 'weekly',
@@ -36,6 +45,13 @@ const result = executeRebalancePlan({
 process.stdout.write(`${JSON.stringify({
   status: 'snapshot_foundation_smoke_passed',
   provenance: input.provenance,
+  filterAudit: input.sourcePlan.universePlan.filterAudit?.map((audit) => ({
+    decisionDate: audit.decisionDate,
+    candidates: audit.candidates,
+    eligible: audit.eligible,
+    exclusions: audit.exclusions.length,
+    eligibleUniverseHash: audit.eligibleUniverseHash,
+  })),
   planHash: duckdbPlan.planHash,
   decisions: duckdbPlan.decisions.length,
   pythonDuckdbParity: true,

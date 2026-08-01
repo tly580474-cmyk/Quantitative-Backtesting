@@ -93,7 +93,12 @@ export async function generateRebalancePlanWithPython(options: {
           const normalizedDecisions = parsed.decisions.map((decision) => {
             const eligibleUniverse = [...decision.eligibleUniverse].sort();
             const featureEvidence = [...decision.featureEvidence]
-              .sort((left, right) => left.instrumentKey.localeCompare(right.instrumentKey));
+              .sort((left, right) => left.instrumentKey.localeCompare(right.instrumentKey))
+              .map((item) => {
+                if (!item.evidenceHash) return item;
+                const { evidenceHash: _transportHash, ...hashableEvidence } = item;
+                return { ...hashableEvidence, evidenceHash: canonicalHash(hashableEvidence) };
+              });
             return {
               ...decision,
               eligibleUniverse,

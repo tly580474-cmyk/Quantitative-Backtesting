@@ -4,6 +4,8 @@ import { mkdir, rename, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { storeMultiAssetRunArtifact } from './repository.js';
 
+const MAX_MULTI_ASSET_ARTIFACT_BYTES = 64 * 1024 * 1024;
+
 export async function persistMultiAssetJsonArtifact(input: {
   artifactRoot: string;
   runId: string;
@@ -14,6 +16,9 @@ export async function persistMultiAssetJsonArtifact(input: {
   const target = resolve(root, input.runId, `${input.kind}.json`);
   if (!target.startsWith(`${root}\\`) && !target.startsWith(`${root}/`)) throw new Error('ARTIFACT_PATH_OUTSIDE_ROOT');
   const bytes = Buffer.from(JSON.stringify(input.value));
+  if (bytes.byteLength > MAX_MULTI_ASSET_ARTIFACT_BYTES) {
+    throw new Error('MULTI_ASSET_ARTIFACT_SIZE_LIMIT_EXCEEDED');
+  }
   const contentHash = createHash('sha256').update(bytes).digest('hex');
   await mkdir(dirname(target), { recursive: true });
   const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;

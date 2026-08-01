@@ -5,7 +5,7 @@ import { BASIC_MULTI_ASSET_PLAN, BASIC_POINT_IN_TIME_ROWS } from './fixtures.js'
 import { generateRebalancePlanWithPython } from './pythonPlanWorker.js';
 import { buildMultiAssetRunInputHash } from './repository.js';
 import { assertCrossRuntimeParity, assertSnapshotConfigSemantics } from './runService.js';
-import { finalizeRebalancePlan, validateRebalancePlan } from './schema.js';
+import { finalizeRebalancePlan, hashMultiAssetPlan, multiAssetPlanSchema, validateRebalancePlan } from './schema.js';
 import { snapshotMultiAssetConfigSchema } from './snapshotInput.js';
 
 describe('M4 multi-asset foundation', () => {
@@ -22,6 +22,17 @@ describe('M4 multi-asset foundation', () => {
       frequency: 'weekly', topN: 10, weighting: 'equal',
       maxGrossExposure: 0.95, maxSingleWeight: 0.1, minCashWeight: 0.05,
     })).toThrow();
+    expect(snapshotMultiAssetConfigSchema.parse({
+      indexCode: '000905', startDate: '2026-01-01', endDate: '2026-02-01',
+      frequency: 'weekly', topN: 10, weighting: 'equal',
+      maxGrossExposure: 0.95, maxSingleWeight: 0.1, minCashWeight: 0.05,
+    }).universeSpec).toEqual({ type: 'index', indexCode: '000905' });
+    expect(snapshotMultiAssetConfigSchema.parse({
+      universeSpec: { type: 'all_a', markets: ['SH', 'SZ', 'BJ'] },
+      startDate: '2026-01-01', endDate: '2026-02-01', frequency: 'monthly',
+      topN: 10, weighting: 'equal', maxGrossExposure: 0.95,
+      maxSingleWeight: 0.1, minCashWeight: 0.05,
+    }).universeSpec).toMatchObject({ type: 'all_a', minHistoryDays: 120, minValidBars20: 20 });
     expect(() => assertSnapshotConfigSemantics({
       indexCode: '000300', startDate: '2020-01-01', endDate: '2026-01-02',
       frequency: 'weekly', topN: 10, weighting: 'equal',
@@ -32,6 +43,12 @@ describe('M4 multi-asset foundation', () => {
       frequency: 'weekly', topN: 2, weighting: 'equal',
       maxGrossExposure: 0.95, maxSingleWeight: 0.1, minCashWeight: 0.05,
     })).toThrow('入选数量与单标的权重上限无法达到目标总仓位');
+    expect(() => assertSnapshotConfigSemantics({
+      universeSpec: { type: 'all_a', markets: ['SH', 'SZ', 'BJ'] },
+      startDate: '2023-01-01', endDate: '2026-02-01', frequency: 'weekly',
+      topN: 10, weighting: 'equal', maxGrossExposure: 0.95,
+      maxSingleWeight: 0.1, minCashWeight: 0.05,
+    })).toThrow('全 A 单次研究区间不能超过两年');
   });
 
   it('uses point-in-time membership and deterministically ranks weekly cross-sections', async () => {
@@ -63,6 +80,66 @@ describe('M4 multi-asset foundation', () => {
     expect(plan.decisions).toHaveLength(1);
     expect(plan.decisions[0].decisionDate).toBe('2026-07-09');
     expect(plan.decisions[0].targets.map((target) => target.targetWeight)).toEqual([0.5, 0.4]);
+  });
+
+  it('combines momentum and reversal with canonical evidence and order-independent plan hashes', async () => {
+    const factors = [
+      {
+        factorId: 'momentum_20', factorVersion: 'published-v1', direction: 'higher' as const,
+        missing: 'exclude' as const, normalization: 'percentile' as const, weight: 1,
+      },
+      {
+        factorId: 'reversal_5', factorVersion: 'published-v1', direction: 'higher' as const,
+        missing: 'exclude' as const, normalization: 'percentile' as const, weight: 1,
+      },
+    ];
+    const plan = {
+      ...BASIC_MULTI_ASSET_PLAN,
+      planVersion: '1.1' as const,
+      factorPlan: { protocolVersion: '1.0' as const, weighting: 'equal' as const, factors },
+    };
+    const rows = [
+      ['000001.SZ', 0.4, 0.1], ['000002.SZ', 0.3, 0.4],
+      ['600000.SH', 0.2, 0.3], ['600001.SH', 0.1, 0.2],
+    ].map(([instrumentKey, momentum, reversal]) => ({
+      decisionDate: '2026-07-02', executableFrom: '2026-07-03', instrumentKey: String(instrumentKey),
+      memberFrom: '2025-01-01', memberTo: null, featureValue: Number(momentum),
+      factorValues: { momentum_20: Number(momentum), reversal_5: Number(reversal) },
+    }));
+    const result = await generateRebalancePlan(plan, rows);
+    const pythonResult = await generateRebalancePlanWithPython({ plan, rows });
+    expect(result.protocolVersion).toBe('1.1');
+    expect(result.decisions[0].targets.map((target) => target.instrumentKey))
+      .toEqual(['000002.SZ', '000001.SZ']);
+    expect(result.decisions[0].featureEvidence.every((item) => item.evidenceHash)).toBe(true);
+    expect(pythonResult.decisions).toEqual(result.decisions);
+    expect(validateRebalancePlan(result, plan)).toEqual(result);
+    expect(hashMultiAssetPlan(plan)).toBe(hashMultiAssetPlan({
+      ...plan, factorPlan: { ...plan.factorPlan, factors: [...factors].reverse() },
+    }));
+    expect(hashMultiAssetPlan(plan)).not.toBe(hashMultiAssetPlan({
+      ...plan,
+      factorPlan: {
+        ...plan.factorPlan,
+        weighting: 'manual',
+        factors: factors.map((factor, index) => ({ ...factor, weight: index === 0 ? 2 : 1 })),
+      },
+    }));
+  });
+
+  it('rejects trained factor weights that overlap validation data', () => {
+    expect(() => multiAssetPlanSchema.parse({
+      ...BASIC_MULTI_ASSET_PLAN,
+      planVersion: '1.1',
+      factorPlan: {
+        protocolVersion: '1.0', weighting: 'training_rank_ic',
+        trainedThrough: '2026-07-01', validationStartsAt: '2026-07-01',
+        factors: [
+          { factorId: 'momentum_20', factorVersion: 'v1', direction: 'higher', missing: 'exclude', normalization: 'percentile', weight: 0.7 },
+          { factorId: 'reversal_5', factorVersion: 'v1', direction: 'higher', missing: 'exclude', normalization: 'percentile', weight: 0.3 },
+        ],
+      },
+    })).toThrow('TRAINING_WEIGHTS_MUST_PRECEDE_VALIDATION');
   });
 
   it('keeps Python and DuckDB decisions identical and lets TypeScript execute either plan', async () => {

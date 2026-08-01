@@ -12,6 +12,7 @@ import {
 } from './schema.js';
 
 export const DUCKDB_FEATURE_ENGINE_VERSION = 'duckdb-cross-sectional-v1';
+export const MULTI_FACTOR_ENGINE_VERSION = 'cross-sectional-composite-v1';
 
 interface RankedRow {
   decisionDate: string;
@@ -19,6 +20,8 @@ interface RankedRow {
   instrumentKey: string;
   featureValue: number;
   rank: number;
+  factorValues?: Record<string, number | null>;
+  normalizedFactors?: Record<string, number>;
 }
 
 export async function generateRebalancePlan(
@@ -28,16 +31,33 @@ export async function generateRebalancePlan(
   const plan = multiAssetPlanSchema.parse(rawPlan);
   const rows = rawRows.map((row) => pointInTimeFeatureRowSchema.parse(row));
   if (rows.length === 0) throw new Error('POINT_IN_TIME_FEATURE_ROWS_REQUIRED');
-  const ranked = await rankWithDuckDB(plan, rows);
+  const ranked = plan.factorPlan
+    ? rankMultiFactor(plan, rows)
+    : await rankWithDuckDB(plan, rows);
   if (ranked.length === 0) throw new Error('NO_ELIGIBLE_POINT_IN_TIME_FEATURE_ROWS');
 
   const decisions = [...new Set(ranked.map((row) => row.decisionDate))].sort().map((decisionDate) => {
     const sourceForDate = rows.filter((row) => row.decisionDate === decisionDate && isMemberAt(row, decisionDate));
     const eligibleUniverse = [...new Set(sourceForDate.map((row) => row.instrumentKey))].sort();
+    const rankedForDate = new Map(ranked.filter((row) => row.decisionDate === decisionDate)
+      .map((row) => [row.instrumentKey, row]));
     const featureEvidence = sourceForDate
-      .map(({ instrumentKey, featureValue }) => ({ instrumentKey, featureValue }))
+      .map(({ instrumentKey, featureValue, factorValues }) => {
+        const composite = rankedForDate.get(instrumentKey);
+        const evidence = plan.factorPlan ? {
+          instrumentKey,
+          featureValue: composite?.featureValue ?? null,
+          factorValues: factorValues ?? {},
+          normalizedFactors: composite?.normalizedFactors,
+          compositeScore: composite?.featureValue,
+        } : { instrumentKey, featureValue };
+        return plan.factorPlan
+          ? { ...evidence, evidenceHash: canonicalHash(evidence) }
+          : evidence;
+      })
       .sort((left, right) => left.instrumentKey.localeCompare(right.instrumentKey));
-    const selected = ranked.filter((row) => row.decisionDate === decisionDate);
+    const selected = ranked.filter((row) => row.decisionDate === decisionDate
+      && (!plan.factorPlan || row.rank <= plan.signalPlan.topN));
     const weights = targetWeights(plan, selected);
     return {
       decisionDate,
@@ -51,18 +71,155 @@ export async function generateRebalancePlan(
         rank: row.rank,
         score: row.featureValue,
         targetWeight: weights[index],
-        reasonCodes: [`${plan.featurePlan.featureId}@${plan.featurePlan.featureVersion}`, `rank:${row.rank}`],
+        reasonCodes: plan.factorPlan
+          ? [
+            ...Object.keys(row.factorValues ?? {}).sort().map((factorId) => {
+              const factor = plan.factorPlan!.factors.find((item) => item.factorId === factorId)!;
+              return `${factor.factorId}@${factor.factorVersion}`;
+            }),
+            `rank:${row.rank}`,
+          ]
+          : [`${plan.featurePlan.featureId}@${plan.featurePlan.featureVersion}`, `rank:${row.rank}`],
       })),
     };
   });
   const output = finalizeRebalancePlan({
-    protocolVersion: '1.0',
+    protocolVersion: plan.factorPlan ? '1.1' : '1.0',
     snapshotId: plan.snapshotId,
-    featureEngineVersion: DUCKDB_FEATURE_ENGINE_VERSION,
+    featureEngineVersion: plan.factorPlan ? MULTI_FACTOR_ENGINE_VERSION : DUCKDB_FEATURE_ENGINE_VERSION,
     sourcePlanHash: hashMultiAssetPlan(plan),
     decisions,
   });
   return validateRebalancePlan(output, plan);
+}
+
+function rankMultiFactor(plan: MultiAssetPlan, rows: PointInTimeFeatureRow[]): RankedRow[] {
+  const factorPlan = plan.factorPlan!;
+  const factors = [...factorPlan.factors].sort((left, right) => left.factorId.localeCompare(right.factorId));
+  const rawWeights = factors.map(() => factorPlan.weighting === 'equal' ? 1 : 0)
+    .map((value, index) => factorPlan.weighting === 'equal' ? value : factors[index].weight);
+  const weightScale = rawWeights.reduce((sum, value) => sum + Math.abs(value), 0);
+  if (weightScale <= 0) throw new Error('MULTI_FACTOR_WEIGHT_SUM_ZERO');
+  const weights = rawWeights.map((value) => value / weightScale);
+  const selectedDates = selectDecisionDates(plan, rows);
+  return selectedDates.flatMap((decisionDate) => {
+    const source = rows.filter((row) => row.decisionDate === decisionDate && isMemberAt(row, decisionDate));
+    const normalizedByFactor = new Map<string, Map<string, number>>();
+    for (const factor of factors) {
+      const raw = source.map((row) => ({
+        instrumentKey: row.instrumentKey,
+        value: row.factorValues?.[factor.factorId] ?? null,
+      }));
+      const available = raw.map((item) => item.value).filter(isFiniteNumber);
+      if (available.length === 0) continue;
+      const fill = median(available);
+      const completed = raw.flatMap((item) => {
+        const value = item.value ?? (factor.missing === 'cross_sectional_median' ? fill : null);
+        return value === null ? [] : [{ instrumentKey: item.instrumentKey, value }];
+      });
+      const winsorized = factor.winsorization
+        ? winsorize(completed, factor.winsorization.lower, factor.winsorization.upper)
+        : completed;
+      const directed = winsorized.map((item) => ({
+        ...item,
+        value: factor.direction === 'higher' ? item.value : -item.value,
+      }));
+      normalizedByFactor.set(factor.factorId, factor.normalization === 'zscore'
+        ? zscore(directed) : percentileRank(directed));
+    }
+    const scored = source.flatMap((row) => {
+      const normalizedFactors: Record<string, number> = {};
+      for (const factor of factors) {
+        const value = normalizedByFactor.get(factor.factorId)?.get(row.instrumentKey);
+        if (value === undefined) return [];
+        normalizedFactors[factor.factorId] = value;
+      }
+      const score = factors.reduce((sum, factor, index) => (
+        sum + normalizedFactors[factor.factorId] * weights[index]
+      ), 0);
+      return [{
+        decisionDate,
+        executableFrom: row.executableFrom,
+        instrumentKey: row.instrumentKey,
+        featureValue: score,
+        factorValues: Object.fromEntries(factors.map((factor) => [
+          factor.factorId, row.factorValues?.[factor.factorId] ?? null,
+        ])),
+        normalizedFactors,
+        rank: 0,
+      }];
+    }).sort((left, right) => right.featureValue - left.featureValue
+      || left.instrumentKey.localeCompare(right.instrumentKey));
+    return scored.map((row, index) => ({ ...row, rank: index + 1 }));
+  });
+}
+
+function selectDecisionDates(plan: MultiAssetPlan, rows: PointInTimeFeatureRow[]): string[] {
+  const latest = new Map<string, string>();
+  for (const row of rows) {
+    const key = plan.rebalancePolicy.frequency === 'monthly'
+      ? row.decisionDate.slice(0, 7) : isoWeekKey(row.decisionDate);
+    if (!latest.has(key) || latest.get(key)! < row.decisionDate) latest.set(key, row.decisionDate);
+  }
+  return [...latest.values()].sort();
+}
+
+function isoWeekKey(date: string): string {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  const day = value.getUTCDay() || 7;
+  value.setUTCDate(value.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(value.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((value.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7);
+  return `${value.getUTCFullYear()}-${String(week).padStart(2, '0')}`;
+}
+
+function winsorize(
+  values: Array<{ instrumentKey: string; value: number }>,
+  lower: number,
+  upper: number,
+): Array<{ instrumentKey: string; value: number }> {
+  const ordered = values.map((item) => item.value).sort((left, right) => left - right);
+  const low = quantile(ordered, lower);
+  const high = quantile(ordered, upper);
+  return values.map((item) => ({ ...item, value: Math.min(high, Math.max(low, item.value)) }));
+}
+
+function percentileRank(values: Array<{ instrumentKey: string; value: number }>): Map<string, number> {
+  const ordered = [...values].sort((left, right) => left.value - right.value
+    || left.instrumentKey.localeCompare(right.instrumentKey));
+  const result = new Map<string, number>();
+  let start = 0;
+  while (start < ordered.length) {
+    let end = start;
+    while (end + 1 < ordered.length && ordered[end + 1].value === ordered[start].value) end += 1;
+    const rank = ordered.length === 1 ? 0.5 : ((start + end) / 2) / (ordered.length - 1);
+    for (let index = start; index <= end; index += 1) result.set(ordered[index].instrumentKey, rank);
+    start = end + 1;
+  }
+  return result;
+}
+
+function zscore(values: Array<{ instrumentKey: string; value: number }>): Map<string, number> {
+  const mean = values.reduce((sum, item) => sum + item.value, 0) / values.length;
+  const variance = values.reduce((sum, item) => sum + (item.value - mean) ** 2, 0) / values.length;
+  const deviation = Math.sqrt(variance);
+  return new Map(values.map((item) => [item.instrumentKey, deviation === 0 ? 0 : (item.value - mean) / deviation]));
+}
+
+function quantile(ordered: number[], percentile: number): number {
+  const position = (ordered.length - 1) * percentile;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) return ordered[lower];
+  return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower);
+}
+
+function median(values: number[]): number {
+  return quantile([...values].sort((left, right) => left - right), 0.5);
+}
+
+function isFiniteNumber(value: number | null): value is number {
+  return value !== null && Number.isFinite(value);
 }
 
 async function rankWithDuckDB(plan: MultiAssetPlan, rows: PointInTimeFeatureRow[]): Promise<RankedRow[]> {
@@ -118,7 +275,7 @@ function targetWeights(plan: MultiAssetPlan, selected: RankedRow[]): number[] {
     const weight = Math.min(gross / selected.length, plan.portfolioPlan.maxSingleWeight);
     return selected.map(() => weight);
   }
-  const values = selected.map((row) => plan.featurePlan.direction === 'higher'
+  const values = selected.map((row) => (plan.factorPlan || plan.featurePlan.direction === 'higher')
     ? row.featureValue : -row.featureValue);
   const floor = Math.min(...values);
   const strengths = values.map((value) => value - floor + 1e-12);

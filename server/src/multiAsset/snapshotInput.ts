@@ -6,10 +6,10 @@ import { compileBuiltinFactorSql } from '../factorResearch/engine/factorCompiler
 import { openManagedDuckDB } from '../research/duckdbRuntime.js';
 import { readCurrentSnapshot } from '../research/snapshotManifest.js';
 import type { ExecutionBar } from './execution.js';
+import { factorPlanSchema } from './schema.js';
 import type { MultiAssetPlan, PointInTimeFeatureRow, RebalancePlan } from './schema.js';
 
-export const snapshotMultiAssetConfigSchema = z.strictObject({
-  indexCode: z.enum(['000300', '000905']),
+const commonSnapshotConfigShape = {
   startDate: z.iso.date(),
   endDate: z.iso.date(),
   frequency: z.enum(['weekly', 'monthly']),
@@ -19,12 +19,42 @@ export const snapshotMultiAssetConfigSchema = z.strictObject({
   maxSingleWeight: z.number().finite().positive().max(1).default(0.1),
   minCashWeight: z.number().finite().min(0).max(1).default(0.05),
   factorVersionId: z.string().trim().min(1).max(96).optional(),
+  factorPlan: factorPlanSchema.optional(),
   strategyVersionId: z.string().uuid().optional(),
-});
+};
 
-const snapshotRequestSchema = snapshotMultiAssetConfigSchema.extend({
-  snapshotRoot: z.string().trim().min(1),
+export const universeSpecSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('index'), indexCode: z.enum(['000300', '000905']) }),
+  z.strictObject({
+    type: z.literal('all_a'),
+    markets: z.array(z.enum(['SH', 'SZ', 'BJ'])).min(1).max(3),
+    minHistoryDays: z.number().int().min(20).max(500).default(120),
+    minValidBars20: z.number().int().min(1).max(20).default(20),
+    maxSuspendedDays20: z.number().int().min(0).max(19).default(5),
+    minAverageAmount20: z.number().finite().nonnegative().max(100_000_000_000).default(0),
+    excludeRiskNames: z.boolean().default(true),
+  }),
+]);
+
+const canonicalSnapshotConfigSchema = z.strictObject({
+  universeSpec: universeSpecSchema,
+  ...commonSnapshotConfigShape,
 });
+const legacySnapshotConfigSchema = z.strictObject({
+  indexCode: z.enum(['000300', '000905']),
+  ...commonSnapshotConfigShape,
+}).transform(({ indexCode, ...config }) => ({
+  universeSpec: { type: 'index' as const, indexCode },
+  ...config,
+}));
+
+/** Accepts v1 indexCode plans, but always emits the versioned universeSpec form. */
+export const snapshotMultiAssetConfigSchema = z.union([
+  canonicalSnapshotConfigSchema,
+  legacySnapshotConfigSchema,
+]);
+
+const snapshotRequestEnvelopeSchema = z.object({ snapshotRoot: z.string().trim().min(1) }).loose();
 
 export type SnapshotMultiAssetConfig = z.infer<typeof snapshotMultiAssetConfigSchema>;
 
@@ -34,52 +64,72 @@ export interface SnapshotMultiAssetInput {
   provenance: {
     snapshotId: string;
     publishedAt: string;
-    indexCode: string;
+    universe: z.infer<typeof universeSpecSchema>;
     startDate: string;
     endDate: string;
-    feature: 'momentum_20';
+    feature: 'momentum_20' | 'multi_factor';
     rowCount: number;
   };
 }
 
 /** Reads only a published research snapshot and builds point-in-time momentum rows. */
 export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<SnapshotMultiAssetInput> {
-  const request = snapshotRequestSchema.parse(rawRequest);
+  const envelope = snapshotRequestEnvelopeSchema.parse(rawRequest);
+  const { snapshotRoot: snapshotRootInput, ...rawConfig } = envelope;
+  const request = { snapshotRoot: snapshotRootInput, ...snapshotMultiAssetConfigSchema.parse(rawConfig) };
   if (request.startDate > request.endDate) throw new Error('SNAPSHOT_DATE_RANGE_INVALID');
   const snapshotRoot = resolve(request.snapshotRoot);
   const current = await readCurrentSnapshot(snapshotRoot);
   if (!current) throw new Error('RESEARCH_SNAPSHOT_UNAVAILABLE');
   const members = current.manifest.datasets?.find((dataset) => dataset.name === 'index_constituents');
   const versions = current.manifest.datasets?.find((dataset) => dataset.name === 'index_constituent_snapshots');
-  if (!members || !versions) throw new Error('POINT_IN_TIME_INDEX_DATASET_UNAVAILABLE');
+  if (request.universeSpec.type === 'index' && (!members || !versions)) {
+    throw new Error('POINT_IN_TIME_INDEX_DATASET_UNAVAILABLE');
+  }
 
   const barsPath = normalizePath(join(snapshotRoot, current.manifest.snapshotId, 'bars', 'year=*', '*.parquet'));
-  const membersPath = normalizePath(join(snapshotRoot, current.manifest.snapshotId, members.relativePath));
-  const versionsPath = normalizePath(join(snapshotRoot, current.manifest.snapshotId, versions.relativePath));
+  const membersPath = members ? normalizePath(join(snapshotRoot, current.manifest.snapshotId, members.relativePath)) : '';
+  const versionsPath = versions ? normalizePath(join(snapshotRoot, current.manifest.snapshotId, versions.relativePath)) : '';
   const momentumDefinition = BUILTIN_FACTORS.find((factor) => factor.id === 'momentum_20');
   if (!momentumDefinition) throw new Error('MOMENTUM_20_DEFINITION_MISSING');
   const momentumSql = compileBuiltinFactorSql(momentumDefinition);
+  const configuredFactors = request.factorPlan
+    ? [...request.factorPlan.factors].sort((left, right) => left.factorId.localeCompare(right.factorId))
+    : [];
+  const factorSql = configuredFactors.map((factor, index) => {
+    const definition = BUILTIN_FACTORS.find((item) => item.id === factor.factorId);
+    if (!definition || definition.expression.type !== 'builtin') {
+      throw new Error(`MULTI_ASSET_FACTOR_NOT_PUBLISHED:${factor.factorId}`);
+    }
+    return `${compileBuiltinFactorSql(definition)} AS factor_${index}`;
+  });
+  const factorSelect = configuredFactors.map((_factor, index) => `score.factor_${index}`).join(', ');
   const session = await openManagedDuckDB({
     label: 'multi-asset-snapshot-input',
     config: { threads: '4', max_memory: '2GB' },
   });
   try {
-    const reader = await session.connection.runAndReadAll(`
+    const decisionPeriod = request.frequency === 'weekly'
+      ? "strftime(tradeDate, '%G-%V')" : "strftime(tradeDate, '%Y-%m')";
+    const sharedPrefix = `
       WITH all_bars AS (
         SELECT * EXCLUDE(year)
         FROM read_parquet('${escapeSql(barsPath)}', hive_partitioning=true)
-        WHERE tradeDate BETWEEN CAST($startDate AS DATE) - INTERVAL 90 DAY
+        WHERE tradeDate BETWEEN CAST($startDate AS DATE) - INTERVAL 750 DAY
                             AND CAST($endDate AS DATE) + INTERVAL 10 DAY
       ), calendar AS (
         SELECT tradeDate,
                lead(tradeDate) OVER (ORDER BY tradeDate) AS executableFrom
         FROM (SELECT DISTINCT tradeDate FROM all_bars)
-      ), decision_dates AS (
-        SELECT tradeDate AS decisionDate, executableFrom
+      ), decision_candidates AS (
+        SELECT tradeDate, executableFrom,
+               row_number() OVER (PARTITION BY ${decisionPeriod} ORDER BY tradeDate DESC) AS periodRank
         FROM calendar
-        WHERE tradeDate BETWEEN CAST($startDate AS DATE) AND CAST($endDate AS DATE)
-          AND executableFrom IS NOT NULL
-      ), snapshot_versions AS (
+        WHERE tradeDate BETWEEN CAST($startDate AS DATE) AND CAST($endDate AS DATE) AND executableFrom IS NOT NULL
+      ), decision_dates AS (
+        SELECT tradeDate AS decisionDate, executableFrom FROM decision_candidates WHERE periodRank = 1
+      )`;
+    const indexSql = `${sharedPrefix}, snapshot_versions AS (
         SELECT * EXCLUDE(versionRank)
         FROM (
           SELECT snapshot.*,
@@ -108,12 +158,17 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
       ), scored AS (
         SELECT instrumentKey, tradeDate,
                ${momentumSql} AS featureValue
+               ${factorSql.length ? `, ${factorSql.join(', ')}` : ''}
         FROM all_bars
         WINDOW instrument_window AS (PARTITION BY instrumentKey ORDER BY tradeDate)
       )
       SELECT decision.decisionDate, decision.executableFrom,
              CAST(member.instrumentKey AS VARCHAR) AS instrumentKey,
              member.memberFrom, member.memberTo, score.featureValue
+             ${factorSelect ? `, ${factorSelect}` : ''},
+             false AS excludedRiskName, false AS excludedHistory,
+             false AS excludedDataIncomplete, false AS excludedSuspended,
+             false AS excludedLiquidity
       FROM decision_dates decision
       INNER JOIN members member
         ON member.memberFrom <= decision.decisionDate
@@ -121,32 +176,130 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
       LEFT JOIN scored score
         ON score.instrumentKey = member.instrumentKey
        AND score.tradeDate = decision.decisionDate
-      ORDER BY decision.decisionDate, member.instrumentKey
-    `, { indexCode: request.indexCode, startDate: request.startDate, endDate: request.endDate });
-    const rows = reader.getRowObjectsJson().map((row): PointInTimeFeatureRow => ({
+      ORDER BY decision.decisionDate, member.instrumentKey`;
+    const allASpec = request.universeSpec.type === 'all_a' ? request.universeSpec : null;
+    const marketsSql = allASpec?.markets.map((market) => `'${market}'`).join(',') ?? "'SH','SZ'";
+    const allASql = `${sharedPrefix}, instrument_lifecycle AS (
+        SELECT instrumentKey, min(tradeDate) AS memberFrom
+        FROM read_parquet('${escapeSql(barsPath)}', hive_partitioning=true)
+        WHERE instrumentKey IS NOT NULL
+        GROUP BY instrumentKey
+      ), scored AS (
+        SELECT bar.instrumentKey, bar.market, bar.symbol, bar.name, bar.tradeDate,
+               lifecycle.memberFrom,
+               count(close) OVER instrument_history AS historyDays,
+               count(close) OVER recent_window AS validBars20,
+               count(CASE WHEN coalesce(volume, 0) > 0 THEN 1 END) OVER recent_window AS tradedBars20,
+               avg(coalesce(amount, 0)) OVER recent_window AS averageAmount20,
+               ${momentumSql} AS featureValue
+               ${factorSql.length ? `, ${factorSql.join(', ')}` : ''}
+        FROM all_bars bar
+        INNER JOIN instrument_lifecycle lifecycle USING (instrumentKey)
+        WINDOW instrument_history AS (PARTITION BY bar.instrumentKey ORDER BY bar.tradeDate ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW),
+               recent_window AS (PARTITION BY bar.instrumentKey ORDER BY bar.tradeDate ROWS BETWEEN 19 PRECEDING AND CURRENT ROW),
+               instrument_window AS (PARTITION BY bar.instrumentKey ORDER BY bar.tradeDate)
+      )
+      SELECT decision.decisionDate, decision.executableFrom,
+             CAST(score.instrumentKey AS VARCHAR) AS instrumentKey,
+             score.memberFrom, NULL::DATE AS memberTo, score.featureValue
+             ${factorSelect ? `, ${factorSelect}` : ''},
+             ($excludeRiskNames AND regexp_matches(coalesce(score.name, ''), '(?i)(\\*?ST|退市|退)')) AS excludedRiskName,
+             score.historyDays < $minHistoryDays AS excludedHistory,
+             score.validBars20 < $minValidBars20 AS excludedDataIncomplete,
+             score.tradedBars20 < (20 - $maxSuspendedDays20) AS excludedSuspended,
+             score.averageAmount20 < $minAverageAmount20 AS excludedLiquidity
+      FROM decision_dates decision
+      INNER JOIN scored score ON score.tradeDate = decision.decisionDate
+      WHERE score.market IN (${marketsSql}) AND score.instrumentKey IS NOT NULL
+      ORDER BY decision.decisionDate, score.instrumentKey`;
+    const query = request.universeSpec.type === 'index'
+      ? session.connection.runAndReadAll(indexSql, {
+        indexCode: request.universeSpec.indexCode,
+        startDate: request.startDate,
+        endDate: request.endDate,
+      })
+      : session.connection.runAndReadAll(allASql, {
+        startDate: request.startDate,
+        endDate: request.endDate,
+        excludeRiskNames: allASpec!.excludeRiskNames,
+        minHistoryDays: allASpec!.minHistoryDays,
+        minValidBars20: allASpec!.minValidBars20,
+        maxSuspendedDays20: allASpec!.maxSuspendedDays20,
+        minAverageAmount20: allASpec!.minAverageAmount20,
+      });
+    const reader = await withDeadline(Promise.resolve(query), 90_000, 'ALL_A_CROSS_SECTION_TIMEOUT');
+    const candidateRows = reader.getRowObjectsJson();
+    if (candidateRows.length > 1_000_000) throw new Error('ALL_A_CROSS_SECTION_ROW_LIMIT_EXCEEDED');
+    const isEligible = (row: Record<string, unknown>) => !row.excludedRiskName && !row.excludedHistory
+      && !row.excludedDataIncomplete && !row.excludedSuspended && !row.excludedLiquidity;
+    const rows = candidateRows.filter(isEligible).map((row): PointInTimeFeatureRow => ({
       decisionDate: String(row.decisionDate),
       executableFrom: String(row.executableFrom),
       instrumentKey: String(row.instrumentKey),
       memberFrom: String(row.memberFrom),
       memberTo: row.memberTo == null ? null : String(row.memberTo),
       featureValue: row.featureValue == null ? null : Number(row.featureValue),
+      factorValues: request.factorPlan ? Object.fromEntries(configuredFactors.map((factor, index) => [
+        factor.factorId,
+        row[`factor_${index}`] == null ? null : Number(row[`factor_${index}`]),
+      ])) : undefined,
     }));
     if (rows.length === 0) throw new Error('SNAPSHOT_POINT_IN_TIME_ROWS_EMPTY');
-    const universeChecksum = canonicalHash({ members: members.sha256, versions: versions.sha256 });
+    const auditByDate = new Map<string, typeof candidateRows>();
+    for (const row of candidateRows) {
+      const date = String(row.decisionDate);
+      const values = auditByDate.get(date) ?? [];
+      values.push(row);
+      auditByDate.set(date, values);
+    }
+    const filterAudit = [...auditByDate.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([decisionDate, values]) => {
+      const eligibleKeys = values.filter(isEligible).map((row) => String(row.instrumentKey)).sort();
+      const exclusions = values.filter((row) => !isEligible(row)).map((row) => ({
+        instrumentKey: String(row.instrumentKey),
+        reasonCodes: [
+          row.excludedRiskName ? 'risk_name' as const : null,
+          row.excludedHistory ? 'insufficient_history' as const : null,
+          row.excludedDataIncomplete ? 'incomplete_bars' as const : null,
+          row.excludedSuspended ? 'suspended' as const : null,
+          row.excludedLiquidity ? 'insufficient_liquidity' as const : null,
+        ].filter((reason): reason is NonNullable<typeof reason> => reason !== null),
+      })).sort((left, right) => left.instrumentKey.localeCompare(right.instrumentKey));
+      return {
+        decisionDate,
+        candidates: values.length,
+        eligible: eligibleKeys.length,
+        excludedRiskName: values.filter((row) => row.excludedRiskName).length,
+        excludedHistory: values.filter((row) => row.excludedHistory).length,
+        excludedDataIncomplete: values.filter((row) => row.excludedDataIncomplete).length,
+        excludedSuspended: values.filter((row) => row.excludedSuspended).length,
+        excludedLiquidity: values.filter((row) => row.excludedLiquidity).length,
+        eligibleUniverseHash: canonicalHash({ decisionDate, members: eligibleKeys }),
+        exclusions,
+      };
+    });
+    const universeChecksum = request.universeSpec.type === 'index'
+      ? canonicalHash({ members: members!.sha256, versions: versions!.sha256 })
+      : canonicalHash({ snapshotChecksum: canonicalHash(current.manifest), universeSpec: request.universeSpec });
     const sourcePlan: MultiAssetPlan = {
-      planVersion: '1.0',
+      planVersion: request.factorPlan ? '1.1' : '1.0',
       snapshotId: current.manifest.snapshotId,
       snapshotChecksum: canonicalHash(current.manifest),
       calendarId: 'CN_XSHG_XSHE_1D',
       universePlan: {
         type: 'point_in_time',
-        datasetId: `index:${request.indexCode}`,
+        datasetId: request.universeSpec.type === 'index'
+          ? `index:${request.universeSpec.indexCode}` : 'all_a:point_in_time',
         datasetChecksum: universeChecksum,
+        filterAudit,
       },
       featurePlan: {
-        featureId: 'momentum_20', featureVersion: request.factorVersionId ?? 'close-momentum-20-v1',
-        direction: 'higher', missing: 'exclude',
+        featureId: request.factorPlan?.factors[0]?.factorId ?? 'momentum_20',
+        featureVersion: request.factorPlan?.factors[0]?.factorVersion
+          ?? request.factorVersionId ?? 'close-momentum-20-v1',
+        direction: request.factorPlan?.factors[0]?.direction ?? 'higher',
+        missing: 'exclude',
       },
+      factorPlan: request.factorPlan,
       signalPlan: { type: 'cross_sectional_rank', topN: request.topN, weighting: request.weighting },
       rebalancePolicy: { frequency: request.frequency, signalAt: 'close', fillAt: 'next_open' },
       portfolioPlan: {
@@ -171,10 +324,10 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
       provenance: {
         snapshotId: current.manifest.snapshotId,
         publishedAt: current.pointer.publishedAt,
-        indexCode: request.indexCode,
+        universe: request.universeSpec,
         startDate: request.startDate,
         endDate: request.endDate,
-        feature: 'momentum_20',
+        feature: request.factorPlan ? 'multi_factor' : 'momentum_20',
         rowCount: rows.length,
       },
     };
@@ -298,6 +451,21 @@ function normalizePath(path: string): string {
 
 function escapeSql(value: string): string {
   return value.replaceAll("'", "''");
+}
+
+async function withDeadline<T>(promise: Promise<T>, timeoutMs: number, code: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(code)), timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function resolveDailyLimitRate(symbol: string, name: string): number {

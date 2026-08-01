@@ -53,6 +53,7 @@ import type {
   MultiAssetLedgerEntry,
   MultiAssetOrder,
   MultiAssetRunArtifact,
+  SnapshotMultiAssetConfig,
   StoredMultiAssetPlan,
   StoredMultiAssetRun,
 } from './types';
@@ -62,7 +63,7 @@ const ACTIVE_STATUSES = new Set(['queued', 'running', 'retry_wait']);
 
 interface PlanFormValues {
   name: string;
-  indexCode: '000300' | '000905';
+  universeKey: 'index:000300' | 'index:000905' | 'all_a';
   dateRange: [Dayjs, Dayjs];
   frequency: 'weekly' | 'monthly';
   topN: number;
@@ -70,6 +71,10 @@ interface PlanFormValues {
   maxGrossExposure: number;
   maxSingleWeight: number;
   minCashWeight: number;
+  factorMode: 'single' | 'momentum_reversal';
+  factorNormalization: 'percentile' | 'zscore';
+  momentumWeight: number;
+  reversalWeight: number;
   factorVersionId?: string;
   strategyVersionId?: string;
 }
@@ -79,9 +84,15 @@ const INDEX_UNIVERSES = {
   '000905': '中证 500',
 } as const;
 
-const indexUniverseLabel = (indexCode: keyof typeof INDEX_UNIVERSES) => (
-  `${INDEX_UNIVERSES[indexCode]}（${indexCode}）`
-);
+const universeLabel = (config: SnapshotMultiAssetConfig) => {
+  const spec = config.universeSpec ?? (config.indexCode
+    ? { type: 'index' as const, indexCode: config.indexCode }
+    : null);
+  if (!spec) return '未知股票池';
+  return spec.type === 'index'
+    ? `${INDEX_UNIVERSES[spec.indexCode]}（${spec.indexCode}）`
+    : `全 A（${spec.markets.join(' / ')}，上市满 ${spec.minHistoryDays} 个交易日）`;
+};
 
 interface RebalanceTargetRow {
   key: string;
@@ -151,6 +162,7 @@ function EquityCurve({ ledger }: { ledger: MultiAssetLedgerEntry[] }) {
 export default function MultiAssetResearchPage() {
   const { message } = App.useApp();
   const [planForm] = Form.useForm<PlanFormValues>();
+  const factorMode = Form.useWatch('factorMode', planForm);
   const [plans, setPlans] = useState<StoredMultiAssetPlan[]>([]);
   const [runs, setRuns] = useState<StoredMultiAssetRun[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState<string>();
@@ -280,7 +292,7 @@ export default function MultiAssetResearchPage() {
   const openCreate = () => {
     planForm.setFieldsValue({
       name: `沪深 300 多资产研究 ${dayjs().format('MM-DD HH:mm')}`,
-      indexCode: '000300',
+      universeKey: 'index:000300',
       dateRange: [dayjs().subtract(12, 'month').startOf('day'), dayjs().subtract(1, 'day').startOf('day')],
       frequency: 'monthly',
       topN: 10,
@@ -288,6 +300,10 @@ export default function MultiAssetResearchPage() {
       maxGrossExposure: 95,
       maxSingleWeight: 10,
       minCashWeight: 5,
+      factorMode: 'single',
+      factorNormalization: 'percentile',
+      momentumWeight: 1,
+      reversalWeight: 1,
     });
     setCreateOpen(true);
   };
@@ -304,7 +320,18 @@ export default function MultiAssetResearchPage() {
       const input: CreateMultiAssetPlanInput = {
         name: values.name.trim(),
         config: {
-          indexCode: values.indexCode,
+          universeSpec: values.universeKey === 'all_a' ? {
+            type: 'all_a',
+            markets: ['SH', 'SZ', 'BJ'],
+            minHistoryDays: 120,
+            minValidBars20: 20,
+            maxSuspendedDays20: 5,
+            minAverageAmount20: 0,
+            excludeRiskNames: true,
+          } : {
+            type: 'index',
+            indexCode: values.universeKey.slice('index:'.length) as '000300' | '000905',
+          },
           startDate: values.dateRange[0].format('YYYY-MM-DD'),
           endDate: values.dateRange[1].format('YYYY-MM-DD'),
           frequency: values.frequency,
@@ -313,6 +340,22 @@ export default function MultiAssetResearchPage() {
           maxGrossExposure: values.maxGrossExposure / 100,
           maxSingleWeight: values.maxSingleWeight / 100,
           minCashWeight: values.minCashWeight / 100,
+          factorPlan: values.factorMode === 'momentum_reversal' ? {
+            protocolVersion: '1.0',
+            weighting: values.momentumWeight === 1 && values.reversalWeight === 1 ? 'equal' : 'manual',
+            factors: [
+              {
+                factorId: 'momentum_20', factorVersion: 'published-v1', direction: 'higher',
+                missing: 'exclude', winsorization: { method: 'percentile', lower: 0.01, upper: 0.99 },
+                normalization: values.factorNormalization, weight: values.momentumWeight,
+              },
+              {
+                factorId: 'reversal_5', factorVersion: 'published-v1', direction: 'higher',
+                missing: 'exclude', winsorization: { method: 'percentile', lower: 0.01, upper: 0.99 },
+                normalization: values.factorNormalization, weight: values.reversalWeight,
+              },
+            ],
+          } : undefined,
           factorVersionId: values.factorVersionId?.trim() || undefined,
           strategyVersionId: values.strategyVersionId?.trim() || undefined,
         },
@@ -504,7 +547,7 @@ export default function MultiAssetResearchPage() {
                 </Space>}
               >
                 <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 4 }}>
-                  <Descriptions.Item label="资产域">{indexUniverseLabel(selectedPlan.snapshotConfig.indexCode)}</Descriptions.Item>
+                  <Descriptions.Item label="资产域">{universeLabel(selectedPlan.snapshotConfig)}</Descriptions.Item>
                   <Descriptions.Item label="研究区间">{selectedPlan.snapshotConfig.startDate} 至 {selectedPlan.snapshotConfig.endDate}</Descriptions.Item>
                   <Descriptions.Item label="调仓与选股">{selectedPlan.snapshotConfig.frequency === 'weekly' ? '周频' : '月频'} · Top {selectedPlan.snapshotConfig.topN}</Descriptions.Item>
                   <Descriptions.Item label="权重">{selectedPlan.snapshotConfig.weighting === 'equal' ? '等权' : '评分加权'}</Descriptions.Item>
@@ -601,7 +644,7 @@ export default function MultiAssetResearchPage() {
             </section>
             <Descriptions className="multi-asset-review-meta" bordered size="small" column={{ xs: 1, sm: 2 }}>
               <Descriptions.Item label="计划名称">{selectedPlan?.name ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="资产域">{selectedPlan ? indexUniverseLabel(selectedPlan.snapshotConfig.indexCode) : '—'}</Descriptions.Item>
+              <Descriptions.Item label="资产域">{selectedPlan ? universeLabel(selectedPlan.snapshotConfig) : '—'}</Descriptions.Item>
               <Descriptions.Item label="首个执行日">{selectedRun.rebalancePlan.decisions[0]?.executableFrom ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="最后执行日">{selectedRun.rebalancePlan.decisions[selectedRun.rebalancePlan.decisions.length - 1]?.executableFrom ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="计划哈希" span={2}><Typography.Text copyable code>{selectedRun.rebalancePlan.planHash}</Typography.Text></Descriptions.Item>
@@ -623,10 +666,13 @@ export default function MultiAssetResearchPage() {
       </Drawer>
 
       <Drawer title="新建多资产研究计划" size={560} open={createOpen} onClose={() => setCreateOpen(false)} extra={<Button type="primary" loading={creating} onClick={() => void createPlan()}>冻结计划</Button>}>
-        <Alert type="info" showIcon message="计划创建后将绑定只读数据快照" description="当前开放沪深 300 与中证 500 时点成分股；全 A 股票池将在历史证券状态与过滤审计通过后开放。" />
+        <Alert type="info" showIcon message="计划创建后将绑定只读数据快照" description="全 A 使用决策日证券名称和行情过滤，默认覆盖沪深京、上市满 120 个交易日、近 20 日行情完整并排除 ST/退市风险名称；逐期过滤审计进入计划哈希。" />
         <Form form={planForm} layout="vertical" className="multi-asset-plan-form">
           <Form.Item name="name" label="计划名称" rules={[{ required: true }, { max: 80 }]}><Input placeholder="例如：沪深 300 月度动量研究" /></Form.Item>
-          <Form.Item name="indexCode" label="资产域" rules={[{ required: true }]}><Select options={Object.entries(INDEX_UNIVERSES).map(([value, name]) => ({ label: `${name}（${value}）`, value }))} /></Form.Item>
+          <Form.Item name="universeKey" label="资产域" rules={[{ required: true }]}><Select options={[
+            ...Object.entries(INDEX_UNIVERSES).map(([code, name]) => ({ label: `${name}（${code}）`, value: `index:${code}` })),
+            { label: '全 A（沪深京 · 时点过滤）', value: 'all_a' },
+          ]} /></Form.Item>
           <Form.Item name="dateRange" label="回测区间" rules={[{ required: true }]}><RangePicker style={{ width: '100%' }} allowClear={false} /></Form.Item>
           <div className="multi-asset-form-grid">
             <Form.Item name="frequency" label="调仓周期" rules={[{ required: true }]}><Select options={[{ label: '每周', value: 'weekly' }, { label: '每月', value: 'monthly' }]} /></Form.Item>
@@ -636,8 +682,30 @@ export default function MultiAssetResearchPage() {
             <Form.Item name="maxSingleWeight" label="单标的上限（%）" rules={[{ required: true }]}><InputNumber min={0.1} max={100} step={0.5} style={{ width: '100%' }} /></Form.Item>
             <Form.Item name="minCashWeight" label="最低现金（%）" rules={[{ required: true }]}><InputNumber min={0} max={99} style={{ width: '100%' }} /></Form.Item>
           </div>
-          <Typography.Title level={5}>因子与策略治理绑定（可选）</Typography.Title>
-          <Typography.Paragraph type="secondary">仅接受已发布的 momentum_20 因子版本，以及快照一致且处于 validated、paper 或 champion 状态的策略版本。</Typography.Paragraph>
+          <Typography.Title level={5}>因子模型与策略治理</Typography.Title>
+          <Typography.Paragraph type="secondary">多因子模型会固化因子版本、预处理、权重和逐标的证据哈希；当前开放已发布的 momentum_20 与 reversal_5。</Typography.Paragraph>
+          <Form.Item name="factorMode" label="因子模型" rules={[{ required: true }]}>
+            <Select options={[
+              { label: '单因子 · 20 日动量（兼容模式）', value: 'single' },
+              { label: '多因子 · 动量 + 反转', value: 'momentum_reversal' },
+            ]} />
+          </Form.Item>
+          {factorMode === 'momentum_reversal' && <>
+            <Form.Item name="factorNormalization" label="横截面标准化" rules={[{ required: true }]}>
+              <Select options={[
+                { label: '百分位排名', value: 'percentile' },
+                { label: 'Z-score', value: 'zscore' },
+              ]} />
+            </Form.Item>
+            <div className="multi-asset-form-grid">
+              <Form.Item name="momentumWeight" label="动量权重" rules={[{ required: true }]}>
+                <InputNumber min={-10} max={10} step={0.1} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="reversalWeight" label="反转权重" rules={[{ required: true }]}>
+                <InputNumber min={-10} max={10} step={0.1} style={{ width: '100%' }} />
+              </Form.Item>
+            </div>
+          </>}
           <Form.Item name="factorVersionId" label="已发布因子版本 ID"><Input placeholder="例如 momentum_20:v1" /></Form.Item>
           <Form.Item name="strategyVersionId" label="冠军 / 挑战者策略版本 ID"><Input placeholder="UUID" /></Form.Item>
         </Form>
