@@ -5,9 +5,10 @@ import { generateRebalancePlanWithPython } from './pythonPlanWorker.js';
 import { loadSnapshotExecutionBars, loadSnapshotMomentumInput } from './snapshotInput.js';
 
 const snapshotRoot = resolve(process.argv[2] ?? './data/research-snapshots');
+const indexCode = process.argv[3] ?? '000300';
 const input = await loadSnapshotMomentumInput({
   snapshotRoot,
-  indexCode: '000300',
+  indexCode,
   startDate: '2026-06-01',
   endDate: '2026-07-30',
   frequency: 'weekly',

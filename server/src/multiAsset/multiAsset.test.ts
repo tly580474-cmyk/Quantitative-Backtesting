@@ -6,6 +6,7 @@ import { generateRebalancePlanWithPython } from './pythonPlanWorker.js';
 import { buildMultiAssetRunInputHash } from './repository.js';
 import { assertCrossRuntimeParity, assertSnapshotConfigSemantics } from './runService.js';
 import { finalizeRebalancePlan, validateRebalancePlan } from './schema.js';
+import { snapshotMultiAssetConfigSchema } from './snapshotInput.js';
 
 describe('M4 multi-asset foundation', () => {
   it('keeps persisted run identity stable and rejects infeasible snapshot requests', () => {
@@ -16,6 +17,11 @@ describe('M4 multi-asset foundation', () => {
       initialCash: 1_000_000, planHash: 'a'.repeat(64), planVersionId: 'plan-1',
     });
     expect(left).toBe(right);
+    expect(() => snapshotMultiAssetConfigSchema.parse({
+      indexCode: '000852', startDate: '2026-01-01', endDate: '2026-02-01',
+      frequency: 'weekly', topN: 10, weighting: 'equal',
+      maxGrossExposure: 0.95, maxSingleWeight: 0.1, minCashWeight: 0.05,
+    })).toThrow();
     expect(() => assertSnapshotConfigSemantics({
       indexCode: '000300', startDate: '2020-01-01', endDate: '2026-01-02',
       frequency: 'weekly', topN: 10, weighting: 'equal',

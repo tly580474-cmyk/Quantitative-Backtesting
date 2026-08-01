@@ -2,7 +2,7 @@ export type MultiAssetRunStatus = 'queued' | 'running' | 'completed' | 'failed'
   | 'retry_wait' | 'dead_letter' | 'cancelled';
 
 export interface SnapshotMultiAssetConfig {
-  indexCode: string;
+  indexCode: '000300' | '000905';
   startDate: string;
   endDate: string;
   frequency: 'weekly' | 'monthly';

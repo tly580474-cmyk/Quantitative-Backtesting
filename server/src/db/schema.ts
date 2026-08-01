@@ -569,6 +569,7 @@ export const multiAssetPlanVersions = mysqlTable('multi_asset_plan_versions', {
   hashUnique: uniqueIndex('idx_mapv_hash').on(table.planHash),
   snapshotCreatedIdx: index('idx_mapv_snapshot_created').on(table.snapshotId, table.createdAt),
   statusCreatedIdx: index('idx_mapv_status_created').on(table.status, table.createdAt),
+  createdIdx: index('idx_mapv_created').on(table.createdAt),
 }));
 
 export const multiAssetRuns = mysqlTable('multi_asset_runs', {
@@ -604,6 +605,7 @@ export const multiAssetRuns = mysqlTable('multi_asset_runs', {
   queueReadyIdx: index('idx_mar_queue_ready').on(table.status, table.nextAttemptAt, table.createdAt),
   parentIdx: index('idx_mar_parent').on(table.parentRunId),
   resultHashIdx: index('idx_mar_result_hash').on(table.resultHash),
+  createdIdx: index('idx_mar_created').on(table.createdAt),
 }));
 
 export const multiAssetRunEvents = mysqlTable('multi_asset_run_events', {

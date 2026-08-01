@@ -134,11 +134,38 @@ export async function listMultiAssetRuns(
   limit = 50,
   offset = 0,
 ): Promise<StoredMultiAssetRun[]> {
-  const query = getDb().select().from(multiAssetRuns);
-  return planVersionId
+  // List endpoints must not sort or transfer the large result JSON columns. A completed
+  // portfolio can contain thousands of ledger/order entries; detail is loaded by id.
+  const fields = {
+    id: multiAssetRuns.id,
+    planVersionId: multiAssetRuns.planVersionId,
+    status: multiAssetRuns.status,
+    idempotencyKey: multiAssetRuns.idempotencyKey,
+    inputHash: multiAssetRuns.inputHash,
+    initialCash: multiAssetRuns.initialCash,
+    progress: multiAssetRuns.progress,
+    workerToken: multiAssetRuns.workerToken,
+    leaseExpiresAt: multiAssetRuns.leaseExpiresAt,
+    attemptCount: multiAssetRuns.attemptCount,
+    maxAttempts: multiAssetRuns.maxAttempts,
+    nextAttemptAt: multiAssetRuns.nextAttemptAt,
+    cancelRequestedAt: multiAssetRuns.cancelRequestedAt,
+    cancelledAt: multiAssetRuns.cancelledAt,
+    parentRunId: multiAssetRuns.parentRunId,
+    resultHash: multiAssetRuns.resultHash,
+    errorCode: multiAssetRuns.errorCode,
+    errorMessage: multiAssetRuns.errorMessage,
+    createdAt: multiAssetRuns.createdAt,
+    startedAt: multiAssetRuns.startedAt,
+    completedAt: multiAssetRuns.completedAt,
+    updatedAt: multiAssetRuns.updatedAt,
+  };
+  const query = getDb().select(fields).from(multiAssetRuns);
+  const rows = await (planVersionId
     ? query.where(eq(multiAssetRuns.planVersionId, planVersionId))
       .orderBy(desc(multiAssetRuns.createdAt)).limit(Math.max(1, Math.min(200, limit))).offset(Math.max(0, offset))
-    : query.orderBy(desc(multiAssetRuns.createdAt)).limit(Math.max(1, Math.min(200, limit))).offset(Math.max(0, offset));
+    : query.orderBy(desc(multiAssetRuns.createdAt)).limit(Math.max(1, Math.min(200, limit))).offset(Math.max(0, offset)));
+  return rows.map((row) => ({ ...row, rebalancePlan: null, executionResult: null }));
 }
 
 export async function countMultiAssetRuns(planVersionId?: string): Promise<number> {

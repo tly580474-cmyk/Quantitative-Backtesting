@@ -5363,9 +5363,16 @@ html[data-theme='dark'] .candle-detail {
 /* M4 multi-asset research workspace */
 .multi-asset-page {
   --multi-asset-accent: #1677ff;
-  min-height: 100%;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
   padding: 20px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
   background: #f4f7fb;
 }
 
@@ -5502,6 +5509,55 @@ html[data-theme='dark'] .candle-detail {
 .multi-asset-chart-labels strong { color: #1677ff; font-size: 14px; }
 .multi-asset-artifacts { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid #e2e8f0; }
 
+.multi-asset-review-drawer .ant-drawer-body {
+  padding: 20px 24px 28px;
+  background: #f4f7fb;
+}
+
+.multi-asset-review-tabs > .ant-tabs-nav {
+  margin: 0 0 16px;
+  padding: 0 16px;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.multi-asset-review-overview,
+.multi-asset-rebalance-review {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+}
+
+.multi-asset-review-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #dce5f2;
+}
+
+.multi-asset-review-summary .ant-statistic {
+  min-width: 0;
+  padding: 18px;
+  background: #fff;
+}
+
+.multi-asset-review-summary .ant-statistic-content { font-size: 23px; }
+.multi-asset-review-meta { min-width: 0; background: #fff; }
+.multi-asset-review-meta .ant-typography code { overflow-wrap: anywhere; }
+.multi-asset-review-table-card { min-width: 0; border-color: #dce5f2; }
+.multi-asset-review-table-card .ant-card-body { padding: 0; }
+
+html[data-theme='dark'] .multi-asset-review-drawer .ant-drawer-body { background: #07111f; }
+html[data-theme='dark'] .multi-asset-review-tabs > .ant-tabs-nav,
+html[data-theme='dark'] .multi-asset-review-summary .ant-statistic,
+html[data-theme='dark'] .multi-asset-review-meta,
+html[data-theme='dark'] .multi-asset-review-table-card { border-color: #26364d; background: #0f192b; }
+html[data-theme='dark'] .multi-asset-review-summary { border-color: #26364d; background: #26364d; }
+
 .multi-asset-plan-form { margin-top: 20px; }
 .multi-asset-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
 
@@ -5545,11 +5601,14 @@ html[data-theme='dark'] .multi-asset-artifacts { border-color: #2a3b56; }
   .multi-asset-sidebar { grid-template-columns: 1fr; }
   .multi-asset-plan-list,
   .multi-asset-run-list { max-height: 260px; }
+  .multi-asset-review-drawer .ant-drawer-body { padding: 14px; }
+  .multi-asset-review-summary { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
 }
 
 @media (max-width: 560px) {
   .multi-asset-stat-grid,
   .multi-asset-result-stats,
+  .multi-asset-review-summary,
   .multi-asset-form-grid { grid-template-columns: 1fr; }
   .multi-asset-progress-panel { align-items: flex-start; flex-direction: column; }
 }

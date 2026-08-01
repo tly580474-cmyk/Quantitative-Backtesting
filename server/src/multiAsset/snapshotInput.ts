@@ -9,7 +9,7 @@ import type { ExecutionBar } from './execution.js';
 import type { MultiAssetPlan, PointInTimeFeatureRow, RebalancePlan } from './schema.js';
 
 export const snapshotMultiAssetConfigSchema = z.strictObject({
-  indexCode: z.string().regex(/^\d{6}$/),
+  indexCode: z.enum(['000300', '000905']),
   startDate: z.iso.date(),
   endDate: z.iso.date(),
   frequency: z.enum(['weekly', 'monthly']),

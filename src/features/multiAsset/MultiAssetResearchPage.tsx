@@ -18,6 +18,7 @@ import {
   Statistic,
   Table,
   Tag,
+  Tabs,
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -26,16 +27,20 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   DatabaseOutlined,
+  DownloadOutlined,
   ExperimentOutlined,
+  FileSearchOutlined,
   PlusOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
+  ScheduleOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import {
   createMultiAssetPlan,
   cancelMultiAssetRun,
+  getMultiAssetRun,
   listMultiAssetPlans,
   listMultiAssetRunArtifacts,
   listMultiAssetRuns,
@@ -57,7 +62,7 @@ const ACTIVE_STATUSES = new Set(['queued', 'running', 'retry_wait']);
 
 interface PlanFormValues {
   name: string;
-  indexCode: string;
+  indexCode: '000300' | '000905';
   dateRange: [Dayjs, Dayjs];
   frequency: 'weekly' | 'monthly';
   topN: number;
@@ -67,6 +72,25 @@ interface PlanFormValues {
   minCashWeight: number;
   factorVersionId?: string;
   strategyVersionId?: string;
+}
+
+const INDEX_UNIVERSES = {
+  '000300': '沪深 300',
+  '000905': '中证 500',
+} as const;
+
+const indexUniverseLabel = (indexCode: keyof typeof INDEX_UNIVERSES) => (
+  `${INDEX_UNIVERSES[indexCode]}（${indexCode}）`
+);
+
+interface RebalanceTargetRow {
+  key: string;
+  decisionDate: string;
+  executableFrom: string;
+  instrumentKey: string;
+  targetWeight: number;
+  rank: number;
+  score: number;
 }
 
 const money = (value: number) => new Intl.NumberFormat('zh-CN', {
@@ -139,6 +163,7 @@ export default function MultiAssetResearchPage() {
   const [starting, setStarting] = useState(false);
   const [initialCash, setInitialCash] = useState(1_000_000);
   const [artifacts, setArtifacts] = useState<MultiAssetRunArtifact[]>([]);
+  const [artifactReviewKind, setArtifactReviewKind] = useState<MultiAssetRunArtifact['kind'] | null>(null);
   const [runActionLoading, setRunActionLoading] = useState(false);
 
   const selectedPlan = useMemo(
@@ -163,7 +188,10 @@ export default function MultiAssetResearchPage() {
         listMultiAssetRuns(undefined, 200),
       ]);
       setPlans(nextPlans);
-      setRuns(nextRuns);
+      setRuns((current) => nextRuns.map((run) => {
+        const detailed = current.find((item) => item.id === run.id && item.executionResult);
+        return detailed ? { ...run, rebalancePlan: detailed.rebalancePlan, executionResult: detailed.executionResult } : run;
+      }));
       setSelectedPlanId((current) => current && nextPlans.some((item) => item.id === current)
         ? current
         : nextPlans[0]?.id);
@@ -176,6 +204,20 @@ export default function MultiAssetResearchPage() {
   }, [message]);
 
   useEffect(() => { void loadData(); }, [loadData]);
+
+  useEffect(() => {
+    if (!selectedRun || selectedRun.status !== 'completed' || selectedRun.executionResult) return;
+    let cancelled = false;
+    void getMultiAssetRun(selectedRun.id)
+      .then((detail) => {
+        if (cancelled) return;
+        setRuns((current) => current.map((run) => run.id === detail.id ? detail : run));
+      })
+      .catch((error) => {
+        if (!cancelled) message.error(error instanceof Error ? error.message : '加载运行详情失败');
+      });
+    return () => { cancelled = true; };
+  }, [message, selectedRun]);
 
   const hasActiveRun = runs.some((run) => ACTIVE_STATUSES.has(run.status));
   useEffect(() => {
@@ -203,10 +245,13 @@ export default function MultiAssetResearchPage() {
   useEffect(() => {
     if (!selectedRun || selectedRun.status !== 'completed') {
       setArtifacts([]);
+      setArtifactReviewKind(null);
       return;
     }
     void listMultiAssetRunArtifacts(selectedRun.id).then(setArtifacts).catch(() => setArtifacts([]));
   }, [selectedRun]);
+
+  useEffect(() => { setArtifactReviewKind(null); }, [selectedRun?.id]);
 
   const cancelRun = async () => {
     if (!selectedRun) return;
@@ -322,6 +367,61 @@ export default function MultiAssetResearchPage() {
     { title: '成交额', dataIndex: 'grossAmount', align: 'right', render: compactMoney },
     { title: '费用', dataIndex: 'fees', align: 'right', render: compactMoney },
   ];
+  const rebalanceTargetRows = useMemo<RebalanceTargetRow[]>(() => (
+    selectedRun?.rebalancePlan?.decisions.flatMap((decision, decisionIndex) => (
+      decision.targets.map((target) => ({
+        key: `${decisionIndex}-${decision.executableFrom}-${target.instrumentKey}`,
+        decisionDate: decision.decisionDate,
+        executableFrom: decision.executableFrom,
+        ...target,
+      }))
+    )) ?? []
+  ), [selectedRun]);
+  const rebalanceTargetColumns: ColumnsType<RebalanceTargetRow> = [
+    { title: '决策日', dataIndex: 'decisionDate', width: 112, fixed: 'left' },
+    { title: '可执行日', dataIndex: 'executableFrom', width: 112 },
+    { title: '标的', dataIndex: 'instrumentKey', width: 130 },
+    { title: '排名', dataIndex: 'rank', width: 80, align: 'right' },
+    { title: '因子分', dataIndex: 'score', width: 110, align: 'right', render: (value) => Number(value).toFixed(4) },
+    { title: '目标权重', dataIndex: 'targetWeight', width: 120, align: 'right', render: (value) => <strong>{(Number(value) * 100).toFixed(2)}%</strong> },
+  ];
+  const reviewedArtifact = artifacts.find((artifact) => artifact.kind === artifactReviewKind);
+  const executionTabItems = selectedRun?.executionResult ? [
+    {
+      key: 'overview',
+      label: '执行概览',
+      children: (
+        <div className="multi-asset-review-overview">
+          <section className="multi-asset-result-stats">
+            <Statistic title="初始资金" value={selectedRun.executionResult.initialCash} formatter={(value) => compactMoney(Number(value))} />
+            <Statistic title="期末权益" value={metrics?.endingEquity ?? 0} formatter={(value) => compactMoney(Number(value))} />
+            <Statistic title="累计收益率" value={(metrics?.totalReturn ?? 0) * 100} precision={2} suffix="%" />
+            <Statistic title="累计交易成本" value={metrics?.cumulativeCosts ?? 0} formatter={(value) => compactMoney(Number(value))} />
+            <Statistic title="订单 / 账本" value={`${selectedRun.executionResult.orders.length} / ${selectedRun.executionResult.ledger.length}`} />
+          </section>
+          <EquityCurve ledger={selectedRun.executionResult.ledger} />
+          <Descriptions className="multi-asset-review-meta" bordered size="small" column={{ xs: 1, sm: 2, lg: 3 }}>
+            <Descriptions.Item label="运行 ID"><Typography.Text copyable code>{selectedRun.id}</Typography.Text></Descriptions.Item>
+            <Descriptions.Item label="结果哈希"><Typography.Text copyable code>{selectedRun.resultHash?.slice(0, 20) ?? '—'}</Typography.Text></Descriptions.Item>
+            <Descriptions.Item label="协议版本">{selectedRun.executionResult.protocolVersion}</Descriptions.Item>
+            <Descriptions.Item label="开始时间">{selectedRun.startedAt ? dayjs(selectedRun.startedAt).format('YYYY-MM-DD HH:mm:ss') : '—'}</Descriptions.Item>
+            <Descriptions.Item label="完成时间">{selectedRun.completedAt ? dayjs(selectedRun.completedAt).format('YYYY-MM-DD HH:mm:ss') : '—'}</Descriptions.Item>
+            <Descriptions.Item label="运行尝试">{selectedRun.attemptCount} / {selectedRun.maxAttempts}</Descriptions.Item>
+          </Descriptions>
+        </div>
+      ),
+    },
+    {
+      key: 'ledger',
+      label: `权益账本（${selectedRun.executionResult.ledger.length}）`,
+      children: <Table rowKey="tradeDate" size="small" columns={ledgerColumns} dataSource={selectedRun.executionResult.ledger} pagination={{ pageSize: 12, showSizeChanger: true }} scroll={{ x: 820, y: 460 }} />,
+    },
+    {
+      key: 'orders',
+      label: `成交订单（${selectedRun.executionResult.orders.length}）`,
+      children: <Table rowKey={(row) => `${row.tradeDate}-${row.instrumentKey}-${row.side}-${row.quantity}`} size="small" columns={orderColumns} dataSource={selectedRun.executionResult.orders} pagination={{ pageSize: 12, showSizeChanger: true }} scroll={{ x: 900, y: 460 }} />,
+    },
+  ] : [];
 
   return (
     <div className="multi-asset-page">
@@ -404,7 +504,7 @@ export default function MultiAssetResearchPage() {
                 </Space>}
               >
                 <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 4 }}>
-                  <Descriptions.Item label="资产域">沪深 300（{selectedPlan.snapshotConfig.indexCode}）</Descriptions.Item>
+                  <Descriptions.Item label="资产域">{indexUniverseLabel(selectedPlan.snapshotConfig.indexCode)}</Descriptions.Item>
                   <Descriptions.Item label="研究区间">{selectedPlan.snapshotConfig.startDate} 至 {selectedPlan.snapshotConfig.endDate}</Descriptions.Item>
                   <Descriptions.Item label="调仓与选股">{selectedPlan.snapshotConfig.frequency === 'weekly' ? '周频' : '月频'} · Top {selectedPlan.snapshotConfig.topN}</Descriptions.Item>
                   <Descriptions.Item label="权重">{selectedPlan.snapshotConfig.weighting === 'equal' ? '等权' : '评分加权'}</Descriptions.Item>
@@ -450,7 +550,12 @@ export default function MultiAssetResearchPage() {
                     {artifacts.length ? <div className="multi-asset-artifacts">
                       <Typography.Text type="secondary">可复核制品</Typography.Text>
                       <Space wrap>{artifacts.map((artifact) => (
-                        <Button key={artifact.id} size="small" href={`/api/multi-asset/artifacts/${artifact.id}/download`}>
+                        <Button
+                          key={artifact.id}
+                          size="small"
+                          icon={artifact.kind === 'rebalance_plan' ? <ScheduleOutlined /> : <FileSearchOutlined />}
+                          onClick={() => setArtifactReviewKind(artifact.kind)}
+                        >
                           {artifact.kind === 'rebalance_plan' ? '调仓计划' : '执行结果'} · {(artifact.byteSize / 1024).toFixed(1)} KB
                         </Button>
                       ))}</Space>
@@ -469,11 +574,59 @@ export default function MultiAssetResearchPage() {
         </main>
       </div>
 
+      <Drawer
+        className="multi-asset-review-drawer"
+        title={artifactReviewKind === 'rebalance_plan' ? '调仓计划审阅' : '执行结果审阅'}
+        width="min(1180px, 94vw)"
+        open={artifactReviewKind !== null}
+        onClose={() => setArtifactReviewKind(null)}
+        extra={reviewedArtifact ? (
+          <Button
+            icon={<DownloadOutlined />}
+            href={`/api/multi-asset/artifacts/${reviewedArtifact.id}/download`}
+          >
+            下载原始 JSON
+          </Button>
+        ) : null}
+      >
+        {artifactReviewKind === 'execution_result' && selectedRun?.executionResult ? (
+          <Tabs className="multi-asset-review-tabs" defaultActiveKey="overview" items={executionTabItems} />
+        ) : artifactReviewKind === 'rebalance_plan' && selectedRun?.rebalancePlan ? (
+          <div className="multi-asset-rebalance-review">
+            <section className="multi-asset-review-summary" aria-label="调仓计划摘要">
+              <Statistic title="调仓批次" value={selectedRun.rebalancePlan.decisions.length} />
+              <Statistic title="目标记录" value={rebalanceTargetRows.length} />
+              <Statistic title="每期目标" value={selectedRun.rebalancePlan.decisions[0]?.targets.length ?? 0} suffix="只" />
+              <Statistic title="协议版本" value={selectedRun.rebalancePlan.protocolVersion} />
+            </section>
+            <Descriptions className="multi-asset-review-meta" bordered size="small" column={{ xs: 1, sm: 2 }}>
+              <Descriptions.Item label="计划名称">{selectedPlan?.name ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="资产域">{selectedPlan ? indexUniverseLabel(selectedPlan.snapshotConfig.indexCode) : '—'}</Descriptions.Item>
+              <Descriptions.Item label="首个执行日">{selectedRun.rebalancePlan.decisions[0]?.executableFrom ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="最后执行日">{selectedRun.rebalancePlan.decisions[selectedRun.rebalancePlan.decisions.length - 1]?.executableFrom ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="计划哈希" span={2}><Typography.Text copyable code>{selectedRun.rebalancePlan.planHash}</Typography.Text></Descriptions.Item>
+            </Descriptions>
+            <Card className="multi-asset-review-table-card" title={`目标权重明细 · ${rebalanceTargetRows.length}`}>
+              <Table
+                rowKey="key"
+                size="small"
+                columns={rebalanceTargetColumns}
+                dataSource={rebalanceTargetRows}
+                pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
+                scroll={{ x: 760, y: 500 }}
+              />
+            </Card>
+          </div>
+        ) : (
+          <Empty description="当前运行尚未生成可审阅的制品" />
+        )}
+      </Drawer>
+
       <Drawer title="新建多资产研究计划" size={560} open={createOpen} onClose={() => setCreateOpen(false)} extra={<Button type="primary" loading={creating} onClick={() => void createPlan()}>冻结计划</Button>}>
-        <Alert type="info" showIcon message="计划创建后将绑定只读数据快照" description="当前基础流程开放沪深 300；更多资产域会在数据口径与黄金样例通过后逐步开放。" />
+        <Alert type="info" showIcon message="计划创建后将绑定只读数据快照" description="当前开放沪深 300 与中证 500 时点成分股；全 A 股票池将在历史证券状态与过滤审计通过后开放。" />
         <Form form={planForm} layout="vertical" className="multi-asset-plan-form">
           <Form.Item name="name" label="计划名称" rules={[{ required: true }, { max: 80 }]}><Input placeholder="例如：沪深 300 月度动量研究" /></Form.Item>
-          <Form.Item name="indexCode" label="资产域" rules={[{ required: true }]}><Select options={[{ label: '沪深 300（000300）', value: '000300' }]} /></Form.Item>
+          <Form.Item name="indexCode" label="资产域" rules={[{ required: true }]}><Select options={Object.entries(INDEX_UNIVERSES).map(([value, name]) => ({ label: `${name}（${value}）`, value }))} /></Form.Item>
           <Form.Item name="dateRange" label="回测区间" rules={[{ required: true }]}><RangePicker style={{ width: '100%' }} allowClear={false} /></Form.Item>
           <div className="multi-asset-form-grid">
             <Form.Item name="frequency" label="调仓周期" rules={[{ required: true }]}><Select options={[{ label: '每周', value: 'weekly' }, { label: '每月', value: 'monthly' }]} /></Form.Item>
