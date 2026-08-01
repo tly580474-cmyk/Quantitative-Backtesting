@@ -4,9 +4,13 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { canonicalHash } from '../experiments/schema.js';
 import {
+  finalizeRebalancePlan,
+  hashMultiAssetPlan,
   multiAssetPlanSchema,
   pointInTimeFeatureRowSchema,
+  rebalancePlanSchema,
   validateRebalancePlan,
   type RebalancePlan,
 } from './schema.js';
@@ -81,8 +85,31 @@ export async function generateRebalancePlanWithPython(options: {
         try {
           const metadata = await stat(outputPath);
           if (metadata.size > maxOutputBytes) throw new Error('PYTHON_PLAN_OUTPUT_TOO_LARGE');
-          const parsed = JSON.parse(await readFile(outputPath, 'utf8')) as unknown;
-          finish(undefined, validateRebalancePlan(parsed, plan));
+          const parsed = rebalancePlanSchema.parse(JSON.parse(await readFile(outputPath, 'utf8')));
+          // Python and ECMAScript serialize numerically equivalent values such as 1.0/1
+          // differently. The TS execution plane is authoritative, so it normalizes the
+          // transport hashes after strict parsing. All memberships, evidence, targets and
+          // semantic constraints remain enforced below and by cross-runtime parity.
+          const normalizedDecisions = parsed.decisions.map((decision) => {
+            const eligibleUniverse = [...decision.eligibleUniverse].sort();
+            const featureEvidence = [...decision.featureEvidence]
+              .sort((left, right) => left.instrumentKey.localeCompare(right.instrumentKey));
+            return {
+              ...decision,
+              eligibleUniverse,
+              universeHash: canonicalHash({ decisionDate: decision.decisionDate, members: eligibleUniverse }),
+              featureEvidence,
+              featureHash: canonicalHash(featureEvidence),
+            };
+          });
+          const normalized = finalizeRebalancePlan({
+            protocolVersion: parsed.protocolVersion,
+            snapshotId: parsed.snapshotId,
+            featureEngineVersion: parsed.featureEngineVersion,
+            sourcePlanHash: hashMultiAssetPlan(plan),
+            decisions: normalizedDecisions,
+          });
+          finish(undefined, validateRebalancePlan(normalized, plan));
         } catch (error) {
           finish(new Error(`PYTHON_PLAN_OUTPUT_INVALID:${error instanceof Error ? error.message : String(error)}`));
         }

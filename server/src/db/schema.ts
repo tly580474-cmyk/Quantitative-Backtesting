@@ -633,6 +633,21 @@ export const multiAssetRunArtifacts = mysqlTable('multi_asset_run_artifacts', {
   hashIdx: index('idx_mara_hash').on(table.contentHash),
 }));
 
+export const multiAssetWorkers = mysqlTable('multi_asset_workers', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  mode: varchar('mode', { length: 16 }).notNull(),
+  hostname: varchar('hostname', { length: 255 }).notNull(),
+  pid: int('pid').notNull(),
+  concurrency: int('concurrency').notNull(),
+  status: varchar('status', { length: 16 }).notNull(),
+  startedAt: varchar('started_at', { length: 24 }).notNull(),
+  lastHeartbeatAt: varchar('last_heartbeat_at', { length: 24 }).notNull(),
+  stoppedAt: varchar('stopped_at', { length: 24 }),
+  metadata: json('metadata'),
+}, (table) => ({
+  statusHeartbeatIdx: index('idx_maw_status_heartbeat').on(table.status, table.lastHeartbeatAt),
+}));
+
 // ─── equity_points ───────────────────────────────────────────────
 export const equityPoints = mysqlTable('equity_points', {
   id: int('id').autoincrement().primaryKey(),

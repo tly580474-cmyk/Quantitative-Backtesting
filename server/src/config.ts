@@ -79,6 +79,17 @@ const envSchema = z.object({
   FACTOR_MINER_TIMEOUT_MS: z.string().default('21600000'),
   FACTOR_MINER_MAX_MEMORY_MB: z.string().default('4096'),
 
+  // M4 multi-asset production worker and lifecycle controls.
+  MULTI_ASSET_EMBEDDED_WORKER: z.enum(['true', 'false']).default('true'),
+  MULTI_ASSET_WORKER_CONCURRENCY: z.string().regex(/^\d+$/).default('2'),
+  MULTI_ASSET_POLL_INTERVAL_MS: z.string().regex(/^\d+$/).default('1000'),
+  MULTI_ASSET_WORKER_HEARTBEAT_MS: z.string().regex(/^\d+$/).default('10000'),
+  MULTI_ASSET_WORKER_STALE_MS: z.string().regex(/^\d+$/).default('45000'),
+  MULTI_ASSET_SHUTDOWN_GRACE_MS: z.string().regex(/^\d+$/).default('30000'),
+  MULTI_ASSET_ARTIFACT_RETENTION_DAYS: z.string().regex(/^\d+$/).default('30'),
+  MULTI_ASSET_QUEUE_WARNING_SECONDS: z.string().regex(/^\d+$/).default('60'),
+  MULTI_ASSET_QUEUE_CRITICAL_SECONDS: z.string().regex(/^\d+$/).default('300'),
+
   // Operations admin console. Empty means the admin API is disabled.
   ADMIN_API_TOKEN: z.string().default(''),
   // Overview TTL cache (ms). 0 disables caching. See ADMIN_CONSOLE_OPTIMIZATION_PLAN §1.

@@ -42,4 +42,27 @@ describe('MultiAssetRunDispatcher', () => {
     await vi.waitFor(() => expect(completed).toEqual(['good']));
     expect(onError).toHaveBeenCalledWith('bad', expect.any(Error));
   });
+
+  it('stops accepting and resolves a graceful drain after active work completes', async () => {
+    const gate = deferred();
+    const dispatcher = new MultiAssetRunDispatcher(async () => gate.promise, undefined, 1);
+    dispatcher.enqueue('run-1');
+    await vi.waitFor(() => expect(dispatcher.stats().active).toBe(1));
+    dispatcher.stopAccepting();
+    expect(dispatcher.isAccepting()).toBe(false);
+    expect(dispatcher.enqueue('run-2')).toBe(false);
+    const draining = dispatcher.drain(1_000);
+    gate.resolve();
+    await expect(draining).resolves.toBe(true);
+  });
+
+  it('reports a drain timeout without cancelling active work', async () => {
+    const gate = deferred();
+    const dispatcher = new MultiAssetRunDispatcher(async () => gate.promise, undefined, 1);
+    dispatcher.enqueue('run-1');
+    await vi.waitFor(() => expect(dispatcher.stats().active).toBe(1));
+    await expect(dispatcher.drain(5)).resolves.toBe(false);
+    expect(dispatcher.stats().active).toBe(1);
+    gate.resolve();
+  });
 });

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { getDb, schema } from '../db/index.js';
 import { canonicalHash } from '../experiments/schema.js';
 import { hashMultiAssetPlan, multiAssetPlanSchema, type MultiAssetPlan, type RebalancePlan } from './schema.js';
@@ -64,9 +64,15 @@ export async function getMultiAssetPlanVersion(id: string): Promise<StoredMultiA
   return row ?? null;
 }
 
-export async function listMultiAssetPlanVersions(limit = 50): Promise<StoredMultiAssetPlan[]> {
+export async function listMultiAssetPlanVersions(limit = 50, offset = 0): Promise<StoredMultiAssetPlan[]> {
   return getDb().select().from(multiAssetPlanVersions)
-    .orderBy(desc(multiAssetPlanVersions.createdAt)).limit(Math.max(1, Math.min(200, limit)));
+    .orderBy(desc(multiAssetPlanVersions.createdAt)).limit(Math.max(1, Math.min(200, limit)))
+    .offset(Math.max(0, offset));
+}
+
+export async function countMultiAssetPlanVersions(): Promise<number> {
+  const [row] = await getDb().select({ count: sql<number>`count(*)` }).from(multiAssetPlanVersions);
+  return Number(row?.count ?? 0);
 }
 
 export function buildMultiAssetRunInputHash(input: {
@@ -123,12 +129,22 @@ export async function getMultiAssetRun(id: string): Promise<StoredMultiAssetRun 
   return row ?? null;
 }
 
-export async function listMultiAssetRuns(planVersionId?: string, limit = 50): Promise<StoredMultiAssetRun[]> {
+export async function listMultiAssetRuns(
+  planVersionId?: string,
+  limit = 50,
+  offset = 0,
+): Promise<StoredMultiAssetRun[]> {
   const query = getDb().select().from(multiAssetRuns);
   return planVersionId
     ? query.where(eq(multiAssetRuns.planVersionId, planVersionId))
-      .orderBy(desc(multiAssetRuns.createdAt)).limit(Math.max(1, Math.min(200, limit)))
-    : query.orderBy(desc(multiAssetRuns.createdAt)).limit(Math.max(1, Math.min(200, limit)));
+      .orderBy(desc(multiAssetRuns.createdAt)).limit(Math.max(1, Math.min(200, limit))).offset(Math.max(0, offset))
+    : query.orderBy(desc(multiAssetRuns.createdAt)).limit(Math.max(1, Math.min(200, limit))).offset(Math.max(0, offset));
+}
+
+export async function countMultiAssetRuns(planVersionId?: string): Promise<number> {
+  const query = getDb().select({ count: sql<number>`count(*)` }).from(multiAssetRuns);
+  const [row] = planVersionId ? await query.where(eq(multiAssetRuns.planVersionId, planVersionId)) : await query;
+  return Number(row?.count ?? 0);
 }
 
 export async function claimQueuedMultiAssetRun(
@@ -334,6 +350,33 @@ export async function getMultiAssetRunArtifact(id: string): Promise<StoredMultiA
   const [row] = await getDb().select().from(multiAssetRunArtifacts)
     .where(eq(multiAssetRunArtifacts.id, id)).limit(1);
   return row ?? null;
+}
+
+export async function listExpiredMultiAssetRunArtifacts(
+  completedBefore: string,
+  limit = 500,
+): Promise<StoredMultiAssetRunArtifact[]> {
+  return getDb().select({
+    id: multiAssetRunArtifacts.id,
+    runId: multiAssetRunArtifacts.runId,
+    kind: multiAssetRunArtifacts.kind,
+    contentHash: multiAssetRunArtifacts.contentHash,
+    storageUri: multiAssetRunArtifacts.storageUri,
+    byteSize: multiAssetRunArtifacts.byteSize,
+    mediaType: multiAssetRunArtifacts.mediaType,
+    createdAt: multiAssetRunArtifacts.createdAt,
+  }).from(multiAssetRunArtifacts)
+    .innerJoin(multiAssetRuns, eq(multiAssetRunArtifacts.runId, multiAssetRuns.id))
+    .where(and(
+      inArray(multiAssetRuns.status, ['completed', 'failed', 'dead_letter', 'cancelled']),
+      lte(multiAssetRuns.completedAt, completedBefore),
+    ))
+    .orderBy(asc(multiAssetRunArtifacts.createdAt))
+    .limit(Math.max(1, Math.min(5000, limit)));
+}
+
+export async function deleteMultiAssetRunArtifact(id: string): Promise<void> {
+  await getDb().delete(multiAssetRunArtifacts).where(eq(multiAssetRunArtifacts.id, id));
 }
 
 export async function recoverAndListQueuedMultiAssetRuns(limit = 100): Promise<string[]> {

@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { createReadStream } from 'node:fs';
 import { z } from 'zod';
 import {
+  countMultiAssetPlanVersions,
+  countMultiAssetRuns,
   createQueuedMultiAssetRun,
   getMultiAssetRunArtifact,
   getMultiAssetPlanVersion,
@@ -13,6 +15,7 @@ import {
   manuallyRetryMultiAssetRun,
   requestMultiAssetRunCancellation,
 } from '../multiAsset/repository.js';
+import { defaultMultiAssetArtifactRoot, verifyMultiAssetArtifact } from '../multiAsset/artifactStore.js';
 import { freezeSnapshotMultiAssetPlan } from '../multiAsset/runService.js';
 import { snapshotMultiAssetConfigSchema } from '../multiAsset/snapshotInput.js';
 import { apiError, dbUnavailable, ErrorCodes } from '../validation/errors.js';
@@ -29,6 +32,7 @@ const createRunSchema = z.strictObject({
 
 const listQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
   planVersionId: z.string().uuid().optional(),
 });
 
@@ -75,9 +79,14 @@ export function registerMultiAssetRoutes(
   });
 
   app.get('/api/multi-asset/plans', async (request, reply) => {
-    const parsed = listQuerySchema.pick({ limit: true }).safeParse(request.query);
+    const parsed = listQuerySchema.pick({ limit: true, offset: true }).safeParse(request.query);
     if (!parsed.success) return validationError(reply, parsed.error.issues);
-    return reply.send(await listMultiAssetPlanVersions(parsed.data.limit));
+    const [items, total] = await Promise.all([
+      listMultiAssetPlanVersions(parsed.data.limit, parsed.data.offset),
+      countMultiAssetPlanVersions(),
+    ]);
+    reply.headers({ 'X-Total-Count': total, 'X-Limit': parsed.data.limit, 'X-Offset': parsed.data.offset });
+    return reply.send(items);
   });
 
   app.get<{ Params: { id: string } }>('/api/multi-asset/plans/:id', async (request, reply) => {
@@ -109,7 +118,12 @@ export function registerMultiAssetRoutes(
   app.get('/api/multi-asset/runs', async (request, reply) => {
     const parsed = listQuerySchema.safeParse(request.query);
     if (!parsed.success) return validationError(reply, parsed.error.issues);
-    return reply.send(await listMultiAssetRuns(parsed.data.planVersionId, parsed.data.limit));
+    const [items, total] = await Promise.all([
+      listMultiAssetRuns(parsed.data.planVersionId, parsed.data.limit, parsed.data.offset),
+      countMultiAssetRuns(parsed.data.planVersionId),
+    ]);
+    reply.headers({ 'X-Total-Count': total, 'X-Limit': parsed.data.limit, 'X-Offset': parsed.data.offset });
+    return reply.send(items);
   });
 
   app.get<{ Params: { id: string } }>('/api/multi-asset/runs/:id', async (request, reply) => {
@@ -161,17 +175,45 @@ export function registerMultiAssetRoutes(
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
+    reply.raw.write('retry: 3000\n\n');
+    let flushing = false;
+    let closed = false;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    let lifetime: ReturnType<typeof setTimeout> | undefined;
+    const close = (reason: string) => {
+      if (closed) return;
+      closed = true;
+      if (interval) clearInterval(interval);
+      if (heartbeat) clearInterval(heartbeat);
+      if (lifetime) clearTimeout(lifetime);
+      if (!reply.raw.destroyed) {
+        reply.raw.write(`event: end\ndata: ${JSON.stringify({ reason })}\n\n`);
+        reply.raw.end();
+      }
+    };
     const flush = async () => {
-      const events = await listMultiAssetRunEvents(request.params.id, afterId, 200);
-      for (const event of events) {
-        afterId = Number(event.id);
-        reply.raw.write(`id: ${event.id}\nevent: ${event.eventType}\ndata: ${JSON.stringify(event)}\n\n`);
+      if (flushing || closed) return;
+      flushing = true;
+      try {
+        const events = await listMultiAssetRunEvents(request.params.id, afterId, 200);
+        for (const event of events) {
+          afterId = Number(event.id);
+          reply.raw.write(`id: ${event.id}\nevent: ${event.eventType}\ndata: ${JSON.stringify(event)}\n\n`);
+        }
+        const run = await getMultiAssetRun(request.params.id);
+        if (run && ['completed', 'failed', 'dead_letter', 'cancelled'].includes(run.status)) close(run.status);
+      } finally {
+        flushing = false;
       }
     };
     await flush();
-    const interval = setInterval(() => void flush().catch(() => reply.raw.end()), 1_000);
-    const heartbeat = setInterval(() => reply.raw.write(': heartbeat\n\n'), 15_000);
-    request.raw.once('close', () => { clearInterval(interval); clearInterval(heartbeat); });
+    if (!closed) {
+      interval = setInterval(() => void flush().catch(() => close('error')), 1_000);
+      heartbeat = setInterval(() => reply.raw.write(': heartbeat\n\n'), 15_000);
+      lifetime = setTimeout(() => close('max_lifetime'), 30 * 60_000);
+    }
+    request.raw.once('close', () => close('client_closed'));
   });
 
   app.get<{ Params: { id: string } }>('/api/multi-asset/runs/:id/artifacts', async (request, reply) => {
@@ -184,9 +226,26 @@ export function registerMultiAssetRoutes(
   app.get<{ Params: { id: string } }>('/api/multi-asset/artifacts/:id/download', async (request, reply) => {
     const artifact = await getMultiAssetRunArtifact(request.params.id);
     if (!artifact) return reply.status(404).send(apiError(ErrorCodes.MULTI_ASSET_RUN_NOT_FOUND, '运行制品不存在'));
+    let verifiedPath: string;
+    try {
+      verifiedPath = await verifyMultiAssetArtifact({
+        artifactRoot: defaultMultiAssetArtifactRoot(options.snapshotRoot),
+        storageUri: artifact.storageUri,
+        byteSize: artifact.byteSize,
+        contentHash: artifact.contentHash,
+      });
+    } catch (error) {
+      request.log.error({ err: error, artifactId: artifact.id }, 'multi-asset artifact verification failed');
+      return reply.status(410).send(apiError(
+        ErrorCodes.VALIDATION_ERROR,
+        '运行制品缺失或完整性校验失败',
+      ));
+    }
     reply.header('Content-Type', artifact.mediaType);
     reply.header('Content-Disposition', `attachment; filename="${artifact.kind}.json"`);
     reply.header('X-Content-SHA256', artifact.contentHash);
-    return reply.send(createReadStream(artifact.storageUri));
+    reply.header('Cache-Control', 'private, no-store');
+    reply.header('X-Content-Type-Options', 'nosniff');
+    return reply.send(createReadStream(verifiedPath));
   });
 }

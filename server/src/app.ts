@@ -52,6 +52,13 @@ import { getDuckDBRuntimeStats } from './research/duckdbRuntime.js';
 import { processMultiAssetRun } from './multiAsset/runService.js';
 import { promoteReadyMultiAssetRetries, recoverAndListQueuedMultiAssetRuns } from './multiAsset/repository.js';
 import { MultiAssetRunDispatcher } from './multiAsset/dispatcher.js';
+import { hostname } from 'node:os';
+import {
+  collectMultiAssetOperationalStatus,
+  heartbeatMultiAssetWorker,
+  registerMultiAssetWorker,
+  stopMultiAssetWorker,
+} from './multiAsset/operations.js';
 
 async function main(): Promise<void> {
   let requestedExitCode = 0;
@@ -145,13 +152,17 @@ async function main(): Promise<void> {
     snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
     pythonExecutable: config.FACTOR_MINER_PYTHON,
   };
+  const multiAssetConcurrency = Math.max(1, Number(config.MULTI_ASSET_WORKER_CONCURRENCY));
   const multiAssetDispatcher = new MultiAssetRunDispatcher(
     (runId) => processMultiAssetRun(runId, multiAssetWorkerOptions),
     (runId, error) => app.log.error({ err: error, runId }, 'multi-asset worker failed'),
-    2,
+    multiAssetConcurrency,
   );
-  const embeddedMultiAssetWorker = process.env.MULTI_ASSET_EMBEDDED_WORKER !== 'false';
+  const embeddedMultiAssetWorker = config.MULTI_ASSET_EMBEDDED_WORKER === 'true';
   let multiAssetQueueTimer: ReturnType<typeof setInterval> | null = null;
+  let multiAssetHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let multiAssetWorkerId: string | null = null;
+  let shuttingDown = false;
 
   await app.register(cors, {
     origin: /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
@@ -160,12 +171,36 @@ async function main(): Promise<void> {
   });
 
   // Health check (reports DB status)
-  app.get('/api/health', async () => ({
-    status: 'ok',
-    db: dbStatus.ok ? 'connected' : 'disconnected',
-    duckdb: getDuckDBRuntimeStats(),
-    multiAsset: { ...multiAssetDispatcher.stats(), embeddedWorker: embeddedMultiAssetWorker },
-  }));
+  app.get('/api/health', async () => {
+    let operations: { level: string; waiting: number; workers: number } | null = null;
+    if (dbStatus.ok) {
+      try {
+        const status = await collectMultiAssetOperationalStatus({
+          workerStaleMs: Number(config.MULTI_ASSET_WORKER_STALE_MS),
+          queueWarningSeconds: Number(config.MULTI_ASSET_QUEUE_WARNING_SECONDS),
+          queueCriticalSeconds: Number(config.MULTI_ASSET_QUEUE_CRITICAL_SECONDS),
+        });
+        operations = {
+          level: status.level,
+          waiting: (status.queue.counts.queued ?? 0) + (status.queue.counts.retry_wait ?? 0),
+          workers: status.workers.fresh,
+        };
+      } catch (error) {
+        app.log.warn({ err: error }, 'multi-asset health collection failed');
+      }
+    }
+    return {
+      status: 'ok',
+      db: dbStatus.ok ? 'connected' : 'disconnected',
+      duckdb: getDuckDBRuntimeStats(),
+      multiAsset: {
+        ...multiAssetDispatcher.stats(),
+        accepting: multiAssetDispatcher.isAccepting(),
+        embeddedWorker: embeddedMultiAssetWorker,
+        operations,
+      },
+    };
+  });
 
   // Register AI routes
   registerAiRoutes(
@@ -188,7 +223,7 @@ async function main(): Promise<void> {
       void promoteReadyMultiAssetRetries(200)
         .then((runIds) => runIds.forEach((runId) => multiAssetDispatcher.enqueue(runId)))
         .catch((error) => app.log.error({ err: error }, 'multi-asset retry poll failed'));
-    }, 1_000);
+    }, Math.max(250, Number(config.MULTI_ASSET_POLL_INTERVAL_MS)));
     multiAssetQueueTimer.unref?.();
   }
   registerDatasetRoutes(app, dbOnline);
@@ -362,6 +397,8 @@ async function main(): Promise<void> {
   });
   // Graceful shutdown
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log('[Server] Shutting down...');
     const { stopScheduler } = await import('./marketData/jobs/syncScheduler.js');
     const { stopIndexDatasetScheduler } = await import('./marketData/jobs/indexDatasetScheduler.js');
@@ -382,6 +419,20 @@ async function main(): Promise<void> {
     stopFinancialDataScheduler();
     stopPaperTradingScheduler();
     if (multiAssetQueueTimer) clearInterval(multiAssetQueueTimer);
+    if (multiAssetHeartbeatTimer) clearInterval(multiAssetHeartbeatTimer);
+    multiAssetDispatcher.stopAccepting();
+    if (multiAssetWorkerId) {
+      await heartbeatMultiAssetWorker(multiAssetWorkerId, 'draining').catch((error) => {
+        app.log.warn({ err: error }, 'failed to mark multi-asset worker draining');
+      });
+    }
+    const drained = await multiAssetDispatcher.drain(Number(config.MULTI_ASSET_SHUTDOWN_GRACE_MS));
+    if (!drained) app.log.warn('multi-asset shutdown grace expired; active leases will be recovered');
+    if (multiAssetWorkerId) {
+      await stopMultiAssetWorker(multiAssetWorkerId).catch((error) => {
+        app.log.warn({ err: error }, 'failed to mark multi-asset worker stopped');
+      });
+    }
     await app.close();
     closeDb();
     await closePool(pool);
@@ -398,6 +449,21 @@ async function main(): Promise<void> {
     // 只有成功取得监听端口的服务实例才有权接管后台任务。监督器可能在旧实例
     // 仍存活时先启动替代实例；若在 listen 之前恢复，会误杀旧实例管理的 worker。
     if (dbOnline) {
+      if (embeddedMultiAssetWorker) {
+        multiAssetWorkerId = await registerMultiAssetWorker({
+          mode: 'embedded',
+          hostname: hostname(),
+          pid: process.pid,
+          concurrency: multiAssetConcurrency,
+          metadata: { port },
+        });
+        multiAssetHeartbeatTimer = setInterval(() => {
+          if (!multiAssetWorkerId) return;
+          void heartbeatMultiAssetWorker(multiAssetWorkerId, 'ready', multiAssetDispatcher.stats())
+            .catch((error) => app.log.warn({ err: error }, 'multi-asset worker heartbeat failed'));
+        }, Math.max(1_000, Number(config.MULTI_ASSET_WORKER_HEARTBEAT_MS)));
+        multiAssetHeartbeatTimer.unref?.();
+      }
       const recoveredMultiAssetRuns = await recoverAndListQueuedMultiAssetRuns();
       if (embeddedMultiAssetWorker) {
         for (const runId of recoveredMultiAssetRuns) multiAssetDispatcher.enqueue(runId);

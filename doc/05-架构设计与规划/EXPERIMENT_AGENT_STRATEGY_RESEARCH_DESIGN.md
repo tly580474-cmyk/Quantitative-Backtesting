@@ -9,6 +9,8 @@
 
 - [实验 Agent 使用手册](./EXPERIMENT_AGENT_USER_GUIDE.md)
 - [2026-08-01 M0–M4 验收报告](../04-数据治理与验收/20260801_EXPERIMENT_AGENT_M0_M4_ACCEPTANCE.md)
+- [M4 多资产 Agent 生产运维手册](../03-运维监控/MULTI_ASSET_PRODUCTION_RUNBOOK.md)
+- [M4 运维与生产化补强验收记录](../04-数据治理与验收/20260801_M4_PRODUCTION_HARDENING_ACCEPTANCE.md)
 
 本轮总验收结论为“有条件通过”：M0、M2、M4 v1 通过；M1 缺少 200 条标注集与质量
 统计，M3 缺少独立 PDF Worker 与历史报告集中管理，二者不得标记为完整完成。

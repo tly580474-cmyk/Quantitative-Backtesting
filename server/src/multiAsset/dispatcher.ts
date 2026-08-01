@@ -8,6 +8,8 @@ export class MultiAssetRunDispatcher {
   private readonly queue: string[] = [];
   private readonly queuedIds = new Set<string>();
   private readonly activeIds = new Set<string>();
+  private accepting = true;
+  private readonly drainWaiters = new Set<() => void>();
 
   constructor(
     private readonly processRun: (runId: string) => Promise<unknown>,
@@ -20,11 +22,37 @@ export class MultiAssetRunDispatcher {
   }
 
   enqueue(runId: string): boolean {
+    if (!this.accepting) return false;
     if (this.queuedIds.has(runId) || this.activeIds.has(runId)) return false;
     this.queue.push(runId);
     this.queuedIds.add(runId);
     queueMicrotask(() => this.pump());
     return true;
+  }
+
+  stopAccepting(): void {
+    this.accepting = false;
+  }
+
+  isAccepting(): boolean {
+    return this.accepting;
+  }
+
+  async drain(timeoutMs: number): Promise<boolean> {
+    if (this.activeIds.size === 0 && this.queue.length === 0) return true;
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (value: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.drainWaiters.delete(onDrained);
+        resolve(value);
+      };
+      const onDrained = () => finish(true);
+      const timer = setTimeout(() => finish(false), Math.max(0, timeoutMs));
+      this.drainWaiters.add(onDrained);
+    });
   }
 
   stats(): MultiAssetDispatcherStats {
@@ -41,6 +69,9 @@ export class MultiAssetRunDispatcher {
         .finally(() => {
           this.activeIds.delete(runId);
           this.pump();
+          if (this.activeIds.size === 0 && this.queue.length === 0) {
+            for (const waiter of [...this.drainWaiters]) waiter();
+          }
         });
     }
   }

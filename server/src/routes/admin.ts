@@ -15,6 +15,7 @@ import {
   resolveDatabaseBackupDownload,
   startDatabaseBackupExport,
 } from '../admin/databaseBackupExport.js';
+import { collectMultiAssetOperationalStatus } from '../multiAsset/operations.js';
 
 interface AdminRouteOptions {
   pool: Pool;
@@ -90,6 +91,23 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(503).send({
         error: 'DIAGNOSTICS_FAILED',
         message: error instanceof Error ? error.message : '系统诊断失败',
+      });
+    }
+  });
+
+  app.get('/api/admin/multi-asset/status', { preHandler: authorize }, async (_request, reply) => {
+    if (!options.dbOnline) return reply.status(503).send({ error: 'DB_UNAVAILABLE' });
+    try {
+      return reply.send(await collectMultiAssetOperationalStatus({
+        workerStaleMs: Number(options.config.MULTI_ASSET_WORKER_STALE_MS),
+        queueWarningSeconds: Number(options.config.MULTI_ASSET_QUEUE_WARNING_SECONDS),
+        queueCriticalSeconds: Number(options.config.MULTI_ASSET_QUEUE_CRITICAL_SECONDS),
+      }));
+    } catch (error) {
+      app.log.error({ err: error }, 'Multi-asset operational status collection failed');
+      return reply.status(503).send({
+        error: 'MULTI_ASSET_STATUS_FAILED',
+        message: error instanceof Error ? error.message : '多资产运行状态采集失败',
       });
     }
   });

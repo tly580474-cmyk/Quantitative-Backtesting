@@ -251,6 +251,9 @@ npm run multi-asset:worker
 
 ## 7. 运维与验收命令
 
+生产部署、Worker 心跳、队列告警、优雅停机、制品清理和故障恢复详见
+[M4 多资产 Agent 生产运维手册](../03-运维监控/MULTI_ASSET_PRODUCTION_RUNBOOK.md)。
+
 ```powershell
 # 根目录：能力清单、全量前端/共享测试与构建
 npm run capabilities:check
@@ -292,4 +295,3 @@ npm run multi-asset:production-smoke
 - [技术设计](./EXPERIMENT_AGENT_STRATEGY_RESEARCH_DESIGN.md)
 - [M0–M4 验收报告](../04-数据治理与验收/20260801_EXPERIMENT_AGENT_M0_M4_ACCEPTANCE.md)
 - [因子研究使用说明](../02-因子研究与查询/FACTOR_RESEARCH_USER_GUIDE.md)
-

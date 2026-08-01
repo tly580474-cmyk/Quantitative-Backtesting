@@ -80,6 +80,8 @@
     "multi-asset:api-smoke": "tsx src/multiAsset/apiSmokeCli.ts",
     "multi-asset:worker": "tsx src/multiAsset/workerCli.ts",
     "multi-asset:production-smoke": "tsx src/multiAsset/productionSmokeCli.ts",
+    "multi-asset:artifacts:prune": "tsx src/multiAsset/artifactCleanupCli.ts",
+    "multi-asset:status": "tsx src/multiAsset/operationsStatusCli.ts",
     "pretest": "npm run capabilities:check",
     "test": "vitest run src"
   },
