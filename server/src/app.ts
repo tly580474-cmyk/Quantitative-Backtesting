@@ -50,7 +50,7 @@ import {
 } from './factorResearch/mining/miningWorker.js';
 import { getDuckDBRuntimeStats } from './research/duckdbRuntime.js';
 import { processMultiAssetRun } from './multiAsset/runService.js';
-import { recoverAndListQueuedMultiAssetRuns } from './multiAsset/repository.js';
+import { promoteReadyMultiAssetRetries, recoverAndListQueuedMultiAssetRuns } from './multiAsset/repository.js';
 import { MultiAssetRunDispatcher } from './multiAsset/dispatcher.js';
 
 async function main(): Promise<void> {
@@ -150,6 +150,8 @@ async function main(): Promise<void> {
     (runId, error) => app.log.error({ err: error, runId }, 'multi-asset worker failed'),
     2,
   );
+  const embeddedMultiAssetWorker = process.env.MULTI_ASSET_EMBEDDED_WORKER !== 'false';
+  let multiAssetQueueTimer: ReturnType<typeof setInterval> | null = null;
 
   await app.register(cors, {
     origin: /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
@@ -162,7 +164,7 @@ async function main(): Promise<void> {
     status: 'ok',
     db: dbStatus.ok ? 'connected' : 'disconnected',
     duckdb: getDuckDBRuntimeStats(),
-    multiAsset: multiAssetDispatcher.stats(),
+    multiAsset: { ...multiAssetDispatcher.stats(), embeddedWorker: embeddedMultiAssetWorker },
   }));
 
   // Register AI routes
@@ -181,6 +183,14 @@ async function main(): Promise<void> {
 
   // Register data routes
   const dbOnline = dbStatus.ok;
+  if (dbOnline && embeddedMultiAssetWorker) {
+    multiAssetQueueTimer = setInterval(() => {
+      void promoteReadyMultiAssetRetries(200)
+        .then((runIds) => runIds.forEach((runId) => multiAssetDispatcher.enqueue(runId)))
+        .catch((error) => app.log.error({ err: error }, 'multi-asset retry poll failed'));
+    }, 1_000);
+    multiAssetQueueTimer.unref?.();
+  }
   registerDatasetRoutes(app, dbOnline);
   registerStrategyConfigRoutes(app, dbOnline);
   registerResultRoutes(app, dbOnline);
@@ -189,7 +199,7 @@ async function main(): Promise<void> {
     app,
     dbOnline,
     multiAssetWorkerOptions,
-    (runId) => multiAssetDispatcher.enqueue(runId),
+    embeddedMultiAssetWorker ? (runId) => multiAssetDispatcher.enqueue(runId) : undefined,
   );
   registerVisualStrategyRoutes(app, dbOnline);
   registerExportRoutes(app, dbOnline);
@@ -371,6 +381,7 @@ async function main(): Promise<void> {
     stopMarketOpinionPushScheduler();
     stopFinancialDataScheduler();
     stopPaperTradingScheduler();
+    if (multiAssetQueueTimer) clearInterval(multiAssetQueueTimer);
     await app.close();
     closeDb();
     await closePool(pool);
@@ -388,7 +399,9 @@ async function main(): Promise<void> {
     // 仍存活时先启动替代实例；若在 listen 之前恢复，会误杀旧实例管理的 worker。
     if (dbOnline) {
       const recoveredMultiAssetRuns = await recoverAndListQueuedMultiAssetRuns();
-      for (const runId of recoveredMultiAssetRuns) multiAssetDispatcher.enqueue(runId);
+      if (embeddedMultiAssetWorker) {
+        for (const runId of recoveredMultiAssetRuns) multiAssetDispatcher.enqueue(runId);
+      }
       if (recoveredMultiAssetRuns.length > 0) {
         console.warn(`[MultiAsset] Resumed ${recoveredMultiAssetRuns.length} queued or expired run(s).`);
       }

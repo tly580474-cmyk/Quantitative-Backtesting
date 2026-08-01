@@ -1,4 +1,5 @@
-export type MultiAssetRunStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type MultiAssetRunStatus = 'queued' | 'running' | 'completed' | 'failed'
+  | 'retry_wait' | 'dead_letter' | 'cancelled';
 
 export interface SnapshotMultiAssetConfig {
   indexCode: string;
@@ -10,6 +11,8 @@ export interface SnapshotMultiAssetConfig {
   maxGrossExposure: number;
   maxSingleWeight: number;
   minCashWeight: number;
+  factorVersionId?: string;
+  strategyVersionId?: string;
 }
 
 export interface StoredMultiAssetPlan {
@@ -27,6 +30,7 @@ export interface StoredMultiAssetPlan {
       slippageRate?: number;
     };
     portfolioPlan?: { lotSize?: number };
+    governancePlan?: { factorVersionId?: string; strategyVersionId?: string; role: string };
   };
   snapshotConfig: SnapshotMultiAssetConfig;
   createdAt: string;
@@ -50,6 +54,8 @@ export interface MultiAssetLedgerEntry {
   marketValue: number;
   equity: number;
   cumulativeCosts: number;
+  grossTraded: number;
+  turnover: number;
   positions: Array<{
     instrumentKey: string;
     quantity: number;
@@ -67,6 +73,10 @@ export interface StoredMultiAssetRun {
   initialCash: number;
   progress: { stage: string; percent: number };
   attemptCount: number;
+  maxAttempts: number;
+  nextAttemptAt: string | null;
+  cancelRequestedAt: string | null;
+  cancelledAt: string | null;
   rebalancePlan: null | {
     protocolVersion: '1.0';
     planHash: string;
@@ -89,6 +99,17 @@ export interface StoredMultiAssetRun {
   startedAt: string | null;
   completedAt: string | null;
   updatedAt: string;
+}
+
+export interface MultiAssetRunArtifact {
+  id: string;
+  runId: string;
+  kind: 'rebalance_plan' | 'execution_result';
+  contentHash: string;
+  storageUri: string;
+  byteSize: number;
+  mediaType: string;
+  createdAt: string;
 }
 
 export interface CreateMultiAssetPlanInput {

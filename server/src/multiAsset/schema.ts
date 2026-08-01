@@ -43,6 +43,11 @@ export const multiAssetPlanSchema = z.strictObject({
     sellTaxRate: z.number().finite().min(0).max(0.1),
     slippageRate: z.number().finite().min(0).max(0.1),
   }),
+  governancePlan: z.strictObject({
+    factorVersionId: z.string().trim().min(1).max(96).optional(),
+    strategyVersionId: z.string().uuid().optional(),
+    role: z.enum(['research', 'challenger', 'champion']),
+  }).optional(),
 });
 
 const targetSchema = z.strictObject({

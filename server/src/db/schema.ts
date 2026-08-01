@@ -582,6 +582,11 @@ export const multiAssetRuns = mysqlTable('multi_asset_runs', {
   workerToken: varchar('worker_token', { length: 64 }),
   leaseExpiresAt: varchar('lease_expires_at', { length: 24 }),
   attemptCount: int('attempt_count').notNull().default(0),
+  maxAttempts: int('max_attempts').notNull().default(3),
+  nextAttemptAt: varchar('next_attempt_at', { length: 24 }),
+  cancelRequestedAt: varchar('cancel_requested_at', { length: 24 }),
+  cancelledAt: varchar('cancelled_at', { length: 24 }),
+  parentRunId: varchar('parent_run_id', { length: 36 }),
   rebalancePlan: json('rebalance_plan'),
   executionResult: json('execution_result'),
   resultHash: varchar('result_hash', { length: 64 }),
@@ -596,7 +601,36 @@ export const multiAssetRuns = mysqlTable('multi_asset_runs', {
   planCreatedIdx: index('idx_mar_plan_created').on(table.planVersionId, table.createdAt),
   statusCreatedIdx: index('idx_mar_status_created').on(table.status, table.createdAt),
   statusLeaseIdx: index('idx_mar_status_lease').on(table.status, table.leaseExpiresAt),
+  queueReadyIdx: index('idx_mar_queue_ready').on(table.status, table.nextAttemptAt, table.createdAt),
+  parentIdx: index('idx_mar_parent').on(table.parentRunId),
   resultHashIdx: index('idx_mar_result_hash').on(table.resultHash),
+}));
+
+export const multiAssetRunEvents = mysqlTable('multi_asset_run_events', {
+  id: bigint('id', { mode: 'number', unsigned: true }).autoincrement().primaryKey(),
+  runId: varchar('run_id', { length: 36 }).notNull(),
+  eventType: varchar('event_type', { length: 40 }).notNull(),
+  stage: varchar('stage', { length: 80 }),
+  percent: int('percent'),
+  payload: json('payload'),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  runIdIdx: index('idx_mare_run_id').on(table.runId, table.id),
+  createdIdx: index('idx_mare_created').on(table.createdAt),
+}));
+
+export const multiAssetRunArtifacts = mysqlTable('multi_asset_run_artifacts', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  runId: varchar('run_id', { length: 36 }).notNull(),
+  kind: varchar('kind', { length: 40 }).notNull(),
+  contentHash: varchar('content_hash', { length: 64 }).notNull(),
+  storageUri: varchar('storage_uri', { length: 1000 }).notNull(),
+  byteSize: bigint('byte_size', { mode: 'number', unsigned: true }).notNull(),
+  mediaType: varchar('media_type', { length: 120 }).notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  runKindUnique: uniqueIndex('idx_mara_run_kind').on(table.runId, table.kind),
+  hashIdx: index('idx_mara_hash').on(table.contentHash),
 }));
 
 // ─── equity_points ───────────────────────────────────────────────

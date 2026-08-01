@@ -35,8 +35,11 @@ import {
 import dayjs, { type Dayjs } from 'dayjs';
 import {
   createMultiAssetPlan,
+  cancelMultiAssetRun,
   listMultiAssetPlans,
+  listMultiAssetRunArtifacts,
   listMultiAssetRuns,
+  retryMultiAssetRun,
   startMultiAssetRun,
 } from './api';
 import { deriveMultiAssetRunMetrics, multiAssetStageLabel } from './metrics';
@@ -44,12 +47,13 @@ import type {
   CreateMultiAssetPlanInput,
   MultiAssetLedgerEntry,
   MultiAssetOrder,
+  MultiAssetRunArtifact,
   StoredMultiAssetPlan,
   StoredMultiAssetRun,
 } from './types';
 
 const { RangePicker } = DatePicker;
-const ACTIVE_STATUSES = new Set(['queued', 'running']);
+const ACTIVE_STATUSES = new Set(['queued', 'running', 'retry_wait']);
 
 interface PlanFormValues {
   name: string;
@@ -61,6 +65,8 @@ interface PlanFormValues {
   maxGrossExposure: number;
   maxSingleWeight: number;
   minCashWeight: number;
+  factorVersionId?: string;
+  strategyVersionId?: string;
 }
 
 const money = (value: number) => new Intl.NumberFormat('zh-CN', {
@@ -76,6 +82,9 @@ const compactMoney = (value: number) => {
 function runStatusMeta(run: StoredMultiAssetRun) {
   if (run.status === 'completed') return { color: 'success', label: '已完成', icon: <CheckCircleOutlined /> };
   if (run.status === 'failed') return { color: 'error', label: '失败', icon: null };
+  if (run.status === 'dead_letter') return { color: 'error', label: '死信', icon: null };
+  if (run.status === 'cancelled') return { color: 'default', label: '已取消', icon: null };
+  if (run.status === 'retry_wait') return { color: 'warning', label: '等待重试', icon: <ClockCircleOutlined /> };
   if (run.status === 'running') return { color: 'processing', label: '运行中', icon: <SyncOutlined spin /> };
   return { color: 'default', label: '排队中', icon: <ClockCircleOutlined /> };
 }
@@ -129,6 +138,8 @@ export default function MultiAssetResearchPage() {
   const [creating, setCreating] = useState(false);
   const [starting, setStarting] = useState(false);
   const [initialCash, setInitialCash] = useState(1_000_000);
+  const [artifacts, setArtifacts] = useState<MultiAssetRunArtifact[]>([]);
+  const [runActionLoading, setRunActionLoading] = useState(false);
 
   const selectedPlan = useMemo(
     () => plans.find((plan) => plan.id === selectedPlanId),
@@ -174,11 +185,52 @@ export default function MultiAssetResearchPage() {
   }, [hasActiveRun, loadData]);
 
   useEffect(() => {
+    if (!selectedRun || !ACTIVE_STATUSES.has(selectedRun.status) || typeof EventSource === 'undefined') return undefined;
+    const source = new EventSource(`/api/multi-asset/runs/${encodeURIComponent(selectedRun.id)}/events/stream`);
+    source.onmessage = () => void loadData(true);
+    const refresh = () => void loadData(true);
+    ['progress', 'completed', 'retry_wait', 'dead_letter', 'cancelled'].forEach((type) => source.addEventListener(type, refresh));
+    return () => source.close();
+  }, [selectedRun, loadData]);
+
+  useEffect(() => {
     if (!planRuns.length) setSelectedRunId(undefined);
     else if (!selectedRunId || !planRuns.some((run) => run.id === selectedRunId)) {
       setSelectedRunId(planRuns[0].id);
     }
   }, [planRuns, selectedRunId]);
+
+  useEffect(() => {
+    if (!selectedRun || selectedRun.status !== 'completed') {
+      setArtifacts([]);
+      return;
+    }
+    void listMultiAssetRunArtifacts(selectedRun.id).then(setArtifacts).catch(() => setArtifacts([]));
+  }, [selectedRun]);
+
+  const cancelRun = async () => {
+    if (!selectedRun) return;
+    setRunActionLoading(true);
+    try {
+      const run = await cancelMultiAssetRun(selectedRun.id);
+      setRuns((current) => current.map((item) => item.id === run.id ? run : item));
+      message.success(run.status === 'cancelled' ? '运行已取消' : '取消请求已提交');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '取消失败');
+    } finally { setRunActionLoading(false); }
+  };
+
+  const retryRun = async () => {
+    if (!selectedRun) return;
+    setRunActionLoading(true);
+    try {
+      const run = await retryMultiAssetRun(selectedRun.id);
+      setRuns((current) => current.map((item) => item.id === run.id ? run : item));
+      message.success('运行已重新进入队列');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '重试失败');
+    } finally { setRunActionLoading(false); }
+  };
 
   const openCreate = () => {
     planForm.setFieldsValue({
@@ -216,6 +268,8 @@ export default function MultiAssetResearchPage() {
           maxGrossExposure: values.maxGrossExposure / 100,
           maxSingleWeight: values.maxSingleWeight / 100,
           minCashWeight: values.minCashWeight / 100,
+          factorVersionId: values.factorVersionId?.trim() || undefined,
+          strategyVersionId: values.strategyVersionId?.trim() || undefined,
         },
       };
       const result = await createMultiAssetPlan(input);
@@ -256,6 +310,7 @@ export default function MultiAssetResearchPage() {
     { title: '持仓市值', dataIndex: 'marketValue', align: 'right', render: compactMoney },
     { title: '总权益', dataIndex: 'equity', align: 'right', render: (value) => <strong>{compactMoney(value)}</strong> },
     { title: '累计成本', dataIndex: 'cumulativeCosts', align: 'right', render: compactMoney },
+    { title: '换手率', dataIndex: 'turnover', align: 'right', render: (value) => `${(Number(value) * 100).toFixed(2)}%` },
     { title: '持仓数', dataIndex: 'positions', align: 'right', render: (value) => value.length },
   ];
   const orderColumns: ColumnsType<MultiAssetOrder> = [
@@ -342,7 +397,11 @@ export default function MultiAssetResearchPage() {
             <>
               <Card
                 title={selectedPlan.name}
-                extra={<Button type="primary" icon={<ExperimentOutlined />} onClick={() => setRunOpen(true)}>启动运行</Button>}
+                extra={<Space wrap>
+                  {selectedRun && ACTIVE_STATUSES.has(selectedRun.status) ? <Button danger loading={runActionLoading} onClick={() => void cancelRun()}>取消运行</Button> : null}
+                  {selectedRun && ['failed', 'dead_letter', 'cancelled'].includes(selectedRun.status) ? <Button loading={runActionLoading} onClick={() => void retryRun()}>重试</Button> : null}
+                  <Button type="primary" icon={<ExperimentOutlined />} onClick={() => setRunOpen(true)}>启动运行</Button>
+                </Space>}
               >
                 <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 4 }}>
                   <Descriptions.Item label="资产域">沪深 300（{selectedPlan.snapshotConfig.indexCode}）</Descriptions.Item>
@@ -352,6 +411,7 @@ export default function MultiAssetResearchPage() {
                   <Descriptions.Item label="总仓位上限">{(selectedPlan.snapshotConfig.maxGrossExposure * 100).toFixed(0)}%</Descriptions.Item>
                   <Descriptions.Item label="单标的上限">{(selectedPlan.snapshotConfig.maxSingleWeight * 100).toFixed(0)}%</Descriptions.Item>
                   <Descriptions.Item label="最低现金">{(selectedPlan.snapshotConfig.minCashWeight * 100).toFixed(0)}%</Descriptions.Item>
+                  <Descriptions.Item label="治理角色">{selectedPlan.plan.governancePlan?.role ?? '独立研究'}</Descriptions.Item>
                   <Descriptions.Item label="计划哈希"><Typography.Text copyable code>{selectedPlan.planHash.slice(0, 16)}…</Typography.Text></Descriptions.Item>
                 </Descriptions>
               </Card>
@@ -387,6 +447,14 @@ export default function MultiAssetResearchPage() {
                       <Statistic title="订单 / 调仓" value={`${metrics.orderCount} / ${metrics.rebalanceCount}`} />
                     </section>
                     <EquityCurve ledger={selectedRun.executionResult.ledger} />
+                    {artifacts.length ? <div className="multi-asset-artifacts">
+                      <Typography.Text type="secondary">可复核制品</Typography.Text>
+                      <Space wrap>{artifacts.map((artifact) => (
+                        <Button key={artifact.id} size="small" href={`/api/multi-asset/artifacts/${artifact.id}/download`}>
+                          {artifact.kind === 'rebalance_plan' ? '调仓计划' : '执行结果'} · {(artifact.byteSize / 1024).toFixed(1)} KB
+                        </Button>
+                      ))}</Space>
+                    </div> : null}
                   </Card>
                   <Card title="权益账本">
                     <Table rowKey="tradeDate" size="small" columns={ledgerColumns} dataSource={selectedRun.executionResult.ledger} pagination={{ pageSize: 8 }} scroll={{ x: 720 }} />
@@ -415,6 +483,10 @@ export default function MultiAssetResearchPage() {
             <Form.Item name="maxSingleWeight" label="单标的上限（%）" rules={[{ required: true }]}><InputNumber min={0.1} max={100} step={0.5} style={{ width: '100%' }} /></Form.Item>
             <Form.Item name="minCashWeight" label="最低现金（%）" rules={[{ required: true }]}><InputNumber min={0} max={99} style={{ width: '100%' }} /></Form.Item>
           </div>
+          <Typography.Title level={5}>因子与策略治理绑定（可选）</Typography.Title>
+          <Typography.Paragraph type="secondary">仅接受已发布的 momentum_20 因子版本，以及快照一致且处于 validated、paper 或 champion 状态的策略版本。</Typography.Paragraph>
+          <Form.Item name="factorVersionId" label="已发布因子版本 ID"><Input placeholder="例如 momentum_20:v1" /></Form.Item>
+          <Form.Item name="strategyVersionId" label="冠军 / 挑战者策略版本 ID"><Input placeholder="UUID" /></Form.Item>
         </Form>
       </Drawer>
 

@@ -3,10 +3,23 @@ import type {
   CreateMultiAssetPlanInput,
   StoredMultiAssetPlan,
   StoredMultiAssetRun,
+  MultiAssetRunArtifact,
 } from './types';
 
 export function listMultiAssetPlans(limit = 100) {
   return apiFetch<StoredMultiAssetPlan[]>(`/api/multi-asset/plans?limit=${limit}`);
+}
+
+export function cancelMultiAssetRun(id: string) {
+  return apiFetch<StoredMultiAssetRun>(`/api/multi-asset/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+}
+
+export function retryMultiAssetRun(id: string) {
+  return apiFetch<StoredMultiAssetRun>(`/api/multi-asset/runs/${encodeURIComponent(id)}/retry`, { method: 'POST' });
+}
+
+export function listMultiAssetRunArtifacts(id: string) {
+  return apiFetch<MultiAssetRunArtifact[]>(`/api/multi-asset/runs/${encodeURIComponent(id)}/artifacts`);
 }
 
 export function getMultiAssetPlan(id: string) {

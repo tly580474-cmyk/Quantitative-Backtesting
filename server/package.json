@@ -78,6 +78,8 @@
     "multi-asset:persistence-smoke": "tsx src/multiAsset/persistenceSmokeCli.ts",
     "multi-asset:lease-smoke": "tsx src/multiAsset/leaseSmokeCli.ts",
     "multi-asset:api-smoke": "tsx src/multiAsset/apiSmokeCli.ts",
+    "multi-asset:worker": "tsx src/multiAsset/workerCli.ts",
+    "multi-asset:production-smoke": "tsx src/multiAsset/productionSmokeCli.ts",
     "pretest": "npm run capabilities:check",
     "test": "vitest run src"
   },

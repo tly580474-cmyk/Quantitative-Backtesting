@@ -153,4 +153,30 @@ describe('M4 multi-asset foundation', () => {
       entry.positions.forEach((position) => expect(position.quantity % 100).toBe(0));
     }
   });
+
+  it('marks daily, applies capacity and corporate actions, and blocks limit or suspended fills', async () => {
+    const rebalancePlan = await generateRebalancePlan(BASIC_MULTI_ASSET_PLAN, BASIC_POINT_IN_TIME_ROWS);
+    const result = executeRebalancePlan({
+      sourcePlan: BASIC_MULTI_ASSET_PLAN,
+      rebalancePlan,
+      initialCash: 100_000,
+      bars: [
+        { tradeDate: '2026-07-03', instrumentKey: '600000.SH', open: 10, close: 10, volume: 1_000, tradable: true },
+        { tradeDate: '2026-07-03', instrumentKey: '000002.SZ', open: 20, close: 20, volume: 1_000, tradable: true },
+        { tradeDate: '2026-07-06', instrumentKey: '600000.SH', open: 5, close: 5.2, volume: 2_000, corporateActionRatio: 2, tradable: true },
+        { tradeDate: '2026-07-06', instrumentKey: '000002.SZ', open: 20, close: 21, volume: 2_000, tradable: true },
+        { tradeDate: '2026-07-10', instrumentKey: '600000.SH', open: 4.5, close: 4.5, volume: 10_000, limitDown: 4.5, tradable: true },
+        { tradeDate: '2026-07-10', instrumentKey: '000002.SZ', open: 21, close: 21, volume: 10_000, tradable: false },
+        { tradeDate: '2026-07-10', instrumentKey: '000001.SZ', open: 12, close: 12, volume: 10_000, limitUp: 12, tradable: true },
+        { tradeDate: '2026-07-10', instrumentKey: '600001.SH', open: 8, close: 8, volume: 10_000, limitUp: 8, tradable: true },
+      ],
+    });
+    expect(result.ledger).toHaveLength(3);
+    expect(result.orders.filter((order) => order.tradeDate === '2026-07-03').map((order) => order.quantity))
+      .toEqual([100, 100]);
+    expect(result.ledger[1].positions.find((position) => position.instrumentKey === '600000.SH')?.quantity)
+      .toBe(200);
+    expect(result.orders.filter((order) => order.tradeDate === '2026-07-10')).toHaveLength(0);
+    result.ledger.forEach((entry) => expect(entry.equity).toBeCloseTo(entry.cash + entry.marketValue, 8));
+  });
 });

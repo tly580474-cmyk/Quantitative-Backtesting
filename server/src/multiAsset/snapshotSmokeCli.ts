@@ -41,5 +41,5 @@ process.stdout.write(`${JSON.stringify({
   orders: result.orders.length,
   ledgerEntries: result.ledger.length,
   endingEquity: result.ledger.at(-1)?.equity,
-  note: 'Read-only snapshot foundation flow; production M4 remains incomplete.',
+    note: 'M4 v1 acceptance flow; fixed snapshot evidence only, not an investment return claim.',
 }, null, 2)}\n`);

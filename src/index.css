@@ -5500,6 +5500,7 @@ html[data-theme='dark'] .candle-detail {
 .multi-asset-chart-line { fill: none; stroke: var(--multi-asset-accent); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
 .multi-asset-chart-labels { display: flex; align-items: center; justify-content: space-between; color: #64748b; font-size: 12px; }
 .multi-asset-chart-labels strong { color: #1677ff; font-size: 14px; }
+.multi-asset-artifacts { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid #e2e8f0; }
 
 .multi-asset-plan-form { margin-top: 20px; }
 .multi-asset-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
@@ -5523,6 +5524,7 @@ html[data-theme='dark'] .multi-asset-result-stats .ant-statistic { background: #
 html[data-theme='dark'] .multi-asset-equity-chart { border-color: #2a3b56; background: linear-gradient(180deg, #111d31, #0b1627); }
 html[data-theme='dark'] .multi-asset-chart-axis { stroke: #40516a; }
 html[data-theme='dark'] .multi-asset-chart-labels { color: #94a3b8; }
+html[data-theme='dark'] .multi-asset-artifacts { border-color: #2a3b56; }
 
 @media (max-width: 1180px) {
   .multi-asset-result-stats { grid-template-columns: repeat(3, minmax(120px, 1fr)); }

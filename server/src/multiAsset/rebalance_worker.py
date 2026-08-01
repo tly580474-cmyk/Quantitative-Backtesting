@@ -1,6 +1,7 @@
 """Fixed M4 cross-sectional calculator.
 
-This worker accepts one JSON document on stdin and emits one RebalancePlan on stdout.
+This worker accepts one JSON document on stdin or an orchestrator-owned input file and emits
+one RebalancePlan on stdout or an output file.
 It does not execute user code and intentionally has no cash, order, position or equity logic.
 """
 
@@ -9,11 +10,25 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+import os
 from datetime import date
 from typing import Any
 
 
 ENGINE_VERSION = "python-cross-sectional-v1"
+
+
+def apply_resource_limits() -> None:
+    """Best-effort POSIX limits; Node still enforces timeout and output limits on every OS."""
+    try:
+        import resource
+        memory_mb = max(128, int(os.environ.get("MULTI_ASSET_PYTHON_MAX_MEMORY_MB", "1024")))
+        cpu_seconds = max(1, int(os.environ.get("MULTI_ASSET_PYTHON_MAX_CPU_SECONDS", "120")))
+        resource.setrlimit(resource.RLIMIT_AS, (memory_mb * 1024 * 1024, memory_mb * 1024 * 1024))
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
+        resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
+    except (ImportError, OSError, ValueError):
+        pass
 
 
 def canonical_hash(value: Any) -> str:
@@ -163,10 +178,17 @@ def generate(payload: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> int:
     try:
-        payload = json.load(sys.stdin)
+        apply_resource_limits()
+        input_stream = open(sys.argv[1], "r", encoding="utf-8") if len(sys.argv) >= 2 else sys.stdin
+        output_stream = open(sys.argv[2], "w", encoding="utf-8") if len(sys.argv) >= 3 else sys.stdout
+        payload = json.load(input_stream)
         result = generate(payload)
-        json.dump(result, sys.stdout, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-        sys.stdout.write("\n")
+        json.dump(result, output_stream, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        output_stream.write("\n")
+        if input_stream is not sys.stdin:
+            input_stream.close()
+        if output_stream is not sys.stdout:
+            output_stream.close()
         return 0
     except Exception as error:  # fixed worker boundary: one structured error line
         sys.stderr.write(f"{type(error).__name__}: {error}\n")

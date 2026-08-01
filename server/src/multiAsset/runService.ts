@@ -3,13 +3,16 @@ import { canonicalHash } from '../experiments/schema.js';
 import { generateRebalancePlan } from './duckdbPlanGenerator.js';
 import { executeRebalancePlan } from './execution.js';
 import { generateRebalancePlanWithPython } from './pythonPlanWorker.js';
+import { defaultMultiAssetArtifactRoot, persistMultiAssetJsonArtifact } from './artifactStore.js';
+import { validateMultiAssetGovernanceBinding } from './governanceBinding.js';
 import {
+  cancelClaimedMultiAssetRun,
   claimQueuedMultiAssetRun,
   completeMultiAssetRun,
-  failMultiAssetRun,
   getMultiAssetPlanVersion,
   getMultiAssetRun,
   renewMultiAssetRunLease,
+  settleMultiAssetRunFailure,
   storeFrozenMultiAssetPlan,
   updateMultiAssetRunProgress,
 } from './repository.js';
@@ -32,12 +35,17 @@ export async function freezeSnapshotMultiAssetPlan(input: {
   const config = snapshotMultiAssetConfigSchema.parse(input.config);
   assertSnapshotConfigSemantics(config);
   const resolved = await loadSnapshotMomentumInput({ snapshotRoot: input.snapshotRoot, ...config });
+  await validateMultiAssetGovernanceBinding({
+    factorVersionId: config.factorVersionId,
+    strategyVersionId: config.strategyVersionId,
+    snapshotId: resolved.sourcePlan.snapshotId,
+  });
   return storeFrozenMultiAssetPlan({ name: input.name, plan: resolved.sourcePlan, snapshotConfig: config });
 }
 
 export async function processMultiAssetRun(
   runId: string,
-  options: { snapshotRoot: string; pythonExecutable?: string },
+  options: { snapshotRoot: string; pythonExecutable?: string; artifactRoot?: string },
 ) {
   const workerToken = randomUUID();
   const claimed = await claimQueuedMultiAssetRun(runId, workerToken, RUN_LEASE_MS);
@@ -52,12 +60,14 @@ export async function processMultiAssetRun(
     const sourcePlan = multiAssetPlanSchema.parse(storedPlan.plan);
     const config = snapshotMultiAssetConfigSchema.parse(storedPlan.snapshotConfig);
     await requireProgress(runId, workerToken, 'loading_snapshot', 10);
+    await throwIfCancelled(runId, workerToken);
     const input = await loadSnapshotMomentumInput({ snapshotRoot: options.snapshotRoot, ...config });
     if (hashMultiAssetPlan(input.sourcePlan) !== storedPlan.planHash
       || input.sourcePlan.snapshotId !== sourcePlan.snapshotId) {
       throw codedError('FROZEN_PLAN_BINDING_MISMATCH', '当前只读快照与冻结计划不一致，必须创建新计划版本');
     }
     await requireProgress(runId, workerToken, 'building_rebalance_plan', 35);
+    await throwIfCancelled(runId, workerToken);
     const [duckdbPlan, pythonPlan] = await Promise.all([
       generateRebalancePlan(sourcePlan, input.rows),
       generateRebalancePlanWithPython({
@@ -66,12 +76,22 @@ export async function processMultiAssetRun(
       }),
     ]);
     assertCrossRuntimeParity(duckdbPlan, pythonPlan);
+    await persistMultiAssetJsonArtifact({
+      artifactRoot: options.artifactRoot ?? defaultMultiAssetArtifactRoot(options.snapshotRoot),
+      runId, kind: 'rebalance_plan', value: duckdbPlan,
+    });
     await requireProgress(runId, workerToken, 'loading_execution_bars', 65);
-    const bars = await loadSnapshotExecutionBars(options.snapshotRoot, duckdbPlan);
+    await throwIfCancelled(runId, workerToken);
+    const bars = await loadSnapshotExecutionBars(options.snapshotRoot, duckdbPlan, config.endDate);
     await requireProgress(runId, workerToken, 'executing_portfolio', 80);
     const executionResult = executeRebalancePlan({
       sourcePlan, rebalancePlan: duckdbPlan, bars, initialCash: claimed.initialCash,
     });
+    await persistMultiAssetJsonArtifact({
+      artifactRoot: options.artifactRoot ?? defaultMultiAssetArtifactRoot(options.snapshotRoot),
+      runId, kind: 'execution_result', value: executionResult,
+    });
+    await throwIfCancelled(runId, workerToken);
     const resultHash = canonicalHash({
       sourcePlanHash: storedPlan.planHash,
       rebalancePlanHash: duckdbPlan.planHash,
@@ -86,11 +106,31 @@ export async function processMultiAssetRun(
     return getMultiAssetRun(runId);
   } catch (error) {
     const normalized = normalizeRunError(error);
-    await failMultiAssetRun(runId, workerToken, normalized.code, normalized.message);
+    if (normalized.code === 'MULTI_ASSET_RUN_CANCELLED') {
+      await cancelClaimedMultiAssetRun(runId, workerToken);
+    } else {
+      await settleMultiAssetRunFailure({
+        id: runId, workerToken, errorCode: normalized.code, errorMessage: normalized.message,
+        retryable: isRetryableRunError(normalized.code),
+      });
+    }
     return getMultiAssetRun(runId);
   } finally {
     clearInterval(heartbeat);
   }
+}
+
+async function throwIfCancelled(runId: string, workerToken: string): Promise<void> {
+  const run = await getMultiAssetRun(runId);
+  if (!run || run.workerToken !== workerToken) throw codedError('MULTI_ASSET_RUN_STATE_CONFLICT', '运行租约已失效');
+  if (run.cancelRequestedAt) throw codedError('MULTI_ASSET_RUN_CANCELLED', '运行已由用户取消');
+}
+
+export function isRetryableRunError(code: string): boolean {
+  return new Set([
+    'PYTHON_PLAN_WORKER_TIMEOUT', 'PYTHON_PLAN_WORKER_START_FAILED',
+    'DUCKDB_BUSY', 'DATABASE_UNAVAILABLE', 'EXECUTION_SNAPSHOT_TEMPORARILY_UNAVAILABLE',
+  ]).has(code);
 }
 
 export function assertCrossRuntimeParity(duckdbPlan: RebalancePlan, pythonPlan: RebalancePlan): void {

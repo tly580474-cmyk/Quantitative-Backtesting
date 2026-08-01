@@ -20,6 +20,7 @@ server/.cache/codex-backend-*.log
 server/.cache/codex-frontend-*.log
 server/.cache/history-import/
 server/data/research-snapshots/
+server/data/multi-asset-artifacts/
 server/data/backups/
 server/data/factor-research/
 server/data/minute-data/
