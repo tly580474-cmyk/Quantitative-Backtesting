@@ -37,6 +37,7 @@ import {
   SyncOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
+import { ApiError } from '@/api/client';
 import {
   createMultiAssetPlan,
   cancelMultiAssetRun,
@@ -83,6 +84,24 @@ const INDEX_UNIVERSES = {
   '000300': '沪深 300',
   '000905': '中证 500',
 } as const;
+
+const DEFAULT_PLAN_NAME_PATTERN = /^(沪深 300|中证 500|全 A) 多资产研究 \d{2}-\d{2} \d{2}:\d{2}$/;
+
+const suggestedPlanName = (universeKey: PlanFormValues['universeKey']) => {
+  const universeName = universeKey === 'all_a'
+    ? '全 A'
+    : INDEX_UNIVERSES[universeKey.slice('index:'.length) as keyof typeof INDEX_UNIVERSES];
+  return `${universeName} 多资产研究 ${dayjs().format('MM-DD HH:mm')}`;
+};
+
+const planCreationErrorMessage = (error: unknown) => {
+  if (!(error instanceof ApiError)) return error instanceof Error ? error.message : '冻结计划失败';
+  if (!Array.isArray(error.details) || error.details.length === 0) return error.message;
+  const firstIssue = error.details[0] as { path?: unknown; message?: unknown };
+  const path = Array.isArray(firstIssue.path) ? firstIssue.path.join('.') : '';
+  const issue = typeof firstIssue.message === 'string' ? firstIssue.message : '';
+  return [error.message, path && `字段：${path}`, issue].filter(Boolean).join('；');
+};
 
 const universeLabel = (config: SnapshotMultiAssetConfig) => {
   const spec = config.universeSpec ?? (config.indexCode
@@ -291,7 +310,7 @@ export default function MultiAssetResearchPage() {
 
   const openCreate = () => {
     planForm.setFieldsValue({
-      name: `沪深 300 多资产研究 ${dayjs().format('MM-DD HH:mm')}`,
+      name: suggestedPlanName('index:000300'),
       universeKey: 'index:000300',
       dateRange: [dayjs().subtract(12, 'month').startOf('day'), dayjs().subtract(1, 'day').startOf('day')],
       frequency: 'monthly',
@@ -366,7 +385,7 @@ export default function MultiAssetResearchPage() {
       await loadData(true);
       message.success(result.reused ? '已复用相同快照计划' : '研究计划已冻结');
     } catch (error) {
-      if (error instanceof Error) message.error(error.message);
+      message.error({ content: planCreationErrorMessage(error), duration: 8 });
     } finally {
       setCreating(false);
     }
@@ -669,7 +688,12 @@ export default function MultiAssetResearchPage() {
         <Alert type="info" showIcon message="计划创建后将绑定只读数据快照" description="全 A 使用决策日证券名称和行情过滤，默认覆盖沪深京、上市满 120 个交易日、近 20 日行情完整并排除 ST/退市风险名称；逐期过滤审计进入计划哈希。" />
         <Form form={planForm} layout="vertical" className="multi-asset-plan-form">
           <Form.Item name="name" label="计划名称" rules={[{ required: true }, { max: 80 }]}><Input placeholder="例如：沪深 300 月度动量研究" /></Form.Item>
-          <Form.Item name="universeKey" label="资产域" rules={[{ required: true }]}><Select options={[
+          <Form.Item name="universeKey" label="资产域" rules={[{ required: true }]}><Select onChange={(universeKey: PlanFormValues['universeKey']) => {
+            const currentName = planForm.getFieldValue('name') as string | undefined;
+            if (!currentName || DEFAULT_PLAN_NAME_PATTERN.test(currentName)) {
+              planForm.setFieldValue('name', suggestedPlanName(universeKey));
+            }
+          }} options={[
             ...Object.entries(INDEX_UNIVERSES).map(([code, name]) => ({ label: `${name}（${code}）`, value: `index:${code}` })),
             { label: '全 A（沪深京 · 时点过滤）', value: 'all_a' },
           ]} /></Form.Item>
