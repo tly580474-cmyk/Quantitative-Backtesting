@@ -296,6 +296,9 @@ interface ResearchAgentConfig {
   model: string;
   timeoutMs: number;
   availableModels: string[];
+  fallbackModel?: string;
+  fallbackBaseUrl?: string;
+  fallbackApiKey?: string;
 }
 
 export function registerMarketDataRoutes(
@@ -330,6 +333,9 @@ export function registerMarketDataRoutes(
     agentConfig.baseURL,
     agentConfig.model,
     agentConfig.timeoutMs,
+    agentConfig.fallbackModel
+      ? { model: agentConfig.fallbackModel, baseURL: agentConfig.fallbackBaseUrl, apiKey: agentConfig.fallbackApiKey }
+      : undefined,
   );
   let snapshotUpdateInFlight: Promise<unknown> | null = null;
 
@@ -446,6 +452,8 @@ export function registerMarketDataRoutes(
   app.get('/api/market-data/news/opinion/status', async (_req, reply) => reply.send({
     configured: Boolean(agentConfig.apiKey),
     currentModel: agentConfig.model,
+    fallbackModel: agentConfig.fallbackModel || undefined,
+    fallbackProviderSeparate: opinionAgent.status().fallbackProviderSeparate,
     availableModels: agentConfig.availableModels,
     inputTiers: MARKET_OPINION_TIERS,
     workflow: ['三类新闻取证', '跨媒体事件去重', '主题与影响链提取', '共识和分歧核验', '风险与验证项'],

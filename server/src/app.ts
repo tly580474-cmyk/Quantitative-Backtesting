@@ -103,6 +103,11 @@ async function main(): Promise<void> {
       config.OPENAI_BASE_URL,
       config.OPENAI_MODEL,
       parseInt(config.OPENAI_TIMEOUT_MS, 10),
+      {
+        model: config.MARKET_OPINION_FALLBACK_MODEL,
+        baseURL: config.MARKET_OPINION_FALLBACK_BASE_URL,
+        apiKey: config.MARKET_OPINION_FALLBACK_API_KEY,
+      },
     ),
     email: opinionEmailSender,
     model: config.OPENAI_MODEL,
@@ -262,6 +267,9 @@ async function main(): Promise<void> {
     model: config.OPENAI_MODEL,
     timeoutMs: parseInt(config.OPENAI_TIMEOUT_MS, 10),
     availableModels: availableAiModels,
+    fallbackModel: config.MARKET_OPINION_FALLBACK_MODEL,
+    fallbackBaseUrl: config.MARKET_OPINION_FALLBACK_BASE_URL,
+    fallbackApiKey: config.MARKET_OPINION_FALLBACK_API_KEY,
   }, {
     historyReadMode: config.HISTORY_STORE_READ_MODE,
     snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,

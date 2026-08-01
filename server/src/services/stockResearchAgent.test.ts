@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  StockResearchAgent,
   buildRelativeStrengthEvidence,
   buildTradingSystemPrompt,
   buildValueInvestmentEvidence,
@@ -7,6 +8,27 @@ import {
   TRADING_STYLE_DEFINITIONS,
   type StockResearchContext,
 } from './stockResearchAgent.js';
+
+const mocks = vi.hoisted(() => ({
+  create: vi.fn(),
+}));
+
+vi.mock('openai', () => ({
+  default: class {
+    chat = { completions: { create: mocks.create } };
+  },
+}));
+
+beforeEach(() => {
+  mocks.create.mockReset();
+});
+
+function completionStream(content: string, finishReason = 'stop') {
+  return (async function* stream() {
+    if (content) yield { choices: [{ finish_reason: null, delta: { content } }] };
+    yield { choices: [{ finish_reason: finishReason, delta: {} }] };
+  }());
+}
 
 function context(): StockResearchContext {
   return {
@@ -99,6 +121,42 @@ function context(): StockResearchContext {
 }
 
 describe('stock intelligent trading system prompt', () => {
+  it('retries an empty reasoning-model response on the same selected model', async () => {
+    mocks.create
+      .mockResolvedValueOnce(completionStream('', 'length'))
+      .mockResolvedValueOnce(completionStream('  # 最终交易分析  '));
+    const agent = new StockResearchAgent('test-key', 'https://example.com/v1', 'primary-model', 30_000);
+
+    const result = await agent.research(context(), 'selected-reasoning-model');
+
+    expect(result.content).toBe('# 最终交易分析');
+    expect(result.model).toBe('selected-reasoning-model');
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.create.mock.calls[0]?.[0]).toMatchObject({
+      model: 'selected-reasoning-model',
+      max_tokens: 4_000,
+      stream: true,
+      thinking: { type: 'disabled' },
+    });
+    expect(mocks.create.mock.calls[1]?.[0]).toMatchObject({
+      model: 'selected-reasoning-model',
+      max_tokens: 6_000,
+      stream: true,
+      thinking: { type: 'disabled' },
+    });
+    expect(mocks.create.mock.calls[1]?.[0].messages.at(-1).content).toContain('省略思考过程');
+  });
+
+  it('does not retry when the first response contains displayable content', async () => {
+    mocks.create.mockResolvedValueOnce(completionStream('交易分析正文'));
+    const agent = new StockResearchAgent('test-key', 'https://example.com/v1', 'primary-model', 30_000);
+
+    const result = await agent.research(context());
+
+    expect(result.content).toBe('交易分析正文');
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the style catalog ordered from conservative to aggressive', () => {
     expect(TRADING_STYLE_DEFINITIONS).toHaveLength(8);
     expect(TRADING_STYLE_DEFINITIONS.map((item) => item.riskLevel))
@@ -116,6 +174,8 @@ describe('stock intelligent trading system prompt', () => {
     expect(prompt).toContain('"ref":"R1"');
     expect(prompt).toContain('全市场环境');
     expect(prompt).toContain('条件式交易计划');
+    expect(prompt).toContain('1600—2400 个中文字符');
+    expect(prompt).toContain('直接输出最终报告，不展示思考过程');
   });
 
   it('resolves styles in catalog risk order instead of request order', () => {

@@ -14,6 +14,7 @@ const {
   strategyExperimentRuns,
   strategyExperimentEvents,
   strategyExperimentValidations,
+  strategyExperimentValidationPlans,
 } = schema;
 
 const COMPILER_VERSION = 'single-instrument-dsl-1.0.0';
@@ -126,6 +127,27 @@ export async function createExperimentRun(input: CreateRunInput) {
     specHash: version.specHash,
     executionPlan,
   });
+
+  const [validationPlan] = await getDb().select().from(strategyExperimentValidationPlans)
+    .where(eq(strategyExperimentValidationPlans.experimentVersionId, input.experimentVersionId))
+    .limit(1);
+  if (validationPlan?.lockedTestStatus === 'opened') {
+    const frozen = (validationPlan.samplePlan as {
+      frozenBindings?: {
+        strategyParamsHash?: string;
+        configHash?: string;
+        datasetSnapshotHash?: string;
+      };
+    }).frozenBindings;
+    const bindingChecks = {
+      strategyParams: frozen?.strategyParamsHash === canonicalHash(input.strategyParams),
+      config: frozen?.configHash === canonicalHash(input.config),
+      datasetSnapshot: frozen?.datasetSnapshotHash === canonicalHash(input.datasetSnapshot),
+    };
+    if (Object.values(bindingChecks).some((value) => !value)) {
+      return { lockedConflict: true as const, conflict: false as const, bindingChecks, run: null };
+    }
+  }
 
   const [existing] = await getDb()
     .select()

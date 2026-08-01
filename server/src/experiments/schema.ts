@@ -118,6 +118,27 @@ export const failExperimentRunRequestSchema = z.object({
   message: z.string().min(1).max(1000),
 });
 
+export const openLockedTestRequestSchema = z.object({
+  idempotencyKey: z.string().min(8).max(128),
+});
+
+export const validateExperimentRunRequestSchema = z.object({
+  perturbations: z.array(z.object({
+    caseId: z.string().min(1).max(255),
+    totalReturn: z.number().finite(),
+  })).max(500).default([]),
+  sampleResults: z.object({
+    train: z.object({ totalReturn: z.number().finite() }).optional(),
+    validation: z.object({ totalReturn: z.number().finite() }).optional(),
+    lockedTest: z.object({ totalReturn: z.number().finite() }).optional(),
+    walkForward: z.array(z.object({ totalReturn: z.number().finite() })).max(50).optional(),
+  }).optional(),
+});
+
+export const enqueueExperimentArtifactRequestSchema = z.object({
+  format: z.enum(['html', 'pdf']),
+});
+
 export type ExperimentSpec = z.infer<typeof experimentSpecSchema>;
 
 function canonicalValue(value: unknown): unknown {

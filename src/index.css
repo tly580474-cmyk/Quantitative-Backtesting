@@ -352,7 +352,7 @@
 .market-watchlist-search { padding: 10px 12px; border-bottom: 1px solid #edf2f7; background: #f8fafc; }
 .market-watchlist-search .ant-input-affix-wrapper { min-height: 38px; }
 .market-watchlist-search .ant-input-suffix .ant-typography { font-size: 11px; white-space: nowrap; }
-.market-watchlist-items { max-height: min(62vh, 640px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.market-watchlist-items { overflow: hidden; }
 .market-watchlist-items::-webkit-scrollbar { width: 8px; }
 .market-watchlist-items::-webkit-scrollbar-track { background: #f8fafc; }
 .market-watchlist-items::-webkit-scrollbar-thumb { border: 2px solid #f8fafc; border-radius: 999px; background: #cbd5e1; }
@@ -368,6 +368,9 @@
 .market-watchlist-metric { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 4px 6px; border-radius: 5px; color: #475569; background: #f1f5f9; font-size: 12px; font-variant-numeric: tabular-nums; }
 .market-watchlist-metric small { color: #64748b; font-size: 11px; }
 .market-watchlist-metric b { overflow: hidden; color: #334155; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.market-watchlist-pagination { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-top: 1px solid #edf2f7; background: #f8fafc; }
+.market-watchlist-pagination .ant-pagination { margin: 0; }
+.market-watchlist-pagination .ant-typography { flex: 0 0 auto; font-size: 11px; white-space: nowrap; }
 .market-stock-select:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; border-radius: 6px; }
 .market-main { display: flex; min-width: 0; flex-direction: column; gap: 14px; }
 .market-main .ant-card { border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 2px 8px rgba(15,23,42,.035); }
@@ -4460,7 +4463,8 @@ html[data-theme='dark'] .market-watchlist {
 }
 
 html[data-theme='dark'] .market-section-title,
-html[data-theme='dark'] .market-watchlist-search {
+html[data-theme='dark'] .market-watchlist-search,
+html[data-theme='dark'] .market-watchlist-pagination {
   border-color: #26364d;
   background: #111c2e;
 }
@@ -5342,4 +5346,16 @@ html[data-theme='dark'] .candle-detail {
   --candle-detail-heading: #cbd5e1;
   --candle-detail-label: #94a3b8;
   --candle-detail-value: #e2e8f0;
+}
+.experiment-report-markdown {
+  max-height: 65vh;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid var(--ant-color-border-secondary, #e5e7eb);
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary, #f8fafc);
+  color: var(--ant-color-text, #172033);
+  font-size: 13px;
+  line-height: 1.65;
 }

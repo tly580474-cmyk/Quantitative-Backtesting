@@ -5,6 +5,9 @@ import type {
   CreateExperimentRunRequest,
   ExperimentRun,
   ExperimentVersion,
+  ExperimentReport,
+  ExperimentArtifactJob,
+  ExperimentValidationPlan,
 } from './types';
 
 export async function confirmExperimentVersion(input: ConfirmExperimentRequest) {
@@ -84,4 +87,41 @@ export async function cancelExperimentRun(runId: string) {
   return apiFetch<ExperimentRun>(`/api/experiments/runs/${runId}/cancel`, {
     method: 'POST',
   });
+}
+
+export async function validateExperimentRun(
+  runId: string,
+  perturbations: Array<{ caseId: string; totalReturn: number }> = [],
+  sampleResults?: {
+    train?: { totalReturn: number };
+    validation?: { totalReturn: number };
+    lockedTest?: { totalReturn: number };
+    walkForward?: Array<{ totalReturn: number }>;
+  },
+) {
+  return apiFetch<{ evaluation: { status: 'pending' | 'candidate' | 'rejected' }; report: ExperimentReport }>(
+    `/api/experiments/runs/${runId}/validate`,
+    { method: 'POST', body: JSON.stringify({ perturbations, sampleResults }) },
+  );
+}
+
+export async function openExperimentLockedTest(experimentVersionId: string, idempotencyKey: string) {
+  return apiFetch<ExperimentValidationPlan>(
+    `/api/experiments/versions/${experimentVersionId}/locked-test/open`,
+    { method: 'POST', body: JSON.stringify({ idempotencyKey }) },
+  );
+}
+
+export async function getExperimentReport(runId: string) {
+  return apiFetch<ExperimentReport>(`/api/experiments/runs/${runId}/report`);
+}
+
+export async function enqueueExperimentReportArtifact(runId: string, format: 'html' | 'pdf') {
+  return apiFetch<ExperimentArtifactJob>(`/api/experiments/runs/${runId}/report/artifacts`, {
+    method: 'POST', body: JSON.stringify({ format }),
+  });
+}
+
+export async function getExperimentReportArtifactJob(jobId: string) {
+  return apiFetch<ExperimentArtifactJob>(`/api/experiments/artifact-jobs/${jobId}`);
 }

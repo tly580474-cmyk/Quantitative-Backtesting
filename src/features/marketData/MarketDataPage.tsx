@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { App, AutoComplete, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, Modal, Popover, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
+import { App, AutoComplete, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, Modal, Pagination, Popover, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
 import { ApartmentOutlined, ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CheckOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, FundProjectionScreenOutlined, LineChartOutlined, NotificationOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SettingOutlined, SlidersOutlined, StarFilled, StarOutlined, ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
@@ -29,6 +29,7 @@ import {
   resolveWatchlistBaselinePrice,
   type WatchlistMetrics,
 } from './watchlistMetrics';
+import { paginateWatchlist, WATCHLIST_PAGE_SIZE } from './watchlistPagination';
 
 const { Text, Title } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
@@ -754,6 +755,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [pinnedCodes, setPinnedCodes] = useState<string[]>(readPinnedCodes);
   const [selectedCode, setSelectedCode] = useState(initialSelectedCode);
   const [watchlistQuery, setWatchlistQuery] = useState('');
+  const [watchlistPage, setWatchlistPage] = useState(1);
   const [searchText, setSearchText] = useState('');
   const [searchItems, setSearchItems] = useState<StockSearchItem[]>([]);
   const [searching, setSearching] = useState(false);
@@ -806,6 +808,27 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const selectedCodeRef = useRef(initialSelectedCode);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const orderedWatchlist = useMemo(() => [...watchlist].sort((a, b) => (
+    Number(pinnedCodes.includes(b.code)) - Number(pinnedCodes.includes(a.code))
+  )), [pinnedCodes, watchlist]);
+  const filteredWatchlist = useMemo(() => {
+    const query = watchlistQuery.trim().toLowerCase();
+    if (!query) return orderedWatchlist;
+    return orderedWatchlist.filter((item) => (
+      item.code.toLowerCase().includes(query)
+      || item.name.toLowerCase().includes(query)
+      || item.market.toLowerCase().includes(query)
+    ));
+  }, [orderedWatchlist, watchlistQuery]);
+  const watchlistPagination = useMemo(
+    () => paginateWatchlist(filteredWatchlist, watchlistPage),
+    [filteredWatchlist, watchlistPage],
+  );
+  const {
+    items: pagedWatchlist,
+    currentPage: currentWatchlistPage,
+    pageCount: watchlistPageCount,
+  } = watchlistPagination;
 
   useEffect(() => {
     if (!instrumentCode || instrumentCode === selectedCode) return;
@@ -825,15 +848,19 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   useEffect(() => { marketDataCache.agentQuestion = agentQuestion; }, [agentQuestion]);
   useEffect(() => { marketDataCache.agentModel = agentModel; }, [agentModel]);
   useEffect(() => { marketDataCache.agentStyles = agentStyles; }, [agentStyles]);
+  useEffect(() => { setWatchlistPage(1); }, [watchlistQuery]);
   useEffect(() => {
-    if (!isWatchlistView || watchlist.length === 0) return undefined;
+    if (watchlistPage > watchlistPageCount) setWatchlistPage(watchlistPageCount);
+  }, [watchlistPage, watchlistPageCount]);
+  useEffect(() => {
+    if (!isWatchlistView || pagedWatchlist.length === 0) return undefined;
     let cancelled = false;
     setWatchlistMetricsLoading(true);
 
     void (async () => {
       const entries: Array<[string, WatchlistMetrics, number | null]> = [];
-      for (let index = 0; index < watchlist.length; index += 2) {
-        const batch = watchlist.slice(index, index + 2);
+      for (let index = 0; index < pagedWatchlist.length; index += 2) {
+        const batch = pagedWatchlist.slice(index, index + 2);
         const results = await Promise.all(batch.map(async (item) => {
           let nextQuote = marketDataCache.quotes[item.code] ?? null;
           let daily = marketDataCache.scoreKlines[item.code] ?? [];
@@ -868,7 +895,10 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         entries.push(...results);
       }
       if (cancelled) return;
-      setWatchlistMetrics(Object.fromEntries(entries.map(([code, metrics]) => [code, metrics])));
+      setWatchlistMetrics((current) => ({
+        ...current,
+        ...Object.fromEntries(entries.map(([code, metrics]) => [code, metrics])),
+      }));
       const baselines = new Map(entries.map(([code, , price]) => [code, price]));
       setWatchlist((current) => {
         let changed = false;
@@ -885,7 +915,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     });
 
     return () => { cancelled = true; };
-  }, [isWatchlistView, watchlist]);
+  }, [isWatchlistView, pagedWatchlist]);
 
   const loadQuote = useCallback(async (code: string) => {
     setQuoteLoading(true);
@@ -1288,18 +1318,6 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const accent = (quote?.changePct ?? 0) > 0 ? 'up' : (quote?.changePct ?? 0) < 0 ? 'down' : '';
   const selected = watchlist.find((x) => x.code === selectedCode);
   const selectedIsInWatchlist = watchlist.some((item) => item.code === selectedCode);
-  const orderedWatchlist = useMemo(() => [...watchlist].sort((a, b) => (
-    Number(pinnedCodes.includes(b.code)) - Number(pinnedCodes.includes(a.code))
-  )), [pinnedCodes, watchlist]);
-  const filteredWatchlist = useMemo(() => {
-    const query = watchlistQuery.trim().toLowerCase();
-    if (!query) return orderedWatchlist;
-    return orderedWatchlist.filter((item) => (
-      item.code.toLowerCase().includes(query)
-      || item.name.toLowerCase().includes(query)
-      || item.market.toLowerCase().includes(query)
-    ));
-  }, [orderedWatchlist, watchlistQuery]);
   const options = useMemo(() => searchItems.map((item) => ({ value: item.code, label: <div className="market-search-option"><span><b>{item.name}</b> <Text type="secondary">{item.code}</Text></span><Tag>{item.market}</Tag></div> })), [searchItems]);
   const loadedSevenKeys = Object.keys(sevenLayerSections) as SevenLayerSection['key'][];
   const refreshLoadedSevenLayers = () => {
@@ -1446,7 +1464,9 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
             />
           </div>
           {filteredWatchlist.length
-            ? <div className="market-watchlist-items" aria-label="自选股列表">{filteredWatchlist.map((item) => <div key={item.code} className={`market-watchlist-item${item.code === selectedCode ? ' is-active' : ''}`}><button type="button" className="market-stock-select" aria-pressed={item.code === selectedCode} onClick={() => setSelectedCode(item.code)}><span className="market-watchlist-identity"><strong>{pinnedCodes.includes(item.code) && <span className="market-pinned-mark" aria-label="已置顶">置顶</span>}{item.name}</strong><span>{item.code} · {item.market}</span></span><WatchlistMetricValues item={item} metrics={watchlistMetrics[item.code]} loading={watchlistMetricsLoading && !watchlistMetrics[item.code]} /></button><Tooltip title="移出自选"><Button type="text" danger icon={<DeleteOutlined />} aria-label={`移除 ${item.name}`} onClick={() => removeStock(item.code)} /></Tooltip></div>)}</div>
+            ? <><div className="market-watchlist-items" aria-label={`自选股列表，第 ${currentWatchlistPage} 页`}>{pagedWatchlist.map((item) => <div key={item.code} className={`market-watchlist-item${item.code === selectedCode ? ' is-active' : ''}`}><button type="button" className="market-stock-select" aria-pressed={item.code === selectedCode} onClick={() => setSelectedCode(item.code)}><span className="market-watchlist-identity"><strong>{pinnedCodes.includes(item.code) && <span className="market-pinned-mark" aria-label="已置顶">置顶</span>}{item.name}</strong><span>{item.code} · {item.market}</span></span><WatchlistMetricValues item={item} metrics={watchlistMetrics[item.code]} loading={watchlistMetricsLoading && !watchlistMetrics[item.code]} /></button><Tooltip title="移出自选"><Button type="text" danger icon={<DeleteOutlined />} aria-label={`移除 ${item.name}`} onClick={() => removeStock(item.code)} /></Tooltip></div>)}</div>
+              {filteredWatchlist.length > WATCHLIST_PAGE_SIZE && <nav className="market-watchlist-pagination" aria-label="自选股分页"><Pagination size="small" current={currentWatchlistPage} pageSize={WATCHLIST_PAGE_SIZE} total={filteredWatchlist.length} showSizeChanger={false} showLessItems onChange={setWatchlistPage} /><Text type="secondary">每页 {WATCHLIST_PAGE_SIZE} 只</Text></nav>}
+            </>
             : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未找到匹配的自选股" />}
         </> : <Empty description="搜索并加入第一只自选股" />}
       </aside>}

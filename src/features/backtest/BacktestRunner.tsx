@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Button,
   Select,
@@ -7,6 +9,7 @@ import {
   Alert,
   Tag,
   Grid,
+  Modal,
   App as AntdApp,
 } from 'antd';
 import {
@@ -31,8 +34,17 @@ import {
   completeExperimentRun,
   createExperimentRun,
   failExperimentRun,
+  getExperimentReport,
+  openExperimentLockedTest,
+  validateExperimentRun,
 } from '@/features/experiments/api';
 import { ENGINE_VERSION } from './version';
+import { compileAndValidate } from '@/features/visualStrategies/compiler';
+import {
+  runRobustnessCases,
+  runSampleIsolationPlan,
+  type RobustnessObservation,
+} from '@/features/experiments/robustness';
 
 const { Text } = Typography;
 
@@ -54,7 +66,12 @@ export default function BacktestRunner() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const screens = Grid.useBreakpoint();
   const useSettingsDrawer = !screens.lg;
-  const { message } = AntdApp.useApp();
+  const { message, modal } = AntdApp.useApp();
+  const [completedExperimentRunId, setCompletedExperimentRunId] = useState<string | null>(null);
+  const [experimentValidationStatus, setExperimentValidationStatus] = useState<'pending' | 'candidate' | 'rejected' | null>(null);
+  const [experimentReportMarkdown, setExperimentReportMarkdown] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [robustnessObservations, setRobustnessObservations] = useState<RobustnessObservation[]>([]);
 
   const candles = useCandleStore((s) => s.candles);
   const setCandles = useCandleStore((s) => s.setCandles);
@@ -70,6 +87,7 @@ export default function BacktestRunner() {
   const activeExperimentVersionId = useBacktestStore((s) => s.activeExperimentVersionId);
   const activeExperimentName = useBacktestStore((s) => s.activeExperimentName);
   const experimentRunIdRef = useRef<string | null>(null);
+  const lockedTestIdempotencyKeyRef = useRef<string>('');
 
   const { run, cancel, status, progress, result, error } = useBacktest();
 
@@ -125,6 +143,11 @@ export default function BacktestRunner() {
     if (!selectedDatasetId || candles.length === 0) return;
     const ds = datasets.find((d) => d.id === selectedDatasetId);
     if (!ds) return;
+    setCompletedExperimentRunId(null);
+    setExperimentValidationStatus(null);
+    setExperimentReportMarkdown(null);
+    setRobustnessObservations([]);
+    lockedTestIdempotencyKeyRef.current = '';
 
     const runCandles = config.tradingDays > 0 ? candles.slice(-config.tradingDays) : candles;
     const availableCapital = config.backtestMode === 'dca'
@@ -206,8 +229,41 @@ export default function BacktestRunner() {
         try {
           await addResult(result);
           if (experimentRunId) {
-            await completeExperimentRun(experimentRunId, result);
-            message.success('实验运行已完成并关联权威回测结果');
+            const completedRun = await completeExperimentRun(experimentRunId, result);
+            setCompletedExperimentRunId(experimentRunId);
+            setExperimentValidationStatus(completedRun.validationStatus ?? 'pending');
+            message.success('权威回测结果已完成并持久化');
+            try {
+              const strategy = strategySource === 'visual' && visualStrategyDocument
+                ? compileAndValidate(visualStrategyDocument)
+                : null;
+              const robustnessStrategy = strategy?.success
+                ? strategy.strategy
+                : getStrategyById(activeStrategyId);
+              let report = await getExperimentReport(experimentRunId).catch(() => null);
+              if (robustnessStrategy) {
+                const robustnessCandles = config.tradingDays > 0 ? candles.slice(-config.tradingDays) : candles;
+                const observations = await runRobustnessCases({
+                  candles: robustnessCandles,
+                  strategy: robustnessStrategy,
+                  strategyParams: activeParams,
+                  config,
+                  baseline: result,
+                });
+                setRobustnessObservations(observations);
+                const validated = await validateExperimentRun(experimentRunId, observations);
+                setExperimentValidationStatus(validated.evaluation.status);
+                report = validated.report;
+              }
+              setExperimentReportMarkdown(report?.markdown ?? null);
+              message.success('M3 因果与扰动校验已完成');
+            } catch (validationError) {
+              message.warning(
+                validationError instanceof Error
+                  ? `权威回测已保存；M3 派生校验失败：${validationError.message}`
+                  : '权威回测已保存；M3 派生校验失败',
+              );
+            }
           }
         } catch (saveError) {
           if (experimentRunId) {
@@ -252,6 +308,52 @@ export default function BacktestRunner() {
     if (runId) void cancelExperimentRun(runId).catch(() => undefined);
   };
 
+  const handleOpenLockedTest = () => {
+    if (!activeExperimentVersionId || !completedExperimentRunId) return;
+    modal.confirm({
+      title: '确认打开锁定测试？',
+      content: '锁定测试对同一实验版本只能打开一次；打开后不能修改该版本参数。',
+      okText: '打开一次',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          if (!lockedTestIdempotencyKeyRef.current) {
+            lockedTestIdempotencyKeyRef.current = `locked-${crypto.randomUUID()}`;
+          }
+          const plan = await openExperimentLockedTest(
+            activeExperimentVersionId,
+            lockedTestIdempotencyKeyRef.current,
+          );
+          const compiled = strategySource === 'visual' && visualStrategyDocument
+            ? compileAndValidate(visualStrategyDocument)
+            : null;
+          const lockedStrategy = compiled?.success ? compiled.strategy : getStrategyById(activeStrategyId);
+          if (!lockedStrategy) throw new Error('当前策略无法编译为锁定测试运行时');
+          if (!result) throw new Error('基准回测结果已失效，请重新运行');
+          const lockedCandles = config.tradingDays > 0 ? candles.slice(-config.tradingDays) : candles;
+          const sampleResults = await runSampleIsolationPlan({
+            candles: lockedCandles,
+            strategy: lockedStrategy,
+            strategyParams: activeParams,
+            config,
+            baseline: result,
+          }, plan.samplePlan);
+          const validated = await validateExperimentRun(
+            completedExperimentRunId,
+            robustnessObservations,
+            sampleResults,
+          );
+          setExperimentValidationStatus(validated.evaluation.status);
+          setExperimentReportMarkdown(validated.report.markdown);
+          message.success('锁定测试已打开，门禁已重新计算');
+        } catch (openError) {
+          message.error(openError instanceof Error ? openError.message : '锁定测试打开失败');
+          throw openError;
+        }
+      },
+    });
+  };
+
   return (
     <div className="backtest-page">
       {/* Top bar */}
@@ -259,6 +361,17 @@ export default function BacktestRunner() {
         <Text strong className="backtest-dataset-label">数据集:</Text>
         {activeExperimentVersionId && (
           <Tag color="purple">实验：{activeExperimentName ?? '已冻结版本'}</Tag>
+        )}
+        {experimentValidationStatus && (
+          <Tag color={experimentValidationStatus === 'candidate' ? 'success' : experimentValidationStatus === 'rejected' ? 'error' : 'warning'}>
+            M3 门禁：{experimentValidationStatus === 'candidate' ? '候选' : experimentValidationStatus === 'rejected' ? '拒绝' : '待验证'}
+          </Tag>
+        )}
+        {experimentReportMarkdown && (
+          <Button size="small" onClick={() => setReportOpen(true)}>查看实验报告</Button>
+        )}
+        {experimentValidationStatus === 'pending' && completedExperimentRunId && (
+          <Button size="small" danger onClick={handleOpenLockedTest}>打开锁定测试</Button>
         )}
         <Select
           value={selectedDatasetId}
@@ -365,6 +478,17 @@ export default function BacktestRunner() {
       >
         <BacktestSettings maximumTradingDays={candles.length} />
       </WorkbenchDrawer>
+      <Modal
+        title="M3 实验校验报告"
+        open={reportOpen}
+        onCancel={() => setReportOpen(false)}
+        footer={<Button onClick={() => setReportOpen(false)}>关闭</Button>}
+        width={920}
+      >
+        <article className="experiment-report-markdown markdown-preview">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{experimentReportMarkdown ?? ''}</ReactMarkdown>
+        </article>
+      </Modal>
     </div>
   );
 }

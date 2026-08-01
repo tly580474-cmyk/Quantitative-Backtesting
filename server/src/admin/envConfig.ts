@@ -168,6 +168,36 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     inputType: 'time',
   },
   {
+    key: 'MARKET_OPINION_FALLBACK_MODEL',
+    label: '观点推送备用模型',
+    category: 'ai',
+    description: '仅当主模型调用失败或返回空内容时自动切换使用的备用模型名称。留空表示不启用备用模型。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'ai',
+  },
+  {
+    key: 'MARKET_OPINION_FALLBACK_BASE_URL',
+    label: '备用模型 API 地址',
+    category: 'ai',
+    description: '备用模型的 OpenAI 兼容服务地址。留空时复用主模型 OPENAI_BASE_URL；填写后可指向不同供应商（如主用 DeepSeek、备用通义/智谱）。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'ai',
+  },
+  {
+    key: 'MARKET_OPINION_FALLBACK_API_KEY',
+    label: '备用模型 API Key',
+    category: 'ai',
+    description: '备用模型供应商的访问密钥。留空时复用主模型 OPENAI_API_KEY；使用不同供应商时必须填写对应密钥。',
+    secret: true,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'ai',
+  },
+  {
     key: 'SMTP_USER',
     label: 'SMTP 账号',
     category: 'ai',
@@ -526,12 +556,12 @@ function validateEnvValue(key: string, value: string): void {
   if (key === 'DUCKDB_MAX_TEMP_SIZE' && !/^\d+(?:\.\d+)?(?:KB|MB|GB|TB)$/i.test(value)) {
     throw new Error('DUCKDB_MAX_TEMP_SIZE 必须使用容量格式，例如 50GB');
   }
-  if (key === 'OPENAI_BASE_URL' && value) {
+  if (['OPENAI_BASE_URL', 'MARKET_OPINION_FALLBACK_BASE_URL'].includes(key) && value) {
     try {
       const url = new URL(value);
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
     } catch {
-      throw new Error('OPENAI_BASE_URL 必须是有效的 HTTP 或 HTTPS 地址');
+      throw new Error(`${key} 必须是有效的 HTTP 或 HTTPS 地址`);
     }
   }
 }

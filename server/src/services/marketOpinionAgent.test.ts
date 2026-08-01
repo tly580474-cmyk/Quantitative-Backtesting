@@ -15,7 +15,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('openai', () => ({
   default: class {
-    chat = { completions: { create: mocks.create } };
+    chat = { completions: { create: async (...args: unknown[]) => {
+      const response = await mocks.create(...args);
+      return (async function* stream() {
+        const content = response?.choices?.[0]?.message?.content ?? '';
+        if (content) yield { choices: [{ finish_reason: null, delta: { content } }] };
+        yield { choices: [{ finish_reason: 'stop', delta: {} }] };
+      }());
+    } } };
   },
 }));
 
@@ -201,6 +208,227 @@ describe('market opinion agent runtime governance', () => {
     expect(cached.cached).toBe(true);
     expect(secondStages).toEqual(['selecting', 'done']);
     expect(agent.status().lastSuccess?.cached).toBe(true);
+  });
+});
+
+describe('market opinion agent fallback model', () => {
+  beforeEach(() => {
+    mocks.create.mockReset();
+    mocks.create.mockResolvedValue({ choices: [{ message: { content: '## 核心结论\n测试观点[N1]' } }] });
+  });
+
+  it('status() reports the fallback model when configured', () => {
+    const agent = new MarketOpinionAgent('fake-key', 'http://fake', 'primary', 1000, 'backup');
+    expect(agent.status().fallbackModel).toBe('backup');
+  });
+
+  it('streams DeepSeek V4 output with thinking disabled', async () => {
+    const agent = new MarketOpinionAgent('fake-key', 'https://api.deepseek.com/v1', 'deepseek-v4-flash', 1000);
+
+    await agent.generate([item('1', 'state_media')]);
+
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(mocks.create.mock.calls[0]![0]).toMatchObject({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      thinking: { type: 'disabled' },
+    });
+  });
+
+  it('streams other providers without sending the DeepSeek-only thinking option', async () => {
+    const agent = new MarketOpinionAgent('fake-key', 'https://example.com/v1', 'other-model', 1000);
+
+    await agent.generate([item('1', 'state_media')]);
+
+    expect(mocks.create.mock.calls[0]![0]).toMatchObject({ model: 'other-model', stream: true });
+    expect(mocks.create.mock.calls[0]![0]).not.toHaveProperty('thinking');
+  });
+
+  it('status() omits fallbackModel when not configured', () => {
+    const agent = new MarketOpinionAgent('fake-key', 'http://fake', 'primary', 1000);
+    expect(agent.status().fallbackModel).toBeUndefined();
+  });
+
+  it('does not call the fallback model when the primary succeeds', async () => {
+    const agent = new MarketOpinionAgent('fake-key', 'http://fake', 'primary', 1000, 'backup');
+    const report = await agent.generateDigest(
+      [item('1', 'state_media')],
+      'midday',
+      { capturedAt: '2026-07-20T04:00:00.000Z', session: '2026-07-20 midday', unavailable: [] },
+    );
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(mocks.create.mock.calls[0]![0]).toMatchObject({ model: 'primary' });
+    expect(report.model).toBe('primary');
+  });
+
+  it('falls back to the backup model when the primary returns empty content', async () => {
+    const agent = new MarketOpinionAgent('fake-key', 'http://fake', 'primary', 1000, 'backup');
+    mocks.create
+      .mockResolvedValueOnce({ choices: [{ message: { content: '' } }] })
+      .mockResolvedValueOnce({ choices: [{ message: { content: '## 核心结论\n备用观点[N1]' } }] });
+    const report = await agent.generateDigest(
+      [item('1', 'state_media')],
+      'midday',
+      { capturedAt: '2026-07-20T04:00:00.000Z', session: '2026-07-20 midday', unavailable: [] },
+    );
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.create.mock.calls[0]![0]).toMatchObject({ model: 'primary' });
+    expect(mocks.create.mock.calls[1]![0]).toMatchObject({ model: 'backup' });
+    expect(report.model).toBe('backup');
+    expect(report.content).toContain('备用观点');
+  });
+
+  it('falls back to the backup model when the primary throws an API error', async () => {
+    const agent = new MarketOpinionAgent('fake-key', 'http://fake', 'primary', 1000, 'backup');
+    mocks.create
+      .mockRejectedValueOnce(new Error('upstream 502'))
+      .mockResolvedValueOnce({ choices: [{ message: { content: '## 核心结论\n备用观点[N1]' } }] });
+    const report = await agent.generateDigest(
+      [item('1', 'state_media')],
+      'midday',
+      { capturedAt: '2026-07-20T04:00:00.000Z', session: '2026-07-20 midday', unavailable: [] },
+    );
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(report.model).toBe('backup');
+    expect(report.content).toContain('备用观点');
+  });
+
+  it('throws a combined error when both primary and fallback fail', async () => {
+    const agent = new MarketOpinionAgent('fake-key', 'http://fake', 'primary', 1000, 'backup');
+    mocks.create
+      .mockRejectedValueOnce(new Error('primary 500'))
+      .mockRejectedValueOnce(new Error('backup 500'));
+    await expect(agent.generateDigest(
+      [item('1', 'state_media')],
+      'midday',
+      { capturedAt: '2026-07-20T04:00:00.000Z', session: '2026-07-20 midday', unavailable: [] },
+    )).rejects.toThrow('主模型(primary)与备用模型(backup)均失败');
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not fall back when no fallback model is configured', async () => {
+    const agent = new MarketOpinionAgent('fake-key', 'http://fake', 'primary', 1000);
+    mocks.create.mockResolvedValueOnce({ choices: [{ message: { content: '' } }] });
+    await expect(agent.generateDigest(
+      [item('1', 'state_media')],
+      'midday',
+      { capturedAt: '2026-07-20T04:00:00.000Z', session: '2026-07-20 midday', unavailable: [] },
+    )).rejects.toThrow('模型返回了空的市场观点报告');
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fall back when the fallback equals the primary model', async () => {
+    const agent = new MarketOpinionAgent('fake-key', 'http://fake', 'primary', 1000, 'primary');
+    mocks.create.mockResolvedValueOnce({ choices: [{ message: { content: '' } }] });
+    await expect(agent.generateDigest(
+      [item('1', 'state_media')],
+      'midday',
+      { capturedAt: '2026-07-20T04:00:00.000Z', session: '2026-07-20 midday', unavailable: [] },
+    )).rejects.toThrow('模型返回了空的市场观点报告');
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('also applies fallback in generate() when the primary returns empty', async () => {
+    const agent = new MarketOpinionAgent('fake-key', 'http://fake', 'primary', 1000, 'backup');
+    mocks.create
+      .mockResolvedValueOnce({ choices: [{ message: { content: '' } }] })
+      .mockResolvedValueOnce({ choices: [{ message: { content: '## 核心结论\n备用观点[N1]' } }] });
+    const report = await agent.generate([item('1', 'state_media')]);
+    expect(report.model).toBe('backup');
+    expect(report.content).toContain('备用观点');
+  });
+
+  it('accepts a fallback config object with a separate provider baseURL/apiKey', async () => {
+    const agent = new MarketOpinionAgent('primary-key', 'https://primary.example.com/v1', 'primary', 1000, {
+      model: 'backup',
+      baseURL: 'https://backup.example.com/v1',
+      apiKey: 'backup-key',
+    });
+    // 备用模型标记为独立供应商
+    expect(agent.status().fallbackModel).toBe('backup');
+    expect(agent.status().fallbackProviderSeparate).toBe(true);
+
+    mocks.create
+      .mockResolvedValueOnce({ choices: [{ message: { content: '' } }] })
+      .mockResolvedValueOnce({ choices: [{ message: { content: '## 核心结论\n跨供应商备用[N1]' } }] });
+    const report = await agent.generateDigest(
+      [item('1', 'state_media')],
+      'midday',
+      { capturedAt: '2026-07-20T04:00:00.000Z', session: '2026-07-20 midday', unavailable: [] },
+    );
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.create.mock.calls[0]![0]).toMatchObject({ model: 'primary' });
+    expect(mocks.create.mock.calls[1]![0]).toMatchObject({ model: 'backup' });
+    expect(report.model).toBe('backup');
+  });
+
+  it('marks fallbackProviderSeparate=false when fallback reuses the primary provider', () => {
+    const agent = new MarketOpinionAgent('primary-key', 'https://primary.example.com/v1', 'primary', 1000, {
+      model: 'backup',
+    });
+    expect(agent.status().fallbackModel).toBe('backup');
+    expect(agent.status().fallbackProviderSeparate).toBe(false);
+  });
+
+  it('does not enable fallback when the config object has an empty model', () => {
+    const agent = new MarketOpinionAgent('primary-key', 'https://primary.example.com/v1', 'primary', 1000, {
+      model: '',
+      baseURL: 'https://backup.example.com/v1',
+      apiKey: 'backup-key',
+    });
+    expect(agent.status().fallbackModel).toBeUndefined();
+  });
+
+  it('does not enable fallback when the primary client is unconfigured (no apiKey)', () => {
+    const agent = new MarketOpinionAgent('', 'https://primary.example.com/v1', 'primary', 1000, {
+      model: 'backup',
+      baseURL: 'https://backup.example.com/v1',
+      apiKey: 'backup-key',
+    });
+    expect(agent.status().configured).toBe(false);
+    expect(agent.status().fallbackModel).toBeUndefined();
+  });
+
+  it('forceFallback skips the primary and calls only the fallback model', async () => {
+    const agent = new MarketOpinionAgent('fake-key', 'http://fake', 'primary', 1000, 'backup');
+    mocks.create.mockResolvedValue({ choices: [{ message: { content: '## 核心结论\n仅备用[N1]' } }] });
+    const report = await agent.generateDigest(
+      [item('1', 'state_media')],
+      'midday',
+      { capturedAt: '2026-07-20T04:00:00.000Z', session: '2026-07-20 midday', unavailable: [] },
+      undefined,
+      { forceFallback: true },
+    );
+    // 主模型一次都不应被调用
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(mocks.create.mock.calls[0]![0]).toMatchObject({ model: 'backup' });
+    expect(report.model).toBe('backup');
+    expect(report.content).toContain('仅备用');
+  });
+
+  it('forceFallback throws a clear error when no fallback is configured', async () => {
+    const agent = new MarketOpinionAgent('fake-key', 'http://fake', 'primary', 1000);
+    await expect(agent.generateDigest(
+      [item('1', 'state_media')],
+      'midday',
+      { capturedAt: '2026-07-20T04:00:00.000Z', session: '2026-07-20 midday', unavailable: [] },
+      undefined,
+      { forceFallback: true },
+    )).rejects.toThrow('未配置有效的备用模型');
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it('forceFallback surfaces the fallback error without mentioning primary', async () => {
+    const agent = new MarketOpinionAgent('fake-key', 'http://fake', 'primary', 1000, 'backup');
+    mocks.create.mockRejectedValue(new Error('backup 503'));
+    await expect(agent.generateDigest(
+      [item('1', 'state_media')],
+      'midday',
+      { capturedAt: '2026-07-20T04:00:00.000Z', session: '2026-07-20 midday', unavailable: [] },
+      undefined,
+      { forceFallback: true },
+    )).rejects.toThrow('备用模型(backup)调用失败：backup 503');
+    expect(mocks.create).toHaveBeenCalledTimes(1);
   });
 });
 

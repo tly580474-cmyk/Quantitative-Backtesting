@@ -5,7 +5,7 @@ import { getDataFreshness } from '../marketData/repositories/marketDataRepositor
 import { getMarketOpinionNews, refreshMarketNews } from '../marketData/marketNewsService.js';
 import { normalizeMarketNewsUrl } from '../marketData/marketNewsUrl.js';
 import { getChinaMarketSession, type ChinaMarketSession } from '../marketData/jobs/marketSession.js';
-import { EmailSender, reportEmailHtml, type EmailDeliveryResult } from './emailSender.js';
+import { EmailSender, reportEmailHtml, type EmailDeliveryResult, type EmailHeaderData } from './emailSender.js';
 import { MarketOpinionAgent, type MarketOpinionDigestKind, type MarketOpinionMarketContext, type MarketOpinionReport } from './marketOpinionAgent.js';
 import { assessOpinionNews } from './marketOpinionNewsRanker.js';
 import {
@@ -19,6 +19,8 @@ import {
 export interface MarketOpinionPushResult {
   kind: MarketOpinionDigestKind;
   subject: string;
+  /** 实际产出内容的模型名（主模型或备用模型）。 */
+  model: string;
   generatedAt: string;
   newsCount: number;
   sourceCount: number;
@@ -78,6 +80,8 @@ export class MarketOpinionPushService {
     sendOptions: {
       subjectPrefix?: string;
       onStage?: (stage: MarketOpinionPushStage) => void | Promise<void>;
+      /** 跳过主模型，直接用备用模型生成。用于隔离测试备用供应商。 */
+      forceFallback?: boolean;
     } = {},
   ): Promise<MarketOpinionPushResult> {
     if (this.running) throw new Error('已有市场观点邮件正在生成');
@@ -91,21 +95,39 @@ export class MarketOpinionPushService {
       );
       await sendOptions.onStage?.('generating');
       const report = await withStageTimeout(
-        this.options.agent.generateDigest(inputs.news, kind, inputs.context, this.options.model),
-        90_000,
-        '观点智能体生成超过 90 秒',
+        this.options.agent.generateDigest(inputs.news, kind, inputs.context, this.options.model, {
+          forceFallback: sendOptions.forceFallback,
+        }),
+        200_000,
+        '观点智能体生成超过 200 秒',
       );
       const subject = `${sendOptions.subjectPrefix ?? ''}${buildSubject(kind, inputs.context)}`;
       const emailMarkdown = `${appendReferenceArticles(report)}\n\n---\n\n${formatSelectionEvidence(report, inputs)}\n\n${formatMarketOpinionFreshnessEvidence(inputs)}`;
+      const kindLabelMap: Record<MarketOpinionDigestKind, string> = {
+        morning: '消息早报',
+        midday: '财经午报',
+        close: '盘后总结',
+      };
+      const headerData: EmailHeaderData = {
+        kindLabel: kindLabelMap[kind] ?? '市场观点',
+        dateStr: inputs.context.sessionTradeDate ?? inputs.context.referenceTradeDate ?? '',
+        dataCutoffText: `数据截至 ${formatShanghai(inputs.newsSnapshot.updatedAt)}`,
+        highlights: report.highlights ?? [],
+      };
       await sendOptions.onStage?.('sending');
       const result = await withStageTimeout(
-        this.options.email.send({
-          subject,
-          text: `${subject}\n\n${emailMarkdown}\n\n生成时间：${formatShanghai(report.generatedAt)}`,
-          html: reportEmailHtml(subject, emailMarkdown, formatShanghai(report.generatedAt)),
-        }),
-        45_000,
-        '观点邮件投递超过 45 秒',
+        this.options.email.send(
+          {
+            subject,
+            text: `${subject}\n\n${emailMarkdown}\n\n生成时间：${formatShanghai(report.generatedAt)}`,
+            html: reportEmailHtml(subject, emailMarkdown, formatShanghai(report.generatedAt), headerData),
+          },
+          // SMTP 内部已对超时/连接重置等瞬时错误做带退避重试，
+          // 此处阶段预算需容纳最多 3 次尝试 + 退避间隔。
+          { maxAttempts: 3, retryDelayMs: 2_000 },
+        ),
+        60_000,
+        '观点邮件投递超过 60 秒',
       );
       await sendOptions.onStage?.('sent');
       const pushResult = summarizePushResult(kind, subject, report, result, inputs);
@@ -392,6 +414,7 @@ export function summarizePushResult(
   return {
     kind,
     subject,
+    model: report.model,
     generatedAt: report.generatedAt,
     newsCount: report.newsCount,
     sourceCount: report.sourceCount,

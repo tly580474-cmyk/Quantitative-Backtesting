@@ -45,7 +45,8 @@ async function tick(service: MarketOpinionPushService, schedule: MarketOpinionPu
   ticking = true;
   try {
     const now = new Date();
-    await expireStaleCollectorRuns('market_opinion_push', 5);
+    // 容纳主模型 + 备用模型各一次 90s 调用，以及数据准备与邮件投递的完整预算。
+    await expireStaleCollectorRuns('market_opinion_push', 8);
     const session = getChinaMarketSession(now);
     for (const kind of dueDigestKinds(now, schedule)) {
       const runKey = `market_opinion_push:${session.tradeDate}:${kind}`;

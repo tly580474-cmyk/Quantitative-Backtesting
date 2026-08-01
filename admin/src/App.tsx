@@ -98,12 +98,12 @@ function validateConfigValue(key: string, value: string): string | null {
   if (key === 'DUCKDB_MAX_TEMP_SIZE' && !/^\d+(?:\.\d+)?(?:KB|MB|GB|TB)$/i.test(value)) {
     return 'DUCKDB_MAX_TEMP_SIZE 必须使用容量格式，例如 50GB';
   }
-  if (key === 'OPENAI_BASE_URL' && value) {
+  if (['OPENAI_BASE_URL', 'MARKET_OPINION_FALLBACK_BASE_URL'].includes(key) && value) {
     try {
       const url = new URL(value);
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
     } catch {
-      return 'OPENAI_BASE_URL 必须是有效的 HTTP 或 HTTPS 地址';
+      return `${key} 必须是有效的 HTTP 或 HTTPS 地址`;
     }
   }
   return null;

@@ -25,6 +25,7 @@ function report(): MarketOpinionReport {
     ],
     reasoningSummary: [],
     cached: false,
+    highlights: [],
   };
 }
 

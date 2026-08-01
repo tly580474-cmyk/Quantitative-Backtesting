@@ -17,7 +17,9 @@ async function main(): Promise<void> {
   const kind = requested as MarketOpinionDigestKind;
   const simulation = process.argv.includes('--simulation');
   const correction = process.argv.includes('--correction');
+  const forceFallback = process.argv.includes('--force-fallback');
   if (simulation && correction) throw new Error('--simulation 与 --correction 不能同时使用');
+  if (forceFallback && correction) throw new Error('--force-fallback 与 --correction 不能同时使用');
   const recipients = config.MAIL_TO.split(',').map((item) => item.trim()).filter(Boolean);
   const pool = createPool(config);
   try {
@@ -46,18 +48,26 @@ async function main(): Promise<void> {
         config.OPENAI_BASE_URL,
         config.OPENAI_MODEL,
         parseInt(config.OPENAI_TIMEOUT_MS, 10),
+        {
+          model: config.MARKET_OPINION_FALLBACK_MODEL,
+          baseURL: config.MARKET_OPINION_FALLBACK_BASE_URL,
+          apiKey: config.MARKET_OPINION_FALLBACK_API_KEY,
+        },
       ),
       email,
       model: config.OPENAI_MODEL,
     });
     const result = await service.send(kind, new Date(), {
       subjectPrefix: simulation ? '【模拟推送】' : correction ? '【更正版】' : undefined,
+      forceFallback,
     });
     console.log(JSON.stringify({
       sent: true,
       simulation,
       correction,
+      forceFallback,
       kind: result.kind,
+      modelUsed: result.model,
       generatedAt: result.generatedAt,
       newsCount: result.newsCount,
       sourceCount: result.sourceCount,

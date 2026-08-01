@@ -444,6 +444,8 @@ export const strategyExperimentRuns = mysqlTable('strategy_experiment_runs', {
   executionPlan: json('execution_plan').notNull(),
   backtestResultId: varchar('backtest_result_id', { length: 36 }),
   resultHash: varchar('result_hash', { length: 64 }),
+  validationStatus: varchar('validation_status', { length: 16 }),
+  validationPolicyVersion: varchar('validation_policy_version', { length: 64 }),
   errorCode: varchar('error_code', { length: 64 }),
   errorMessage: varchar('error_message', { length: 1000 }),
   createdAt: varchar('created_at', { length: 24 }).notNull(),
@@ -474,6 +476,82 @@ export const strategyExperimentValidations = mysqlTable('strategy_experiment_val
   createdAt: varchar('created_at', { length: 24 }).notNull(),
 }, (table) => ({
   runTypeUnique: uniqueIndex('idx_seval_run_type').on(table.runId, table.validationType),
+}));
+
+export const strategyExperimentValidationPolicies = mysqlTable('strategy_experiment_validation_policies', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  version: varchar('version', { length: 64 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull(),
+  config: json('config').notNull(),
+  configHash: varchar('config_hash', { length: 64 }).notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  versionUnique: uniqueIndex('idx_sevp_version').on(table.version),
+  statusCreatedIdx: index('idx_sevp_status_created').on(table.status, table.createdAt),
+}));
+
+export const strategyExperimentValidationPlans = mysqlTable('strategy_experiment_validation_plans', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  experimentVersionId: varchar('experiment_version_id', { length: 36 }).notNull(),
+  policyId: varchar('policy_id', { length: 36 }).notNull(),
+  samplePlan: json('sample_plan').notNull(),
+  perturbationPlan: json('perturbation_plan').notNull(),
+  planHash: varchar('plan_hash', { length: 64 }).notNull(),
+  lockedTestStatus: varchar('locked_test_status', { length: 16 }).notNull().default('sealed'),
+  lockedTestOpenedAt: varchar('locked_test_opened_at', { length: 24 }),
+  lockedTestOpenToken: varchar('locked_test_open_token', { length: 64 }),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+}, (table) => ({
+  versionUnique: uniqueIndex('idx_sevplan_version').on(table.experimentVersionId),
+  hashUnique: uniqueIndex('idx_sevplan_hash').on(table.planHash),
+  openTokenUnique: uniqueIndex('idx_sevplan_open_token').on(table.lockedTestOpenToken),
+}));
+
+export const strategyExperimentGateEvaluations = mysqlTable('strategy_experiment_gate_evaluations', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  runId: varchar('run_id', { length: 36 }).notNull(),
+  policyId: varchar('policy_id', { length: 36 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull(),
+  checks: json('checks').notNull(),
+  metricsSnapshot: json('metrics_snapshot').notNull(),
+  calculatorVersion: varchar('calculator_version', { length: 64 }).notNull(),
+  evaluationHash: varchar('evaluation_hash', { length: 64 }).notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  runPolicyUnique: uniqueIndex('idx_sege_run_policy').on(table.runId, table.policyId),
+  hashUnique: uniqueIndex('idx_sege_hash').on(table.evaluationHash),
+}));
+
+export const strategyExperimentReports = mysqlTable('strategy_experiment_reports', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  runId: varchar('run_id', { length: 36 }).notNull(),
+  templateVersion: varchar('template_version', { length: 64 }).notNull(),
+  structuredReport: json('structured_report').notNull(),
+  markdown: text('markdown').notNull(),
+  reportHash: varchar('report_hash', { length: 64 }).notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  runTemplateUnique: uniqueIndex('idx_serpt_run_template').on(table.runId, table.templateVersion),
+  hashUnique: uniqueIndex('idx_serpt_hash').on(table.reportHash),
+}));
+
+export const strategyExperimentArtifactJobs = mysqlTable('strategy_experiment_artifact_jobs', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  reportId: varchar('report_id', { length: 36 }).notNull(),
+  format: varchar('format', { length: 16 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull(),
+  cacheKey: varchar('cache_key', { length: 128 }).notNull(),
+  artifactUri: varchar('artifact_uri', { length: 1024 }),
+  errorMessage: varchar('error_message', { length: 1000 }),
+  attempts: int('attempts').notNull().default(0),
+  expiresAt: varchar('expires_at', { length: 24 }).notNull(),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+}, (table) => ({
+  cacheUnique: uniqueIndex('idx_seaj_cache').on(table.cacheKey),
+  statusCreatedIdx: index('idx_seaj_status_created').on(table.status, table.createdAt),
+  expiresIdx: index('idx_seaj_expires').on(table.expiresAt),
 }));
 
 // ─── equity_points ───────────────────────────────────────────────

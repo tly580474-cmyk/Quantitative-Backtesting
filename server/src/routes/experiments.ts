@@ -4,6 +4,9 @@ import {
   confirmExperimentRequestSchema,
   createExperimentRunRequestSchema,
   failExperimentRunRequestSchema,
+  openLockedTestRequestSchema,
+  validateExperimentRunRequestSchema,
+  enqueueExperimentArtifactRequestSchema,
 } from '../experiments/schema.js';
 import {
   completeExperimentRun,
@@ -15,6 +18,14 @@ import {
   listExperimentVersions,
   listExperimentRuns,
 } from '../experiments/repository.js';
+import {
+  enqueueReportArtifact,
+  getExperimentReport,
+  getReportArtifactJob,
+  openLockedTest,
+  processReportArtifactJob,
+  validateCompletedExperimentRun,
+} from '../experiments/m3Repository.js';
 import { apiError, dbUnavailable, ErrorCodes } from '../validation/errors.js';
 
 function validationError(reply: FastifyReply, issues: unknown) {
@@ -37,6 +48,11 @@ export function registerExperimentRoutes(app: FastifyInstance, dbOnline: boolean
     app.post('/api/experiments/runs/:id/complete', stub);
     app.post('/api/experiments/runs/:id/fail', stub);
     app.post('/api/experiments/runs/:id/cancel', stub);
+    app.post('/api/experiments/versions/:id/locked-test/open', stub);
+    app.post('/api/experiments/runs/:id/validate', stub);
+    app.get('/api/experiments/runs/:id/report', stub);
+    app.post('/api/experiments/runs/:id/report/artifacts', stub);
+    app.get('/api/experiments/artifact-jobs/:id', stub);
     return;
   }
 
@@ -60,6 +76,13 @@ export function registerExperimentRoutes(app: FastifyInstance, dbOnline: boolean
       return reply.status(404).send(apiError(
         ErrorCodes.EXPERIMENT_VERSION_NOT_FOUND,
         '实验版本不存在',
+      ));
+    }
+    if ('lockedConflict' in result && result.lockedConflict) {
+      return reply.status(409).send(apiError(
+        ErrorCodes.LOCKED_TEST_BINDING_MISMATCH,
+        '锁定测试打开后不能修改策略参数、回测配置或数据快照',
+        result.bindingChecks,
       ));
     }
     if (result.conflict) {
@@ -130,7 +153,13 @@ export function registerExperimentRoutes(app: FastifyInstance, dbOnline: boolean
         `当前运行状态 ${result.run.status} 不允许完成`,
       ));
     }
-    return reply.send(result.run);
+    // M3 validation/report generation is deliberately downstream from the
+    // authoritative result transition. A report failure must never roll back
+    // or rewrite a completed backtest.
+    await validateCompletedExperimentRun(req.params.id).catch((error) => {
+      req.log.error({ err: error, runId: req.params.id }, 'M3 validation/report generation failed');
+    });
+    return reply.send((await getExperimentRun(req.params.id)) ?? result.run);
   });
 
   app.post<{ Params: { id: string } }>('/api/experiments/runs/:id/fail', async (req, reply) => {
@@ -152,5 +181,62 @@ export function registerExperimentRoutes(app: FastifyInstance, dbOnline: boolean
       return reply.status(404).send(apiError(ErrorCodes.EXPERIMENT_RUN_NOT_FOUND, '实验运行不存在'));
     }
     return reply.send(run);
+  });
+
+  app.post<{ Params: { id: string } }>('/api/experiments/versions/:id/locked-test/open', async (req, reply) => {
+    const parsed = openLockedTestRequestSchema.safeParse(req.body);
+    if (!parsed.success) return validationError(reply, parsed.error.issues);
+    const result = await openLockedTest(req.params.id, parsed.data.idempotencyKey);
+    if (result.type === 'plan_not_found') {
+      return reply.status(409).send(apiError(ErrorCodes.VALIDATION_PLAN_NOT_FOUND, '请先完成一次基准回测以冻结样本计划'));
+    }
+    if (result.type === 'already_opened') {
+      return reply.status(409).send(apiError(ErrorCodes.LOCKED_TEST_ALREADY_OPENED, '该实验版本的锁定测试已经打开，不能再次打开或换键重试'));
+    }
+    return reply.status(result.reused ? 200 : 201).send(result.plan);
+  });
+
+  app.post<{ Params: { id: string } }>('/api/experiments/runs/:id/validate', async (req, reply) => {
+    const parsed = validateExperimentRunRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return validationError(reply, parsed.error.issues);
+    const result = await validateCompletedExperimentRun(
+      req.params.id,
+      parsed.data.perturbations,
+      parsed.data.sampleResults,
+    );
+    if (result.type === 'run_not_found') {
+      return reply.status(404).send(apiError(ErrorCodes.EXPERIMENT_RUN_NOT_FOUND, '实验运行不存在'));
+    }
+    if (result.type !== 'evaluated') {
+      return reply.status(409).send(apiError(ErrorCodes.INVALID_EXPERIMENT_STATE, '只有已完成且已绑定结果的运行可以校验'));
+    }
+    return reply.send(result);
+  });
+
+  app.get<{ Params: { id: string } }>('/api/experiments/runs/:id/report', async (req, reply) => {
+    const report = await getExperimentReport(req.params.id);
+    if (!report) return reply.status(404).send(apiError(ErrorCodes.EXPERIMENT_REPORT_NOT_FOUND, '实验报告尚未生成'));
+    return reply.send(report);
+  });
+
+  app.post<{ Params: { id: string } }>('/api/experiments/runs/:id/report/artifacts', async (req, reply) => {
+    const parsed = enqueueExperimentArtifactRequestSchema.safeParse(req.body);
+    if (!parsed.success) return validationError(reply, parsed.error.issues);
+    const report = await getExperimentReport(req.params.id);
+    if (!report) return reply.status(404).send(apiError(ErrorCodes.EXPERIMENT_REPORT_NOT_FOUND, '实验报告尚未生成'));
+    const queued = await enqueueReportArtifact(report.id, parsed.data.format);
+    if (!queued) return reply.status(404).send(apiError(ErrorCodes.EXPERIMENT_REPORT_NOT_FOUND, '实验报告不存在'));
+    setImmediate(() => {
+      void processReportArtifactJob(queued.job.id).catch((error) => {
+        app.log.error({ err: error, jobId: queued.job.id }, 'experiment artifact worker failed');
+      });
+    });
+    return reply.status(queued.reused ? 200 : 202).send(queued.job);
+  });
+
+  app.get<{ Params: { id: string } }>('/api/experiments/artifact-jobs/:id', async (req, reply) => {
+    const job = await getReportArtifactJob(req.params.id);
+    if (!job) return reply.status(404).send(apiError(ErrorCodes.EXPERIMENT_ARTIFACT_JOB_NOT_FOUND, '报告制品任务不存在'));
+    return reply.send(job);
   });
 }

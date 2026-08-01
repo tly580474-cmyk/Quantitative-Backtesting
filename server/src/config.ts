@@ -49,6 +49,11 @@ const envSchema = z.object({
   MARKET_OPINION_CLOSE_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('16:00'),
   MARKET_OPINION_PUSH_GRACE_MINUTES: z.string().regex(/^\d+$/).default('20'),
   MARKET_OPINION_PUSH_WEEKDAYS_ONLY: z.enum(['true', 'false']).default('true'),
+  // 主模型返回空内容或调用失败时自动切换的备用模型；留空表示不启用备用模型。
+  // 备用模型可使用不同供应商：FALLBACK_BASE_URL / FALLBACK_API_KEY 留空时复用主模型供应商。
+  MARKET_OPINION_FALLBACK_MODEL: z.string().default(''),
+  MARKET_OPINION_FALLBACK_BASE_URL: z.string().default(''),
+  MARKET_OPINION_FALLBACK_API_KEY: z.string().default(''),
   SMTP_HOST: z.string().default('smtp.163.com'),
   SMTP_PORT: z.string().regex(/^\d+$/).default('465'),
   SMTP_SECURE: z.enum(['true', 'false']).default('true'),
