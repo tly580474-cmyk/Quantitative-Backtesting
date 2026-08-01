@@ -17,6 +17,7 @@ server/.cache/data-coverage.json
 server/.cache/dragon-tiger-market.json
 server/.cache/market-news.json
 server/.cache/codex-backend-*.log
+server/.cache/codex-frontend-*.log
 server/.cache/history-import/
 server/data/research-snapshots/
 server/data/backups/

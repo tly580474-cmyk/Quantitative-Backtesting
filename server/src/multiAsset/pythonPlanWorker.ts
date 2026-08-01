@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   multiAssetPlanSchema,
   pointInTimeFeatureRowSchema,
@@ -23,7 +25,7 @@ export async function generateRebalancePlanWithPython(options: {
   const rows = options.rows.map((row) => pointInTimeFeatureRowSchema.parse(row));
   const input = JSON.stringify({ plan, rows });
   if (Buffer.byteLength(input) > MAX_INPUT_BYTES) throw new Error('PYTHON_PLAN_INPUT_TOO_LARGE');
-  const workerPath = resolve(options.workerPath ?? resolve(process.cwd(), 'src/multiAsset/rebalance_worker.py'));
+  const workerPath = options.workerPath ? resolve(options.workerPath) : resolveDefaultWorkerPath();
   const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
 
   return new Promise<RebalancePlan>((resolvePromise, rejectPromise) => {
@@ -77,6 +79,16 @@ export async function generateRebalancePlanWithPython(options: {
     child.stdin.on('error', (error) => finish(new Error(`PYTHON_PLAN_INPUT_FAILED:${error.message}`)));
     child.stdin.end(input);
   });
+}
+
+function resolveDefaultWorkerPath(): string {
+  const moduleUrl = new URL('./rebalance_worker.py', import.meta.url);
+  if (moduleUrl.protocol === 'file:') return fileURLToPath(moduleUrl);
+  const candidates = [
+    resolve(process.cwd(), 'server/src/multiAsset/rebalance_worker.py'),
+    resolve(process.cwd(), 'src/multiAsset/rebalance_worker.py'),
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 
 function cleanPythonEnvironment(): NodeJS.ProcessEnv {

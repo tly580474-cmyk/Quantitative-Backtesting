@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route, useLocation, useNavigate, useParams } from '
 import { Checkbox, ConfigProvider, App as AntApp, Button, DatePicker, Dropdown, Modal, Popover, Segmented, Space, Tag, theme as antdTheme } from 'antd';
 import type { MenuProps } from 'antd';
 import {
+  ApartmentOutlined,
   AreaChartOutlined,
   BarChartOutlined,
   ControlOutlined,
@@ -72,6 +73,7 @@ const AutomatedFactorMiningPage = lazy(
 const FactorStrategyPage = lazy(() => import('./features/factorResearch/FactorStrategyPage'));
 const PaperTradingPage = lazy(() => import('./features/paperTrading/PaperTradingPage'));
 const StockSelectionPage = lazy(() => import('./features/stockSelection/StockSelectionPage'));
+const MultiAssetResearchPage = lazy(() => import('./features/multiAsset/MultiAssetResearchPage'));
 
 interface MinuteCatalogResponse {
   status: 'ready' | 'unavailable';
@@ -158,6 +160,7 @@ const NAV_ITEMS: MenuProps['items'] = [
     label: '策略研发',
     children: [
       { key: '/studio', icon: <FundProjectionScreenOutlined />, label: '策略工作室' },
+      { key: '/multi-asset', icon: <ApartmentOutlined />, label: '多资产研究' },
     ],
   },
   {
@@ -188,6 +191,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/results': '回测结果',
   '/factors': '因子研究',
   '/studio': '策略工作室',
+  '/multi-asset': '多资产研究',
 };
 
 function DataLibraryRoute() {
@@ -886,6 +890,7 @@ function AppContent() {
                 <Route path="/factor-mining" element={<AutomatedFactorMiningPage />} />
                 <Route path="/factor-strategies" element={<FactorStrategyPage />} />
                 <Route path="/studio" element={<StrategyStudioPage />} />
+                <Route path="/multi-asset" element={<MultiAssetResearchPage />} />
               </Routes>
             </Suspense>
           }
