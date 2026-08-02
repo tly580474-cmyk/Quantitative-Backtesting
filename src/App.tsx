@@ -6,6 +6,7 @@ import {
   ApartmentOutlined,
   AreaChartOutlined,
   BarChartOutlined,
+  BulbOutlined,
   ControlOutlined,
   DatabaseOutlined,
   DownOutlined,
@@ -74,6 +75,7 @@ const FactorStrategyPage = lazy(() => import('./features/factorResearch/FactorSt
 const PaperTradingPage = lazy(() => import('./features/paperTrading/PaperTradingPage'));
 const StockSelectionPage = lazy(() => import('./features/stockSelection/StockSelectionPage'));
 const MultiAssetResearchPage = lazy(() => import('./features/multiAsset/MultiAssetResearchPage'));
+const HypothesisManagementPage = lazy(() => import('./features/hypothesis/HypothesisManagementPage'));
 
 interface MinuteCatalogResponse {
   status: 'ready' | 'unavailable';
@@ -153,6 +155,7 @@ const NAV_ITEMS: MenuProps['items'] = [
     children: [
       { key: '/analysis', icon: <LineChartOutlined />, label: '行情分析' },
       { key: '/factors', icon: <DotChartOutlined />, label: '因子研究' },
+      { key: '/hypotheses', icon: <BulbOutlined />, label: '假设研究' },
     ],
   },
   {
@@ -190,6 +193,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/paper-trading': '模拟交易',
   '/results': '回测结果',
   '/factors': '因子研究',
+  '/hypotheses': '假设研究',
   '/studio': '策略工作室',
   '/multi-asset': '多资产研究',
 };
@@ -889,6 +893,7 @@ function AppContent() {
                 <Route path="/factors" element={<FactorResearchPage />} />
                 <Route path="/factor-mining" element={<AutomatedFactorMiningPage />} />
                 <Route path="/factor-strategies" element={<FactorStrategyPage />} />
+                <Route path="/hypotheses" element={<HypothesisManagementPage />} />
                 <Route path="/studio" element={<StrategyStudioPage />} />
                 <Route path="/multi-asset" element={<MultiAssetResearchPage />} />
               </Routes>

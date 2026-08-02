@@ -20,6 +20,11 @@ import { registerAdminRoutes } from './routes/admin.js';
 import { registerPaperTradingRoutes } from './routes/paperTrading.js';
 import { registerExperimentRoutes } from './routes/experiments.js';
 import { registerMultiAssetRoutes } from './routes/multiAsset.js';
+import { registerHypothesisRoutes } from './routes/hypotheses.js';
+import {
+  OpenAIHypothesisProvider,
+  MockHypothesisProvider,
+} from './experiments/hypothesis/hypothesisLlm.js';
 import {
   startPaperTradingScheduler,
   stopPaperTradingScheduler,
@@ -394,6 +399,20 @@ async function main(): Promise<void> {
       model: config.OPENAI_MODEL,
       timeoutMs: parseInt(config.OPENAI_TIMEOUT_MS, 10),
     },
+  });
+  // N3: hypothesis generation agent (reuses the AI endpoint config; evaluation runs
+  // the backtrader event engine on the backend as a screening layer per ADR-05).
+  registerHypothesisRoutes(app, dbOnline, {
+    provider: aiConfigured
+      ? new OpenAIHypothesisProvider(
+        config.OPENAI_API_KEY,
+        config.OPENAI_BASE_URL,
+        config.OPENAI_MODEL,
+        parseInt(config.OPENAI_TIMEOUT_MS, 10),
+      )
+      : new MockHypothesisProvider(),
+    hypothesisEnabled: config.EXPERIMENT_HYPOTHESIS_ENABLED === 'true',
+    pythonExecutable: config.EXPERIMENT_HYPOTHESIS_PYTHON,
   });
   // Graceful shutdown
   const shutdown = async () => {

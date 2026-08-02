@@ -102,6 +102,8 @@ export interface CreateRunInput {
   datasetSnapshot: Record<string, unknown>;
   config: Record<string, unknown>;
   strategyParams: Record<string, number | boolean | string>;
+  /** 回测执行运行时标识（默认 browser_worker；N3 假设评估用 backend_event_engine） */
+  runtime?: string;
 }
 
 export async function createExperimentRun(input: CreateRunInput) {
@@ -114,7 +116,7 @@ export async function createExperimentRun(input: CreateRunInput) {
 
   const executionPlan = {
     schemaVersion: '1.0',
-    runtime: 'browser_worker',
+    runtime: input.runtime ?? 'browser_worker',
     engineVersion: input.engineVersion,
     compilerVersion: version.compilerVersion,
     datasetSnapshot: input.datasetSnapshot,

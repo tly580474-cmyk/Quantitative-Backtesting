@@ -571,6 +571,28 @@ export const strategyExperimentReportWorkers = mysqlTable('strategy_experiment_r
   statusHeartbeatIdx: index('idx_serw_status_heartbeat').on(table.status, table.heartbeatAt),
 }));
 
+// ─── N3 hypothesis candidates ────────────────────────────────────
+export const strategyHypotheses = mysqlTable('strategy_hypotheses', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description').notNull(),
+  status: varchar('status', { length: 20 }).notNull(),
+  strategyType: varchar('strategy_type', { length: 64 }).notNull(),
+  params: json('params').notNull(),
+  rationale: text('rationale').notNull(),
+  sourceCapabilityVersion: varchar('source_capability_version', { length: 64 }).notNull(),
+  mappedExperimentVersionId: varchar('mapped_experiment_version_id', { length: 36 }),
+  lastRunId: varchar('last_run_id', { length: 36 }),
+  validationStatus: varchar('validation_status', { length: 20 }),
+  evaluationSummary: json('evaluation_summary'),
+  rejectionReason: varchar('rejection_reason', { length: 1000 }),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+}, (table) => ({
+  statusCreatedIdx: index('idx_sh_status_created').on(table.status, table.createdAt),
+  strategyTypeIdx: index('idx_sh_strategy_type').on(table.strategyType),
+}));
+
 // ─── M4 multi-asset research plans and runs ─────────────────────
 export const multiAssetPlanVersions = mysqlTable('multi_asset_plan_versions', {
   id: varchar('id', { length: 36 }).primaryKey(),

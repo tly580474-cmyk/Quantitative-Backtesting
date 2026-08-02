@@ -110,6 +110,10 @@ const envSchema = z.object({
   EXPERIMENT_SANDBOX_MAX_MEMORY_MB: z.string().regex(/^\d+$/).default('256'),
   EXPERIMENT_SANDBOX_MAX_OUTPUT_BYTES: z.string().regex(/^\d+$/).default('1048576'),
 
+  // N3 hypothesis evaluation runs the backtrader event engine on the backend.
+  EXPERIMENT_HYPOTHESIS_ENABLED: z.enum(['true', 'false']).default('true'),
+  EXPERIMENT_HYPOTHESIS_PYTHON: z.string().default('python'),
+
   // Operations admin console. Empty means the admin API is disabled.
   ADMIN_API_TOKEN: z.string().default(''),
   // Overview TTL cache (ms). 0 disables caching. See ADMIN_CONSOLE_OPTIMIZATION_PLAN §1.
