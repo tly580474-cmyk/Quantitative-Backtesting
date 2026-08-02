@@ -608,11 +608,15 @@ def generate(payload: dict[str, Any]) -> dict[str, Any]:
         previous_weights = {target["instrumentKey"]: target["targetWeight"] for target in targets}
 
     output = {
-        "protocolVersion": "1.2" if plan.get("planVersion") == "1.2" else (
-            "1.1" if plan.get("factorPlan") else "1.0"
+        "protocolVersion": "1.3" if plan.get("planVersion") == "1.3" else (
+            "1.2" if plan.get("planVersion") == "1.2" else (
+                "1.1" if plan.get("factorPlan") else "1.0"
+            )
         ),
         "snapshotId": plan["snapshotId"],
-        "featureEngineVersion": MULTI_FACTOR_ENGINE_VERSION if plan.get("factorPlan") else ENGINE_VERSION,
+        "featureEngineVersion": "ml-model-cross-sectional-v1" if plan.get("mlModelPlan") else (
+            MULTI_FACTOR_ENGINE_VERSION if plan.get("factorPlan") else ENGINE_VERSION
+        ),
         "sourcePlanHash": canonical_hash(plan),
         "decisions": decisions,
     }

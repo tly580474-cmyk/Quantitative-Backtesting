@@ -8,6 +8,7 @@ import { readCurrentSnapshot } from '../research/snapshotManifest.js';
 import type { ExecutionBar } from './execution.js';
 import { factorPlanSchema } from './schema.js';
 import { optimizerSpecSchema } from './extensionSchema.js';
+import { mlModelPlanSchema } from './mlModelSchema.js';
 import type { MultiAssetPlan, PointInTimeFeatureRow, RebalancePlan } from './schema.js';
 
 const commonSnapshotConfigShape = {
@@ -21,6 +22,7 @@ const commonSnapshotConfigShape = {
   minCashWeight: z.number().finite().min(0).max(1).default(0.05),
   factorVersionId: z.string().trim().min(1).max(96).optional(),
   factorPlan: factorPlanSchema.optional(),
+  mlModelPlan: mlModelPlanSchema.optional(),
   fundamentalFields: z.array(z.enum([
     'roe', 'revenue_growth', 'net_profit_growth', 'debt_to_assets',
     'operating_cash_flow_quality', 'gross_margin', 'free_cash_flow_to_enterprise_value',
@@ -106,8 +108,12 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
   const momentumDefinition = BUILTIN_FACTORS.find((factor) => factor.id === 'momentum_20');
   if (!momentumDefinition) throw new Error('MOMENTUM_20_DEFINITION_MISSING');
   const momentumSql = compileBuiltinFactorSql(momentumDefinition);
+  // model: 前缀因子为模型虚拟因子（N2），由模型 worker 注入分数，不走 SQL 计算
+  const isModelFactorId = (id: string) => id.startsWith('model:');
   const configuredFactors = request.factorPlan
-    ? [...request.factorPlan.factors].sort((left, right) => left.factorId.localeCompare(right.factorId))
+    ? [...request.factorPlan.factors]
+      .filter((factor) => !isModelFactorId(factor.factorId))
+      .sort((left, right) => left.factorId.localeCompare(right.factorId))
     : [];
   const fundamentalFactorSql: Record<string, string> = {
     roe: 'fundamental.roe',
@@ -380,7 +386,8 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
       ? canonicalHash({ members: members!.sha256, versions: versions!.sha256 })
       : canonicalHash({ snapshotChecksum: canonicalHash(current.manifest), universeSpec: request.universeSpec });
     const sourcePlan: MultiAssetPlan = {
-      planVersion: request.fundamentalFields?.length || request.optimizerSpec ? '1.2'
+      planVersion: request.mlModelPlan ? '1.3'
+        : request.fundamentalFields?.length || request.optimizerSpec ? '1.2'
         : request.factorPlan ? '1.1' : '1.0',
       snapshotId: current.manifest.snapshotId,
       snapshotChecksum: canonicalHash(current.manifest),
@@ -400,6 +407,7 @@ export async function loadSnapshotMomentumInput(rawRequest: unknown): Promise<Sn
         missing: 'exclude',
       },
       factorPlan: request.factorPlan,
+      mlModelPlan: request.mlModelPlan,
     fundamentalPlan: request.fundamentalFields?.length ? {
         protocolVersion: '1.0', datasetId: 'financial_reports', datasetChecksum: financials!.sha256,
         maxStalenessDays: fundamentalMaxStalenessDays, fields: request.fundamentalFields,

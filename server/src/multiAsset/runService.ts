@@ -18,6 +18,7 @@ import {
   updateMultiAssetRunProgress,
 } from './repository.js';
 import { hashMultiAssetPlan, multiAssetPlanSchema, type RebalancePlan } from './schema.js';
+import { applyModelScores } from './modelScoreBridge.js';
 import {
   loadSnapshotExecutionBars,
   loadSnapshotMomentumInput,
@@ -77,13 +78,26 @@ export async function processMultiAssetRun(
     await requireProgress(runId, workerToken, 'building_rebalance_plan', 35);
     await throwIfCancelled(runId, workerToken);
     const optimizerStartedAt = performance.now();
+    // N2：模型分数注入——模型作为虚拟因子进入排名（planVersion 1.3）
+    let featureRows = input.rows;
+    let modelScoreHash: string | undefined;
+    if (sourcePlan.mlModelPlan) {
+      const applied = await applyModelScores({
+        mlPlan: sourcePlan.mlModelPlan,
+        rows: input.rows,
+        enabled: Boolean(options.pythonExecutable),
+        pythonExecutable: options.pythonExecutable ?? 'python',
+      });
+      featureRows = applied.rows;
+      modelScoreHash = applied.scoreHash;
+    }
     const [duckdbOutput, pythonPlan] = await Promise.all([
-      generateRebalancePlan(sourcePlan, input.rows).then((plan) => ({
+      generateRebalancePlan(sourcePlan, featureRows).then((plan) => ({
         plan,
         durationMs: performance.now() - optimizerStartedAt,
       })),
       generateRebalancePlanWithPython({
-        plan: sourcePlan, rows: input.rows,
+        plan: sourcePlan, rows: featureRows,
         pythonExecutable: options.pythonExecutable, timeoutMs: 120_000,
       }),
     ]);
@@ -146,6 +160,7 @@ export async function processMultiAssetRun(
       sourcePlanHash: storedPlan.planHash,
       rebalancePlanHash: duckdbPlan.planHash,
       pythonPlanHash: pythonPlan.planHash,
+      modelScoreHash,
       executionResult,
     });
     if (!await completeMultiAssetRun({

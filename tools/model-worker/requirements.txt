@@ -1,0 +1,4 @@
+# N2: 自定义机器学习模型（sklearn 白名单）依赖
+# 与 tools/factor-miner/requirements.txt 保持相同版本区间，仅用于训练/预测 Worker。
+numpy>=1.26,<3
+scikit-learn>=1.5,<2

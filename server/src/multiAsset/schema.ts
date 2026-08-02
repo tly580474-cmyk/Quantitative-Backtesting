@@ -9,6 +9,7 @@ import {
   pointInTimeIndustryEvidenceSchema,
   validateOptimizerResultHash,
 } from './extensionSchema.js';
+import { mlModelPlanSchema } from './mlModelSchema.js';
 import { validatePortfolioOptimizerResult } from './portfolioOptimizer.js';
 
 const dateSchema = z.iso.date();
@@ -36,7 +37,7 @@ export const factorPlanSchema = z.strictObject({
 });
 
 export const multiAssetPlanSchema = z.strictObject({
-  planVersion: z.enum(['1.0', '1.1', '1.2']),
+  planVersion: z.enum(['1.0', '1.1', '1.2', '1.3']),
   snapshotId: z.string().trim().min(1).max(128),
   snapshotChecksum: hashSchema,
   calendarId: z.string().trim().min(1).max(80),
@@ -69,6 +70,7 @@ export const multiAssetPlanSchema = z.strictObject({
     missing: z.literal('exclude'),
   }),
   factorPlan: factorPlanSchema.optional(),
+  mlModelPlan: mlModelPlanSchema.optional(),
   fundamentalPlan: fundamentalPlanSchema.optional(),
   industryPlan: industryPlanSchema.optional(),
   optimizerSpec: optimizerSpecSchema.optional(),
@@ -118,6 +120,23 @@ export const multiAssetPlanSchema = z.strictObject({
       }
     }
   }
+  if (plan.mlModelPlan) {
+    if (!plan.factorPlan) {
+      context.addIssue({ code: 'custom', path: ['mlModelPlan'], message: 'ML_MODEL_REQUIRES_FACTOR_PLAN' });
+    } else {
+      const factorIds = new Set(plan.factorPlan.factors.map((factor) => factor.factorId));
+      for (const feature of plan.mlModelPlan.features) {
+        if (!factorIds.has(feature)) {
+          context.addIssue({ code: 'custom', path: ['mlModelPlan', 'features'], message: `ML_FEATURE_NOT_IN_FACTOR_PLAN:${feature}` });
+        }
+      }
+      if (plan.mlModelPlan.validationStartsAt
+        && (!plan.factorPlan.validationStartsAt
+          || plan.mlModelPlan.validationStartsAt !== plan.factorPlan.validationStartsAt)) {
+        context.addIssue({ code: 'custom', path: ['mlModelPlan', 'validationStartsAt'], message: 'ML_VALIDATION_BOUNDARY_MISMATCH' });
+      }
+    }
+  }
   if (plan.optimizerSpec?.industryNeutral && !plan.industryPlan) {
     context.addIssue({ code: 'custom', path: ['industryPlan'], message: 'INDUSTRY_PLAN_REQUIRED' });
   }
@@ -160,7 +179,7 @@ const rebalanceDecisionSchema = z.strictObject({
 });
 
 export const rebalancePlanSchema = z.strictObject({
-  protocolVersion: z.enum(['1.0', '1.1', '1.2']),
+  protocolVersion: z.enum(['1.0', '1.1', '1.2', '1.3']),
   snapshotId: z.string().trim().min(1).max(128),
   featureEngineVersion: z.string().trim().min(1).max(128),
   sourcePlanHash: hashSchema,

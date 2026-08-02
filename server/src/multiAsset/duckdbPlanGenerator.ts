@@ -14,6 +14,7 @@ import { solvePortfolioOptimizer } from './portfolioOptimizer.js';
 
 export const DUCKDB_FEATURE_ENGINE_VERSION = 'duckdb-cross-sectional-v1';
 export const MULTI_FACTOR_ENGINE_VERSION = 'cross-sectional-composite-v1';
+export const ML_MODEL_ENGINE_VERSION = 'ml-model-cross-sectional-v1';
 
 interface RankedRow {
   decisionDate: string;
@@ -115,9 +116,11 @@ export async function generateRebalancePlan(
     };
   });
   const output = finalizeRebalancePlan({
-    protocolVersion: plan.planVersion === '1.2' ? '1.2' : plan.factorPlan ? '1.1' : '1.0',
+    protocolVersion: plan.planVersion === '1.3' ? '1.3'
+      : plan.planVersion === '1.2' ? '1.2' : plan.factorPlan ? '1.1' : '1.0',
     snapshotId: plan.snapshotId,
-    featureEngineVersion: plan.factorPlan ? MULTI_FACTOR_ENGINE_VERSION : DUCKDB_FEATURE_ENGINE_VERSION,
+    featureEngineVersion: plan.mlModelPlan ? ML_MODEL_ENGINE_VERSION
+      : plan.factorPlan ? MULTI_FACTOR_ENGINE_VERSION : DUCKDB_FEATURE_ENGINE_VERSION,
     sourcePlanHash: hashMultiAssetPlan(plan),
     decisions,
   });
