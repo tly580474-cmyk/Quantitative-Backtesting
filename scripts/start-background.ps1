@@ -6,6 +6,7 @@ $logRoot = Join-Path $root 'logs'
 $backendUrl = 'http://127.0.0.1:3001/api/health'
 $frontendUrl = 'http://127.0.0.1:5558/'
 $adminUrl = 'http://127.0.0.1:5559/'
+$reportWorkerStatusUrl = 'http://127.0.0.1:3001/api/experiments/report-worker/status'
 $env:VITE_DATA_SOURCE = 'api'
 $env:VITE_API_URL = 'http://127.0.0.1:3001'
 
@@ -18,6 +19,24 @@ function Test-HttpReady([string]$url) {
     } catch {
         return $false
     }
+}
+
+function Test-ReportWorkerHealthy {
+    try {
+        $status = Invoke-RestMethod -UseBasicParsing -Uri $reportWorkerStatusUrl -TimeoutSec 3
+        return $status.healthy -eq $true
+    } catch {
+        return $false
+    }
+}
+
+function Stop-ReportWorkerProcess {
+    Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like '*reportWorkerCli*' } |
+        ForEach-Object {
+            Write-Host "Stopping stale report worker (PID $($_.ProcessId))"
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        }
 }
 
 function Assert-PortAvailable([int]$port, [string]$label) {
@@ -83,6 +102,12 @@ if (-not (Test-HttpReady $frontendUrl)) {
 
 if (-not (Test-HttpReady $adminUrl)) {
     Start-HiddenCommand $root 'npm.cmd run admin:preview' 'admin.log'
+}
+
+# Experiment report worker (HTML/PDF artifact rendering), combined with backend/frontend/admin
+if (-not (Test-ReportWorkerHealthy)) {
+    Stop-ReportWorkerProcess
+    Start-HiddenCommand $serverRoot 'npm.cmd run experiment:report-worker' 'report-worker.log'
 }
 
 $deadline = (Get-Date).AddSeconds(60)

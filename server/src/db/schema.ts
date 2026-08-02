@@ -11,6 +11,8 @@ import {
   bigint,
   primaryKey,
   text,
+  boolean,
+  mediumtext,
   decimal,
 } from 'drizzle-orm/mysql-core';
 import { sql } from 'drizzle-orm';
@@ -591,6 +593,28 @@ export const strategyHypotheses = mysqlTable('strategy_hypotheses', {
 }, (table) => ({
   statusCreatedIdx: index('idx_sh_status_created').on(table.status, table.createdAt),
   strategyTypeIdx: index('idx_sh_strategy_type').on(table.strategyType),
+}));
+
+// ─── Phase C: research code runs (user-written Python in sandbox) ──
+// 结果恒标记 authority=exploration_only / publishable=0（ADR-05）。
+export const researchCodeRuns = mysqlTable('research_code_runs', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  status: varchar('status', { length: 20 }).notNull(),
+  request: json('request').notNull(),
+  codeHash: varchar('code_hash', { length: 64 }).notNull(),
+  result: json('result'),
+  resultHash: varchar('result_hash', { length: 64 }),
+  authority: varchar('authority', { length: 32 }).notNull().default('exploration_only'),
+  publishable: boolean('publishable').notNull().default(false),
+  capturedOutput: mediumtext('captured_output'),
+  error: json('error'),
+  maxSeconds: int('max_seconds'),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  completedAt: varchar('completed_at', { length: 24 }),
+}, (table) => ({
+  statusCreatedIdx: index('idx_rcr_status_created').on(table.status, table.createdAt),
+  codeHashIdx: index('idx_rcr_code_hash').on(table.codeHash),
+  createdIdx: index('idx_rcr_created').on(table.createdAt),
 }));
 
 // ─── M4 multi-asset research plans and runs ─────────────────────

@@ -23,6 +23,12 @@ function Stop-ProjectListener([int]$port, [string]$marker) {
     }
 }
 
+function Stop-ReportWorkerProcess {
+    Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like '*reportWorkerCli*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+}
+
 function Wait-Http([string]$url, [int]$timeoutSeconds, [string]$label) {
     $deadline = (Get-Date).AddSeconds($timeoutSeconds)
     do {
@@ -41,6 +47,7 @@ try {
     Stop-ProjectListener 3001 'server*src/app.ts'
     Stop-ProjectListener 5558 'node_modules*vite'
     Stop-ProjectListener 5559 'admin*vite.config.ts'
+    Stop-ReportWorkerProcess
     Start-Sleep -Milliseconds 500
 
     # Backend
@@ -67,6 +74,13 @@ try {
         -WorkingDirectory $root `
         -WindowStyle Hidden
     Wait-Http "$adminUrl/" 35 'Admin console'
+
+    # Experiment report worker (HTML/PDF artifact rendering), combined with backend/frontend/admin
+    $reportWorkerLog = Join-Path $logDir 'report-worker.log'
+    Start-Process -FilePath 'cmd.exe' `
+        -ArgumentList '/c', "cd /d `"$serverRoot`" && npm run experiment:report-worker >> `"$reportWorkerLog`" 2>&1" `
+        -WorkingDirectory $serverRoot `
+        -WindowStyle Hidden
 } catch {
     exit 1
 }

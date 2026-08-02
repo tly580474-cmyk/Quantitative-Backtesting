@@ -3,12 +3,12 @@ import type { BacktestMetrics } from '@/models';
 
 const { Text } = Typography;
 
-function pct(val: number): string {
-  return `${(val * 100).toFixed(2)}%`;
+function pct(val: number | null | undefined): string {
+  return Number.isFinite(val) ? `${((val as number) * 100).toFixed(2)}%` : '--';
 }
 
-function num(val: number, decimals = 2): string {
-  return val.toFixed(decimals);
+function num(val: number | null | undefined, decimals = 2): string {
+  return Number.isFinite(val) ? (val as number).toFixed(decimals) : '--';
 }
 
 interface Props {

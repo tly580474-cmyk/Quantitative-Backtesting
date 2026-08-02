@@ -224,6 +224,7 @@ function toEventEngineConfig(config: EvaluateHypothesisRequest['config']): Event
     sellTaxRate: config.sellTaxRate,
     slippageBps: config.slippageBps,
     tradingUnitMode: config.tradingUnitMode,
+    minimumTradeAmount: config.minimumTradeAmount ?? 1,
     forceCloseAtEnd: config.forceCloseAtEnd,
   };
 }

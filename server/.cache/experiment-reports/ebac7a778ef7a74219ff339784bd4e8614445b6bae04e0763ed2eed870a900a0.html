@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+  <title>实验报告</title>
+  <style>
+    @page { size: A4; margin: 16mm 14mm; }
+    :root { color-scheme: light; font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; color: #172033; }
+    body { max-width: 900px; margin: 0 auto; font-size: 13px; line-height: 1.65; }
+    h1 { font-size: 24px; border-bottom: 2px solid #1677ff; padding-bottom: 10px; }
+    h2 { font-size: 18px; margin-top: 24px; }
+    table { width: 100%; border-collapse: collapse; break-inside: auto; }
+    tr { break-inside: avoid; }
+    th, td { border: 1px solid #d9e2ef; padding: 7px 8px; text-align: left; vertical-align: top; }
+    th { background: #f2f6fc; }
+    code { overflow-wrap: anywhere; color: #0f4c9b; }
+    blockquote { margin: 20px 0 0; padding: 10px 14px; background: #f7f9fc; border-left: 4px solid #8bb8ff; }
+  </style>
+</head>
+<body><h1>短期动量延续效应 — 实验报告</h1>
+<ul>
+<li>实验运行：<code>477e3574-c75f-41a6-ab3f-3216cb4481eb</code></li>
+<li>实验版本：<code>946cedd3-de86-444b-a619-c8b9607a2b05</code></li>
+<li>规格摘要：<code>2544202269163e02df7e2926a3a37cc50e4b6960eeda8807749d2afb76bbcb51</code></li>
+<li>报告模板：<code>experiment-report-1.0.0</code></li>
+<li>门禁结论：<strong>candidate</strong>（策略 <code>single-instrument-v1</code>）</li>
+</ul>
+<h2>数据与执行</h2>
+<ul>
+<li>数据快照：<code>{&quot;id&quot;:&quot;481e9529-87d8-450f-b059-5743fa81be98&quot;,&quot;name&quot;:&quot;中证全指&quot;,&quot;symbol&quot;:&quot;000985&quot;,&quot;endTime&quot;:&quot;2026-07-31&quot;,&quot;checksum&quot;:&quot;b00ba30f1984e81b2d898867b488fc91e284809e0391a814f608a88521ce1c73&quot;,&quot;startTime&quot;:&quot;2005-01-04&quot;}</code></li>
+<li>执行计划：<code>{&quot;config&quot;:{&quot;dca&quot;:{&quot;amount&quot;:0,&quot;frequency&quot;:&quot;daily&quot;},&quot;execution&quot;:&quot;next_open&quot;,&quot;sellTaxRate&quot;:0.001,&quot;slippageBps&quot;:5,&quot;tradingDays&quot;:250,&quot;backtestMode&quot;:&quot;strategy&quot;,&quot;commissionRate&quot;:0.0003,&quot;initialCapital&quot;:100000,&quot;positionSizing&quot;:{&quot;type&quot;:&quot;percent&quot;,&quot;value&quot;:0.5},&quot;forceCloseAtEnd&quot;:true,&quot;tradingUnitMode&quot;:&quot;stock&quot;,&quot;minimumCommission&quot;:5,&quot;minimumTradeAmount&quot;:100},&quot;timing&quot;:{&quot;fillAt&quot;:&quot;next_open&quot;,&quot;signalAt&quot;:&quot;close&quot;},&quot;runtime&quot;:&quot;backend_event_engine&quot;,&quot;engineVersion&quot;:&quot;backtrader-event-engine-v1&quot;,&quot;schemaVersion&quot;:&quot;1.0&quot;,&quot;strategyParams&quot;:{&quot;fast&quot;:5,&quot;slow&quot;:20},&quot;compilerVersion&quot;:&quot;single-instrument-dsl-1.0.0&quot;,&quot;datasetSnapshot&quot;:{&quot;id&quot;:&quot;481e9529-87d8-450f-b059-5743fa81be98&quot;,&quot;name&quot;:&quot;中证全指&quot;,&quot;symbol&quot;:&quot;000985&quot;,&quot;endTime&quot;:&quot;2026-07-31&quot;,&quot;checksum&quot;:&quot;b00ba30f1984e81b2d898867b488fc91e284809e0391a814f608a88521ce1c73&quot;,&quot;startTime&quot;:&quot;2005-01-04&quot;}}</code></li>
+</ul>
+<h2>核心绩效</h2>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th align="right">数值</th>
+<th>数据来源</th>
+<th>计算器版本</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>交易次数</td>
+<td align="right">0</td>
+<td><code>$.backtestResult.metrics.tradeCount</code></td>
+<td><code>experiment-validation-1.0.0</code></td>
+</tr>
+<tr>
+<td>期末权益</td>
+<td align="right">100000</td>
+<td><code>$.backtestResult.metrics.finalEquity</code></td>
+<td><code>experiment-validation-1.0.0</code></td>
+</tr>
+<tr>
+<td>累计收益率</td>
+<td align="right">0</td>
+<td><code>$.backtestResult.metrics.totalReturn</code></td>
+<td><code>experiment-validation-1.0.0</code></td>
+</tr>
+</tbody></table>
+<h2>校验门禁</h2>
+<table>
+<thead>
+<tr>
+<th>类别</th>
+<th>检查</th>
+<th>状态</th>
+<th>数据来源</th>
+<th align="right">数值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>causality</td>
+<td>未发现正向 offset 或未来数据引用</td>
+<td>passed</td>
+<td><code>$.spec</code></td>
+<td align="right">—</td>
+</tr>
+<tr>
+<td>data</td>
+<td>信号和成交均位于快照区间</td>
+<td>passed</td>
+<td>`$.result.signals</td>
+<td align="right">trades`</td>
+</tr>
+<tr>
+<td>causality</td>
+<td>信号和成交必须按时间递增</td>
+<td>passed</td>
+<td>`$.result.signals</td>
+<td align="right">trades`</td>
+</tr>
+<tr>
+<td>causality</td>
+<td>未发现当日收盘信号当日成交</td>
+<td>passed</td>
+<td>`$.result.signals</td>
+<td align="right">trades`</td>
+</tr>
+<tr>
+<td>governance</td>
+<td>运行绑定不可变实验版本</td>
+<td>passed</td>
+<td><code>$.run.experimentVersionId</code></td>
+<td align="right">—</td>
+</tr>
+</tbody></table>
+<h2>证据链</h2>
+<ul>
+<li>回测结果哈希：<code>081872cccdb2a83a9ace7ff15bda800b13872bf3d80d270d51a76a234393eaee</code></li>
+<li>门禁评价哈希：<code>1ffd8468ca0454c35d1b6df07a767a6ef95c3491345c35642154a0d56b96cf12</code></li>
+<li>报告结构哈希：<code>e92e850a414de3b69ec38f1406c4c65ff7c0f6a0041b255bb91374e99bed9f53</code></li>
+</ul>
+<blockquote>
+<p>本报告用于研究复核，不构成投资建议。</p>
+</blockquote>
+</body>
+</html>

@@ -73,6 +73,15 @@ function Stop-ProjectListener([int]$port, [string]$marker) {
     }
 }
 
+function Stop-ReportWorkerProcess {
+    Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like '*reportWorkerCli*' } |
+        ForEach-Object {
+            Write-Step 'INFO' "Stopping old report worker (PID $($_.ProcessId))"
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+}
+
 function Wait-Http([string]$url, [int]$timeoutSeconds, [string]$label) {
     $deadline = (Get-Date).AddSeconds($timeoutSeconds)
     do {
@@ -120,6 +129,7 @@ try {
     Write-Step 'INFO' 'Checking ports 3001 and 5558...'
     Stop-ProjectListener 3001 'server*src/app.ts'
     Stop-ProjectListener 5558 'node_modules*vite'
+    Stop-ReportWorkerProcess
     Start-Sleep -Milliseconds 500
 
     Write-Step 'BE' "Starting supervised server at $backendUrl"
@@ -134,9 +144,21 @@ try {
     Start-Process -FilePath 'cmd.exe' -ArgumentList '/k', $frontendCommand -WorkingDirectory $root
     Wait-Http "$frontendUrl/" 35 'Frontend'
 
+    Write-Step 'RW' 'Starting experiment report worker'
+    $reportWorkerCommand = "title Quant-ReportWorker && cd /d `"$serverRoot`" && npm run experiment:report-worker"
+    Start-Process -FilePath 'cmd.exe' -ArgumentList '/k', $reportWorkerCommand -WorkingDirectory $serverRoot
+    $workerDeadline = (Get-Date).AddSeconds(20)
+    do {
+        try {
+            $workerStatus = Invoke-RestMethod -UseBasicParsing "$backendUrl/api/experiments/report-worker/status" -TimeoutSec 2
+            if ($workerStatus.healthy) { Write-Step 'OK' 'Report worker is ready'; break }
+        } catch { }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $workerDeadline)
+
     Write-Step 'INFO' "Opening $frontendUrl"
     Start-Process $frontendUrl
-    Write-Step 'DONE' 'Keep the Quant-Backend and Quant-Frontend windows open.'
+    Write-Step 'DONE' 'Keep the Quant-Backend, Quant-Frontend and Quant-ReportWorker windows open.'
     exit 0
 } catch {
     Write-Host "[ERR] $($_.Exception.Message)" -ForegroundColor Red

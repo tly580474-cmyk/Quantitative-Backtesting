@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { access, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -81,7 +81,18 @@ async function main(): Promise<void> {
       runStatusUnaffected: latest?.run.status ?? 'no-run-smoke-fixture',
     }, null, 2));
   } finally {
-    if (child && child.exitCode === null) child.kill('SIGTERM');
+    if (child && child.exitCode === null) {
+      if (process.platform === 'win32') {
+        // tsx 包装进程被终止后，其子 worker 会变成孤儿进程；必须整树终止。
+        try {
+          execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+        } catch {
+          child.kill('SIGKILL');
+        }
+      } else {
+        child.kill('SIGTERM');
+      }
+    }
     await delay(250);
     if (temporaryReportId) {
       if (artifactJobId) {

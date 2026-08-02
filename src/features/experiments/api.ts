@@ -1,4 +1,5 @@
 import { apiFetch } from '@/api/client';
+import { API_BASE_URL } from '@/api/config';
 import type { BacktestResult } from '@/models';
 import type {
   ConfirmExperimentRequest,
@@ -133,7 +134,7 @@ export async function listExperimentReportHistory(limit = 100) {
 }
 
 export function experimentReportArtifactDownloadUrl(jobId: string) {
-  return `/api/experiments/artifact-jobs/${encodeURIComponent(jobId)}/download`;
+  return `${API_BASE_URL}/api/experiments/artifact-jobs/${encodeURIComponent(jobId)}/download`;
 }
 
 export async function getExperimentReportWorkerStatus() {

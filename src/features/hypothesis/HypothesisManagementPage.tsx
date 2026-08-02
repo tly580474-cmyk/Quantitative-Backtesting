@@ -158,7 +158,12 @@ export default function HypothesisManagementPage() {
           close: candle.close,
           volume: candle.volume,
         })),
-        config: DEFAULT_EVALUATION_CONFIG,
+        config: {
+          ...DEFAULT_EVALUATION_CONFIG,
+          // 指数/ETF 按金额单位撮合（允许小数份额），股票按 100 股整数手
+          tradingUnitMode: dataset.assetType === 'stock' ? 'stock' : 'index',
+          minimumTradeAmount: dataset.assetType === 'stock' ? 100 : 1,
+        },
       };
       await evaluateHypothesis(evaluateTarget.id, request);
       message.success('假设评估完成（筛选层结果，权威复算请走实验报告中心）');

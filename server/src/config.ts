@@ -110,6 +110,15 @@ const envSchema = z.object({
   EXPERIMENT_SANDBOX_MAX_MEMORY_MB: z.string().regex(/^\d+$/).default('256'),
   EXPERIMENT_SANDBOX_MAX_OUTPUT_BYTES: z.string().regex(/^\d+$/).default('1048576'),
 
+  // 阶段 C：研究代码沙箱（用户写代码跑研究/回测，只读数据访问）。
+  // 数据访问边界：只读 MySQL 账号 + 研究快照/分钟数据只读挂载；结果恒 exploration_only。
+  EXPERIMENT_RESEARCH_CODE_ENABLED: z.enum(['true', 'false']).default('false'),
+  RESEARCH_CODE_IMAGE_TAG: z.string().default('quant-sandbox-research:dev'),
+  RESEARCH_CODE_READONLY_DB_PASSWORD: z.string().default(''),
+  RESEARCH_CODE_MAX_SECONDS: z.string().regex(/^\d+$/).default('60'),
+  RESEARCH_CODE_MAX_MEMORY_MB: z.string().regex(/^\d+$/).default('512'),
+  RESEARCH_CODE_MAX_OUTPUT_BYTES: z.string().regex(/^\d+$/).default('4194304'),
+
   // N3 hypothesis evaluation runs the backtrader event engine on the backend.
   EXPERIMENT_HYPOTHESIS_ENABLED: z.enum(['true', 'false']).default('true'),
   EXPERIMENT_HYPOTHESIS_PYTHON: z.string().default('python'),

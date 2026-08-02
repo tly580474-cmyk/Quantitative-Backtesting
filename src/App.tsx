@@ -7,6 +7,7 @@ import {
   AreaChartOutlined,
   BarChartOutlined,
   BulbOutlined,
+  CodeOutlined,
   ControlOutlined,
   DatabaseOutlined,
   DownOutlined,
@@ -76,6 +77,7 @@ const PaperTradingPage = lazy(() => import('./features/paperTrading/PaperTrading
 const StockSelectionPage = lazy(() => import('./features/stockSelection/StockSelectionPage'));
 const MultiAssetResearchPage = lazy(() => import('./features/multiAsset/MultiAssetResearchPage'));
 const HypothesisManagementPage = lazy(() => import('./features/hypothesis/HypothesisManagementPage'));
+const ResearchCodePage = lazy(() => import('./features/researchCode/ResearchCodePage'));
 
 interface MinuteCatalogResponse {
   status: 'ready' | 'unavailable';
@@ -156,6 +158,7 @@ const NAV_ITEMS: MenuProps['items'] = [
       { key: '/analysis', icon: <LineChartOutlined />, label: '行情分析' },
       { key: '/factors', icon: <DotChartOutlined />, label: '因子研究' },
       { key: '/hypotheses', icon: <BulbOutlined />, label: '假设研究' },
+      { key: '/research-code', icon: <CodeOutlined />, label: '写代码研究' },
     ],
   },
   {
@@ -896,6 +899,7 @@ function AppContent() {
                 <Route path="/hypotheses" element={<HypothesisManagementPage />} />
                 <Route path="/studio" element={<StrategyStudioPage />} />
                 <Route path="/multi-asset" element={<MultiAssetResearchPage />} />
+                <Route path="/research-code" element={<ResearchCodePage />} />
               </Routes>
             </Suspense>
           }

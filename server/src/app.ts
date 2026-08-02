@@ -21,6 +21,7 @@ import { registerPaperTradingRoutes } from './routes/paperTrading.js';
 import { registerExperimentRoutes } from './routes/experiments.js';
 import { registerMultiAssetRoutes } from './routes/multiAsset.js';
 import { registerHypothesisRoutes } from './routes/hypotheses.js';
+import { registerResearchCodeRoutes } from './routes/researchCode.js';
 import {
   OpenAIHypothesisProvider,
   MockHypothesisProvider,
@@ -59,6 +60,7 @@ import { processMultiAssetRun } from './multiAsset/runService.js';
 import { promoteReadyMultiAssetRetries, recoverAndListQueuedMultiAssetRuns } from './multiAsset/repository.js';
 import { MultiAssetRunDispatcher } from './multiAsset/dispatcher.js';
 import { hostname } from 'node:os';
+import { resolve } from 'node:path';
 import {
   collectMultiAssetOperationalStatus,
   heartbeatMultiAssetWorker,
@@ -422,6 +424,23 @@ async function main(): Promise<void> {
       : new MockHypothesisProvider(),
     hypothesisEnabled: config.EXPERIMENT_HYPOTHESIS_ENABLED === 'true',
     pythonExecutable: config.EXPERIMENT_HYPOTHESIS_PYTHON,
+  });
+  // Phase C: controlled open "write-code research" path (user-written Python in a
+  // read-only sandbox; results always marked exploration_only per ADR-05).
+  registerResearchCodeRoutes(app, dbOnline, {
+    runtime: {
+      enabled: config.EXPERIMENT_RESEARCH_CODE_ENABLED === 'true',
+      imageTag: config.RESEARCH_CODE_IMAGE_TAG,
+      readonlyDbPassword: config.RESEARCH_CODE_READONLY_DB_PASSWORD,
+      dbHost: config.DB_HOST,
+      dbPort: parseInt(config.DB_PORT, 10) || 3306,
+      dbName: config.DB_NAME,
+      researchSnapshotRoot: resolve(config.RESEARCH_SNAPSHOT_ROOT),
+      minuteDataRoot: resolve(config.MINUTE_DATA_ROOT),
+      maxSeconds: Math.max(5, parseInt(config.RESEARCH_CODE_MAX_SECONDS, 10) || 60),
+      maxMemoryMb: Math.max(64, parseInt(config.RESEARCH_CODE_MAX_MEMORY_MB, 10) || 512),
+      maxOutputBytes: Math.max(4096, parseInt(config.RESEARCH_CODE_MAX_OUTPUT_BYTES, 10) || 4194304),
+    },
   });
   // Graceful shutdown
   const shutdown = async () => {

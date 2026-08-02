@@ -24,6 +24,7 @@ const eventEngineConfigSchema = z.object({
   sellTaxRate: z.number().nonnegative().finite(),
   slippageBps: z.number().nonnegative().finite(),
   tradingUnitMode: z.enum(['stock', 'index']),
+  minimumTradeAmount: z.number().positive().finite().optional(),
   forceCloseAtEnd: z.boolean(),
 });
 
@@ -37,7 +38,8 @@ export const eventEngineRequestSchema = z.object({
 export const eventEngineTradeSchema = z.object({
   time: z.string().min(1),
   side: z.enum(['buy', 'sell']),
-  quantity: z.number().int().nonnegative(),
+  // 指数/ETF 模式下允许小数份额
+  quantity: z.number().nonnegative().finite(),
   rawPrice: z.number().finite(),
   fillPrice: z.number().finite(),
   commission: z.number().nonnegative().finite(),

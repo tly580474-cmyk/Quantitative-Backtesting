@@ -42,11 +42,11 @@ function comparisonColor(index: number): string {
 }
 
 function contributionBase(result: BacktestResult): number {
-  return result.metrics.netContributions ?? result.metrics.initialCapital;
+  return result.metrics.netContributions ?? result.metrics.initialCapital ?? result.config.initialCapital;
 }
 
 function normalizeStrategyEquity(points: BacktestResult['equityCurve'], initialCapital: number): Array<{ time: string; value: number }> {
-  if (initialCapital <= 0) return [];
+  if (!Number.isFinite(initialCapital) || initialCapital <= 0) return [];
   return points.map((p) => ({ time: p.time, value: p.equity / initialCapital * 100 }));
 }
 

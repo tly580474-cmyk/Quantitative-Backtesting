@@ -136,6 +136,8 @@ class EventStrategy(bt.Strategy):
         ("sell_tax_rate", 0.001),
         ("slippage_bps", 3),
         ("force_close_at_end", True),
+        ("trading_unit_mode", "index"),
+        ("minimum_trade_amount", 1.0),
     )
 
     def __init__(self):
@@ -168,29 +170,63 @@ class EventStrategy(bt.Strategy):
             return
 
         if signal == "buy" and self.position_qty == 0:
-            fill_price = apply_slippage(float(next_open), "buy", self.p.slippage_bps)
-            spend_limit = self.cash * self.p.position_sizing
-            size = normalize_stock_buy(spend_limit / fill_price)
-            if size < 100:
-                self.orders.append({"time": self.data.datetime.date(0).isoformat(), "side": "buy", "quantity": 0, "status": "rejected"})
-                return
-            while size >= 100:
-                amount = size * fill_price
+            next_open_price = float(next_open)
+            if self.p.trading_unit_mode == "index":
+                # 指数/ETF：金额单位撮合，允许小数份额（与 TS broker.ts index 口径一致）
+                fill_price = apply_slippage(next_open_price, "buy", self.p.slippage_bps)
+                min_amount = max(1.0, float(self.p.minimum_trade_amount or 1))
+                spend_limit = self.cash * self.p.position_sizing
+                max_amount = math.floor(spend_limit / min_amount) * min_amount
+                if max_amount < min_amount:
+                    self.orders.append({"time": self.data.datetime.date(0).isoformat(), "side": "buy", "quantity": 0, "status": "rejected"})
+                    return
+                amount = max_amount
                 commission = calculate_commission(amount, self.p.commission_rate, self.p.minimum_commission)
-                if amount + commission <= self.cash:
-                    break
-                size -= 100
-            if size < 100:
-                self.orders.append({"time": self.data.datetime.date(0).isoformat(), "side": "buy", "quantity": 0, "status": "rejected"})
-                return
-            self.buy(size=size)
-            self.orders.append({"time": self.data.datetime.date(0).isoformat(), "side": "buy", "quantity": size, "status": "submitted"})
+                if amount + commission > self.cash:
+                    affordable = math.floor(min(self.cash - self.p.minimum_commission, self.cash / (1 + self.p.commission_rate)) / min_amount) * min_amount
+                    if affordable < min_amount:
+                        self.orders.append({"time": self.data.datetime.date(0).isoformat(), "side": "buy", "quantity": 0, "status": "rejected"})
+                        return
+                    amount = min(amount, affordable)
+                    commission = calculate_commission(amount, self.p.commission_rate, self.p.minimum_commission)
+                size = amount / fill_price
+                if size <= 0:
+                    self.orders.append({"time": self.data.datetime.date(0).isoformat(), "side": "buy", "quantity": 0, "status": "rejected"})
+                    return
+                self.buy(size=size)
+                self.orders.append({"time": self.data.datetime.date(0).isoformat(), "side": "buy", "quantity": round(size, 4), "status": "submitted"})
+            else:
+                fill_price = apply_slippage(next_open_price, "buy", self.p.slippage_bps)
+                spend_limit = self.cash * self.p.position_sizing
+                size = normalize_stock_buy(spend_limit / fill_price)
+                if size < 100:
+                    self.orders.append({"time": self.data.datetime.date(0).isoformat(), "side": "buy", "quantity": 0, "status": "rejected"})
+                    return
+                while size >= 100:
+                    amount = size * fill_price
+                    commission = calculate_commission(amount, self.p.commission_rate, self.p.minimum_commission)
+                    if amount + commission <= self.cash:
+                        break
+                    size -= 100
+                if size < 100:
+                    self.orders.append({"time": self.data.datetime.date(0).isoformat(), "side": "buy", "quantity": 0, "status": "rejected"})
+                    return
+                self.buy(size=size)
+                self.orders.append({"time": self.data.datetime.date(0).isoformat(), "side": "buy", "quantity": size, "status": "submitted"})
         elif signal == "sell" and self.position_qty > 0:
             requested = self.position_qty * self.p.position_sizing
-            partial = max(100, int(requested // 100) * 100) if requested > 0 else 0
-            remaining = self.position_qty - partial
-            remaining_is_tradable = remaining >= 100
-            size = min(partial, self.position_qty) if remaining_is_tradable else self.position_qty
+            if self.p.trading_unit_mode == "index":
+                # 指数/ETF：允许小数份额，尾仓按最小交易金额判定（与 TS engine.ts createSellOrder 一致）
+                partial = requested if requested > 0 else 0.0
+                remaining = self.position_qty - partial
+                min_amount = max(1.0, float(self.p.minimum_trade_amount or 1))
+                remaining_is_tradable = remaining * float(next_open) >= min_amount
+                size = min(partial, self.position_qty) if remaining_is_tradable else self.position_qty
+            else:
+                partial = max(100, int(requested // 100) * 100) if requested > 0 else 0
+                remaining = self.position_qty - partial
+                remaining_is_tradable = remaining >= 100
+                size = min(partial, self.position_qty) if remaining_is_tradable else self.position_qty
             if size <= 0:
                 return
             self.sell(size=size)
@@ -206,7 +242,7 @@ class EventStrategy(bt.Strategy):
             exec_time = exec_dt.date().isoformat()
         side = "buy" if order.isbuy() else "sell"
         if order.status == order.Completed:
-            signed_qty = int(order.executed.size)
+            signed_qty = float(order.executed.size)
             price = float(order.executed.price)
             if side == "buy":
                 raw_price = price / (1 + self.p.slippage_bps / 10000)
@@ -308,6 +344,8 @@ def run(request: dict) -> dict:
         sell_tax_rate=config["sellTaxRate"],
         slippage_bps=config["slippageBps"],
         force_close_at_end=config["forceCloseAtEnd"],
+        trading_unit_mode=config.get("tradingUnitMode", "index"),
+        minimum_trade_amount=config.get("minimumTradeAmount", 1),
     )
     cerebro.broker.setcash(config["initialCapital"])
     cerebro.broker.addcommissioninfo(

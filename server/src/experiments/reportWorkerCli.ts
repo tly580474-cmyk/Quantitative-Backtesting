@@ -46,22 +46,31 @@ async function main(): Promise<void> {
     }, 10_000);
     await recoverStaleReportArtifactJobs(new Date(Date.now() - staleMs), maxAttempts);
     while (!stopping) {
-      const job = await claimNextReportArtifactJob(maxAttempts);
-      if (!job) {
+      try {
+        const job = await claimNextReportArtifactJob(maxAttempts);
+        if (!job) {
+          await delay(pollMs);
+          continue;
+        }
+        const startedAt = Date.now();
+        const completed = await processReportArtifactJob(job.id, {
+          alreadyClaimed: true,
+          timeoutMs,
+          chromiumExecutable: process.env.EXPERIMENT_REPORT_CHROMIUM_EXECUTABLE,
+        });
+        console.log(JSON.stringify({
+          event: 'experiment_report_job_finished', jobId: job.id, format: job.format,
+          status: completed?.status, durationMs: Date.now() - startedAt,
+          errorMessage: completed?.errorMessage ?? null,
+        }));
+      } catch (error) {
+        // 常驻 Worker：单次轮询失败（如数据库瞬时抖动）不应导致进程退出。
+        console.error(JSON.stringify({
+          event: 'experiment_report_loop_error',
+          error: error instanceof Error ? error.message : String(error),
+        }));
         await delay(pollMs);
-        continue;
       }
-      const startedAt = Date.now();
-      const completed = await processReportArtifactJob(job.id, {
-        alreadyClaimed: true,
-        timeoutMs,
-        chromiumExecutable: process.env.EXPERIMENT_REPORT_CHROMIUM_EXECUTABLE,
-      });
-      console.log(JSON.stringify({
-        event: 'experiment_report_job_finished', jobId: job.id, format: job.format,
-        status: completed?.status, durationMs: Date.now() - startedAt,
-        errorMessage: completed?.errorMessage ?? null,
-      }));
     }
   } finally {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
