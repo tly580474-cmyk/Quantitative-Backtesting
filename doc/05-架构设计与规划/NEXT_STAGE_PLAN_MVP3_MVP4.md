@@ -11,8 +11,8 @@
 | --- | --- | --- |
 | MVP 1：Strategy IR + DSL | 已完成 | — |
 | MVP 2：VectorBT 实验 Worker | 已完成 | — |
-| MVP 3：高级 Python 实验室 | 部分完成 | Backtrader 事件策略、自定义机器学习模型 |
-| MVP 4：研究 Agent 闭环 | 部分完成 | 假设生成 Agent、代码修复 Agent |
+| MVP 3：高级 Python 实验室 | 已完成 | — |
+| MVP 4：研究 Agent 闭环 | 已完成 | — |
 
 设计约束（来自 `EXPERIMENT_AGENT_STRATEGY_RESEARCH_DESIGN.md`）：
 
@@ -99,4 +99,4 @@ N4（错误映射）可并行，不依赖 N1–N3
 - [x] 机器学习模型只使用时点化数据，产物可复现、可追溯；
 - [x] 假设生成不直接运行，全部经实验规格与人工确认；
 - [x] 错误分类全部由组件产生，Agent 只解释不修改策略；
-- [ ] MVP 3 / MVP 4 全链路集成验收通过，能力清单自动发布。
+- [x] MVP 3 / MVP 4 全链路集成验收通过，能力清单自动发布。

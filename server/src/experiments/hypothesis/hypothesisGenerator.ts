@@ -1,4 +1,4 @@
-import { parseEventStrategy, listEventStrategyCatalog } from '../m5/eventEngineStrategies.js';
+import { listPublishedEventStrategyCatalog, parseEventStrategy } from '../m5/eventEngineStrategies.js';
 import { listFactorCatalog } from '../../factorResearch/repositories/factorRepository.js';
 import {
   hypothesisPlanSchema,
@@ -12,6 +12,13 @@ import type { HypothesisLlmProvider } from './hypothesisLlm.js';
 // 能力边界 = 事件引擎白名单策略（可评估）+ 因子库 + 指标注册表。
 // LLM 输出逐条校验：strategyType 必须在白名单内、params 必须通过
 // 事件引擎参数 Schema（防幻觉/防越界）；非法条目被拒绝并返回原因。
+//
+// N5.4：能力清单自动发布（沿用 E7 模式）。策略清单只暴露已通过黄金样例
+// 验收（goldenParityLocked === true）的策略；capabilityVersion 由服务端
+// 常量决定，LLM 无法伪造。
+
+/** 当前已发布能力版本（与已验收策略集绑定，新增能力须更新此版本） */
+export const PUBLISHED_EXPERIMENT_CAPABILITY_VERSION = 'mvp4-event-engine-v1';
 
 export interface GenerateHypothesesResult {
   plans: HypothesisPlan[];
@@ -39,14 +46,7 @@ export function buildHypothesisCapabilityContext(input?: {
 
 export function formatCapabilityContext(context: HypothesisCapabilityContext): string {
   return JSON.stringify({
-    strategies: listEventStrategyCatalog().map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      description: entry.description,
-      defaultParams: entry.defaultParams,
-      warmupBars: entry.warmupBars,
-      goldenParityLocked: entry.goldenParityLocked,
-    })),
+    strategies: listPublishedEventStrategyCatalog(),
     factorIds: context.factorIds,
     indicatorIds: context.indicatorIds,
   });
@@ -103,7 +103,8 @@ export async function generateHypotheses(input: {
         name: name.slice(0, 255),
         description: String(candidate.description ?? '').slice(0, 2000),
         rationale: String(candidate.rationale ?? '').slice(0, 4000),
-        capabilityVersion: 'local-capabilities-v1',
+        // N5.4：能力版本由服务端已发布清单决定，忽略 LLM 伪造的 capabilityVersion
+        capabilityVersion: PUBLISHED_EXPERIMENT_CAPABILITY_VERSION,
       });
       plans.push(plan);
     } catch (error) {

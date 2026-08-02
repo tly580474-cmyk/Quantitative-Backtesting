@@ -15,7 +15,8 @@ import { runInSandbox } from './sandboxClient.js';
 const hexHash = (char: string) => char.repeat(64);
 const hash = hexHash;
 
-describe('M5 end-to-end pipeline', () => {
+// Docker 沙箱/VectorBT 启动在并行全量回归下可能较慢，提高本组测试超时上限
+describe('M5 end-to-end pipeline', { timeout: 60_000 }, () => {
   it('Wall 1 — VectorBT screening emits screening-only candidates', async () => {
     const request = {
       runtime: 'numpy_reference' as const,

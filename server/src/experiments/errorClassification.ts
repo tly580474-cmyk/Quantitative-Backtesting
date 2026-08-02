@@ -107,6 +107,8 @@ export interface CategorizedErrorPayload {
   /** 字段路径列表（如 "entry.left"），供 UI 定位 */
   fieldPaths: string[];
   issues: string[];
+  /** 是否可通过基础设施重试解决（业务错误不得重试） */
+  retryable: boolean;
 }
 
 function extractFieldPaths(errors: string[]): string[] {
@@ -133,6 +135,7 @@ export function classifyStrategyOutputError(error: unknown): CategorizedErrorPay
       message: '模型返回的策略未通过 DSL 校验',
       fieldPaths: extractFieldPaths(issues),
       issues,
+      retryable: EXPERIMENT_ERROR_CATEGORY_META.SCHEMA_INVALID.retryable,
     };
   }
   if (error instanceof ZodError) {
@@ -146,6 +149,7 @@ export function classifyStrategyOutputError(error: unknown): CategorizedErrorPay
       message: '请求未通过 Schema 校验',
       fieldPaths: error.issues.map((issue) => issue.path.join('.')).filter(Boolean),
       issues,
+      retryable: EXPERIMENT_ERROR_CATEGORY_META.SCHEMA_INVALID.retryable,
     };
   }
   const message = error instanceof Error ? error.message : String(error);
@@ -155,6 +159,7 @@ export function classifyStrategyOutputError(error: unknown): CategorizedErrorPay
     message,
     fieldPaths: [],
     issues: [message],
+    retryable: EXPERIMENT_ERROR_CATEGORY_META.INTERNAL_ERROR.retryable,
   };
 }
 

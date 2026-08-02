@@ -69,6 +69,35 @@ export function listEventStrategyCatalog(): Array<{
   }));
 }
 
+/**
+ * N5.4：已发布能力目录（能力清单自动发布，沿用 E7 模式）。
+ * 只有通过黄金样例验收（goldenParityLocked === true）的策略才向
+ * Agent 与 UI 发布；未验收策略不进入能力清单，防止能力越界使用。
+ */
+export const PUBLISHED_EVENT_STRATEGY_IDS: ReadonlySet<string> = new Set(
+  [...EVENT_STRATEGY_REGISTRY.values()]
+    .filter((definition) => definition.goldenParityLocked)
+    .map((definition) => definition.id),
+);
+
+export function listPublishedEventStrategyCatalog(): Array<{
+  id: string;
+  name: string;
+  description: string;
+  warmupBars: number;
+  defaultParams: Record<string, number>;
+}> {
+  return [...EVENT_STRATEGY_REGISTRY.values()]
+    .filter((definition) => definition.goldenParityLocked)
+    .map((definition) => ({
+      id: definition.id,
+      name: definition.name,
+      description: definition.description,
+      warmupBars: definition.warmupBars(definition.defaultParams),
+      defaultParams: definition.defaultParams,
+    }));
+}
+
 export function parseEventStrategy(value: unknown): EventStrategy {
   return eventStrategySchema.parse(value);
 }

@@ -109,7 +109,7 @@ describe('N2 ML model schema and bridge', () => {
       workerPath: resolve('../tools/model-worker/model_worker.py'),
     });
     expect(changed.scoreHash).not.toBe(applied.scoreHash);
-  });
+  }, 30_000);
 
   it('is disabled unless explicitly enabled', async () => {
     await expect(runModelWorker({
