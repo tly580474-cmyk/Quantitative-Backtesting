@@ -543,15 +543,32 @@ export const strategyExperimentArtifactJobs = mysqlTable('strategy_experiment_ar
   status: varchar('status', { length: 16 }).notNull(),
   cacheKey: varchar('cache_key', { length: 128 }).notNull(),
   artifactUri: varchar('artifact_uri', { length: 1024 }),
+  mimeType: varchar('mime_type', { length: 128 }),
+  byteSize: bigint('byte_size', { mode: 'number' }),
+  checksum: varchar('checksum', { length: 64 }),
+  generatorVersion: varchar('generator_version', { length: 64 }),
   errorMessage: varchar('error_message', { length: 1000 }),
   attempts: int('attempts').notNull().default(0),
   expiresAt: varchar('expires_at', { length: 24 }).notNull(),
   createdAt: varchar('created_at', { length: 24 }).notNull(),
   updatedAt: varchar('updated_at', { length: 24 }).notNull(),
+  completedAt: varchar('completed_at', { length: 24 }),
 }, (table) => ({
   cacheUnique: uniqueIndex('idx_seaj_cache').on(table.cacheKey),
   statusCreatedIdx: index('idx_seaj_status_created').on(table.status, table.createdAt),
   expiresIdx: index('idx_seaj_expires').on(table.expiresAt),
+}));
+
+export const strategyExperimentReportWorkers = mysqlTable('strategy_experiment_report_workers', {
+  id: varchar('id', { length: 96 }).primaryKey(),
+  hostname: varchar('hostname', { length: 255 }).notNull(),
+  pid: int('pid').notNull(),
+  status: varchar('status', { length: 16 }).notNull(),
+  startedAt: varchar('started_at', { length: 24 }).notNull(),
+  heartbeatAt: varchar('heartbeat_at', { length: 24 }).notNull(),
+  stoppedAt: varchar('stopped_at', { length: 24 }),
+}, (table) => ({
+  statusHeartbeatIdx: index('idx_serw_status_heartbeat').on(table.status, table.heartbeatAt),
 }));
 
 // ─── M4 multi-asset research plans and runs ─────────────────────

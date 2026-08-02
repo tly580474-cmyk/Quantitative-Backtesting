@@ -9,7 +9,11 @@ async function main(): Promise<void> {
   initDb(pool);
   try {
     const removed = await cleanupExpiredReportArtifacts();
-    console.log(JSON.stringify({ removed, retentionDays: 7 }, null, 2));
+    console.log(JSON.stringify({
+      removed,
+      htmlRetentionDays: Number(process.env.EXPERIMENT_REPORT_HTML_RETENTION_DAYS || 7),
+      pdfRetentionDays: Number(process.env.EXPERIMENT_REPORT_PDF_RETENTION_DAYS || 30),
+    }, null, 2));
   } finally {
     await closePool(pool);
   }

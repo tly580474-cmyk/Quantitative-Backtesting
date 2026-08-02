@@ -89,6 +89,26 @@ const envSchema = z.object({
   MULTI_ASSET_ARTIFACT_RETENTION_DAYS: z.string().regex(/^\d+$/).default('30'),
   MULTI_ASSET_QUEUE_WARNING_SECONDS: z.string().regex(/^\d+$/).default('60'),
   MULTI_ASSET_QUEUE_CRITICAL_SECONDS: z.string().regex(/^\d+$/).default('300'),
+  MULTI_ASSET_ALERT_WEBHOOK_URL: z.string().default(''),
+  MULTI_ASSET_ALERT_WEBHOOK_BEARER_TOKEN: z.string().default(''),
+  MULTI_ASSET_ALERT_TIMEOUT_MS: z.string().regex(/^\d+$/).default('5000'),
+
+  // M3 report artifacts are rendered by a standalone, single-concurrency worker.
+  EXPERIMENT_REPORT_ARTIFACT_ROOT: z.string().default('./.cache/experiment-reports'),
+  EXPERIMENT_REPORT_CHROMIUM_EXECUTABLE: z.string().default(''),
+  EXPERIMENT_REPORT_WORKER_POLL_MS: z.string().regex(/^\d+$/).default('1000'),
+  EXPERIMENT_REPORT_WORKER_STALE_MS: z.string().regex(/^\d+$/).default('120000'),
+  EXPERIMENT_REPORT_WORKER_MAX_ATTEMPTS: z.string().regex(/^\d+$/).default('3'),
+  EXPERIMENT_REPORT_RENDER_TIMEOUT_MS: z.string().regex(/^\d+$/).default('60000'),
+  EXPERIMENT_REPORT_HTML_RETENTION_DAYS: z.string().regex(/^\d+$/).default('7'),
+  EXPERIMENT_REPORT_PDF_RETENTION_DAYS: z.string().regex(/^\d+$/).default('30'),
+
+  // M5 advanced runtimes stay opt-in until their authority replay and sandbox gates pass.
+  EXPERIMENT_VECTOR_SCREEN_ENABLED: z.enum(['true', 'false']).default('false'),
+  EXPERIMENT_ARBITRARY_PYTHON_ENABLED: z.enum(['true', 'false']).default('false'),
+  EXPERIMENT_SANDBOX_MAX_SECONDS: z.string().regex(/^\d+$/).default('15'),
+  EXPERIMENT_SANDBOX_MAX_MEMORY_MB: z.string().regex(/^\d+$/).default('256'),
+  EXPERIMENT_SANDBOX_MAX_OUTPUT_BYTES: z.string().regex(/^\d+$/).default('1048576'),
 
   // Operations admin console. Empty means the admin API is disabled.
   ADMIN_API_TOKEN: z.string().default(''),

@@ -5360,6 +5360,84 @@ html[data-theme='dark'] .candle-detail {
   line-height: 1.65;
 }
 
+.experiment-report-center {
+  display: grid;
+  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  height: min(720px, 76vh);
+  min-height: 480px;
+  overflow: hidden;
+  border: 1px solid var(--ant-color-border-secondary, #e5e7eb);
+  border-radius: 10px;
+}
+
+.experiment-report-center-loading {
+  display: grid;
+  min-height: 420px;
+  place-items: center;
+}
+
+.experiment-report-history {
+  min-width: 0;
+  overflow: auto;
+  border-right: 1px solid var(--ant-color-border-secondary, #e5e7eb);
+  background: var(--ant-color-fill-quaternary, #f8fafc);
+}
+
+.experiment-report-center-toolbar,
+.experiment-report-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.experiment-report-center-toolbar {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  padding: 12px;
+  border-bottom: 1px solid var(--ant-color-border-secondary, #e5e7eb);
+  background: var(--ant-color-bg-container, #fff);
+}
+
+.experiment-report-history .ant-list-item {
+  padding: 12px;
+  cursor: pointer;
+  border-inline-start: 3px solid transparent;
+}
+
+.experiment-report-history .ant-list-item:hover,
+.experiment-report-history .ant-list-item.is-active {
+  background: var(--ant-color-primary-bg, #e6f4ff);
+  border-inline-start-color: var(--ant-color-primary, #1677ff);
+}
+
+.experiment-report-detail {
+  min-width: 0;
+  padding: 18px;
+  overflow: auto;
+}
+
+.experiment-report-detail-head { margin-bottom: 14px; }
+.experiment-report-detail-head h4 { margin: 0 0 3px; }
+.experiment-report-detail .ant-alert { margin-bottom: 10px; }
+.experiment-report-detail .experiment-report-markdown { max-height: none; }
+
+@media (max-width: 800px) {
+  .experiment-report-center {
+    grid-template-columns: 1fr;
+    height: auto;
+    max-height: 78vh;
+    overflow: auto;
+  }
+  .experiment-report-history {
+    max-height: 260px;
+    border-right: 0;
+    border-bottom: 1px solid var(--ant-color-border-secondary, #e5e7eb);
+  }
+  .experiment-report-detail { overflow: visible; }
+}
+
 /* M4 multi-asset research workspace */
 .multi-asset-page {
   --multi-asset-accent: #1677ff;

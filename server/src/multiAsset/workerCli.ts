@@ -25,6 +25,8 @@ const dispatcher = new MultiAssetRunDispatcher(
   (runId, error) => console.error('[multi-asset-worker]', runId, error),
   concurrency,
 );
+let pollInFlight: Promise<void> = Promise.resolve();
+let heartbeatInFlight: Promise<void> = Promise.resolve();
 
 async function poll(): Promise<void> {
   if (stopping) return;
@@ -36,13 +38,16 @@ async function poll(): Promise<void> {
 const workerId = await registerMultiAssetWorker({
   mode: 'standalone', hostname: hostname(), pid: process.pid, concurrency,
 });
-const timer = setInterval(
-  () => void poll().catch((error) => console.error(error)),
-  Math.max(250, Number(config.MULTI_ASSET_POLL_INTERVAL_MS)),
-);
+const schedulePoll = () => {
+  if (stopping) return;
+  pollInFlight = pollInFlight.then(poll).catch((error) => console.error(error));
+};
+const timer = setInterval(schedulePoll, Math.max(250, Number(config.MULTI_ASSET_POLL_INTERVAL_MS)));
 timer.unref?.();
 const heartbeatTimer = setInterval(() => {
-  void heartbeatMultiAssetWorker(workerId, 'ready', dispatcher.stats())
+  if (stopping) return;
+  heartbeatInFlight = heartbeatInFlight
+    .then(() => heartbeatMultiAssetWorker(workerId, 'ready', dispatcher.stats()))
     .catch((error) => console.error('[multi-asset-worker] heartbeat failed', error));
 }, Math.max(1_000, Number(config.MULTI_ASSET_WORKER_HEARTBEAT_MS)));
 heartbeatTimer.unref?.();
@@ -55,6 +60,7 @@ async function shutdown(): Promise<void> {
   clearInterval(timer);
   clearInterval(heartbeatTimer);
   dispatcher.stopAccepting();
+  await Promise.allSettled([pollInFlight, heartbeatInFlight]);
   await heartbeatMultiAssetWorker(workerId, 'draining').catch(() => undefined);
   const drained = await dispatcher.drain(Number(config.MULTI_ASSET_SHUTDOWN_GRACE_MS));
   if (!drained) console.warn('[multi-asset-worker] shutdown grace expired; leases will be recovered');

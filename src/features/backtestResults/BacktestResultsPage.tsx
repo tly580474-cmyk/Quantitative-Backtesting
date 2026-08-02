@@ -10,11 +10,13 @@ import {
   Select,
   Checkbox,
   Switch,
+  Modal,
 } from 'antd';
 import {
   DeleteOutlined,
   EyeOutlined,
   SwapOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import { useBacktestStore } from '@/stores/useBacktestStore';
 import { WorkbenchPanel } from '@/components/WorkbenchPanel';
@@ -29,6 +31,7 @@ import { createTradeMarkers } from './tradeMarkers';
 import { getAllStrategies } from '@/features/strategies/registry';
 import { getResultStrategyName } from './resultLabel';
 import type { SeriesMarker, Time } from 'lightweight-charts';
+import ExperimentReportCenter from '@/features/experiments/ExperimentReportCenter';
 
 const { Text } = Typography;
 
@@ -69,6 +72,7 @@ export default function BacktestResultsPage() {
     dca: '定投策略',
     ...Object.fromEntries(getAllStrategies().map((strategy) => [strategy.id, strategy.name])),
   }));
+  const [reportCenterOpen, setReportCenterOpen] = useState(false);
 
   useEffect(() => {
     loadResults();
@@ -147,6 +151,9 @@ export default function BacktestResultsPage() {
           <Text type="secondary">{results.length} 条历史记录 · {selectedResults.length} 条可对比</Text>
         </div>
         <Space wrap className="results-toolbar-actions">
+          <Button type="primary" icon={<FileTextOutlined />} onClick={() => setReportCenterOpen(true)}>
+            历史实验报告
+          </Button>
           <Select
             aria-label="回测结果排序"
             value={sortOrder}
@@ -182,6 +189,17 @@ export default function BacktestResultsPage() {
           </Popconfirm>
         </Space>
       </div>
+
+      <Modal
+        title="M3 实验报告中心"
+        open={reportCenterOpen}
+        onCancel={() => setReportCenterOpen(false)}
+        footer={null}
+        width="min(1280px, 94vw)"
+        destroyOnHidden
+      >
+        <ExperimentReportCenter />
+      </Modal>
 
       <div className="results-workbench">
         <aside className="results-history-panel">

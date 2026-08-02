@@ -1,4 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import {
   completeExperimentRunRequestSchema,
   confirmExperimentRequestSchema,
@@ -20,10 +22,12 @@ import {
 } from '../experiments/repository.js';
 import {
   enqueueReportArtifact,
+  getDownloadableReportArtifact,
   getExperimentReport,
   getReportArtifactJob,
+  getReportWorkerStatus,
+  listExperimentReportHistory,
   openLockedTest,
-  processReportArtifactJob,
   validateCompletedExperimentRun,
 } from '../experiments/m3Repository.js';
 import { apiError, dbUnavailable, ErrorCodes } from '../validation/errors.js';
@@ -34,6 +38,11 @@ function validationError(reply: FastifyReply, issues: unknown) {
     '实验请求未通过校验',
     issues,
   ));
+}
+
+function publicArtifactJob<T extends { artifactUri?: unknown }>(job: T) {
+  const { artifactUri: _managedPath, ...safe } = job;
+  return safe;
 }
 
 export function registerExperimentRoutes(app: FastifyInstance, dbOnline: boolean): void {
@@ -51,8 +60,11 @@ export function registerExperimentRoutes(app: FastifyInstance, dbOnline: boolean
     app.post('/api/experiments/versions/:id/locked-test/open', stub);
     app.post('/api/experiments/runs/:id/validate', stub);
     app.get('/api/experiments/runs/:id/report', stub);
+    app.get('/api/experiments/reports', stub);
     app.post('/api/experiments/runs/:id/report/artifacts', stub);
     app.get('/api/experiments/artifact-jobs/:id', stub);
+    app.get('/api/experiments/artifact-jobs/:id/download', stub);
+    app.get('/api/experiments/report-worker/status', stub);
     return;
   }
 
@@ -219,6 +231,19 @@ export function registerExperimentRoutes(app: FastifyInstance, dbOnline: boolean
     return reply.send(report);
   });
 
+  app.get<{ Querystring: { limit?: string } }>('/api/experiments/reports', async (req, reply) => {
+    const limit = Number.parseInt(req.query.limit ?? '100', 10);
+    const history = await listExperimentReportHistory(limit);
+    return reply.send(history.map((item) => ({
+      ...item,
+      artifacts: item.artifacts.map(publicArtifactJob),
+    })));
+  });
+
+  app.get('/api/experiments/report-worker/status', async (_req, reply) => {
+    return reply.send(await getReportWorkerStatus());
+  });
+
   app.post<{ Params: { id: string } }>('/api/experiments/runs/:id/report/artifacts', async (req, reply) => {
     const parsed = enqueueExperimentArtifactRequestSchema.safeParse(req.body);
     if (!parsed.success) return validationError(reply, parsed.error.issues);
@@ -226,17 +251,31 @@ export function registerExperimentRoutes(app: FastifyInstance, dbOnline: boolean
     if (!report) return reply.status(404).send(apiError(ErrorCodes.EXPERIMENT_REPORT_NOT_FOUND, '实验报告尚未生成'));
     const queued = await enqueueReportArtifact(report.id, parsed.data.format);
     if (!queued) return reply.status(404).send(apiError(ErrorCodes.EXPERIMENT_REPORT_NOT_FOUND, '实验报告不存在'));
-    setImmediate(() => {
-      void processReportArtifactJob(queued.job.id).catch((error) => {
-        app.log.error({ err: error, jobId: queued.job.id }, 'experiment artifact worker failed');
-      });
-    });
-    return reply.status(queued.reused ? 200 : 202).send(queued.job);
+    return reply.status(queued.reused ? 200 : 202).send(publicArtifactJob(queued.job));
   });
 
   app.get<{ Params: { id: string } }>('/api/experiments/artifact-jobs/:id', async (req, reply) => {
     const job = await getReportArtifactJob(req.params.id);
     if (!job) return reply.status(404).send(apiError(ErrorCodes.EXPERIMENT_ARTIFACT_JOB_NOT_FOUND, '报告制品任务不存在'));
-    return reply.send(job);
+    return reply.send(publicArtifactJob(job));
+  });
+
+  app.get<{ Params: { id: string } }>('/api/experiments/artifact-jobs/:id/download', async (req, reply) => {
+    const artifact = await getDownloadableReportArtifact(req.params.id);
+    if (!artifact) {
+      return reply.status(404).send(apiError(
+        ErrorCodes.EXPERIMENT_ARTIFACT_JOB_NOT_FOUND,
+        '报告制品尚未完成、已过期或文件不可用',
+      ));
+    }
+    const file = await stat(artifact.path).catch(() => null);
+    if (!file?.isFile()) {
+      return reply.status(404).send(apiError(ErrorCodes.EXPERIMENT_ARTIFACT_JOB_NOT_FOUND, '报告制品文件不存在'));
+    }
+    const extension = artifact.job.format === 'pdf' ? 'pdf' : 'html';
+    reply.header('Content-Type', artifact.job.format === 'pdf' ? 'application/pdf' : 'text/html; charset=utf-8');
+    reply.header('Content-Length', String(file.size));
+    reply.header('Content-Disposition', `attachment; filename="experiment-report-${artifact.job.reportId}.${extension}"`);
+    return reply.send(createReadStream(artifact.path));
   });
 }

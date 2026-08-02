@@ -136,3 +136,49 @@ npm run multi-asset:artifacts:prune
 ```
 
 发布前还必须人工确认：管理接口需要令牌；API 与 Worker 的内嵌模式符合部署拓扑；dry-run 未命中保留期内制品；停止一个 Worker 后在宽限期或租约恢复窗口内任务没有丢失。故障注入未实际跑通前，不得把对应生产演练标记为完成。
+
+## 9. 2026-08-02 生产演练命令
+
+### 双 Worker 与滚动停机
+
+```powershell
+./scripts/m4-linux-supervisor-drill.ps1
+```
+
+脚本在 WSL2/systemd 中启动两个独立 Worker，验证注册、心跳和总容量，再分别发送
+SIGTERM。验收条件是两个 Worker 均经历 `draining -> stopped`，终态任务数不变且队列
+没有遗留等待任务。Worker 的轮询和心跳在关闭连接池前必须全部收敛。
+
+### 数据库、快照和制品联合备份
+
+```powershell
+cd server
+npm run backup:create -- --root <backup-root> --id <backup-id>
+npm run backup:verify -- --path <backup-path>
+npm run backup:restore-check -- --path <backup-path> `
+  --database <isolated-test-db> --confirm-drop <isolated-test-db> --cleanup true
+```
+
+备份 manifest v2 同时记录 MySQL dump、研究快照和多资产制品的相对路径、字节数与
+SHA-256。`restore-check` 只允许隔离测试库，恢复时重绑定测试库中的制品根目录并逐个
+校验；`--cleanup true` 在验证后删除测试库和隔离副本，不删除正式备份。
+
+### 告警与监控任务
+
+`MULTI_ASSET_ALERT_WEBHOOK_URL` 配置 HTTPS webhook；仅回环地址允许 HTTP 演练。
+可选 `MULTI_ASSET_ALERT_WEBHOOK_BEARER_TOKEN`，超时由
+`MULTI_ASSET_ALERT_TIMEOUT_MS` 控制。warning/critical 会投递，healthy 默认不投递。
+
+```powershell
+cd server
+npm run multi-asset:monitor
+npm run multi-asset:alert-drill -- --level warning
+npm run multi-asset:alert-drill -- --level critical
+
+cd ..
+./scripts/register-multi-asset-monitor.ps1 -IntervalMinutes 5
+```
+
+任务计划名默认为 `QuantBacktest-MultiAsset-Monitor`，运行日志写入
+`.codex-runtime/multi-asset-monitor/scheduled-task.log`，最后结果保持
+`0=healthy / 1=warning / 2=critical`。

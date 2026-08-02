@@ -1,4 +1,5 @@
 import { apiFetch } from '@/api/client';
+import { API_BASE_URL } from '@/api/config';
 import type {
   CreateMultiAssetPlanInput,
   StoredMultiAssetPlan,
@@ -53,4 +54,29 @@ export function startMultiAssetRun(planVersionId: string, initialCash: number) {
       }),
     },
   );
+}
+
+export async function downloadMultiAssetArtifact(id: string) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/multi-asset/artifacts/${encodeURIComponent(id)}/download`,
+  );
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`;
+    try {
+      const body = await response.json() as { message?: string };
+      if (body.message) message = body.message;
+    } catch {
+      // The download endpoint may return a non-JSON error response.
+    }
+    throw new Error(message);
+  }
+
+  const disposition = response.headers.get('content-disposition') ?? '';
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const quotedName = disposition.match(/filename="([^"]+)"/i)?.[1];
+  const filename = encodedName
+    ? decodeURIComponent(encodedName)
+    : quotedName ?? `multi-asset-artifact-${id}.json`;
+
+  return { blob: await response.blob(), filename };
 }

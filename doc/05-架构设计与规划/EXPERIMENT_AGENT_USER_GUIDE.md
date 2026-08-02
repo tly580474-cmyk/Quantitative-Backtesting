@@ -26,7 +26,7 @@ Agent 只生成研究草稿、候选和解释，不会自动发布策略、提�
 | Schema 确定性修复及修复审计 | 支持；不会补写交易意图 |
 | 训练/验证/锁定测试、Walk-forward、扰动检验 | 支持 |
 | Markdown 报告、按需 HTML | 支持 |
-| PDF 报告 | 接口和失败隔离已具备，独立渲染 Worker 尚未接入 |
+| PDF 报告 | 支持；由独立 Chromium Worker 按需异步生成 |
 | 沪深 300 多资产动量研究 | 支持 M4 v1 |
 | 周频/月频，等权/评分加权 | 支持 M4 v1 |
 | 已发布 `momentum_20` 因子治理绑定 | 支持 M4 v1 |
@@ -43,6 +43,7 @@ Agent 只生成研究草稿、候选和解释，不会自动发布策略、提�
 - Python，供固定多资产计算 Worker 使用；
 - 已发布研究快照，默认目录为 `server/data/research-snapshots`；
 - 如需真实自然语言解析，需要 OpenAI 兼容接口的模型与密钥。
+- 如需 PDF，需要本机 Chrome、Edge 或 Chromium，并启动独立报告 Worker。
 
 ### 3.2 服务端配置
 
@@ -76,6 +77,13 @@ cd server
 npm install
 npm run db:migrate
 npm run dev
+```
+
+另开一个服务端终端启动 M3 报告 Worker：
+
+```powershell
+cd server
+npm run experiment:report-worker
 ```
 
 另开终端启动前端：
@@ -171,8 +179,10 @@ Middleware 写回交易规则。
 原子性。打开后不能在同一实验版本继续调参。
 
 报告中的数值以结构化 JSON 为权威来源，并记录 `sourcePath` 和
-`calculatorVersion`。Markdown 可直接预览，HTML 按需生成。当前不要把 PDF 作为必须
-交付物，独立 PDF 渲染 Worker 尚未接入。
+`calculatorVersion`。Markdown 可直接预览，HTML/PDF 按需进入独立低优先级队列。进入
+“回测结果 → 实验报告中心”可集中查看历史报告、Worker 状态、排队/失败状态，生成或重试
+制品并下载。HTML 默认保留 7 天，PDF 默认保留 30 天；过期制品可由长期保存的结构化
+报告重建。
 
 ## 5. 使用多资产研究 Agent（M4 v1 + E1–E7 扩展）
 
@@ -255,7 +265,8 @@ npm run multi-asset:worker
 | `OPTIMIZER_*_VIOLATION` | 检查仓位、换手、单标的和行业约束是否共同可行 |
 | `POINT_IN_TIME_*_DATASET_UNAVAILABLE` | 发布包含财务或 SW2021 行业数据集的只读研究快照 |
 | 运行进入 `dead_letter` | 先修复数据、快照或 Worker 环境，再人工重试 |
-| PDF 任务失败 | 当前预期行为；使用 Markdown/HTML，等待独立渲染 Worker |
+| PDF 长时间排队 | 检查“实验报告中心”的 Worker 状态，并启动 `npm run experiment:report-worker` |
+| PDF 任务失败 | 修复 Chromium 路径、目录权限或磁盘空间后，在报告中心点击“重试 PDF” |
 
 ## 7. 运维与验收命令
 
@@ -281,15 +292,20 @@ npm run multi-asset:persistence-smoke
 npm run multi-asset:lease-smoke
 npm run multi-asset:api-smoke
 npm run multi-asset:production-smoke
+
+# M3 独立 PDF Worker 真实 Chromium 冒烟
+npm run experiment:report-worker:smoke
 ```
 
-正式签署 M1 自然语言质量前，还必须运行独立的 200 条以上人工标注语料评测，并报告字段
-级 precision/recall、首次通过率、确定性修复率、澄清率和人工确认修改率。当前代码库尚未
-包含该评测制品，不能用一次成功生成或 Mock 测试替代。
+项目已经提供 [M1 A/B/C 合成标注流水线](../../server/evaluation/m1/README.md)：模型 A
+生成候选，模型 B、C 独立盲审且双通过才进入通过集。`m1-synthetic-v2` 共保留 200 条
+双通过样本，并由项目负责人抽查 70 条，70/70 与原文一致。详细记录见
+[M1 合成标注集人工抽查记录](../04-数据治理与验收/20260801_M1_SYNTHETIC_CORPUS_HUMAN_SPOTCHECK.md)。
 
-项目另提供 [M1 A/B/C 合成标注流水线](../../server/evaluation/m1/README.md)：模型 A
-生成候选，模型 B、C 独立盲审且双通过才进入通过集。该制品用于扩大覆盖面和发现提示词
-缺陷，必须标记为“合成双评审标注集”，不能替代上述人工标注集或真实人工确认修改率。
+该制品必须标记为“机器全量筛选 + 人工抽查的合成标注集”，不能描述为 200 条人工逐条
+标注。正式签署 M1 自然语言解析质量前，仍须使用这 200 条 Gold 候选运行实际解析器，并
+报告字段级 precision/recall/F1、首次通过率、确定性修复率、正确澄清率和真实人工确认
+修改率；不能用一次成功生成、Mock 测试或标注集自身的 B/C 评分替代解析器评测。
 
 ## 8. 安全与研究纪律
 
@@ -306,4 +322,5 @@ npm run multi-asset:production-smoke
 
 - [技术设计](./EXPERIMENT_AGENT_STRATEGY_RESEARCH_DESIGN.md)
 - [M0–M4 验收报告](../04-数据治理与验收/20260801_EXPERIMENT_AGENT_M0_M4_ACCEPTANCE.md)
+- [M3 实验报告 Worker 运维手册](../03-运维监控/EXPERIMENT_REPORT_WORKER_RUNBOOK.md)
 - [因子研究使用说明](../02-因子研究与查询/FACTOR_RESEARCH_USER_GUIDE.md)

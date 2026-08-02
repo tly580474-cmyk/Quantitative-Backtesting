@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { cp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, resolve } from 'node:path';
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { Transform } from 'node:stream';
 import mysql, { type RowDataPacket } from 'mysql2/promise';
@@ -13,9 +13,10 @@ import {
   type CurrentSnapshotPointer,
   type ResearchSnapshotManifest,
 } from '../research/snapshotManifest.js';
+import { defaultMultiAssetArtifactRoot } from '../multiAsset/artifactStore.js';
 
 interface BackupManifest {
-  schemaVersion: 1;
+  schemaVersion: 2;
   backupId: string;
   createdAt: string;
   database: {
@@ -31,6 +32,10 @@ interface BackupManifest {
     rowCount: number;
     maxDate: string;
     rootPath: string;
+  };
+  multiAssetArtifacts: {
+    rootPath: string;
+    files: Array<{ relativePath: string; bytes: number; sha256: string }>;
   };
 }
 
@@ -63,6 +68,7 @@ async function createBackup(
 ): Promise<BackupManifest> {
   const backupRoot = resolve(args.root ?? config.BACKUP_ROOT);
   const snapshotRoot = resolve(args.snapshotRoot ?? config.RESEARCH_SNAPSHOT_ROOT);
+  const artifactRoot = resolve(args.artifactRoot ?? defaultMultiAssetArtifactRoot(snapshotRoot));
   const current = await readCurrentSnapshot(snapshotRoot);
   if (!current) throw new Error('尚未发布研究快照，不能创建完整备份');
 
@@ -88,8 +94,11 @@ async function createBackup(
     { errorOnExist: true },
   );
 
+  const artifactBackupRoot = join(backupDir, 'multi-asset-artifacts');
+  const artifactFiles = await copyHashedTree(artifactRoot, artifactBackupRoot);
+
   const manifest: BackupManifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     backupId,
     createdAt: new Date().toISOString(),
     database: {
@@ -105,6 +114,10 @@ async function createBackup(
       rowCount: current.manifest.rowCount,
       maxDate: current.manifest.maxDate,
       rootPath: 'research-snapshots',
+    },
+    multiAssetArtifacts: {
+      rootPath: 'multi-asset-artifacts',
+      files: artifactFiles,
     },
   };
   await writeFile(
@@ -123,12 +136,13 @@ async function verifyBackup(
   backupId: string;
   databaseDump: { bytes: number; sha256: string };
   researchSnapshot: { snapshotId: string; rowCount: number; files: number };
+  multiAssetArtifacts: { files: number; bytes: number };
 }> {
   const backupDir = resolve(args.path ?? args.root ?? config.BACKUP_ROOT);
   const manifest = JSON.parse(
     await readFile(join(backupDir, 'backup-manifest.json'), 'utf8'),
   ) as BackupManifest;
-  if (manifest.schemaVersion !== 1) throw new Error('备份 manifest 版本不支持');
+  if (manifest.schemaVersion !== 2) throw new Error('备份 manifest 版本不支持，联合恢复要求 schemaVersion=2');
 
   const dumpPath = join(backupDir, manifest.database.dumpPath);
   const dumpStat = await stat(dumpPath);
@@ -157,6 +171,18 @@ async function verifyBackup(
     const checksum = await sha256File(path);
     if (checksum !== partition.sha256) throw new Error(`${partition.relativePath} SHA-256 不一致`);
   }
+  const artifactRoot = join(backupDir, manifest.multiAssetArtifacts.rootPath);
+  for (const artifact of manifest.multiAssetArtifacts.files) {
+    const artifactPath = resolve(artifactRoot, artifact.relativePath);
+    assertPathInside(artifactRoot, artifactPath, '制品备份路径越界');
+    const fileStat = await stat(artifactPath);
+    if (!fileStat.isFile() || fileStat.size !== artifact.bytes) {
+      throw new Error(`${artifact.relativePath} 制品文件大小不一致`);
+    }
+    if (await sha256File(artifactPath) !== artifact.sha256) {
+      throw new Error(`${artifact.relativePath} 制品文件 SHA-256 不一致`);
+    }
+  }
   return {
     status: 'validated',
     backupId: manifest.backupId,
@@ -165,6 +191,10 @@ async function verifyBackup(
       snapshotId: snapshotManifest.snapshotId,
       rowCount: snapshotManifest.rowCount,
       files: snapshotManifest.partitions.length,
+    },
+    multiAssetArtifacts: {
+      files: manifest.multiAssetArtifacts.files.length,
+      bytes: manifest.multiAssetArtifacts.files.reduce((sum, file) => sum + file.bytes, 0),
     },
   };
 }
@@ -179,6 +209,7 @@ async function restoreCheckBackup(
   cleanup: boolean;
   restored: { rowCount: number; maxDate: string | null };
   researchSnapshot: { snapshotId: string; rowCount: number; maxDate: string };
+  multiAssetArtifacts: { files: number; databaseBindings: number; rootPath: string };
 }> {
   const verified = await verifyBackup(config, args);
   const backupDir = resolve(args.path ?? args.root ?? config.BACKUP_ROOT);
@@ -188,12 +219,26 @@ async function restoreCheckBackup(
   const database = args.database ?? `${config.DB_NAME}_restore_check`;
   assertRestoreDatabaseName(database);
   const cleanup = args.cleanup === 'true';
+  const restoreRoot = resolve(args['restore-root'] ?? join(backupDir, `.restore-check-${database}`));
+  assertPathInside(backupDir, restoreRoot, '恢复演练目录必须位于备份目录内');
+  if (!basename(restoreRoot).startsWith('.restore-check-')) {
+    throw new Error('恢复演练目录名称必须以 .restore-check- 开头');
+  }
 
   if (args['confirm-drop'] !== database) {
     throw new Error(`恢复演练会重建临时库 ${database}，请追加 --confirm-drop ${database}`);
   }
 
   const dumpPath = join(backupDir, manifest.database.dumpPath);
+  await mkdir(restoreRoot, { recursive: false });
+  const restoredSnapshotRoot = join(restoreRoot, 'research-snapshots');
+  const restoredArtifactRoot = join(restoreRoot, 'multi-asset-artifacts');
+  await cp(join(backupDir, manifest.researchSnapshot.rootPath), restoredSnapshotRoot, {
+    recursive: true, errorOnExist: true,
+  });
+  await cp(join(backupDir, manifest.multiAssetArtifacts.rootPath), restoredArtifactRoot, {
+    recursive: true, errorOnExist: true,
+  });
   await executeMysqlAdmin(config, `DROP DATABASE IF EXISTS \`${database}\``);
   await executeMysqlAdmin(
     config,
@@ -213,6 +258,13 @@ async function restoreCheckBackup(
         `恢复库 daily_bars_v2 最大交易日不一致：restore=${restored.maxDate}, backup=${manifest.researchSnapshot.maxDate}`,
       );
     }
+    const databaseBindings = await rebindAndValidateRestoredArtifacts(
+      config,
+      database,
+      defaultMultiAssetArtifactRoot(config.RESEARCH_SNAPSHOT_ROOT),
+      restoredArtifactRoot,
+      manifest.multiAssetArtifacts.files,
+    );
     return {
       status: 'restored',
       backupId: verified.backupId,
@@ -224,12 +276,55 @@ async function restoreCheckBackup(
         rowCount: manifest.researchSnapshot.rowCount,
         maxDate: manifest.researchSnapshot.maxDate,
       },
+      multiAssetArtifacts: {
+        files: manifest.multiAssetArtifacts.files.length,
+        databaseBindings,
+        rootPath: restoredArtifactRoot,
+      },
     };
   } finally {
     if (cleanup) {
       await executeMysqlAdmin(config, `DROP DATABASE IF EXISTS \`${database}\``);
+      await rm(restoreRoot, { recursive: true, force: false });
     }
   }
+}
+
+async function copyHashedTree(
+  sourceRoot: string,
+  targetRoot: string,
+): Promise<Array<{ relativePath: string; bytes: number; sha256: string }>> {
+  await mkdir(targetRoot, { recursive: true });
+  const files = await listFiles(sourceRoot).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  });
+  const result: Array<{ relativePath: string; bytes: number; sha256: string }> = [];
+  for (const sourcePath of files) {
+    const relativePath = relative(sourceRoot, sourcePath).replaceAll('\\', '/');
+    const targetPath = resolve(targetRoot, relativePath);
+    assertPathInside(targetRoot, targetPath, '制品备份目标路径越界');
+    await mkdir(dirname(targetPath), { recursive: true });
+    await cp(sourcePath, targetPath, { errorOnExist: true });
+    const info = await stat(targetPath);
+    result.push({ relativePath, bytes: info.size, sha256: await sha256File(targetPath) });
+  }
+  return result.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
+async function listFiles(root: string): Promise<string[]> {
+  const entries = await readdir(root, { withFileTypes: true });
+  const nested = await Promise.all(entries.map(async (entry) => {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) return listFiles(path);
+    return entry.isFile() ? [path] : [];
+  }));
+  return nested.flat();
+}
+
+function assertPathInside(root: string, target: string, message: string): void {
+  const rel = relative(resolve(root), resolve(target));
+  if (!rel || rel.startsWith('..') || resolve(root, rel) !== resolve(target)) throw new Error(message);
 }
 
 async function dumpMysql(config: EnvConfig, outputPath: string): Promise<void> {
@@ -251,6 +346,7 @@ async function dumpMysql(config: EnvConfig, outputPath: string): Promise<void> {
   const child = spawn('mysqldump', args, {
     env: { ...process.env, MYSQL_PWD: config.DB_PASSWORD },
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   });
   const output = createWriteStream(outputPath);
   const stderrChunks: Buffer[] = [];
@@ -286,6 +382,7 @@ async function importMysqlDump(
   const child = spawn('mysql', args, {
     env: { ...process.env, MYSQL_PWD: config.DB_PASSWORD },
     stdio: ['pipe', 'ignore', 'pipe'],
+    windowsHide: true,
   });
   const input = createReadStream(dumpPath).pipe(stripInstanceLevelRestoreStatements());
   const stderrChunks: Buffer[] = [];
@@ -349,6 +446,13 @@ interface RestoredSummaryRow extends RowDataPacket {
   maxDate: string | null;
 }
 
+interface RestoredArtifactRow extends RowDataPacket {
+  id: string;
+  storageUri: string;
+  byteSize: number | string;
+  contentHash: string;
+}
+
 async function readRestoredSummary(
   config: EnvConfig,
   database: string,
@@ -371,6 +475,56 @@ async function readRestoredSummary(
       rowCount: Number(rows[0]?.rowsCount ?? 0),
       maxDate: rows[0]?.maxDate ?? null,
     };
+  } finally {
+    await connection.end();
+  }
+}
+
+async function rebindAndValidateRestoredArtifacts(
+  config: EnvConfig,
+  database: string,
+  originalRoot: string,
+  restoredRoot: string,
+  manifestFiles: Array<{ relativePath: string; bytes: number; sha256: string }>,
+): Promise<number> {
+  const connection = await mysql.createConnection({
+    host: config.DB_HOST,
+    port: parseInt(config.DB_PORT, 10),
+    user: config.DB_USER,
+    password: config.DB_PASSWORD,
+    database,
+    charset: 'utf8mb4',
+  });
+  const manifestByPath = new Map(manifestFiles.map((file) => [file.relativePath, file]));
+  try {
+    const [rows] = await connection.query<RestoredArtifactRow[]>(`
+      SELECT id,
+             storage_uri AS storageUri,
+             byte_size AS byteSize,
+             content_hash AS contentHash
+      FROM multi_asset_run_artifacts
+    `);
+    for (const row of rows) {
+      const relativePath = relative(resolve(originalRoot), resolve(row.storageUri)).replaceAll('\\', '/');
+      if (!relativePath || relativePath.startsWith('..')) {
+        throw new Error(`恢复库制品 ${row.id} 的原路径不在配置根目录内`);
+      }
+      const manifest = manifestByPath.get(relativePath);
+      if (!manifest || manifest.bytes !== Number(row.byteSize) || manifest.sha256 !== row.contentHash) {
+        throw new Error(`恢复库制品 ${row.id} 与备份 manifest 不一致`);
+      }
+      const restoredPath = resolve(restoredRoot, relativePath);
+      assertPathInside(restoredRoot, restoredPath, '恢复制品路径越界');
+      const info = await stat(restoredPath);
+      if (info.size !== Number(row.byteSize) || await sha256File(restoredPath) !== row.contentHash) {
+        throw new Error(`恢复制品 ${row.id} 完整性校验失败`);
+      }
+      await connection.execute(
+        'UPDATE multi_asset_run_artifacts SET storage_uri = ? WHERE id = ?',
+        [restoredPath, row.id],
+      );
+    }
+    return rows.length;
   } finally {
     await connection.end();
   }

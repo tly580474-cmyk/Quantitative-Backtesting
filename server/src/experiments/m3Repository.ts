@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { and, desc, eq, lt } from 'drizzle-orm';
-import { marked } from 'marked';
+import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { getDb, schema } from '../db/index.js';
 import { canonicalHash } from './schema.js';
 import {
@@ -23,6 +22,11 @@ import {
   reportHash,
 } from './report.js';
 import { claimAtomicGate } from './atomicGate.js';
+import {
+  describeReportArtifact,
+  isArtifactPathInsideRoot,
+  renderReportArtifact,
+} from './reportArtifacts.js';
 
 const {
   backtestResults,
@@ -35,6 +39,8 @@ const {
   strategyExperimentGateEvaluations,
   strategyExperimentReports,
   strategyExperimentArtifactJobs,
+  strategyExperiments,
+  strategyExperimentReportWorkers,
 } = schema;
 
 function affectedRows(result: unknown): number {
@@ -256,7 +262,9 @@ export async function getExperimentReport(runId: string) {
   return report ?? null;
 }
 
-const ARTIFACT_ROOT = resolve(process.cwd(), '.cache', 'experiment-reports');
+export const EXPERIMENT_REPORT_ARTIFACT_ROOT = resolve(
+  process.env.EXPERIMENT_REPORT_ARTIFACT_ROOT || resolve(process.cwd(), '.cache', 'experiment-reports'),
+);
 
 export async function enqueueReportArtifact(reportId: string, format: 'html' | 'pdf') {
   const [report] = await getDb().select().from(strategyExperimentReports)
@@ -265,9 +273,25 @@ export async function enqueueReportArtifact(reportId: string, format: 'html' | '
   const cacheKey = canonicalHash({ reportHash: report.reportHash, format }).slice(0, 128);
   const [existing] = await getDb().select().from(strategyExperimentArtifactJobs)
     .where(eq(strategyExperimentArtifactJobs.cacheKey, cacheKey)).limit(1);
-  if (existing) return { job: existing, reused: true };
   const now = new Date();
-  const expires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const retentionDays = format === 'pdf'
+    ? Number(process.env.EXPERIMENT_REPORT_PDF_RETENTION_DAYS || 30)
+    : Number(process.env.EXPERIMENT_REPORT_HTML_RETENTION_DAYS || 7);
+  const expires = new Date(now.getTime() + retentionDays * 24 * 60 * 60 * 1000).toISOString();
+  if (existing) {
+    if (existing.status !== 'failed') return { job: existing, reused: true };
+    await getDb().update(strategyExperimentArtifactJobs).set({
+      status: 'queued', artifactUri: null, mimeType: null, byteSize: null, checksum: null,
+      generatorVersion: null, completedAt: null, errorMessage: null, attempts: 0,
+      expiresAt: expires, updatedAt: now.toISOString(),
+    }).where(and(
+      eq(strategyExperimentArtifactJobs.id, existing.id),
+      eq(strategyExperimentArtifactJobs.status, 'failed'),
+    ));
+    const [retried] = await getDb().select().from(strategyExperimentArtifactJobs)
+      .where(eq(strategyExperimentArtifactJobs.id, existing.id)).limit(1);
+    return { job: retried ?? existing, reused: false };
+  }
   const row = {
     id: randomUUID(), reportId, format, status: 'queued', cacheKey,
     artifactUri: null, errorMessage: null, attempts: 0,
@@ -284,26 +308,34 @@ export async function enqueueReportArtifact(reportId: string, format: 'html' | '
   }
 }
 
-export async function processReportArtifactJob(jobId: string) {
+export async function processReportArtifactJob(jobId: string, options?: {
+  alreadyClaimed?: boolean;
+  chromiumExecutable?: string;
+  timeoutMs?: number;
+}) {
   const [job] = await getDb().select().from(strategyExperimentArtifactJobs)
     .where(eq(strategyExperimentArtifactJobs.id, jobId)).limit(1);
   if (!job || job.status === 'completed') return job ?? null;
-  const claim = await getDb().update(strategyExperimentArtifactJobs).set({
-    status: 'running', attempts: job.attempts + 1, updatedAt: new Date().toISOString(),
-  }).where(and(eq(strategyExperimentArtifactJobs.id, jobId), eq(strategyExperimentArtifactJobs.status, 'queued')));
-  if (affectedRows(claim) !== 1) return job;
+  if (!options?.alreadyClaimed) {
+    const claim = await getDb().update(strategyExperimentArtifactJobs).set({
+      status: 'running', attempts: job.attempts + 1, updatedAt: new Date().toISOString(),
+    }).where(and(eq(strategyExperimentArtifactJobs.id, jobId), eq(strategyExperimentArtifactJobs.status, 'queued')));
+    if (affectedRows(claim) !== 1) return job;
+  }
   const [report] = await getDb().select().from(strategyExperimentReports)
     .where(eq(strategyExperimentReports.id, job.reportId)).limit(1);
   try {
-    if (!report) throw new Error('报告不存在');
-    if (job.format === 'pdf') throw new Error('PDF_RENDERER_UNAVAILABLE：等待独立渲染 Worker');
-    await mkdir(ARTIFACT_ROOT, { recursive: true });
-    const path = resolve(ARTIFACT_ROOT, `${job.cacheKey}.html`);
-    const body = await marked.parse(report.markdown);
-    const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>实验报告</title></head><body>${body}</body></html>`;
-    await writeFile(path, html, 'utf8');
+    if (!report) throw new Error('REPORT_NOT_FOUND: 报告不存在');
+    const path = await renderReportArtifact(report.markdown, job.cacheKey, job.format as 'html' | 'pdf', {
+      artifactRoot: EXPERIMENT_REPORT_ARTIFACT_ROOT,
+      chromiumExecutable: options?.chromiumExecutable || process.env.EXPERIMENT_REPORT_CHROMIUM_EXECUTABLE,
+      timeoutMs: options?.timeoutMs ?? Number(process.env.EXPERIMENT_REPORT_RENDER_TIMEOUT_MS || 60000),
+    });
+    const metadata = await describeReportArtifact(path, job.format as 'html' | 'pdf');
+    const completedAt = new Date().toISOString();
     await getDb().update(strategyExperimentArtifactJobs).set({
-      status: 'completed', artifactUri: path, errorMessage: null, updatedAt: new Date().toISOString(),
+      status: 'completed', artifactUri: path, ...metadata, errorMessage: null,
+      updatedAt: completedAt, completedAt,
     }).where(eq(strategyExperimentArtifactJobs.id, jobId));
   } catch (error) {
     await getDb().update(strategyExperimentArtifactJobs).set({
@@ -316,17 +348,166 @@ export async function processReportArtifactJob(jobId: string) {
   return updated ?? null;
 }
 
+export async function claimNextReportArtifactJob(maxAttempts = 3) {
+  const candidates = await getDb().select().from(strategyExperimentArtifactJobs)
+    .where(eq(strategyExperimentArtifactJobs.status, 'queued'))
+    .orderBy(asc(strategyExperimentArtifactJobs.createdAt)).limit(10);
+  for (const job of candidates) {
+    if (job.attempts >= maxAttempts) {
+      await getDb().update(strategyExperimentArtifactJobs).set({
+        status: 'failed', errorMessage: `MAX_ATTEMPTS_EXCEEDED: ${maxAttempts}`,
+        updatedAt: new Date().toISOString(),
+      }).where(and(eq(strategyExperimentArtifactJobs.id, job.id), eq(strategyExperimentArtifactJobs.status, 'queued')));
+      continue;
+    }
+    const claimed = await getDb().update(strategyExperimentArtifactJobs).set({
+      status: 'running', attempts: job.attempts + 1, updatedAt: new Date().toISOString(),
+    }).where(and(eq(strategyExperimentArtifactJobs.id, job.id), eq(strategyExperimentArtifactJobs.status, 'queued')));
+    if (affectedRows(claimed) === 1) {
+      const [updated] = await getDb().select().from(strategyExperimentArtifactJobs)
+        .where(eq(strategyExperimentArtifactJobs.id, job.id)).limit(1);
+      return updated ?? null;
+    }
+  }
+  return null;
+}
+
+export async function recoverStaleReportArtifactJobs(staleBefore: Date, maxAttempts = 3) {
+  const stale = await getDb().select().from(strategyExperimentArtifactJobs).where(and(
+    eq(strategyExperimentArtifactJobs.status, 'running'),
+    lt(strategyExperimentArtifactJobs.updatedAt, staleBefore.toISOString()),
+  ));
+  let recovered = 0;
+  let failed = 0;
+  for (const job of stale) {
+    const terminal = job.attempts >= maxAttempts;
+    const result = await getDb().update(strategyExperimentArtifactJobs).set({
+      status: terminal ? 'failed' : 'queued',
+      errorMessage: terminal ? `WORKER_STALE_MAX_ATTEMPTS: ${maxAttempts}` : 'WORKER_STALE_RECOVERED',
+      updatedAt: new Date().toISOString(),
+    }).where(and(eq(strategyExperimentArtifactJobs.id, job.id), eq(strategyExperimentArtifactJobs.status, 'running')));
+    if (affectedRows(result) === 1) terminal ? failed++ : recovered++;
+  }
+  return { recovered, failed };
+}
+
 export async function getReportArtifactJob(id: string) {
   const [job] = await getDb().select().from(strategyExperimentArtifactJobs)
     .where(eq(strategyExperimentArtifactJobs.id, id)).limit(1);
   return job ?? null;
 }
 
+export async function listExperimentReportHistory(limit = 100) {
+  const rows = await getDb().select({
+    report: strategyExperimentReports,
+    run: strategyExperimentRuns,
+    version: {
+      id: strategyExperimentVersions.id,
+      version: strategyExperimentVersions.version,
+      experimentId: strategyExperimentVersions.experimentId,
+    },
+    experiment: {
+      id: strategyExperiments.id,
+      name: strategyExperiments.name,
+      sourceText: strategyExperiments.sourceText,
+    },
+    result: {
+      id: backtestResults.id,
+      name: backtestResults.name,
+      datasetSnapshot: backtestResults.datasetSnapshot,
+      metrics: backtestResults.metrics,
+      startedAt: backtestResults.startedAt,
+      completedAt: backtestResults.completedAt,
+    },
+  }).from(strategyExperimentReports)
+    .innerJoin(strategyExperimentRuns, eq(strategyExperimentRuns.id, strategyExperimentReports.runId))
+    .innerJoin(strategyExperimentVersions, eq(strategyExperimentVersions.id, strategyExperimentRuns.experimentVersionId))
+    .innerJoin(strategyExperiments, eq(strategyExperiments.id, strategyExperimentVersions.experimentId))
+    .leftJoin(backtestResults, eq(backtestResults.id, strategyExperimentRuns.backtestResultId))
+    .orderBy(desc(strategyExperimentReports.createdAt))
+    .limit(Math.min(200, Math.max(1, limit)));
+  const reportIds = rows.map((row) => row.report.id);
+  const artifacts = reportIds.length > 0
+    ? await getDb().select().from(strategyExperimentArtifactJobs)
+      .where(inArray(strategyExperimentArtifactJobs.reportId, reportIds))
+      .orderBy(desc(strategyExperimentArtifactJobs.createdAt))
+    : [];
+  return rows.map((row) => ({
+    ...row,
+    artifacts: artifacts.filter((artifact) => artifact.reportId === row.report.id),
+  }));
+}
+
+export async function getDownloadableReportArtifact(id: string) {
+  const job = await getReportArtifactJob(id);
+  if (!job || job.status !== 'completed' || !job.artifactUri) return null;
+  if (!isArtifactPathInsideRoot(job.artifactUri, EXPERIMENT_REPORT_ARTIFACT_ROOT)) return null;
+  return { job, path: job.artifactUri };
+}
+
+export async function heartbeatReportWorker(input: {
+  id: string;
+  hostname: string;
+  pid: number;
+  status?: 'running' | 'draining';
+}) {
+  const now = new Date().toISOString();
+  await getDb().insert(strategyExperimentReportWorkers).values({
+    id: input.id, hostname: input.hostname, pid: input.pid, status: input.status ?? 'running',
+    startedAt: now, heartbeatAt: now, stoppedAt: null,
+  }).onDuplicateKeyUpdate({
+    set: { status: input.status ?? 'running', heartbeatAt: now, stoppedAt: null },
+  });
+}
+
+export async function stopReportWorker(id: string) {
+  const now = new Date().toISOString();
+  await getDb().update(strategyExperimentReportWorkers).set({
+    status: 'stopped', heartbeatAt: now, stoppedAt: now,
+  }).where(eq(strategyExperimentReportWorkers.id, id));
+}
+
+export async function getReportWorkerStatus(staleMs = 45_000) {
+  const [jobGroups, workers] = await Promise.all([
+    getDb().select({
+      status: strategyExperimentArtifactJobs.status,
+      count: sql<number>`count(*)`,
+      oldestCreatedAt: sql<string | null>`min(${strategyExperimentArtifactJobs.createdAt})`,
+    }).from(strategyExperimentArtifactJobs).groupBy(strategyExperimentArtifactJobs.status),
+    getDb().select().from(strategyExperimentReportWorkers)
+      .orderBy(desc(strategyExperimentReportWorkers.heartbeatAt)).limit(20),
+  ]);
+  const now = Date.now();
+  const activeWorkers = workers.filter((worker) => worker.status !== 'stopped'
+    && now - new Date(worker.heartbeatAt).getTime() <= staleMs);
+  const countFor = (status: string) => Number(jobGroups.find((group) => group.status === status)?.count ?? 0);
+  const oldestQueuedAt = jobGroups.find((group) => group.status === 'queued')?.oldestCreatedAt ?? null;
+  return {
+    healthy: activeWorkers.length > 0,
+    queue: {
+      queued: countFor('queued'),
+      running: countFor('running'),
+      completed: countFor('completed'),
+      failed: countFor('failed'),
+      oldestQueuedAt,
+      oldestQueuedAgeSeconds: oldestQueuedAt
+        ? Math.max(0, Math.round((now - new Date(oldestQueuedAt).getTime()) / 1000))
+        : 0,
+    },
+    workers: workers.map((worker) => ({
+      ...worker,
+      fresh: worker.status !== 'stopped' && now - new Date(worker.heartbeatAt).getTime() <= staleMs,
+    })),
+  };
+}
+
 export async function cleanupExpiredReportArtifacts(now = new Date()) {
   const expired = await getDb().select().from(strategyExperimentArtifactJobs)
     .where(lt(strategyExperimentArtifactJobs.expiresAt, now.toISOString()));
   for (const job of expired) {
-    if (job.artifactUri?.startsWith(ARTIFACT_ROOT)) await unlink(job.artifactUri).catch(() => undefined);
+    if (job.artifactUri && isArtifactPathInsideRoot(job.artifactUri, EXPERIMENT_REPORT_ARTIFACT_ROOT)) {
+      await unlink(job.artifactUri).catch(() => undefined);
+    }
     await getDb().delete(strategyExperimentArtifactJobs).where(eq(strategyExperimentArtifactJobs.id, job.id));
   }
   return expired.length;

@@ -69,8 +69,48 @@ export interface ExperimentArtifactJob {
   format: 'html' | 'pdf';
   status: 'queued' | 'running' | 'completed' | 'failed';
   artifactUri?: string | null;
+  mimeType?: string | null;
+  byteSize?: number | null;
+  checksum?: string | null;
+  generatorVersion?: string | null;
   errorMessage?: string | null;
   expiresAt: string;
+}
+
+export interface ExperimentReportWorkerStatus {
+  healthy: boolean;
+  queue: {
+    queued: number;
+    running: number;
+    completed: number;
+    failed: number;
+    oldestQueuedAt: string | null;
+    oldestQueuedAgeSeconds: number;
+  };
+  workers: Array<{
+    id: string;
+    hostname: string;
+    pid: number;
+    status: string;
+    heartbeatAt: string;
+    fresh: boolean;
+  }>;
+}
+
+export interface ExperimentReportHistoryItem {
+  report: ExperimentReport;
+  run: ExperimentRun & { createdAt: string; completedAt?: string | null };
+  version: { id: string; version: number; experimentId: string };
+  experiment: { id: string; name: string; sourceText: string };
+  result: {
+    id: string | null;
+    name: string | null;
+    datasetSnapshot: { symbol?: string; startTime?: string; endTime?: string } | null;
+    metrics: { totalReturn?: number; finalEquity?: number; tradeCount?: number } | null;
+    startedAt: string | null;
+    completedAt: string | null;
+  };
+  artifacts: ExperimentArtifactJob[];
 }
 
 export interface ExperimentValidationPlan {

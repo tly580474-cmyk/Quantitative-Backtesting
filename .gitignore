@@ -16,6 +16,7 @@ server/.cache/sina-turnover.json
 server/.cache/data-coverage.json
 server/.cache/dragon-tiger-market.json
 server/.cache/market-news.json
+server/.cache/market-sentiment.json
 server/.cache/codex-backend-*.log
 server/.cache/codex-frontend-*.log
 server/.cache/history-import/

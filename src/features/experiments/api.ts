@@ -8,6 +8,8 @@ import type {
   ExperimentReport,
   ExperimentArtifactJob,
   ExperimentValidationPlan,
+  ExperimentReportHistoryItem,
+  ExperimentReportWorkerStatus,
 } from './types';
 
 export async function confirmExperimentVersion(input: ConfirmExperimentRequest) {
@@ -124,4 +126,16 @@ export async function enqueueExperimentReportArtifact(runId: string, format: 'ht
 
 export async function getExperimentReportArtifactJob(jobId: string) {
   return apiFetch<ExperimentArtifactJob>(`/api/experiments/artifact-jobs/${jobId}`);
+}
+
+export async function listExperimentReportHistory(limit = 100) {
+  return apiFetch<ExperimentReportHistoryItem[]>(`/api/experiments/reports?limit=${limit}`);
+}
+
+export function experimentReportArtifactDownloadUrl(jobId: string) {
+  return `/api/experiments/artifact-jobs/${encodeURIComponent(jobId)}/download`;
+}
+
+export async function getExperimentReportWorkerStatus() {
+  return apiFetch<ExperimentReportWorkerStatus>('/api/experiments/report-worker/status');
 }

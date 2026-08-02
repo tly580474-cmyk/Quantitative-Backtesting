@@ -29,6 +29,8 @@
     "data:volume-units:repair": "tsx src/marketData/quality/volumeUnitRepairCli.ts --apply",
     "research:artifacts:prune": "tsx src/research/artifactLifecycleCli.ts",
     "experiment:artifacts:prune": "tsx src/experiments/artifactCleanupCli.ts",
+    "experiment:report-worker": "tsx src/experiments/reportWorkerCli.ts",
+    "experiment:report-worker:smoke": "tsx src/experiments/reportWorkerSmokeCli.ts",
     "parquet:compact": "tsx src/research/parquetCompactCli.ts",
     "admin:diagnostics": "tsx src/admin/diagnosticsCli.ts",
     "opinion:mail:send": "tsx src/services/marketOpinionPushCli.ts",
@@ -90,6 +92,8 @@
     "multi-asset:production-smoke": "tsx src/multiAsset/productionSmokeCli.ts",
     "multi-asset:artifacts:prune": "tsx src/multiAsset/artifactCleanupCli.ts",
     "multi-asset:status": "tsx src/multiAsset/operationsStatusCli.ts",
+    "multi-asset:monitor": "tsx src/multiAsset/operationsMonitorCli.ts",
+    "multi-asset:alert-drill": "tsx src/multiAsset/operationsAlertDrillCli.ts",
     "pretest": "npm run capabilities:check",
     "test": "vitest run src"
   },
@@ -97,20 +101,25 @@
     "@duckdb/node-api": "^1.5.4-r.1",
     "@fastify/cors": "^10.0.2",
     "dotenv": "^16.4.7",
-    "drizzle-orm": "^0.38.0",
+    "drizzle-orm": "0.45.2",
     "drizzle-zod": "^0.7.0",
     "fastify": "^5.2.0",
     "marked": "^16.4.2",
     "mysql2": "^3.13.0",
-    "nodemailer": "^7.0.13",
-    "openai": "^5.6.0",
+    "nodemailer": "9.0.3",
+    "openai": "6.49.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "@types/nodemailer": "^7.0.12",
+    "@types/nodemailer": "8.0.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.9"
+  },
+  "overrides": {
+    "fast-uri": "3.1.4",
+    "find-my-way": "9.7.0",
+    "postcss": "8.5.25"
   }
 }

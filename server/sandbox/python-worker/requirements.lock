@@ -1,0 +1,2 @@
+# The production arbitrary-Python protocol runner intentionally uses only the
+# Python standard library. Keep this file empty to make that invariant explicit.

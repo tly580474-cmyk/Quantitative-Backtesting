@@ -41,6 +41,7 @@ import { ApiError } from '@/api/client';
 import {
   createMultiAssetPlan,
   cancelMultiAssetRun,
+  downloadMultiAssetArtifact,
   getMultiAssetRun,
   listMultiAssetPlans,
   listMultiAssetRunArtifacts,
@@ -235,6 +236,7 @@ export default function MultiAssetResearchPage() {
   const [initialCash, setInitialCash] = useState(1_000_000);
   const [artifacts, setArtifacts] = useState<MultiAssetRunArtifact[]>([]);
   const [artifactReviewKind, setArtifactReviewKind] = useState<MultiAssetRunArtifact['kind'] | null>(null);
+  const [downloadingArtifactId, setDownloadingArtifactId] = useState<string>();
   const [runActionLoading, setRunActionLoading] = useState(false);
 
   const selectedPlan = useMemo(
@@ -346,6 +348,26 @@ export default function MultiAssetResearchPage() {
     } catch (error) {
       message.error(error instanceof Error ? error.message : '重试失败');
     } finally { setRunActionLoading(false); }
+  };
+
+  const downloadArtifact = async (artifact: MultiAssetRunArtifact) => {
+    setDownloadingArtifactId(artifact.id);
+    try {
+      const { blob, filename } = await downloadMultiAssetArtifact(artifact.id);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      message.success(`已下载 ${filename}`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '制品下载失败');
+    } finally {
+      setDownloadingArtifactId(undefined);
+    }
   };
 
   const openCreate = () => {
@@ -779,8 +801,10 @@ export default function MultiAssetResearchPage() {
                           key={artifact.id}
                           size="small"
                           icon={artifact.kind === 'rebalance_plan' ? <ScheduleOutlined /> : artifact.kind === 'extension_report' ? <DownloadOutlined /> : <FileSearchOutlined />}
-                          onClick={artifact.kind === 'extension_report' ? undefined : () => setArtifactReviewKind(artifact.kind)}
-                          href={artifact.kind === 'extension_report' ? `/api/multi-asset/artifacts/${artifact.id}/download` : undefined}
+                          loading={downloadingArtifactId === artifact.id}
+                          onClick={artifact.kind === 'extension_report'
+                            ? () => void downloadArtifact(artifact)
+                            : () => setArtifactReviewKind(artifact.kind)}
                         >
                           {artifact.kind === 'rebalance_plan' ? '调仓计划' : artifact.kind === 'extension_report' ? '扩展诊断' : '执行结果'} · {(artifact.byteSize / 1024).toFixed(1)} KB
                         </Button>
@@ -809,7 +833,8 @@ export default function MultiAssetResearchPage() {
         extra={reviewedArtifact ? (
           <Button
             icon={<DownloadOutlined />}
-            href={`/api/multi-asset/artifacts/${reviewedArtifact.id}/download`}
+            loading={downloadingArtifactId === reviewedArtifact.id}
+            onClick={() => void downloadArtifact(reviewedArtifact)}
           >
             下载原始 JSON
           </Button>

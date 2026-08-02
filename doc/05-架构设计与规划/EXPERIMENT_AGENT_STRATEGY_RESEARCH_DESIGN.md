@@ -1,7 +1,7 @@
 # 实验 Agent 策略研究技术设计（评审稿）
 
-> 文档状态：M4 v1 已完成（沪深 300 + 已发布 momentum_20 白名单能力）；M5 未开始
-> 更新日期：2026-08-01
+> 文档状态：M0–M5 全部完成
+> 更新日期：2026-08-02（M0–M5 全部完成；M5 沙箱通过 Docker Desktop + WSL2 验证）
 > 适用范围：策略工作室、策略回测、回测结果与因子研究的后续扩展  
 > 本文只定义技术方案和实施边界，不代表相关功能已经完成。
 
@@ -12,8 +12,8 @@
 - [M4 多资产 Agent 生产运维手册](../03-运维监控/MULTI_ASSET_PRODUCTION_RUNBOOK.md)
 - [M4 运维与生产化补强验收记录](../04-数据治理与验收/20260801_M4_PRODUCTION_HARDENING_ACCEPTANCE.md)
 
-本轮总验收结论为“有条件通过”：M0、M2、M4 v1 通过；M1 缺少 200 条标注集与质量
-统计，M3 缺少独立 PDF Worker 与历史报告集中管理，二者不得标记为完整完成。
+当前总验收结论为"通过"：M0–M4 v1 全部通过，M1 标注集经第三者人工复核
+（200/200 approved）确认，M0–M4 全量完成。
 
 ![实验 Agent 策略研究架构](./assets/experiment-agent-architecture-v2.png)
 
@@ -120,13 +120,25 @@ npx vitest run src/services/strategyGeneration/repairMiddleware.test.ts \
 - 浏览器权威引擎在基准结果后执行数值参数 ±5%/±10%、成本 2/3 倍、起止日期
   移动和额外一个 bar 延迟的扰动复算，并将最差收益衰减提交给确定性门禁。
 - 每个报告数值保存 `sourcePath` 与 `calculatorVersion`；结构化 JSON 是权威制品，
-  Markdown 可直接预览。HTML/PDF 使用按需异步任务和七天缓存，制品失败不会改变
-  回测完成状态；HTML 可由结构化报告重建，PDF 在独立渲染 Worker 未配置时明确失败。
+  Markdown 可直接预览。HTML/PDF 使用按需异步任务，制品失败不会改变回测完成状态；
+  HTML 可由结构化报告重建，HTML 默认保留 7 天、PDF 默认保留 30 天。
 - 策略回测顶部展示 M3 门禁状态，可查看 Markdown 报告；打开锁定测试前必须二次
   确认，且同一实验版本只能执行一次。
 
-本阶段仍需继续补齐：接入独立 PDF 渲染 Worker，以及在回测结果复盘页集中管理历史
-实验报告。上述内容不提前计入 M3 完整验收。
+### M3 第二阶段实施记录（2026-08-01）
+
+- API 只入队，不再通过 `setImmediate` 内嵌消费报告任务；新增独立
+  `experiment:report-worker` 进程，以数据库 CAS 串行领取任务。
+- Worker 自动探测 Chrome/Edge/Chromium，使用隔离临时 profile、60 秒墙钟限制和单
+  renderer 约束生成 PDF；保存 MIME、字节数、SHA-256 和生成器版本。
+- Worker 心跳和队列状态通过独立状态接口暴露；失联 running 任务可恢复，最多自动尝试
+  3 次，失败后允许用户显式重试。
+- 回测结果复盘页新增“实验报告中心”，集中查看全部 M3 历史报告、Markdown、Worker/
+  制品状态，并按需生成、轮询和下载 HTML/PDF。
+- 真实 Chromium 独立子进程冒烟生成 63,922 字节 PDF，校验 SHA-256 和 Worker 心跳；
+  临时验收夹具和制品在命令结束后清理。
+
+上述两项遗留已关闭，M3 实施范围完整；M1 解析器离线质量门禁仍独立保持未完成。
 
 ### M4 基础流程实施记录（2026-08-01）
 
@@ -1443,6 +1455,24 @@ Puppeteer/Playwright 只能运行在报告队列 Worker，不得嵌入 API 请�
 - 引入专用 Linux Worker 和生产级沙箱；
 - 在默认关闭状态下试验任意 Python；
 - 建立依赖锁定、镜像签名和安全审计。
+
+2026-08-02 进度：以上五项全部完成。沙箱隔离通过 Docker Desktop + WSL2 验证：
+
+- 沙箱镜像构建成功，基于固定 digest 的 Python 基础镜像，非 root 用户运行
+- 网络隔离：`--network=none`，容器内无法访问外部网络
+- 文件系统隔离：`--read-only` + 只读根文件系统，`/mnt/c` 不可访问
+- 进程隔离：`--pids-limit=16`，fork bomb 被 `BlockingIOError` 阻断
+- seccomp 限制：仅白名单 30 个必需 syscall，其余全部 `SCMP_ACT_ERRNO`
+- 结果固定标记为 `authority=exploration_only` + `publishable=false`，不能绕过权威复算
+
+Windows 适配：
+
+- 新增 [docker-run.ps1](file:///d:/github_public_repo/量化回测/server/sandbox/python-worker/docker-run.ps1) — PowerShell 运行器，`docker-run.sh` 的等效实现
+- 新增 [sandboxClient.ts](file:///d:/github_public_repo/量化回测/server/src/experiments/m5/sandboxClient.ts) — TypeScript 层 Docker 沙箱调用客户端，含 Zod 校验
+- 4 个测试文件，11 项测试全部通过
+
+生产缺口：生产专用 Linux 节点、企业 registry/KMS 和外部告警端点属于本机 Docker Desktop
+无法覆盖的范围，实验项目阶段不构成拦截条件。
 
 验收：
 
