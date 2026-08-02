@@ -152,6 +152,7 @@ export async function validateCompletedExperimentRun(
     lockedTest?: { totalReturn: number };
     walkForward?: Array<{ totalReturn: number }>;
   },
+  mode: 'full' | 'screening' = 'full',
 ) {
   const [run] = await getDb().select().from(strategyExperimentRuns)
     .where(eq(strategyExperimentRuns.id, runId)).limit(1);
@@ -190,6 +191,7 @@ export async function validateCompletedExperimentRun(
     perturbationExpectedCases: expectedCases.length,
     perturbationObservedCases: acceptedPerturbations.length,
     sampleResults,
+    mode,
   });
   const now = new Date().toISOString();
   const runEvaluationHash = canonicalHash({

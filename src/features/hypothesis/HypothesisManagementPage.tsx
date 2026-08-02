@@ -21,7 +21,7 @@ import {
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { getCandlesByDataset, getDatasets } from '@/db/marketDataRepository';
+import { getRepository } from '@/api/useRepository';
 import type { MarketDataset } from '@/models';
 import {
   evaluateHypothesis,
@@ -122,10 +122,10 @@ export default function HypothesisManagementPage() {
     setEvaluateTarget(hypothesis);
     setSelectedDatasetId(undefined);
     try {
-      setDatasets(await getDatasets());
+      setDatasets(await getRepository().getDatasets());
     } catch {
       setDatasets([]);
-      message.error('读取本地数据集失败');
+      message.error('读取数据集失败');
     }
   };
 
@@ -139,7 +139,7 @@ export default function HypothesisManagementPage() {
     try {
       const dataset = datasets.find((item) => item.id === selectedDatasetId);
       if (!dataset) throw new Error('数据集不存在');
-      const stored = await getCandlesByDataset(dataset.id);
+      const stored = await getRepository().getCandlesByDataset(dataset.id);
       if (stored.length < 2) throw new Error('数据集蜡烛数据不足（至少 2 根）');
       const request: HypothesisEvaluationRequest = {
         datasetSnapshot: {

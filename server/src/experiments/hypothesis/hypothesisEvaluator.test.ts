@@ -94,8 +94,8 @@ describe('N3.3 hypothesis evaluation orchestration', () => {
         captured.complete = { runId, input };
         return { type: 'completed' };
       },
-      validateRun: async (runId) => {
-        captured.validateRun = runId;
+      validateRun: async (runId, mode) => {
+        captured.validateRun = { runId, mode };
         return {};
       },
       getRun: async () => ({ validationStatus: 'candidate' }),
@@ -136,6 +136,11 @@ describe('N3.3 hypothesis evaluation orchestration', () => {
 
     const complete = captured.complete as { input: { resultHash: string } };
     expect(complete.input.resultHash).toMatch(/^[a-f0-9]{64}$/);
+
+    // 筛选层轻校验（ADR-05）：不以完整实验门禁评价假设评估
+    const validateRun = captured.validateRun as { runId: string; mode: string };
+    expect(validateRun.runId).toBe('22222222-2222-4222-8222-222222222222');
+    expect(validateRun.mode).toBe('screening');
   });
 
   it('surfaces a result hash mismatch', async () => {

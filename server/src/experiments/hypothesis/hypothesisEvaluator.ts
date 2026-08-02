@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { getDb, schema } from '../../db/index.js';
 import { canonicalHash } from '../schema.js';
 import {
@@ -40,7 +40,8 @@ export interface HypothesisEvaluationDeps {
     resultHash: string;
     validation: Record<string, string>;
   }): Promise<{ type: string }>;
-  validateRun(runId: string): Promise<unknown>;
+  /** 筛选层轻校验（ADR-05）：只校验链路正确性，不套用完整实验门禁 */
+  validateRun(runId: string, mode?: 'full' | 'screening'): Promise<unknown>;
   getRun(runId: string): Promise<{ validationStatus: string | null } | null>;
   markEvaluated(input: {
     id: string;
@@ -78,7 +79,7 @@ export function createDefaultHypothesisEvaluationDeps(options: EvaluateHypothesi
       await getDb().insert(schema.backtestResults).values(result as never);
     },
     completeRun: (runId, input) => completeExperimentRun(runId, input),
-    validateRun: (runId) => validateCompletedExperimentRun(runId),
+    validateRun: (runId) => validateCompletedExperimentRun(runId, [], undefined, 'screening'),
     getRun: async (runId) => {
       const run = await getExperimentRun(runId);
       return run ? { validationStatus: run.validationStatus ?? null } : null;
@@ -181,8 +182,8 @@ export async function evaluateHypothesis(input: EvaluateHypothesisInput): Promis
   if (completed.type === 'result_not_found') throw new Error('RESULT_NOT_FOUND');
   if (completed.type !== 'completed') throw new Error(`EXPERIMENT_INVALID_STATE:${completed.type}`);
 
-  // 6. 触发 M3 确定性校验（失败不影响已完成的运行）
-  await deps.validateRun(runId).catch(() => undefined);
+  // 6. 筛选层轻校验（ADR-05：候选须经权威复算才进完整门禁，失败不影响已完成的运行）
+  await deps.validateRun(runId, 'screening').catch(() => undefined);
 
   // 7. 汇总评估摘要并更新假设状态
   const run = await deps.getRun(runId);

@@ -48,4 +48,46 @@ describe('M3 experiment validation', () => {
     expect(result.status).toBe('rejected');
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'locked-test-minimum-return', status: 'failed' }));
   });
+
+  it('screening mode only runs pipeline-correctness checks and passes without trades', () => {
+    const result = evaluateDeterministicGate({
+      metrics: { totalReturn: 0, maxDrawdown: null, tradeCount: 0 },
+      lockedTestOpened: false, staticChecks: [], dynamicChecks: [],
+      mode: 'screening',
+    });
+    // 无交易、无样本层结果也不拒绝：筛选层只验证链路正确性（ADR-05）
+    expect(result.status).toBe('candidate');
+    const ids = result.checks.map((check) => check.id);
+    expect(ids).toContain('frozen-version');
+    expect(ids).not.toContain('minimum-trades');
+    expect(ids).not.toContain('maximum-drawdown');
+    expect(ids).not.toContain('locked-test-opened');
+  });
+
+  it('screening mode still rejects causality violations', () => {
+    const result = evaluateDeterministicGate({
+      metrics: { totalReturn: 0, maxDrawdown: null, tradeCount: 0 },
+      lockedTestOpened: false,
+      staticChecks: [{ id: 'static-causality', category: 'causality', status: 'failed', message: '发现未来数据引用', sourcePath: '$.spec' }],
+      dynamicChecks: [], mode: 'screening',
+    });
+    expect(result.status).toBe('rejected');
+  });
+
+  it('full mode treats a null drawdown as not-applicable (pending), not failed', () => {
+    const result = evaluateDeterministicGate({
+      metrics: { totalReturn: 0.1, maxDrawdown: null, tradeCount: 5 },
+      lockedTestOpened: true,
+      staticChecks: [], dynamicChecks: [],
+      perturbationWorstDecay: 0.1,
+      sampleResults: {
+        train: { totalReturn: 0.2 }, validation: { totalReturn: 0.1 },
+        lockedTest: { totalReturn: 0.15 }, walkForward: [{ totalReturn: 0.02 }],
+      },
+    });
+    // 回撤不可用（无交易时为 null）不应判 failed
+    expect(result.status).toBe('pending');
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'maximum-drawdown', status: 'pending' }));
+    expect(result.checks.some((check) => check.status === 'failed')).toBe(false);
+  });
 });

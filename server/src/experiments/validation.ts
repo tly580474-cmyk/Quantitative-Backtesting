@@ -196,7 +196,14 @@ export function evaluateDeterministicGate(input: {
     lockedTest?: { totalReturn: number };
     walkForward?: Array<{ totalReturn: number }>;
   };
+  /**
+   * screening：筛选层轻校验（ADR-05）。backtrader/向量引擎只做筛选，
+   * 候选必须经权威复算后才能进入完整门禁。因此只校验链路正确性
+   * （因果性、数据区间、不可变版本），不套用样本层与收益/风险门槛。
+   */
+  mode?: 'full' | 'screening';
 }): { status: 'candidate' | 'rejected' | 'pending'; checks: ValidationCheck[]; evaluationHash: string } {
+  const mode = input.mode ?? 'full';
   const policy = input.policy ?? DEFAULT_VALIDATION_POLICY;
   const totalReturn = finiteMetric(input.metrics, 'totalReturn');
   const maxDrawdown = finiteMetric(input.metrics, 'maxDrawdown');
@@ -209,20 +216,26 @@ export function evaluateDeterministicGate(input: {
       : lockedReturn >= 0 ? 0 : Number.POSITIVE_INFINITY
     : null;
   const walkForward = input.sampleResults?.walkForward ?? [];
+  const governanceCheck: ValidationCheck = { id: 'frozen-version', category: 'governance', status: 'passed', message: '运行绑定不可变实验版本', sourcePath: '$.run.experimentVersionId' };
   const checks: ValidationCheck[] = [
     ...input.staticChecks,
     ...input.dynamicChecks,
-    { id: 'locked-test-opened', category: 'sample', status: !policy.requireLockedTest || input.lockedTestOpened ? 'passed' : 'pending', message: input.lockedTestOpened ? '锁定测试已原子开启' : '锁定测试尚未开启', sourcePath: '$.validationPlan.lockedTestStatus' },
-    { id: 'locked-test-evaluated', category: 'sample', status: !policy.requireLockedTest || lockedReturn !== undefined ? 'passed' : 'pending', message: lockedReturn !== undefined ? '锁定测试区间已独立执行' : '锁定测试尚无独立结果', sourcePath: '$.sampleResults.lockedTest.totalReturn', value: lockedReturn },
-    { id: 'locked-test-minimum-return', category: 'sample', status: lockedReturn === undefined ? 'pending' : lockedReturn >= policy.minimumTotalReturn ? 'passed' : 'failed', message: '锁定测试成本后收益门槛', sourcePath: '$.sampleResults.lockedTest.totalReturn', value: lockedReturn, threshold: policy.minimumTotalReturn },
-    { id: 'train-test-decay', category: 'sample', status: trainTestDecay == null ? 'pending' : trainTestDecay <= policy.maximumTrainTestDecay ? 'passed' : 'failed', message: '锁定测试相对训练集收益衰减', sourcePath: '$.sampleResults', value: trainTestDecay, threshold: policy.maximumTrainTestDecay },
-    { id: 'walk-forward-completed', category: 'sample', status: walkForward.length > 0 && walkForward.every((item) => Number.isFinite(item.totalReturn)) ? 'passed' : 'pending', message: 'Walk-forward 各折验证结果完整', sourcePath: '$.sampleResults.walkForward', value: walkForward.length },
-    { id: 'minimum-total-return', category: 'trading', status: totalReturn !== null && totalReturn >= policy.minimumTotalReturn ? 'passed' : 'failed', message: '成本后总收益门槛', sourcePath: '$.result.metrics.totalReturn', value: totalReturn, threshold: policy.minimumTotalReturn },
-    { id: 'maximum-drawdown', category: 'risk', status: maxDrawdown !== null && maxDrawdown <= policy.maximumDrawdown ? 'passed' : 'failed', message: '最大回撤门槛', sourcePath: '$.result.metrics.maxDrawdown', value: maxDrawdown, threshold: policy.maximumDrawdown },
-    { id: 'minimum-trades', category: 'trading', status: tradeCount !== null && tradeCount >= policy.minimumTrades ? 'passed' : 'failed', message: '最少成交笔数门槛', sourcePath: '$.result.metrics.tradeCount', value: tradeCount, threshold: policy.minimumTrades },
-    { id: 'perturbation-completeness', category: 'robustness', status: (input.perturbationExpectedCases ?? 0) > 0 && input.perturbationObservedCases === input.perturbationExpectedCases ? 'passed' : 'pending', message: '扰动矩阵结果完整', sourcePath: '$.perturbations', value: input.perturbationObservedCases ?? 0, threshold: input.perturbationExpectedCases ?? 0 },
-    { id: 'perturbation-decay', category: 'robustness', status: input.perturbationWorstDecay == null || input.perturbationObservedCases !== input.perturbationExpectedCases ? 'pending' : input.perturbationWorstDecay <= policy.perturbationMaximumDecay ? 'passed' : 'failed', message: '参数、成本、日期和延迟扰动最差衰减', sourcePath: '$.perturbations.worstDecay', value: input.perturbationWorstDecay, threshold: policy.perturbationMaximumDecay },
-    { id: 'frozen-version', category: 'governance', status: 'passed', message: '运行绑定不可变实验版本', sourcePath: '$.run.experimentVersionId' },
+    ...(mode === 'screening'
+      ? [governanceCheck]
+      : ([
+        { id: 'locked-test-opened', category: 'sample', status: !policy.requireLockedTest || input.lockedTestOpened ? 'passed' : 'pending', message: input.lockedTestOpened ? '锁定测试已原子开启' : '锁定测试尚未开启', sourcePath: '$.validationPlan.lockedTestStatus' },
+        { id: 'locked-test-evaluated', category: 'sample', status: !policy.requireLockedTest || lockedReturn !== undefined ? 'passed' : 'pending', message: lockedReturn !== undefined ? '锁定测试区间已独立执行' : '锁定测试尚无独立结果', sourcePath: '$.sampleResults.lockedTest.totalReturn', value: lockedReturn },
+        { id: 'locked-test-minimum-return', category: 'sample', status: lockedReturn === undefined ? 'pending' : lockedReturn >= policy.minimumTotalReturn ? 'passed' : 'failed', message: '锁定测试成本后收益门槛', sourcePath: '$.sampleResults.lockedTest.totalReturn', value: lockedReturn, threshold: policy.minimumTotalReturn },
+        { id: 'train-test-decay', category: 'sample', status: trainTestDecay == null ? 'pending' : trainTestDecay <= policy.maximumTrainTestDecay ? 'passed' : 'failed', message: '锁定测试相对训练集收益衰减', sourcePath: '$.sampleResults', value: trainTestDecay, threshold: policy.maximumTrainTestDecay },
+        { id: 'walk-forward-completed', category: 'sample', status: walkForward.length > 0 && walkForward.every((item) => Number.isFinite(item.totalReturn)) ? 'passed' : 'pending', message: 'Walk-forward 各折验证结果完整', sourcePath: '$.sampleResults.walkForward', value: walkForward.length },
+        // null（如无交易时回撤不可用）= 不适用 → pending，而非 failed
+        { id: 'minimum-total-return', category: 'trading', status: totalReturn === null ? 'pending' : totalReturn >= policy.minimumTotalReturn ? 'passed' : 'failed', message: '成本后总收益门槛', sourcePath: '$.result.metrics.totalReturn', value: totalReturn, threshold: policy.minimumTotalReturn },
+        { id: 'maximum-drawdown', category: 'risk', status: maxDrawdown === null ? 'pending' : maxDrawdown <= policy.maximumDrawdown ? 'passed' : 'failed', message: '最大回撤门槛', sourcePath: '$.result.metrics.maxDrawdown', value: maxDrawdown, threshold: policy.maximumDrawdown },
+        { id: 'minimum-trades', category: 'trading', status: tradeCount !== null && tradeCount >= policy.minimumTrades ? 'passed' : 'failed', message: '最少成交笔数门槛', sourcePath: '$.result.metrics.tradeCount', value: tradeCount, threshold: policy.minimumTrades },
+        { id: 'perturbation-completeness', category: 'robustness', status: (input.perturbationExpectedCases ?? 0) > 0 && input.perturbationObservedCases === input.perturbationExpectedCases ? 'passed' : 'pending', message: '扰动矩阵结果完整', sourcePath: '$.perturbations', value: input.perturbationObservedCases ?? 0, threshold: input.perturbationExpectedCases ?? 0 },
+        { id: 'perturbation-decay', category: 'robustness', status: input.perturbationWorstDecay == null || input.perturbationObservedCases !== input.perturbationExpectedCases ? 'pending' : input.perturbationWorstDecay <= policy.perturbationMaximumDecay ? 'passed' : 'failed', message: '参数、成本、日期和延迟扰动最差衰减', sourcePath: '$.perturbations.worstDecay', value: input.perturbationWorstDecay, threshold: policy.perturbationMaximumDecay },
+        governanceCheck,
+      ] as ValidationCheck[])),
   ];
   const status = checks.some((check) => check.status === 'failed')
     ? 'rejected'
