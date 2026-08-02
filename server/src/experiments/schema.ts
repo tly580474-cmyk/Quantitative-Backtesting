@@ -108,11 +108,15 @@ export const completeExperimentRunRequestSchema = z.object({
 
 export const failExperimentRunRequestSchema = z.object({
   errorCode: z.enum([
+    'SCHEMA_INVALID',
+    'SEMANTIC_CONFLICT',
+    'UNSUPPORTED_CAPABILITY',
     'COMPILE_FAILED',
     'DATA_MISSING',
     'DATA_QUALITY_FAILED',
     'RESOURCE_EXCEEDED',
     'RUNTIME_FAILED',
+    'VALIDATION_FAILED',
     'INTERNAL_ERROR',
   ]),
   message: z.string().min(1).max(1000),

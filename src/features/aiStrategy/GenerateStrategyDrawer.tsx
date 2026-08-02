@@ -5,6 +5,7 @@ import {
 } from 'antd';
 import { BulbOutlined, CheckCircleOutlined, EditOutlined } from '@ant-design/icons';
 import { getAIStatus, generateStrategy, refineStrategy, toAIUserMessage } from './api';
+import { interpretError, type ErrorInterpretation } from './errorInterpreter';
 import type {
   AIStatus,
   GenerateStrategyResult,
@@ -32,6 +33,32 @@ type GenerationMode = 'generate' | 'refine';
 interface BoundGenerationResult {
   data: GenerateStrategyResult;
   mode: GenerationMode;
+}
+
+/** N4：生成失败的结构化错误（后端已按九类错误码分类）。 */
+interface StructuredGenError {
+  message: string;
+  category?: string;
+  categoryLabel?: string;
+  fieldPaths?: string[];
+  issues?: string[];
+}
+
+function toStructuredError(err: unknown): StructuredGenError {
+  const message = toAIUserMessage(err);
+  const details = (err as {
+    details?: { category?: string; categoryLabel?: string; fieldPaths?: string[]; issues?: string[] };
+  }).details;
+  if (details && typeof details.category === 'string') {
+    return {
+      message,
+      category: details.category,
+      categoryLabel: details.categoryLabel,
+      fieldPaths: Array.isArray(details.fieldPaths) ? details.fieldPaths : undefined,
+      issues: Array.isArray(details.issues) ? details.issues : undefined,
+    };
+  }
+  return { message };
 }
 
 function StrategyConfirmationPanel({
@@ -160,7 +187,9 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
   const [statusError, setStatusError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<BoundGenerationResult | null>(null);
-  const [genError, setGenError] = useState<string | null>(null);
+  const [genError, setGenError] = useState<StructuredGenError | null>(null);
+  const [interpretation, setInterpretation] = useState<ErrorInterpretation | null>(null);
+  const [interpreting, setInterpreting] = useState(false);
   const [confirmedAssumptionIds, setConfirmedAssumptionIds] = useState<string[]>([]);
   const [freezingExperiment, setFreezingExperiment] = useState(false);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -193,10 +222,12 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
     }
   };
 
-  const handleGenerate = async () => {
-    if (!prompt.trim()) return;
+  const handleGenerate = async (overridePrompt?: string) => {
+    const effectivePrompt = overridePrompt ?? prompt;
+    if (!effectivePrompt.trim()) return;
     setGenerating(true);
     setGenError(null);
+    setInterpretation(null);
     setResult(null);
 
     const requestMode = mode;
@@ -215,18 +246,18 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
       if (useLocalMock) {
         const { localGenerate, localRefine } = await import('./localMock');
         res = requestMode === 'refine'
-          ? await localRefine(requestDocument!, prompt.trim())
-          : await localGenerate(prompt.trim());
+          ? await localRefine(requestDocument!, effectivePrompt.trim())
+          : await localGenerate(effectivePrompt.trim());
       } else {
         res = requestMode === 'refine'
           ? await refineStrategy({
               currentStrategy: requestDocument!,
-              modification: prompt.trim(),
+              modification: effectivePrompt.trim(),
               model,
               dslVersion: '1.0',
             }, controller.signal)
           : await generateStrategy({
-              prompt: prompt.trim(),
+              prompt: effectivePrompt.trim(),
               model,
               dslVersion: '1.0',
             }, controller.signal);
@@ -240,14 +271,19 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
       if (!res.confirmation) {
         res = {
           ...res,
-          confirmation: buildLocalConfirmationDraft(prompt.trim(), res.strategy),
+          confirmation: buildLocalConfirmationDraft(effectivePrompt.trim(), res.strategy),
         };
       }
 
       // Validate the returned strategy
       const vr = validateDocument(res.strategy);
       if (!vr.valid) {
-        setGenError(`AI 返回的策略校验失败: ${vr.errors.map((e) => e.message).join('; ')}`);
+        setGenError({
+          message: `AI 返回的策略校验失败: ${vr.errors.map((e) => e.message).join('; ')}`,
+          category: 'SCHEMA_INVALID',
+          categoryLabel: 'Schema 校验失败',
+          fieldPaths: vr.errors.map((e) => e.path).filter((path): path is string => Boolean(path)),
+        });
         return;
       }
 
@@ -258,13 +294,39 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
         message.info('已取消策略生成');
         return;
       }
-      setGenError(toAIUserMessage(err));
+      setGenError(toStructuredError(err));
     } finally {
       if (requestControllerRef.current === controller) {
         requestControllerRef.current = null;
       }
       setGenerating(false);
     }
+  };
+
+  const handleInterpret = async () => {
+    if (!genError?.category) return;
+    setInterpreting(true);
+    try {
+      const interpretationResult = await interpretError({
+        category: genError.category,
+        issues: genError.issues,
+        fieldPaths: genError.fieldPaths,
+        prompt,
+      });
+      setInterpretation(interpretationResult);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '智能解释失败');
+    } finally {
+      setInterpreting(false);
+    }
+  };
+
+  const applySuggestion = (patch: string) => {
+    // N4.3 重提闭环：点选建议 → 预填 prompt → 自动重新生成
+    setInterpretation(null);
+    const nextPrompt = `${prompt.trim()} ${patch.trim()}`.trim();
+    setPrompt(nextPrompt);
+    setTimeout(() => void handleGenerate(nextPrompt), 0);
   };
 
   const applyResult = async () => {
@@ -343,6 +405,7 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
     setPrompt('');
     setResult(null);
     setGenError(null);
+    setInterpretation(null);
     setConfirmedAssumptionIds([]);
   };
 
@@ -463,7 +526,7 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
           block
           icon={mode === 'refine' ? <EditOutlined /> : <BulbOutlined />}
           loading={generating}
-          onClick={handleGenerate}
+          onClick={() => handleGenerate()}
           disabled={statusLoading || !aiStatus || !prompt.trim() || (mode === 'refine' && !currentDocument)}
         >
           {mode === 'refine' ? '生成修改草稿' : '生成策略'}
@@ -481,7 +544,50 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
 
         {/* Error */}
         {genError && (
-          <Alert type="error" message="生成失败" description={genError} showIcon closable />
+          <Alert
+            type="error"
+            message={genError.category ? (genError.categoryLabel ?? genError.category) : '生成失败'}
+            description={(
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Text>{genError.message}</Text>
+                {genError.fieldPaths && genError.fieldPaths.length > 0 && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    涉及字段：{genError.fieldPaths.join('、')}
+                  </Text>
+                )}
+                {genError.category && (
+                  <Button
+                    size="small"
+                    loading={interpreting}
+                    onClick={() => void handleInterpret()}
+                  >
+                    智能解释与修正建议
+                  </Button>
+                )}
+                {interpretation && (
+                  <Card size="small" title="修正建议（只建议，不自动修改策略）">
+                    <Paragraph style={{ marginBottom: 8 }}>{interpretation.explanation}</Paragraph>
+                    <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                      {interpretation.suggestions.map((suggestion) => (
+                        <Button
+                          key={suggestion.id}
+                          size="small"
+                          type="primary"
+                          ghost
+                          block
+                          onClick={() => applySuggestion(suggestion.promptPatch)}
+                        >
+                          {suggestion.label}
+                        </Button>
+                      ))}
+                    </Space>
+                  </Card>
+                )}
+              </Space>
+            )}
+            showIcon
+            closable
+          />
         )}
 
         {/* Result */}

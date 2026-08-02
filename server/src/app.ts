@@ -32,6 +32,7 @@ import {
 import { MockStrategyGenerationProvider } from './services/strategyGeneration/mockProvider.js';
 import { OpenAIStrategyGenerationProvider } from './services/strategyGeneration/openaiProvider.js';
 import type { StrategyGenerationProvider } from './services/strategyGeneration/provider.js';
+import { OpenAIErrorInterpreterProvider } from './services/strategyGeneration/errorInterpreter.js';
 import { listFactorCatalog } from './factorResearch/repositories/factorRepository.js';
 import { registerProvider } from './marketData/providers/providerRegistry.js';
 import { primaryProvider } from './marketData/providers/primaryProvider.js';
@@ -219,6 +220,14 @@ async function main(): Promise<void> {
       if (!dbStatus.ok) return [];
       return (await listFactorCatalog()).map((factor) => factor.versionId);
     },
+    aiConfigured
+      ? new OpenAIErrorInterpreterProvider(
+        config.OPENAI_API_KEY,
+        config.OPENAI_BASE_URL,
+        config.OPENAI_MODEL,
+        parseInt(config.OPENAI_TIMEOUT_MS, 10),
+      )
+      : undefined,
   );
 
   // Register data routes
