@@ -8,6 +8,8 @@ export interface AgentRunRecord {
   templateStyle: string;
   timeoutMs: number;
   pid: number | null;
+  sessionId: string | null;
+  parentRunId: string | null;
   exitCode: number | null;
   errorMessage: string | null;
   createdAt: string;
@@ -52,10 +54,10 @@ function toCamelRow<T>(row: Record<string, unknown>): T {
 export class AgentRepository {
   constructor(private pool: Pool) {}
 
-  async createRun(runId: string, prompt: string, maxTurns: number, timeoutMs: number, templateStyle: string = 'classic-blue'): Promise<void> {
+  async createRun(runId: string, prompt: string, maxTurns: number, timeoutMs: number, templateStyle: string = 'classic-blue', parentRunId?: string): Promise<void> {
     await this.pool.execute(
-      'INSERT INTO agent_runs (id, prompt, status, max_turns, timeout_ms, template_style, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [runId, prompt, 'pending', maxTurns, timeoutMs, templateStyle, new Date().toISOString()],
+      'INSERT INTO agent_runs (id, prompt, status, max_turns, timeout_ms, template_style, parent_run_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [runId, prompt, 'pending', maxTurns, timeoutMs, templateStyle, parentRunId ?? null, new Date().toISOString()],
     );
   }
 
@@ -63,6 +65,7 @@ export class AgentRepository {
     const fields: string[] = ['status = ?'];
     const values: (string | number | null)[] = [status];
     if (extra?.pid !== undefined) { fields.push('pid = ?'); values.push(extra.pid); }
+    if (extra?.sessionId !== undefined) { fields.push('session_id = ?'); values.push(extra.sessionId); }
     if (extra?.exitCode !== undefined) { fields.push('exit_code = ?'); values.push(extra.exitCode); }
     if (extra?.errorMessage !== undefined) { fields.push('error_message = ?'); values.push(extra.errorMessage); }
     if (status === 'running' && !extra?.startedAt) { fields.push('started_at = ?'); values.push(new Date().toISOString()); }
@@ -74,6 +77,20 @@ export class AgentRepository {
       `UPDATE agent_runs SET ${fields.join(', ')} WHERE id = ?`,
       values,
     );
+  }
+
+  async updateSessionId(runId: string, sessionId: string): Promise<void> {
+    await this.pool.execute(
+      'UPDATE agent_runs SET session_id = ? WHERE id = ?',
+      [sessionId, runId],
+    );
+  }
+
+  async deleteRun(runId: string): Promise<void> {
+    // Delete in order: events, reports, then the run itself
+    await this.pool.execute('DELETE FROM agent_events WHERE run_id = ?', [runId]);
+    await this.pool.execute('DELETE FROM agent_reports WHERE run_id = ?', [runId]);
+    await this.pool.execute('DELETE FROM agent_runs WHERE id = ?', [runId]);
   }
 
   async getRun(runId: string): Promise<AgentRunRecord | null> {

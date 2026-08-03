@@ -1,5 +1,5 @@
 export interface AgentEvent {
-  type: 'thought' | 'tool_use' | 'tool_result' | 'text' | 'error' | 'done';
+  type: 'thought' | 'tool_use' | 'tool_result' | 'text' | 'error' | 'done' | 'user';
   content: string;
   toolName?: string;
   toolInput?: string;
@@ -15,6 +15,8 @@ export interface AgentRun {
   maxTurns: number;
   timeoutMs: number;
   pid: number | null;
+  sessionId: string | null;
+  parentRunId: string | null;
   exitCode: number | null;
   errorMessage: string | null;
   createdAt: string;

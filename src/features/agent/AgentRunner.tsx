@@ -4,15 +4,16 @@ import {
   Input, Button, Typography, Tag, App, InputNumber, Select, Tooltip, Spin, Empty, Dropdown, type MenuProps,
 } from 'antd';
 import {
-  PlayCircleOutlined, StopOutlined, RobotOutlined, HistoryOutlined,
+  StopOutlined, HistoryOutlined,
   PlusOutlined, SettingOutlined, ReloadOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined,
   SendOutlined, PaperClipOutlined,
+  DeleteOutlined, MessageOutlined,
 } from '@ant-design/icons';
 import { AgentEventList, calcDuration } from './AgentEventList';
 import { useAgentStream } from './useAgentStream';
-import { createAgentRun, cancelAgentRun, listAgentRuns } from './api';
-import type { AgentRun } from './types';
+import { createAgentRun, cancelAgentRun, listAgentRuns, deleteAgentRun, continueAgentRun, getAgentRun } from './api';
+import type { AgentRun, AgentEvent } from './types';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -76,7 +77,7 @@ export default function AgentRunner() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState('');
-  const [maxTurns, setMaxTurns] = useState(50);
+  const [maxTurns, setMaxTurns] = useState(0);
   const [templateStyle, setTemplateStyle] = useState<string>('classic-blue');
   const [runId, setRunId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -86,18 +87,32 @@ export default function AgentRunner() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [currentPrompt, setCurrentPrompt] = useState('');
   const [currentRunStartTime, setCurrentRunStartTime] = useState<string | null>(null);
+  const [continueFromRunId, setContinueFromRunId] = useState<string | null>(null);
   const { message } = App.useApp();
-  const { state, connect, disconnect } = useAgentStream();
+  const { state, connect, disconnect, pushUserMessage } = useAgentStream();
   const inputRef = useRef<{ focus: () => void; resizableTextArea?: { textArea: HTMLTextAreaElement } } | null>(null);
 
-  // 从 URL 参数预填 prompt（支持从运行历史"重新发起"跳转过来）
+  // 从 URL 参数预填 prompt 或设置继续对话（支持从运行历史跳转过来）
   useEffect(() => {
     const p = searchParams.get(PROMPT_PARAM);
     if (p) {
       setPrompt(p);
       setSearchParams({}, { replace: true });
     }
-  }, [searchParams, setSearchParams]);
+    const continueId = searchParams.get('continue');
+    if (continueId) {
+      setContinueFromRunId(continueId);
+      setRunId(continueId);
+      // 加载历史对话内容
+      getAgentRun(continueId).then(result => {
+        setCurrentPrompt(result.run?.prompt ?? '');
+        setCurrentRunStartTime(result.run?.createdAt ?? null);
+      }).catch(() => {});
+      connect(continueId);
+      setSearchParams({}, { replace: true });
+      inputRef.current?.focus();
+    }
+  }, [searchParams, setSearchParams, connect]);
 
   // 加载历史会话列表
   const fetchHistory = useCallback(async () => {
@@ -124,24 +139,36 @@ export default function AgentRunner() {
   }, [state.status, fetchHistory]);
 
   const handleStart = useCallback(async () => {
-    if (prompt.trim().length < 10) {
-      message.warning('请输入至少 10 个字符的策略描述');
+    if (prompt.trim().length < 1) {
+      message.warning('请输入内容');
       return;
     }
     setLoading(true);
     try {
-      const result = await createAgentRun(prompt, maxTurns, undefined, templateStyle);
+      let result: { runId: string; status: string };
+      const isContinue = !!continueFromRunId;
+      if (isContinue) {
+        result = await continueAgentRun(continueFromRunId, prompt, maxTurns, undefined, templateStyle);
+        // 在当前事件流中插入用户消息气泡
+        pushUserMessage(prompt);
+      } else {
+        result = await createAgentRun(prompt, maxTurns, undefined, templateStyle);
+      }
       setRunId(result.runId);
-      setCurrentPrompt(prompt);
+      if (!isContinue) {
+        setCurrentPrompt(prompt);
+      }
       setCurrentRunStartTime(new Date().toISOString());
-      connect(result.runId);
+      // 继续对话时保留已有事件（历史记录），新事件会追加
+      connect(result.runId, { keepEvents: isContinue });
       setPrompt('');
+      setContinueFromRunId(null);
     } catch (err) {
       message.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
     }
-  }, [prompt, maxTurns, templateStyle, connect, message]);
+  }, [prompt, maxTurns, templateStyle, connect, message, continueFromRunId, pushUserMessage]);
 
   const handleCancel = useCallback(async () => {
     if (!runId) return;
@@ -159,8 +186,36 @@ export default function AgentRunner() {
     setPrompt('');
     setCurrentPrompt('');
     setCurrentRunStartTime(null);
+    setContinueFromRunId(null);
     inputRef.current?.focus();
   }, [disconnect]);
+
+  const handleDeleteRun = useCallback(async (id: string) => {
+    try {
+      await deleteAgentRun(id);
+      message.success('已删除');
+      fetchHistory();
+      if (runId === id) {
+        handleNewConversation();
+      }
+    } catch (err) {
+      message.error(`删除失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [runId, fetchHistory, handleNewConversation, message]);
+
+  const handleContinueRun = useCallback((parentRun: AgentRun) => {
+    // 如果不是当前正在查看的对话，先切换到该对话
+    if (runId !== parentRun.id) {
+      setRunId(parentRun.id);
+      setCurrentPrompt(parentRun.prompt);
+      setCurrentRunStartTime(parentRun.createdAt);
+      connect(parentRun.id);
+    }
+    // 设置继续对话模式，保留当前对话记录
+    setContinueFromRunId(parentRun.id);
+    setPrompt('');
+    inputRef.current?.focus();
+  }, [runId, connect]);
 
   // 历史会话上下文菜单操作
   const historyMenuItems: MenuProps['items'] = [
@@ -309,12 +364,16 @@ export default function AgentRunner() {
                 <InputNumber
                   size="small"
                   value={maxTurns}
-                  onChange={(v) => setMaxTurns(v ?? 50)}
-                  min={1}
+                  onChange={(v) => setMaxTurns(v ?? 0)}
+                  min={0}
                   max={200}
                   style={{ width: 80 }}
                   disabled={isRunning}
+                  placeholder="0=不限制"
                 />
+                {maxTurns === 0 && (
+                  <Text type="secondary" style={{ fontSize: 11, color: '#10b981' }}>不限制</Text>
+                )}
                 <Text type="secondary" style={{ fontSize: 12 }}>报告风格：</Text>
                 <Select
                   size="small"
@@ -385,6 +444,8 @@ export default function AgentRunner() {
                 placeholder={
                   isRunning
                     ? 'Agent 运行中…'
+                    : continueFromRunId
+                    ? '输入继续指令，Agent 将接着上次对话工作…'
                     : '向智能体提问，或描述你的策略研究需求…'
                 }
                 autoSize={{ minRows: 1, maxRows: 8 }}
@@ -435,18 +496,18 @@ export default function AgentRunner() {
                   </button>
                 </Tooltip>
               ) : (
-                <Tooltip title={prompt.trim().length < 10 ? '输入至少 10 个字符' : '发送 (Ctrl+Enter)'}>
+                <Tooltip title={prompt.trim().length < 1 ? '请输入内容' : '发送 (Ctrl+Enter)'}>
                   <button
                     onClick={handleStart}
-                    disabled={prompt.trim().length < 10 || loading}
+                    disabled={prompt.trim().length < 1 || loading}
                     style={{
                       width: 34,
                       height: 34,
                       borderRadius: '50%',
-                      background: prompt.trim().length >= 10 && !loading ? '#1f2937' : '#f0f0f0',
+                      background: prompt.trim().length >= 1 && !loading ? '#1f2937' : '#f0f0f0',
                       border: 'none',
-                      cursor: prompt.trim().length >= 10 && !loading ? 'pointer' : 'not-allowed',
-                      color: prompt.trim().length >= 10 && !loading ? '#ffffff' : '#c9ccd3',
+                      cursor: prompt.trim().length >= 1 && !loading ? 'pointer' : 'not-allowed',
+                      color: prompt.trim().length >= 1 && !loading ? '#ffffff' : '#c9ccd3',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -455,10 +516,10 @@ export default function AgentRunner() {
                       transition: 'background 0.15s',
                     }}
                     onMouseEnter={(e) => {
-                      if (prompt.trim().length >= 10 && !loading) e.currentTarget.style.background = '#111827';
+                      if (prompt.trim().length >= 1 && !loading) e.currentTarget.style.background = '#111827';
                     }}
                     onMouseLeave={(e) => {
-                      if (prompt.trim().length >= 10 && !loading) e.currentTarget.style.background = '#1f2937';
+                      if (prompt.trim().length >= 1 && !loading) e.currentTarget.style.background = '#1f2937';
                     }}
                   >
                     <SendOutlined style={{ fontSize: 13, marginLeft: 1 }} />
@@ -469,7 +530,7 @@ export default function AgentRunner() {
 
             {!showSettings && !isRunning && (
               <div style={{ textAlign: 'center', marginTop: 10, color: '#8e8ea0', fontSize: 11 }}>
-                按 Ctrl + Enter 发送 · 点击左侧附件图标配置最大轮次与报告风格
+                按 Ctrl + Enter 发送 · 点击左侧附件图标配置轮次与报告风格 · 0=不限轮次
               </div>
             )}
           </div>
@@ -526,6 +587,7 @@ export default function AgentRunner() {
                   marginBottom: 2,
                   background: runId === run.id ? '#e6f0ff' : 'transparent',
                   transition: 'background 0.12s',
+                  position: 'relative',
                 }}
                 onMouseEnter={e => {
                   if (runId !== run.id) e.currentTarget.style.background = '#f0f0f0';
@@ -541,6 +603,36 @@ export default function AgentRunner() {
                   <Text type="secondary" style={{ fontSize: 11 }}>
                     {formatRelativeTime(run.createdAt)}
                   </Text>
+                  {/* 操作按钮（悬浮显示） */}
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
+                    {(run.status === 'completed' || run.status === 'failed' || run.status === 'canceled') && (
+                      <Tooltip title="继续对话">
+                        <Button
+                          size="small"
+                          type="text"
+                          icon={<MessageOutlined style={{ fontSize: 12 }} />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleContinueRun(run);
+                          }}
+                          style={{ width: 22, height: 22, minWidth: 22, color: '#1a73e8' }}
+                        />
+                      </Tooltip>
+                    )}
+                    <Tooltip title="删除">
+                      <Button
+                        size="small"
+                        type="text"
+                        danger
+                        icon={<DeleteOutlined style={{ fontSize: 12 }} />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteRun(run.id);
+                        }}
+                        style={{ width: 22, height: 22, minWidth: 22 }}
+                      />
+                    </Tooltip>
+                  </div>
                 </div>
                 <Text
                   style={{
@@ -555,6 +647,11 @@ export default function AgentRunner() {
                 >
                   {truncatePrompt(run.prompt)}
                 </Text>
+                {continueFromRunId === run.id && (
+                  <div style={{ marginTop: 4, fontSize: 11, color: '#1a73e8' }}>
+                    继续此对话中…
+                  </div>
+                )}
               </div>
             ))}
           </div>

@@ -5,6 +5,21 @@ export interface ParsedEvent {
   toolInput?: string;
   toolResult?: string;
   timestamp?: string;
+  sessionId?: string;
+}
+
+/** Extract session_id from a stream-json line without creating a display event. */
+export function extractSessionId(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  try {
+    const obj = JSON.parse(trimmed);
+    if (obj.type === 'system' && obj.session_id) return obj.session_id;
+    if (obj.type === 'result' && obj.session_id) return obj.session_id;
+  } catch {
+    // not JSON
+  }
+  return null;
 }
 
 export function parseStreamLine(line: string): ParsedEvent | null {

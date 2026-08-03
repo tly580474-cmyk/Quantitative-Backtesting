@@ -1059,6 +1059,8 @@ export const agentRuns = mysqlTable('agent_runs', {
   templateStyle: varchar('template_style', { length: 24 }).notNull().default('classic-blue'),
   timeoutMs: bigint('timeout_ms', { mode: 'number' }).notNull().default(1800000),
   pid: int('pid'),
+  sessionId: varchar('session_id', { length: 128 }),
+  parentRunId: varchar('parent_run_id', { length: 36 }),
   exitCode: int('exit_code'),
   errorMessage: varchar('error_message', { length: 2000 }),
   createdAt: varchar('created_at', { length: 24 }).notNull(),

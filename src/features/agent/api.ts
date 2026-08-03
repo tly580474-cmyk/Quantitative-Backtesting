@@ -22,6 +22,20 @@ export async function deleteAgentRun(runId: string): Promise<void> {
   await apiFetch(`/api/agent/runs/${runId}`, { method: 'DELETE' });
 }
 
+export async function continueAgentRun(
+  parentRunId: string,
+  prompt: string,
+  maxTurns?: number,
+  timeoutMinutes?: number,
+  templateStyle?: string,
+): Promise<{ runId: string; status: string; parentRunId: string }> {
+  return apiFetch<{ runId: string; status: string; parentRunId: string }>(`/api/agent/runs/${parentRunId}/continue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, maxTurns, timeoutMinutes, templateStyle }),
+  });
+}
+
 export async function listAgentRuns(limit?: number, offset?: number, status?: string): Promise<{ runs: AgentRun[] }> {
   const params = new URLSearchParams();
   if (limit) params.set('limit', String(limit));

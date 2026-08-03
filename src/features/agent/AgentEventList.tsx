@@ -1,28 +1,18 @@
 import { useRef, useEffect, useState } from 'react';
-import { Typography, Tooltip, Tag } from 'antd';
+import { Tag } from 'antd';
 import {
   BulbOutlined,
   CodeOutlined,
   CheckCircleOutlined,
   WarningOutlined,
-  ClockCircleOutlined,
   UserOutlined,
   DownOutlined,
   UpOutlined,
 } from '@ant-design/icons';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { AgentEvent } from './types';
 import { AgentReportView } from './AgentReportView';
-
-const { Text, Paragraph } = Typography;
-
-function formatTime(timestamp?: string): string {
-  if (!timestamp) return '';
-  try {
-    return new Date(timestamp).toLocaleTimeString('zh-CN', { hour12: false });
-  } catch {
-    return '';
-  }
-}
 
 export function calcDuration(prevTimestamp?: string, currTimestamp?: string): string {
   if (!prevTimestamp || !currTimestamp) return '';
@@ -37,60 +27,7 @@ export function calcDuration(prevTimestamp?: string, currTimestamp?: string): st
   }
 }
 
-interface AssistantTurn {
-  kind: 'assistant';
-  events: AgentEvent[];
-  startTime?: string;
-  endTime?: string;
-}
-
-interface UserMessage {
-  kind: 'user';
-  content: string;
-  timestamp?: string;
-}
-
-interface ReportMessage {
-  kind: 'report';
-  reportUrl: string;
-  reportMeta: { title: string; summary: string };
-  runId: string;
-}
-
-type ConversationItem = UserMessage | AssistantTurn | ReportMessage;
-
-function groupEvents(
-  events: AgentEvent[],
-  userPrompt: string,
-  report: { url: string | null; meta: { title: string; summary: string } | null; runId: string | null },
-): ConversationItem[] {
-  const items: ConversationItem[] = [];
-  if (userPrompt) {
-    items.push({ kind: 'user', content: userPrompt });
-  }
-  let currentTurn: AssistantTurn | null = null;
-  for (const ev of events) {
-    if (ev.type === 'done') continue;
-    if (!currentTurn) {
-      currentTurn = { kind: 'assistant', events: [ev], startTime: ev.timestamp, endTime: ev.timestamp };
-    } else {
-      currentTurn.events.push(ev);
-      if (ev.timestamp) currentTurn.endTime = ev.timestamp;
-    }
-  }
-  if (currentTurn) items.push(currentTurn);
-  if (report.url && report.meta && report.runId) {
-    items.push({
-      kind: 'report',
-      reportUrl: report.url,
-      reportMeta: report.meta,
-      runId: report.runId,
-    });
-  }
-  return items;
-}
-
-// ChatGPT同款：折叠思考/工具块（极细线框）
+// ChatGPT同款：折叠思考/工具块（极细线框），默认折叠
 function Accordion({
   label,
   icon,
@@ -108,7 +45,7 @@ function Accordion({
   return (
     <div
       style={{
-        margin: '10px 0 6px',
+        margin: '6px 0',
         border: `1px solid ${color}22`,
         background: `${color}08`,
         borderRadius: 10,
@@ -119,7 +56,7 @@ function Accordion({
         onClick={() => setOpen(o => !o)}
         style={{
           width: '100%',
-          padding: '7px 11px',
+          padding: '6px 11px',
           background: 'transparent',
           border: 'none',
           cursor: 'pointer',
@@ -153,7 +90,7 @@ function CodeBlock({ text, color }: { text: string; color: string }) {
   return (
     <pre
       style={{
-        margin: '6px 0 0',
+        margin: '4px 0 0',
         padding: '8px 10px',
         background: '#ffffff',
         borderRadius: 6,
@@ -171,6 +108,233 @@ function CodeBlock({ text, color }: { text: string; color: string }) {
   );
 }
 
+function UserBubble({ text }: { text: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, margin: '20px 0 24px', justifyContent: 'flex-end' }}>
+      <div
+        style={{
+          maxWidth: '72%',
+          background: '#f9fafb',
+          color: '#1f2937',
+          padding: '10px 16px',
+          borderRadius: '20px 20px 4px 20px',
+          fontSize: 15,
+          lineHeight: 1.6,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
+        }}
+      >
+        {text}
+      </div>
+      <div
+        style={{
+          width: 30,
+          height: 30,
+          borderRadius: '50%',
+          background: '#e5e7eb',
+          color: '#6b7280',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          alignSelf: 'flex-end',
+          marginBottom: 2,
+          fontSize: 13,
+        }}
+      >
+        <UserOutlined />
+      </div>
+    </div>
+  );
+}
+
+function AssistantAvatar() {
+  return (
+    <div
+      style={{
+        width: 30,
+        height: 30,
+        borderRadius: 8,
+        background: '#1a73e8',
+        color: '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        marginTop: 4,
+        fontSize: 14,
+        boxShadow: '0 1px 3px rgba(26,115,232,0.3)',
+      }}
+    >
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 2L15 8l7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z" />
+      </svg>
+    </div>
+  );
+}
+
+function AssistantEventBlock({ ev }: { ev: AgentEvent }) {
+  // 思考内容：默认折叠
+  if (ev.type === 'thought') {
+    return (
+      <Accordion
+        label={
+          <span style={{ color: '#8e8ea0' }}>
+            思考
+            <span style={{ opacity: 0.7, marginLeft: 6, fontSize: 11 }}>
+              · {ev.content.length > 60 ? ev.content.slice(0, 60) + '…' : ev.content}
+            </span>
+          </span>
+        }
+        icon={<BulbOutlined style={{ fontSize: 12 }} />}
+        color="#9ca3af"
+      >
+        <div
+          style={{
+            margin: 0,
+            color: '#6b7280',
+            fontSize: 13,
+            whiteSpace: 'pre-wrap',
+            lineHeight: 1.6,
+          }}
+        >
+          {ev.content}
+        </div>
+      </Accordion>
+    );
+  }
+
+  // 工具调用：默认折叠
+  if (ev.type === 'tool_use') {
+    return (
+      <Accordion
+        label={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: '#8e8ea0' }}>使用工具</span>
+            {ev.toolName && (
+              <Tag
+                color="blue"
+                style={{ margin: 0, fontSize: 10, borderRadius: 4, padding: '0 6px', lineHeight: '18px' }}
+              >
+                {ev.toolName}
+              </Tag>
+            )}
+          </span>
+        }
+        icon={<CodeOutlined style={{ fontSize: 12 }} />}
+        color="#1a73e8"
+      >
+        {ev.toolInput && (
+          <div style={{ margin: '4px 0' }}>
+            <CodeBlock text={ev.toolInput} color="#4b5563" />
+          </div>
+        )}
+      </Accordion>
+    );
+  }
+
+  // 工具执行结果：默认折叠
+  if (ev.type === 'tool_result') {
+    return (
+      <Accordion
+        label={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: '#8e8ea0' }}>执行结果</span>
+            {ev.toolName && (
+              <Tag
+                color="green"
+                style={{ margin: 0, fontSize: 10, borderRadius: 4, padding: '0 6px', lineHeight: '18px' }}
+              >
+                {ev.toolName}
+              </Tag>
+            )}
+          </span>
+        }
+        icon={<CheckCircleOutlined style={{ fontSize: 12 }} />}
+        color="#10b981"
+      >
+        {ev.toolResult && (
+          <CodeBlock text={ev.toolResult} color="#065f46" />
+        )}
+      </Accordion>
+    );
+  }
+
+  // 文本输出：渲染为 Markdown
+  if (ev.type === 'text') {
+    if (!ev.content.trim()) return null;
+    return (
+      <div
+        className="markdown-preview"
+        style={{
+          fontSize: 15,
+          lineHeight: 1.75,
+          color: '#374151',
+          marginTop: 4,
+          marginBottom: 4,
+        }}
+      >
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {ev.content}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
+  // 错误：红底卡片
+  if (ev.type === 'error') {
+    return (
+      <div
+        style={{
+          background: '#fef2f2',
+          border: '1px solid #fee2e2',
+          padding: '10px 12px',
+          borderRadius: 10,
+          fontSize: 13,
+          color: '#b91c1c',
+          margin: '6px 0',
+          whiteSpace: 'pre-wrap',
+          lineHeight: 1.6,
+        }}
+      >
+        <WarningOutlined style={{ marginRight: 6 }} />
+        {ev.content}
+      </div>
+    );
+  }
+
+  return null;
+}
+
+// 将事件分组为对话轮次：用户消息 / 助手事件序列
+interface Turn {
+  type: 'user' | 'assistant';
+  events: AgentEvent[];
+}
+
+function groupTurns(events: AgentEvent[]): Turn[] {
+  const turns: Turn[] = [];
+  let current: AgentEvent[] = [];
+
+  for (const ev of events) {
+    if (ev.type === 'user') {
+      if (current.length > 0) {
+        turns.push({ type: 'assistant', events: current });
+        current = [];
+      }
+      turns.push({ type: 'user', events: [ev] });
+    } else {
+      current.push(ev);
+    }
+  }
+  if (current.length > 0) {
+    turns.push({ type: 'assistant', events: current });
+  }
+
+  return turns;
+}
+
 interface Props {
   events: AgentEvent[];
   userPrompt: string;
@@ -182,28 +346,22 @@ interface Props {
 export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const items = groupEvents(events, userPrompt, {
-    url: reportUrl ?? null,
-    meta: reportMeta ?? null,
-    runId: runId ?? null,
-  });
+  // Filter out 'done' events — they're handled by status display
+  const displayEvents = events.filter(e => e.type !== 'done');
+  const turns = groupTurns(displayEvents);
 
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [items.length]);
+  }, [displayEvents.length]);
+
+  const hasContent = userPrompt || displayEvents.length > 0 || (reportUrl && reportMeta);
 
   return (
     <div ref={containerRef} style={{ height: '100%', overflow: 'visible' }}>
-      {items.length === 0 && (
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '80px 20px',
-            color: '#8e8ea0',
-          }}
-        >
+      {!hasContent && (
+        <div style={{ textAlign: 'center', padding: '80px 20px', color: '#8e8ea0' }}>
           <div
             style={{
               width: 56,
@@ -232,261 +390,76 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
         </div>
       )}
 
-      {items.map((item, idx) => {
-        if (item.kind === 'user') {
-          return (
-            <div
-              key={idx}
-              style={{ display: 'flex', gap: 10, margin: '20px 0 24px', justifyContent: 'flex-end' }}
-            >
-              <div
-                style={{
-                  maxWidth: '72%',
-                  background: '#f9fafb',
-                  color: '#1f2937',
-                  padding: '10px 16px',
-                  borderRadius: '20px 20px 4px 20px',
-                  fontSize: 15,
-                  lineHeight: 1.6,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
-                }}
-              >
-                {item.content}
-              </div>
-              <div
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: '50%',
-                  background: '#e5e7eb',
-                  color: '#6b7280',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  alignSelf: 'flex-end',
-                  marginBottom: 2,
-                  fontSize: 13,
-                }}
-              >
-                <UserOutlined />
-              </div>
-            </div>
-          );
+      {/* 初始用户消息 */}
+      {userPrompt && <UserBubble text={userPrompt} />}
+
+      {/* 按轮次交替渲染用户消息和助手回复 */}
+      {turns.map((turn, idx) => {
+        if (turn.type === 'user') {
+          return <UserBubble key={`turn-${idx}`} text={turn.events[0].content} />;
         }
 
-        if (item.kind === 'report') {
-          return (
-            <div key={idx} style={{ margin: '20px 0 8px', display: 'flex', gap: 12 }}>
-              <div
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 8,
-                  background: '#1a73e8',
-                  color: '#fff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  marginTop: 4,
-                  fontSize: 14,
-                }}
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="8" y1="13" x2="16" y2="13" />
-                  <line x1="8" y1="17" x2="16" y2="17" />
-                </svg>
-              </div>
-              <div
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  background: '#fff',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: 14,
-                  overflow: 'hidden',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02)',
-                }}
-              >
-                <AgentReportView
-                  reportUrl={item.reportUrl}
-                  reportMeta={item.reportMeta}
-                  runId={item.runId}
-                  embedded
-                />
-              </div>
-            </div>
-          );
-        }
-
-        const turn = item;
-        const turnEvents = turn.events;
-        const thoughtEvents = turnEvents.filter(e => e.type === 'thought');
-        const toolEvents = turnEvents.filter(e => e.type === 'tool_use' || e.type === 'tool_result');
-        const textEvents = turnEvents.filter(e => e.type === 'text');
-        const errorEvents = turnEvents.filter(e => e.type === 'error');
+        // 助手事件序列
+        const visibleEvents = turn.events.filter(ev => !(ev.type === 'text' && !ev.content.trim()));
+        if (visibleEvents.length === 0) return null;
 
         return (
-          <div key={idx} style={{ margin: '8px 0 24px', display: 'flex', gap: 12 }}>
-            {/* ChatGPT同款方形圆角助手头像（蓝色） */}
-            <div
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: 8,
-                background: '#1a73e8',
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                marginTop: 4,
-                fontSize: 14,
-                boxShadow: '0 1px 3px rgba(26,115,232,0.3)',
-              }}
-            >
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2L15 8l7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z" />
-              </svg>
-            </div>
-
+          <div key={`turn-${idx}`} style={{ margin: '8px 0 24px', display: 'flex', gap: 12 }}>
+            <AssistantAvatar />
             <div style={{ flex: 1, minWidth: 0 }}>
-              {turn.startTime && (
-                <Tooltip title={turn.startTime} placement="topLeft">
-                  <Text type="secondary" style={{ fontSize: 11, color: '#9ca3af' }}>
-                    <ClockCircleOutlined style={{ marginRight: 3 }} />
-                    {formatTime(turn.startTime)}
-                  </Text>
-                </Tooltip>
-              )}
-
-              {/* 思考：默认折叠，ChatGPT同款极细框 */}
-              {thoughtEvents.map((ev, i) => (
-                <Accordion
-                  key={`t${i}`}
-                  label={
-                    <span style={{ color: '#8e8ea0' }}>
-                      思考
-                      <span style={{ opacity: 0.7, marginLeft: 6, fontSize: 11 }}>
-                        · {ev.content.length > 60 ? ev.content.slice(0, 60) + '…' : ev.content}
-                      </span>
-                    </span>
-                  }
-                  icon={
-                    <BulbOutlined style={{ fontSize: 12 }} />
-                  }
-                  color="#9ca3af"
-                >
-                  <Paragraph
-                    style={{
-                      margin: 0,
-                      color: '#6b7280',
-                      fontSize: 13,
-                      fontStyle: 'normal',
-                      whiteSpace: 'pre-wrap',
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    {ev.content}
-                  </Paragraph>
-                </Accordion>
-              ))}
-
-              {/* 工具调用块：ChatGPT同款带彩色Tag */}
-              {toolEvents.map((ev, i) => {
-                const isToolUse = ev.type === 'tool_use';
-                return (
-                  <Accordion
-                    key={`tool${i}`}
-                    label={
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ color: '#8e8ea0' }}>
-                          {isToolUse ? '使用工具' : '执行结果'}
-                        </span>
-                        {ev.toolName && (
-                          <Tag
-                            color={isToolUse ? 'blue' : 'green'}
-                            style={{ margin: 0, fontSize: 10, borderRadius: 4, padding: '0 6px', lineHeight: '18px' }}
-                          >
-                            {ev.toolName}
-                          </Tag>
-                        )}
-                      </span>
-                    }
-                    icon={isToolUse
-                      ? <CodeOutlined style={{ fontSize: 12 }} />
-                      : <CheckCircleOutlined style={{ fontSize: 12 }} />}
-                    color={isToolUse ? '#1a73e8' : '#10b981'}
-                    defaultOpen={!isToolUse && i === 0}
-                  >
-                    {ev.content && (
-                      <Paragraph style={{ margin: '0 0 4px', fontSize: 13, color: '#4b5563', whiteSpace: 'pre-wrap' }}>
-                        {ev.content}
-                      </Paragraph>
-                    )}
-                    {ev.toolInput && (
-                      <div style={{ margin: '6px 0' }}>
-                        <Text type="secondary" style={{ fontSize: 11 }}>输入参数</Text>
-                        <CodeBlock text={ev.toolInput} color="#4b5563" />
-                      </div>
-                    )}
-                    {ev.toolResult && (
-                      <div style={{ margin: '6px 0' }}>
-                        <Text type="secondary" style={{ fontSize: 11 }}>执行输出</Text>
-                        <CodeBlock text={ev.toolResult} color="#065f46" />
-                      </div>
-                    )}
-                  </Accordion>
-                );
-              })}
-
-              {/* 助手文本输出：ChatGPT同款，无边框，纯文本 */}
-              {textEvents.map((ev, i) => (
-                <div
-                  key={`text${i}`}
-                  style={{
-                    fontSize: 15,
-                    lineHeight: 1.75,
-                    color: '#374151',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    marginTop: thoughtEvents.length || toolEvents.length ? 8 : 4,
-                    fontWeight: 400,
-                  }}
-                >
-                  {ev.content}
-                </div>
-              ))}
-
-              {/* 错误：ChatGPT同款红底卡片 */}
-              {errorEvents.map((ev, i) => (
-                <div
-                  key={`err${i}`}
-                  style={{
-                    background: '#fef2f2',
-                    border: '1px solid #fee2e2',
-                    padding: '10px 12px',
-                    borderRadius: 10,
-                    fontSize: 13,
-                    color: '#b91c1c',
-                    marginTop: 8,
-                    whiteSpace: 'pre-wrap',
-                    lineHeight: 1.6,
-                  }}
-                >
-                  <WarningOutlined style={{ marginRight: 6 }} />
-                  {ev.content}
-                </div>
+              {visibleEvents.map((ev, evIdx) => (
+                <AssistantEventBlock key={evIdx} ev={ev} />
               ))}
             </div>
           </div>
         );
       })}
+
+      {/* 报告卡片 */}
+      {reportUrl && reportMeta && runId && (
+        <div style={{ margin: '20px 0 8px', display: 'flex', gap: 12 }}>
+          <div
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 8,
+              background: '#1a73e8',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              marginTop: 4,
+              fontSize: 14,
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="8" y1="13" x2="16" y2="13" />
+              <line x1="8" y1="17" x2="16" y2="17" />
+            </svg>
+          </div>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: '#fff',
+              border: '1px solid #e5e7eb',
+              borderRadius: 14,
+              overflow: 'hidden',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02)',
+            }}
+          >
+            <AgentReportView
+              reportUrl={reportUrl}
+              reportMeta={reportMeta}
+              runId={runId}
+              embedded
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

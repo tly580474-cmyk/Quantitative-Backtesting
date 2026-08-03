@@ -4,7 +4,7 @@ import { resolve, join } from 'path';
 import { tmpdir } from 'os';
 import type { Pool } from 'mysql2/promise';
 import { buildPrompt, type TemplateStyle } from './promptBuilder.js';
-import { parseStreamLine, extractReportInfo, type ParsedEvent } from './outputParser.js';
+import { parseStreamLine, extractReportInfo, extractSessionId, type ParsedEvent } from './outputParser.js';
 import { AgentRepository } from './agentRepository.js';
 
 export interface OrchestratorConfig {
@@ -20,6 +20,7 @@ export interface StartParams {
   maxTurns: number;
   timeoutMs: number;
   templateStyle?: string;
+  resumeSessionId?: string;
 }
 
 interface ActiveRun {
@@ -43,9 +44,9 @@ export class AgentOrchestrator {
     }
 
     const repo = new AgentRepository(this.pool);
-    const { runId, prompt, maxTurns, timeoutMs } = params;
+    const { runId, prompt, maxTurns, timeoutMs, resumeSessionId } = params;
 
-    // Build full prompt
+    // Build full prompt (skip report path when resuming — continuation doesn't need a new report)
     const winReportDir = resolve(this.config.reportRoot, 'reports');
     const winReportPath = resolve(winReportDir, `${runId}.html`);
     // Convert Windows path to WSL path (e.g. D:\foo\bar -> /mnt/d/foo/bar)
@@ -57,9 +58,6 @@ export class AgentOrchestrator {
 
     // Write prompt to a temp file to avoid bash quoting/escaping issues when
     // passing a long multi-line prompt through Windows spawn -> wsl.exe -> bash.
-    // Previous approach (single-quoted prompt on the bash command line) broke
-    // because Windows arg passing mangles embedded newlines/quotes, causing the
-    // prompt body to be interpreted as bash commands.
     const tmpPromptWinPath = join(tmpdir(), `agent-prompt-${runId}.txt`);
     await writeFile(tmpPromptWinPath, fullPrompt, 'utf-8');
     const tmpPromptWslPath = tmpPromptWinPath
@@ -77,7 +75,10 @@ export class AgentOrchestrator {
       '--print',
       '--output-format', 'stream-json',
       '--verbose',
-      '--max-turns', String(maxTurns),
+      // maxTurns=0 means unlimited — omit the flag entirely
+      ...(maxTurns > 0 ? ['--max-turns', String(maxTurns)] : []),
+      // Resume from previous session if provided
+      ...(resumeSessionId ? ['--resume', resumeSessionId] : []),
     ].filter(Boolean).join(' ');
 
     // cat the prompt file into claude's stdin; --print enables non-interactive mode
@@ -101,12 +102,22 @@ export class AgentOrchestrator {
 
     // Stream stdout
     let buffer = '';
+    let sessionIdCaptured = false;
     child.stdout?.on('data', async (chunk: Buffer) => {
       buffer += chunk.toString();
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
 
       for (const line of lines) {
+        // Capture session_id without creating a display event
+        if (!sessionIdCaptured) {
+          const sid = extractSessionId(line);
+          if (sid) {
+            sessionIdCaptured = true;
+            await repo.updateSessionId(runId, sid).catch(() => {});
+          }
+        }
+
         const event = parseStreamLine(line);
         if (!event) continue;
         event.timestamp = new Date().toISOString();

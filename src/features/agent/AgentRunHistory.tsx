@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Button, Card, Typography, Space, App, Tag, Empty, Select, Tooltip, Modal } from 'antd';
-import { ReloadOutlined, EyeOutlined, StopOutlined, RedoOutlined } from '@ant-design/icons';
+import { Table, Button, Card, Typography, Space, App, Tag, Empty, Select, Tooltip, Modal, Popconfirm } from 'antd';
+import { ReloadOutlined, EyeOutlined, StopOutlined, RedoOutlined, DeleteOutlined, MessageOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { AgentRun, AgentEvent } from './types';
-import { listAgentRuns, cancelAgentRun, getAgentRun } from './api';
+import { listAgentRuns, cancelAgentRun, getAgentRun, deleteAgentRun } from './api';
 import { AgentEventList } from './AgentEventList';
 
 const { Title, Text } = Typography;
@@ -82,6 +82,20 @@ export default function AgentRunHistory() {
     }
   };
 
+  const handleDelete = async (runId: string) => {
+    try {
+      await deleteAgentRun(runId);
+      message.success('已删除');
+      fetchRuns();
+    } catch (err) {
+      message.error(`删除失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleContinue = async (record: AgentRun) => {
+    navigate(`/agent?continue=${record.id}`);
+  };
+
   const handleViewDetail = async (runId: string) => {
     setDetailRunId(runId);
     setDetailLoading(true);
@@ -123,7 +137,7 @@ export default function AgentRunHistory() {
       dataIndex: 'maxTurns',
       key: 'maxTurns',
       width: 90,
-      render: (v: number) => <Text type="secondary">{v}</Text>,
+      render: (v: number) => <Text type="secondary">{v === 0 ? '不限制' : v}</Text>,
     },
     {
       title: '耗时',
@@ -145,12 +159,17 @@ export default function AgentRunHistory() {
     {
       title: '操作',
       key: 'actions',
-      width: 180,
+      width: 220,
       render: (_, record) => (
         <Space size="small">
           <Tooltip title="查看详情">
             <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.id)} />
           </Tooltip>
+          {(record.status === 'completed' || record.status === 'failed' || record.status === 'canceled') && (
+            <Tooltip title="继续对话">
+              <Button size="small" type="primary" ghost icon={<MessageOutlined />} onClick={() => handleContinue(record)} />
+            </Tooltip>
+          )}
           <Tooltip title="使用此 Prompt 重新发起">
             <Button size="small" icon={<RedoOutlined />} onClick={() => handleRerun(record)} />
           </Tooltip>
@@ -158,6 +177,13 @@ export default function AgentRunHistory() {
             <Tooltip title="取消运行">
               <Button size="small" danger icon={<StopOutlined />} onClick={() => handleCancel(record.id)} />
             </Tooltip>
+          )}
+          {record.status !== 'running' && (
+            <Popconfirm title="确定删除此运行记录？" onConfirm={() => handleDelete(record.id)} okText="删除" cancelText="取消">
+              <Tooltip title="删除">
+                <Button size="small" danger icon={<DeleteOutlined />} />
+              </Tooltip>
+            </Popconfirm>
           )}
         </Space>
       ),

@@ -15,7 +15,7 @@ export function useAgentStream() {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runIdRef = useRef<string | null>(null);
 
-  const connect = useCallback((runId: string) => {
+  const connect = useCallback((runId: string, opts?: { keepEvents?: boolean }) => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
@@ -27,12 +27,23 @@ export function useAgentStream() {
     runIdRef.current = runId;
     lastSeqRef.current = 0;
 
-    setState({
-      events: [],
-      status: 'connecting',
-      reportUrl: null,
-      reportMeta: null,
-    });
+    if (opts?.keepEvents) {
+      // 追加模式：保留已有事件（继续对话场景），只更新状态
+      setState(prev => ({
+        ...prev,
+        events: prev.events,
+        status: 'connecting',
+        reportUrl: null,
+        reportMeta: null,
+      }));
+    } else {
+      setState({
+        events: [],
+        status: 'connecting',
+        reportUrl: null,
+        reportMeta: null,
+      });
+    }
 
     const attachHandlers = (es: EventSource) => {
       es.onopen = () => {
@@ -132,5 +143,18 @@ export function useAgentStream() {
     });
   }, []);
 
-  return { state, connect, disconnect };
+  // 注入用户消息事件（用于继续对话时显示新的用户输入）
+  const pushUserMessage = useCallback((text: string) => {
+    setState(prev => ({
+      ...prev,
+      events: [...prev.events, {
+        type: 'user',
+        content: text,
+        seq: -1,
+        timestamp: new Date().toISOString(),
+      } as AgentEvent],
+    }));
+  }, []);
+
+  return { state, connect, disconnect, pushUserMessage };
 }

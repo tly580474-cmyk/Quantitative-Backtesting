@@ -1,14 +1,21 @@
 import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'mysql2/promise';
-import { readFile } from 'fs/promises';
+import { readFile, unlink } from 'fs/promises';
 import { z } from 'zod';
 import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
 import { AgentRepository } from '../services/agent/agentRepository.js';
 import type { AgentOrchestrator } from '../services/agent/agentOrchestrator.js';
 
 const createRunBodySchema = z.object({
-  prompt: z.string().min(10),
-  maxTurns: z.number().int().min(1).max(200).default(50),
+  prompt: z.string().min(1),
+  maxTurns: z.number().int().min(0).max(200).default(0),
+  timeoutMinutes: z.number().int().min(1).max(120).default(30),
+  templateStyle: z.enum(['classic-blue', 'dark-pro', 'minimal-white', 'dashboard']).default('classic-blue'),
+});
+
+const continueBodySchema = z.object({
+  prompt: z.string().min(1),
+  maxTurns: z.number().int().min(0).max(200).default(0),
   timeoutMinutes: z.number().int().min(1).max(120).default(30),
   templateStyle: z.enum(['classic-blue', 'dark-pro', 'minimal-white', 'dashboard']).default('classic-blue'),
 });
@@ -170,6 +177,69 @@ export function registerAgentRoutes(
     const repo = new AgentRepository(deps.pool);
     await repo.updateRunStatus(runId, 'canceled');
     return reply.send({ runId, status: 'canceled' });
+  });
+
+  // DELETE /api/agent/runs/:runId — 删除历史运行
+  app.delete('/api/agent/runs/:runId', async (request, reply) => {
+    if (!enabled) {
+      return reply.code(503).send(apiError(ErrorCodes.INTERNAL_ERROR, 'Agent 系统未启用'));
+    }
+    const { runId } = request.params as { runId: string };
+    const repo = new AgentRepository(deps.pool);
+
+    // Don't allow deleting a running task
+    if (orchestrator.isRunning(runId)) {
+      return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '运行中的任务无法删除，请先取消'));
+    }
+
+    // Try to delete the report HTML file
+    const report = await repo.getReport(runId);
+    if (report?.htmlPath) {
+      unlink(report.htmlPath).catch(() => {});
+    }
+
+    await repo.deleteRun(runId);
+    return reply.send({ runId, deleted: true });
+  });
+
+  // POST /api/agent/runs/:runId/continue — 接着历史任务继续工作
+  app.post('/api/agent/runs/:runId/continue', async (request, reply) => {
+    if (!enabled) {
+      return reply.code(503).send(apiError(ErrorCodes.INTERNAL_ERROR, 'Agent 系统未启用'));
+    }
+    if (!dbOnline) {
+      return reply.code(503).send(dbUnavailable());
+    }
+
+    const { runId: parentRunId } = request.params as { runId: string };
+    const body = continueBodySchema.parse(request.body);
+    const repo = new AgentRepository(deps.pool);
+
+    // Get parent run to retrieve session_id
+    const parentRun = await repo.getRun(parentRunId);
+    if (!parentRun) {
+      return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '原始运行不存在'));
+    }
+    if (!parentRun.sessionId) {
+      return reply.code(400).send(apiError(ErrorCodes.INTERNAL_ERROR, '原始运行无会话ID，无法继续'));
+    }
+
+    const newRunId = crypto.randomUUID();
+    await repo.createRun(newRunId, body.prompt, body.maxTurns, body.timeoutMinutes * 60_000, body.templateStyle, parentRunId);
+
+    orchestrator.start({
+      runId: newRunId,
+      prompt: body.prompt,
+      maxTurns: body.maxTurns,
+      timeoutMs: body.timeoutMinutes * 60_000,
+      templateStyle: body.templateStyle,
+      resumeSessionId: parentRun.sessionId,
+    }).catch(err => {
+      console.error(`[Agent] Failed to start continuation run ${newRunId}:`, err);
+      repo.updateRunStatus(newRunId, 'failed', { errorMessage: err.message }).catch(() => {});
+    });
+
+    return reply.code(201).send({ runId: newRunId, status: 'pending', parentRunId });
   });
 
   // GET /api/agent/runs — 列出历史运行
