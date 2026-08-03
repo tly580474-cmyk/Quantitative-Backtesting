@@ -237,7 +237,7 @@ export default function EquityChart({ series, height = 300 }: Props) {
           lineWidth: 1,
           lineStyle: s.dashed ? LineStyle.Dashed : LineStyle.Solid,
           priceFormat: s.valueFormat === 'normalized'
-            ? { type: 'custom', formatter: (value: number) => value.toFixed(2) }
+            ? { type: 'custom', formatter: (value: number) => (value ?? 0).toFixed(2) }
             : { type: 'price', precision: 2, minMove: 0.01 },
         });
         seriesRef.current.set(seriesId, lineSeries);
@@ -324,7 +324,8 @@ function formatMoney(value: number): string {
   return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function formatPercent(value: number): string {
+function formatPercent(value: number | undefined | null): string {
+  if (value == null) return '';
   const sign = value > 0 ? '+' : '';
   return `${sign}${value.toFixed(2)}%`;
 }
