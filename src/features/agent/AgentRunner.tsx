@@ -5,8 +5,9 @@ import {
 } from 'antd';
 import {
   PlayCircleOutlined, StopOutlined, RobotOutlined, HistoryOutlined,
-  PlusOutlined, SettingOutlined, UserOutlined, ReloadOutlined,
+  PlusOutlined, SettingOutlined, ReloadOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined,
+  SendOutlined, PaperClipOutlined,
 } from '@ant-design/icons';
 import { AgentEventList, calcDuration } from './AgentEventList';
 import { useAgentStream } from './useAgentStream';
@@ -14,7 +15,7 @@ import { createAgentRun, cancelAgentRun, listAgentRuns } from './api';
 import type { AgentRun } from './types';
 
 const { TextArea } = Input;
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 const PROMPT_PARAM = 'prompt';
 
@@ -58,6 +59,19 @@ function truncatePrompt(prompt: string, max = 40): string {
   return one.length > max ? one.slice(0, max) + '...' : one;
 }
 
+function formatChatDate(iso?: string | null): string {
+  if (!iso) {
+    const d = new Date();
+    return d.toLocaleDateString('zh-CN', { weekday: 'long', hour: '2-digit', minute: '2-digit' });
+  }
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('zh-CN', { weekday: 'long', hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
 export default function AgentRunner() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -70,7 +84,8 @@ export default function AgentRunner() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [historyRuns, setHistoryRuns] = useState<AgentRun[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [currentPrompt, setCurrentPrompt] = useState(''); // 已提交的 prompt，用于显示用户消息
+  const [currentPrompt, setCurrentPrompt] = useState('');
+  const [currentRunStartTime, setCurrentRunStartTime] = useState<string | null>(null);
   const { message } = App.useApp();
   const { state, connect, disconnect } = useAgentStream();
   const inputRef = useRef<{ focus: () => void; resizableTextArea?: { textArea: HTMLTextAreaElement } } | null>(null);
@@ -118,9 +133,9 @@ export default function AgentRunner() {
       const result = await createAgentRun(prompt, maxTurns, undefined, templateStyle);
       setRunId(result.runId);
       setCurrentPrompt(prompt);
+      setCurrentRunStartTime(new Date().toISOString());
       connect(result.runId);
       setPrompt('');
-      message.success('Agent 已启动');
     } catch (err) {
       message.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -143,6 +158,7 @@ export default function AgentRunner() {
     setRunId(null);
     setPrompt('');
     setCurrentPrompt('');
+    setCurrentRunStartTime(null);
     inputRef.current?.focus();
   }, [disconnect]);
 
@@ -153,7 +169,6 @@ export default function AgentRunner() {
       label: '重新发起',
       icon: <ReloadOutlined />,
       onClick: ({ domEvent }) => {
-        // 由具体项 onClick 处理，这里空实现避免覆盖
         domEvent.stopPropagation();
       },
     },
@@ -175,156 +190,288 @@ export default function AgentRunner() {
       : '';
 
   const isRunning = state.status === 'running' || state.status === 'connecting';
+  const hasActiveRun = !!runId;
+
+  // 当前回合的显示日期（从当前运行的 startedAt 或 currentRunStartTime 取）
+  const displayDate = formatChatDate(
+    state.events.find(e => e.timestamp)?.timestamp ?? currentRunStartTime
+  );
 
   return (
-    <div style={{ height: '100%', display: 'flex', overflow: 'hidden' }}>
+    <div
+      style={{
+        height: '100%',
+        display: 'flex',
+        overflow: 'hidden',
+        background: '#ffffff',
+        position: 'relative',
+      }}
+    >
       {/* 主对话区 */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* 顶部状态栏 */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' }}>
+        {/* 顶部浮动工具栏（ChatGPT同款极细，右上角浮动） */}
         <div
           style={{
-            padding: '10px 20px',
-            borderBottom: '1px solid #f0f0f0',
+            position: 'absolute',
+            top: 10,
+            right: 12,
+            zIndex: 10,
             display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            background: '#fff',
-            flexShrink: 0,
+            gap: 6,
           }}
         >
-          <RobotOutlined style={{ fontSize: 18, color: '#1a73e8' }} />
-          <Title level={5} style={{ margin: 0 }}>策略研究智能体</Title>
-          {state.status !== 'idle' && (
-            <Tag color={statusColor[state.status]}>{statusText[state.status]}</Tag>
-          )}
-          {stepCount > 0 && (
-            <Text type="secondary" style={{ fontSize: 12 }}>{stepCount} 步</Text>
-          )}
-          {totalDuration && (
-            <Text type="secondary" style={{ fontSize: 12, color: '#1a73e8' }}>
-              耗时 {totalDuration}
-            </Text>
-          )}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-            <Tooltip title="刷新历史列表">
-              <Button size="small" icon={<ReloadOutlined />} onClick={fetchHistory} loading={historyLoading} />
-            </Tooltip>
-            <Tooltip title={sidebarCollapsed ? '展开会话列表' : '收起会话列表'}>
-              <Button
-                size="small"
-                icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                onClick={() => setSidebarCollapsed(c => !c)}
-              />
-            </Tooltip>
+          <Tooltip title="刷新历史列表">
+            <Button
+              size="small"
+              type="text"
+              icon={<ReloadOutlined style={{ fontSize: 15 }} />}
+              onClick={fetchHistory}
+              loading={historyLoading}
+              style={{ color: '#8e8ea0', borderRadius: 8, width: 32, height: 32 }}
+            />
+          </Tooltip>
+          <Tooltip title={sidebarCollapsed ? '展开会话列表' : '收起会话列表'}>
+            <Button
+              size="small"
+              type="text"
+              icon={(sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />) as React.ReactElement}
+              onClick={() => setSidebarCollapsed(c => !c)}
+              style={{ color: '#8e8ea0', borderRadius: 8, width: 32, height: 32 }}
+            />
+          </Tooltip>
+        </div>
+
+        {/* 对话流（ChatGPT同款：纯白带日期分隔线居中） */}
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            padding: '56px 20px 180px',
+            scrollBehavior: 'smooth',
+          }}
+        >
+          <div style={{ maxWidth: 768, margin: '0 auto' }}>
+            {hasActiveRun && (
+              <div style={{ textAlign: 'center', color: '#8e8ea0', fontSize: 12, marginBottom: 18 }}>
+                {displayDate}
+                {stepCount > 0 && <span style={{ marginLeft: 8 }}>· {stepCount} 步</span>}
+                {totalDuration && <span style={{ marginLeft: 8 }}>· {totalDuration}</span>}
+                {state.status !== 'idle' && (
+                  <Tag
+                    color={statusColor[state.status]}
+                    style={{ marginLeft: 8, fontSize: 10, borderRadius: 4 }}
+                  >
+                    {statusText[state.status]}
+                  </Tag>
+                )}
+              </div>
+            )}
+            <AgentEventList
+              events={state.events}
+              userPrompt={currentPrompt}
+              reportUrl={state.reportUrl}
+              reportMeta={state.reportMeta}
+              runId={runId}
+            />
           </div>
         </div>
 
-        {/* 对话流 */}
-        <div style={{ flex: 1, minHeight: 0, background: '#fff' }}>
-          <AgentEventList
-            events={state.events}
-            userPrompt={currentPrompt}
-            reportUrl={state.reportUrl}
-            reportMeta={state.reportMeta}
-            runId={runId}
-          />
-        </div>
-
-        {/* 底部输入区 */}
+        {/* 底部固定输入区（ChatGPT同款：输入框悬浮居中，大圆角内嵌按钮） */}
         <div
           style={{
-            borderTop: '1px solid #f0f0f0',
-            padding: '12px 20px 16px',
-            background: '#fff',
-            flexShrink: 0,
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            background: 'linear-gradient(to top, #ffffff 0%, #ffffff 60%, rgba(255,255,255,0) 100%)',
+            padding: '28px 20px 36px',
+            pointerEvents: 'none',
           }}
         >
-          <div style={{ maxWidth: 900, margin: '0 auto' }}>
-            <TextArea
-              ref={inputRef as never}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder={
-                isRunning
-                  ? 'Agent 运行中，输入框已锁定...'
-                  : '描述你的策略研究需求，按 Ctrl+Enter 发送。例如：\n分析动量因子（momentum_20）在 2025 年 5-6 月的有效性，计算 IC、ICIR 和分层收益...'
-              }
-              autoSize={{ minRows: 2, maxRows: 6 }}
-              disabled={isRunning}
-              onPressEnter={(e) => {
-                if (e.ctrlKey || e.metaKey) {
-                  e.preventDefault();
-                  if (!isRunning) handleStart();
-                }
+          <div style={{ maxWidth: 768, margin: '0 auto', pointerEvents: 'auto' }}>
+            {/* 设置面板（悬浮在输入框上方） */}
+            {showSettings && (
+              <div
+                style={{
+                  marginBottom: 10,
+                  background: '#f9fafb',
+                  border: '1px solid #f0f0f0',
+                  borderRadius: 14,
+                  padding: '10px 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <Text type="secondary" style={{ fontSize: 12 }}>最大轮次：</Text>
+                <InputNumber
+                  size="small"
+                  value={maxTurns}
+                  onChange={(v) => setMaxTurns(v ?? 50)}
+                  min={1}
+                  max={200}
+                  style={{ width: 80 }}
+                  disabled={isRunning}
+                />
+                <Text type="secondary" style={{ fontSize: 12 }}>报告风格：</Text>
+                <Select
+                  size="small"
+                  value={templateStyle}
+                  onChange={(v) => setTemplateStyle(v)}
+                  style={{ width: 140 }}
+                  disabled={isRunning}
+                  options={[
+                    { value: 'classic-blue', label: '经典金融蓝' },
+                    { value: 'dark-pro', label: '暗黑专业版' },
+                    { value: 'minimal-white', label: '极简白' },
+                    { value: 'dashboard', label: '数据仪表盘' },
+                  ]}
+                />
+              </div>
+            )}
+
+            {/* 主输入框（ChatGPT同款圆角胶囊） */}
+            <div
+              style={{
+                background: '#ffffff',
+                border: '1px solid #e5e7eb',
+                borderRadius: 24,
+                boxShadow: '0 0 0 1px rgba(0,0,0,0.02), 0 2px 6px rgba(0,0,0,0.03)',
+                padding: '8px 8px 8px 16px',
+                display: 'flex',
+                alignItems: 'flex-end',
+                gap: 6,
+                transition: 'box-shadow 0.15s, border-color 0.15s',
               }}
-              style={{ borderRadius: 12, padding: '10px 14px', fontSize: 14 }}
-            />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <Tooltip title="高级设置">
-                  <Button
-                    size="small"
-                    type="text"
-                    icon={<SettingOutlined />}
-                    onClick={() => setShowSettings(s => !s)}
-                    style={{ color: showSettings ? '#1a73e8' : undefined }}
-                  />
-                </Tooltip>
-                {showSettings && (
-                  <>
-                    <Text type="secondary" style={{ fontSize: 12 }}>轮次:</Text>
-                    <InputNumber
-                      size="small"
-                      value={maxTurns}
-                      onChange={(v) => setMaxTurns(v ?? 50)}
-                      min={1}
-                      max={200}
-                      style={{ width: 70 }}
-                      disabled={isRunning}
-                    />
-                    <Text type="secondary" style={{ fontSize: 12 }}>风格:</Text>
-                    <Select
-                      size="small"
-                      value={templateStyle}
-                      onChange={(v) => setTemplateStyle(v)}
-                      style={{ width: 130 }}
-                      disabled={isRunning}
-                      options={[
-                        { value: 'classic-blue', label: '经典金融蓝' },
-                        { value: 'dark-pro', label: '暗黑专业版' },
-                        { value: 'minimal-white', label: '极简白' },
-                        { value: 'dashboard', label: '数据仪表盘' },
-                      ]}
-                    />
-                  </>
-                )}
-                {!showSettings && (
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    {isRunning ? '' : 'Ctrl+Enter 发送 · 点击齿轮配置'}
-                  </Text>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {isRunning ? (
-                  <>
-                    <Button danger icon={<StopOutlined />} onClick={handleCancel}>
-                      取消运行
-                    </Button>
-                    <Button onClick={handleNewConversation}>新建对话</Button>
-                  </>
-                ) : (
-                  <Button
-                    type="primary"
-                    icon={<PlayCircleOutlined />}
-                    onClick={handleStart}
-                    loading={loading}
-                    disabled={prompt.trim().length < 10}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = '0 0 0 1px rgba(26,115,232,0.15), 0 4px 12px rgba(0,0,0,0.05)';
+                e.currentTarget.style.borderColor = '#d2d4db';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.02), 0 2px 6px rgba(0,0,0,0.03)';
+                e.currentTarget.style.borderColor = '#e5e7eb';
+              }}
+            >
+              {/* 左侧设置按钮（ChatGPT同款附件图标位置） */}
+              <Tooltip title={showSettings ? '收起配置' : '高级配置'}>
+                <button
+                  onClick={() => setShowSettings(s => !s)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 6,
+                    borderRadius: '50%',
+                    color: showSettings ? '#1a73e8' : '#8e8ea0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 6,
+                    flexShrink: 0,
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#f3f4f6'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  {showSettings ? <SettingOutlined style={{ fontSize: 16 }} /> : <PaperClipOutlined style={{ fontSize: 16 }} />}
+                </button>
+              </Tooltip>
+
+              <TextArea
+                ref={inputRef as never}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder={
+                  isRunning
+                    ? 'Agent 运行中…'
+                    : '向智能体提问，或描述你的策略研究需求…'
+                }
+                autoSize={{ minRows: 1, maxRows: 8 }}
+                disabled={isRunning}
+                onPressEnter={(e) => {
+                  if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    if (!isRunning) handleStart();
+                  }
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  boxShadow: 'none',
+                  outline: 'none',
+                  resize: 'none',
+                  fontSize: 15,
+                  lineHeight: 1.6,
+                  padding: '8px 4px',
+                  flex: 1,
+                }}
+              />
+
+              {/* 右侧发送按钮（ChatGPT同款圆黑按钮） */}
+              {isRunning ? (
+                <Tooltip title="停止运行">
+                  <button
+                    onClick={handleCancel}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '50%',
+                      background: '#f0f0f0',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: '#1f2937',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: 4,
+                      flexShrink: 0,
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#e5e7eb'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = '#f0f0f0'; }}
                   >
-                    发送
-                  </Button>
-                )}
-              </div>
+                    <StopOutlined style={{ fontSize: 13 }} />
+                  </button>
+                </Tooltip>
+              ) : (
+                <Tooltip title={prompt.trim().length < 10 ? '输入至少 10 个字符' : '发送 (Ctrl+Enter)'}>
+                  <button
+                    onClick={handleStart}
+                    disabled={prompt.trim().length < 10 || loading}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '50%',
+                      background: prompt.trim().length >= 10 && !loading ? '#1f2937' : '#f0f0f0',
+                      border: 'none',
+                      cursor: prompt.trim().length >= 10 && !loading ? 'pointer' : 'not-allowed',
+                      color: prompt.trim().length >= 10 && !loading ? '#ffffff' : '#c9ccd3',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: 4,
+                      flexShrink: 0,
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (prompt.trim().length >= 10 && !loading) e.currentTarget.style.background = '#111827';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (prompt.trim().length >= 10 && !loading) e.currentTarget.style.background = '#1f2937';
+                    }}
+                  >
+                    <SendOutlined style={{ fontSize: 13, marginLeft: 1 }} />
+                  </button>
+                </Tooltip>
+              )}
             </div>
+
+            {!showSettings && !isRunning && (
+              <div style={{ textAlign: 'center', marginTop: 10, color: '#8e8ea0', fontSize: 11 }}>
+                按 Ctrl + Enter 发送 · 点击左侧附件图标配置最大轮次与报告风格
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -334,24 +481,25 @@ export default function AgentRunner() {
         <div
           style={{
             width: 260,
-            borderLeft: '1px solid #f0f0f0',
+            borderLeft: '1px solid #ececf1',
             background: '#fafafa',
             display: 'flex',
             flexDirection: 'column',
             flexShrink: 0,
           }}
         >
-          <div style={{ padding: 12, borderBottom: '1px solid #f0f0f0' }}>
+          <div style={{ padding: 12, borderBottom: '1px solid #ececf1' }}>
             <Button
               type="primary"
               icon={<PlusOutlined />}
               block
               onClick={handleNewConversation}
+              style={{ borderRadius: 10, height: 38, background: '#1a73e8' }}
             >
               新建对话
             </Button>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '4px 6px' }}>
             {historyLoading && (
               <div style={{ textAlign: 'center', padding: 16 }}>
                 <Spin size="small" />
@@ -368,14 +516,16 @@ export default function AgentRunner() {
                 onClick={() => {
                   setRunId(run.id);
                   setCurrentPrompt(run.prompt);
+                  setCurrentRunStartTime(run.createdAt);
                   connect(run.id);
                 }}
                 style={{
-                  padding: '10px 14px',
+                  padding: '10px 12px',
                   cursor: 'pointer',
-                  borderBottom: '1px solid #f0f0f0',
+                  borderRadius: 8,
+                  marginBottom: 2,
                   background: runId === run.id ? '#e6f0ff' : 'transparent',
-                  transition: 'background 0.15s',
+                  transition: 'background 0.12s',
                 }}
                 onMouseEnter={e => {
                   if (runId !== run.id) e.currentTarget.style.background = '#f0f0f0';
@@ -385,7 +535,7 @@ export default function AgentRunner() {
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <Tag color={statusColor[run.status]} style={{ margin: 0, fontSize: 10 }}>
+                  <Tag color={statusColor[run.status]} style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>
                     {statusText[run.status] ?? run.status}
                   </Tag>
                   <Text type="secondary" style={{ fontSize: 11 }}>
@@ -393,17 +543,24 @@ export default function AgentRunner() {
                   </Text>
                 </div>
                 <Text
-                  style={{ fontSize: 12, color: '#595959', display: 'block' }}
-                  ellipsis
+                  style={{
+                    fontSize: 13,
+                    color: '#595959',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                    lineHeight: 1.45,
+                  }}
                 >
                   {truncatePrompt(run.prompt)}
                 </Text>
               </div>
             ))}
           </div>
-          <div style={{ padding: 8, borderTop: '1px solid #f0f0f0' }}>
+          <div style={{ padding: 8, borderTop: '1px solid #ececf1' }}>
             <Dropdown menu={{ items: historyMenuItems }} placement="topLeft">
-              <Button size="small" block icon={<HistoryOutlined />}>
+              <Button size="small" block icon={<HistoryOutlined />} style={{ borderRadius: 8 }}>
                 运行历史
               </Button>
             </Dropdown>
