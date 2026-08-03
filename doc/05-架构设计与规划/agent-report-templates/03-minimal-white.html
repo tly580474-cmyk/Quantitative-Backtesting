@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>研究报告：动量因子有效性分析</title>
+<!-- REPORT_SUMMARY: 动量因子（MOM20）有效性分析报告 | 研究区间 2024-01-02 至 2024-03-08 | 样本数 5,240 | ICIR=1.32 MeanIC=0.085 IC胜率=78% 多头超额=2.4% | 结论：短期动量效应显著，建议作为多头信号辅助 -->
+<style>
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    background-color: #ffffff;
+    color: #1d1d1f;
+    font-size: 15px;
+    line-height: 1.9;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .container {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 48px;
+  }
+
+  /* ===== Header ===== */
+  .report-header {
+    margin-bottom: 56px;
+  }
+
+  .report-title {
+    font-size: 28px;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    color: #1d1d1f;
+    line-height: 1.4;
+    margin-bottom: 16px;
+    border-bottom: 2px solid #1a73e8;
+    padding-bottom: 8px;
+  }
+
+  .report-meta {
+    color: #86868b;
+    font-size: 13px;
+    line-height: 1.8;
+  }
+
+  .report-meta span + span {
+    margin-left: 20px;
+  }
+
+  .report-meta .meta-label {
+    color: #6e6e73;
+  }
+
+  /* ===== Key metrics ===== */
+  .metrics {
+    display: flex;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 8px 0 40px;
+    margin-bottom: 48px;
+    border-bottom: 1px solid #f0f0f2;
+  }
+
+  .metric {
+    flex: 1;
+    text-align: left;
+    position: relative;
+  }
+
+  .metric + .metric {
+    padding-left: 32px;
+  }
+
+  .metric + .metric::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 1px;
+    background-color: #f0f0f2;
+  }
+
+  .metric-value {
+    font-size: 30px;
+    font-weight: 500;
+    color: #1a73e8;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    margin-bottom: 6px;
+  }
+
+  .metric-value.neutral {
+    color: #1d1d1f;
+  }
+
+  .metric-label {
+    font-size: 12px;
+    color: #86868b;
+    letter-spacing: 0.02em;
+  }
+
+  /* ===== Tabs ===== */
+  .tabs {
+    display: flex;
+    gap: 36px;
+    border-bottom: 1px solid #f0f0f2;
+    margin-bottom: 36px;
+  }
+
+  .tab {
+    background: none;
+    border: none;
+    padding: 0 0 14px;
+    font-size: 15px;
+    color: #86868b;
+    cursor: pointer;
+    font-family: inherit;
+    position: relative;
+    transition: color 0.15s ease;
+  }
+
+  .tab:hover {
+    color: #6e6e73;
+  }
+
+  .tab.active {
+    color: #1d1d1f;
+    font-weight: 500;
+  }
+
+  .tab.active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    background-color: #1a73e8;
+    border-radius: 1px;
+  }
+
+  /* ===== Tab panels ===== */
+  .tab-panel {
+    display: none;
+  }
+
+  .tab-panel.active {
+    display: block;
+  }
+
+  .panel-heading {
+    font-size: 16px;
+    font-weight: 500;
+    color: #1d1d1f;
+    margin-bottom: 8px;
+  }
+
+  .panel-sub {
+    font-size: 13px;
+    color: #86868b;
+    margin-bottom: 28px;
+  }
+
+  /* ===== SVG chart ===== */
+  .chart-wrap {
+    width: 100%;
+    margin-bottom: 20px;
+  }
+
+  .chart-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    overflow: visible;
+  }
+
+  .chart-svg .axis-line {
+    stroke: #e0e0e0;
+    stroke-width: 1;
+  }
+
+  .chart-svg .zero-line {
+    stroke: #e0e0e0;
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+  }
+
+  .chart-svg .axis-label {
+    fill: #86868b;
+    font-size: 11px;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+
+  .chart-svg .ic-line {
+    fill: none;
+    stroke: #1a73e8;
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+
+  .chart-svg .hover-dot {
+    fill: #1a73e8;
+    stroke: #ffffff;
+    stroke-width: 2;
+    opacity: 0;
+  }
+
+  .chart-svg .hover-guide {
+    stroke: #d0d0d4;
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    opacity: 0;
+  }
+
+  .chart-tooltip {
+    position: absolute;
+    background: #ffffff;
+    border: 1px solid #f0f0f2;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    padding: 8px 12px;
+    font-size: 12px;
+    color: #1d1d1f;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+    white-space: nowrap;
+    z-index: 10;
+  }
+
+  .chart-tooltip .tt-date {
+    color: #86868b;
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+
+  .chart-tooltip .tt-value {
+    font-weight: 500;
+    color: #1a73e8;
+  }
+
+  .chart-container {
+    position: relative;
+  }
+
+  .chart-legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #86868b;
+    margin-top: 4px;
+  }
+
+  .chart-legend .dot {
+    width: 10px;
+    height: 2px;
+    background-color: #1a73e8;
+    border-radius: 1px;
+  }
+
+  /* ===== Table ===== */
+  .table-wrap {
+    width: 100%;
+    margin-bottom: 12px;
+  }
+
+  table.layer-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  .layer-table thead th {
+    text-align: right;
+    padding: 12px 16px;
+    color: #86868b;
+    font-weight: 400;
+    font-size: 13px;
+    border-bottom: 1px solid #f0f0f2;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    transition: color 0.15s ease;
+  }
+
+  .layer-table thead th:hover {
+    color: #6e6e73;
+  }
+
+  .layer-table thead th:first-child {
+    text-align: left;
+  }
+
+  .layer-table thead th .sort-arrow {
+    display: inline-block;
+    margin-left: 4px;
+    color: #c7c7cc;
+    font-size: 10px;
+  }
+
+  .layer-table thead th.sorted .sort-arrow {
+    color: #1a73e8;
+  }
+
+  .layer-table tbody td {
+    padding: 14px 16px;
+    text-align: right;
+    color: #1d1d1f;
+    border-bottom: 1px solid #f0f0f2;
+  }
+
+  .layer-table tbody td:first-child {
+    text-align: left;
+    color: #6e6e73;
+  }
+
+  .layer-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .layer-table tbody tr.summary-row td {
+    color: #1a73e8;
+    font-weight: 500;
+    border-top: 1px solid #e5e5e7;
+    border-bottom: none;
+  }
+
+  .layer-table tbody tr.summary-row td:first-child {
+    color: #1a73e8;
+  }
+
+  .table-hint {
+    font-size: 12px;
+    color: #86868b;
+    margin-top: 12px;
+  }
+
+  /* ===== Collapse ===== */
+  .collapse-list {
+    margin-top: 8px;
+  }
+
+  .collapse-item {
+    border-bottom: 1px solid #f0f0f2;
+  }
+
+  .collapse-item:first-child {
+    border-top: 1px solid #f0f0f2;
+  }
+
+  .collapse-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 0;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .collapse-header:hover .collapse-title {
+    color: #1a73e8;
+  }
+
+  .collapse-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: #1d1d1f;
+    transition: color 0.15s ease;
+  }
+
+  .collapse-title .sub {
+    color: #86868b;
+    font-weight: 400;
+    font-size: 13px;
+    margin-left: 10px;
+  }
+
+  .collapse-arrow {
+    width: 14px;
+    height: 14px;
+    color: #86868b;
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  .collapse-item.open .collapse-arrow {
+    transform: rotate(90deg);
+  }
+
+  .collapse-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.3s ease;
+  }
+
+  .collapse-item.open .collapse-body {
+    grid-template-rows: 1fr;
+  }
+
+  .collapse-inner {
+    overflow: hidden;
+    min-height: 0;
+    padding: 0 0 24px;
+    color: #6e6e73;
+    font-size: 14px;
+  }
+
+  .decay-stats {
+    display: flex;
+    gap: 40px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .decay-stat .k {
+    font-size: 12px;
+    color: #86868b;
+    margin-bottom: 4px;
+  }
+
+  .decay-stat .v {
+    font-size: 20px;
+    font-weight: 500;
+    color: #1a73e8;
+  }
+
+  .decay-stat .v.muted {
+    color: #1d1d1f;
+  }
+
+  /* ===== Conclusion & Risk ===== */
+  .section-block {
+    margin-top: 48px;
+    padding-top: 40px;
+    border-top: 1px solid #f0f0f2;
+  }
+
+  .section-title {
+    font-size: 20px;
+    font-weight: 500;
+    color: #1d1d1f;
+    margin-bottom: 20px;
+    letter-spacing: -0.005em;
+  }
+
+  .section-list {
+    list-style: none;
+  }
+
+  .section-list li {
+    position: relative;
+    padding-left: 22px;
+    margin-bottom: 14px;
+    color: #6e6e73;
+    font-size: 14px;
+  }
+
+  .section-list li::before {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 13px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background-color: #1a73e8;
+  }
+
+  .section-list li strong {
+    color: #1d1d1f;
+    font-weight: 500;
+  }
+
+  .risk-block {
+    margin-top: 40px;
+    padding: 24px 24px 24px 28px;
+    background-color: #fafafa;
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    position: relative;
+  }
+
+  .risk-block::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 24px;
+    bottom: 24px;
+    width: 3px;
+    background-color: #86868b;
+    border-radius: 2px;
+  }
+
+  .risk-block .section-title {
+    margin-bottom: 14px;
+    font-size: 16px;
+  }
+
+  .risk-block .section-list li {
+    color: #6e6e73;
+    margin-bottom: 10px;
+  }
+
+  .report-footer {
+    margin-top: 56px;
+    padding-top: 28px;
+    border-top: 1px solid #f0f0f2;
+    color: #86868b;
+    font-size: 12px;
+    text-align: center;
+  }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 720px) {
+    .container {
+      padding: 32px 24px;
+    }
+
+    .report-title {
+      font-size: 24px;
+    }
+
+    .metrics {
+      flex-wrap: wrap;
+      gap: 24px 0;
+    }
+
+    .metric {
+      flex: 1 1 50%;
+      min-width: 45%;
+    }
+
+    .metric + .metric {
+      padding-left: 24px;
+    }
+
+    .metric + .metric::before {
+      left: 0;
+    }
+
+    .metric:nth-child(odd)::before {
+      display: none;
+    }
+
+    .metric:nth-child(odd) {
+      padding-left: 0;
+    }
+
+    .tabs {
+      gap: 24px;
+    }
+
+    .layer-table thead th,
+    .layer-table tbody td {
+      padding: 12px 8px;
+      font-size: 13px;
+    }
+
+    .report-meta span + span {
+      margin-left: 12px;
+      display: inline-block;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ===== Header ===== -->
+  <header class="report-header">
+    <h1 class="report-title">动量因子有效性分析报告</h1>
+    <div class="report-meta">
+      <span><span class="meta-label">研究日期：</span>2024-03-11</span>
+      <span><span class="meta-label">数据范围：</span>2024-01-02 ~ 2024-03-08</span>
+      <span><span class="meta-label">样本数：</span>5,240</span>
+      <span><span class="meta-label">因子：</span>MOM20（20日动量）</span>
+    </div>
+  </header>
+
+  <!-- ===== Key metrics ===== -->
+  <section class="metrics">
+    <div class="metric">
+      <div class="metric-value">1.32</div>
+      <div class="metric-label">ICIR</div>
+    </div>
+    <div class="metric">
+      <div class="metric-value">0.085</div>
+      <div class="metric-label">Mean IC</div>
+    </div>
+    <div class="metric">
+      <div class="metric-value">78%</div>
+      <div class="metric-label">IC 胜率</div>
+    </div>
+    <div class="metric">
+      <div class="metric-value">2.4%</div>
+      <div class="metric-label">多头超额收益</div>
+    </div>
+  </section>
+
+  <!-- ===== Tabs ===== -->
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="ic" role="tab">IC 分析</button>
+    <button class="tab" data-tab="layers" role="tab">分层收益</button>
+    <button class="tab" data-tab="decay" role="tab">因子衰减</button>
+  </div>
+
+  <!-- ===== Tab: IC 分析 ===== -->
+  <div class="tab-panel active" id="panel-ic">
+    <div class="panel-heading">每日 IC 时间序列</div>
+    <div class="panel-sub">Spearman 秩相关系数 · 滚动 40 个交易日 · 预测周期 5 日</div>
+
+    <div class="chart-container">
+      <div class="chart-wrap">
+        <svg class="chart-svg" id="icChart" viewBox="0 0 800 320" preserveAspectRatio="xMidYMid meet" aria-label="每日 IC 时间序列折线图">
+          <!-- Axes -->
+          <line class="axis-line" x1="50" y1="20" x2="50" y2="280"></line>
+          <line class="axis-line" x1="50" y1="280" x2="780" y2="280"></line>
+          <!-- Zero line -->
+          <line class="zero-line" x1="50" y1="150" x2="780" y2="150"></line>
+          <!-- Y axis labels -->
+          <text class="axis-label" x="44" y="24" text-anchor="end">0.3</text>
+          <text class="axis-label" x="44" y="87" text-anchor="end">0.15</text>
+          <text class="axis-label" x="44" y="154" text-anchor="end">0</text>
+          <text class="axis-label" x="44" y="217" text-anchor="end">-0.15</text>
+          <text class="axis-label" x="44" y="283" text-anchor="end">-0.3</text>
+          <!-- X axis labels -->
+          <text class="axis-label" x="50" y="298" text-anchor="middle">01-02</text>
+          <text class="axis-label" x="232" y="298" text-anchor="middle">01-16</text>
+          <text class="axis-label" x="415" y="298" text-anchor="middle">02-05</text>
+          <text class="axis-label" x="597" y="298" text-anchor="middle">02-26</text>
+          <text class="axis-label" x="780" y="298" text-anchor="middle">03-08</text>
+          <!-- IC line (path generated by JS) -->
+          <path class="ic-line" id="icPath" d=""></path>
+          <!-- Hover guide + dot -->
+          <line class="hover-guide" id="hoverGuide" x1="0" y1="20" x2="0" y2="280"></line>
+          <circle class="hover-dot" id="hoverDot" cx="0" cy="0" r="4"></circle>
+          <!-- Hover capture rect -->
+          <rect id="hoverArea" x="50" y="20" width="730" height="260" fill="transparent" style="cursor: crosshair;"></rect>
+        </svg>
+      </div>
+      <div class="chart-tooltip" id="chartTooltip">
+        <div class="tt-date" id="ttDate"></div>
+        <div class="tt-value" id="ttValue"></div>
+      </div>
+      <div class="chart-legend">
+        <span class="dot"></span>
+        <span>每日 IC（Spearman 秩相关）</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Tab: 分层收益 ===== -->
+  <div class="tab-panel" id="panel-layers">
+    <div class="panel-heading">分层超额收益</div>
+    <div class="panel-sub">按因子值五分位分层 · 持有 5 日 · 相对中证 500 基准</div>
+
+    <div class="table-wrap">
+      <table class="layer-table" id="layerTable">
+        <thead>
+          <tr>
+            <th data-col="0" data-type="text">分层 <span class="sort-arrow">▼</span></th>
+            <th data-col="1" data-type="num">平均收益 <span class="sort-arrow">▼</span></th>
+            <th data-col="2" data-type="num">超额收益 <span class="sort-arrow">▼</span></th>
+            <th data-col="3" data-type="num">夏普比率 <span class="sort-arrow">▼</span></th>
+            <th data-col="4" data-type="num">最大回撤 <span class="sort-arrow">▼</span></th>
+          </tr>
+        </thead>
+        <tbody id="layerBody">
+          <tr>
+            <td>Q1（最高）</td>
+            <td>3.8%</td>
+            <td>2.4%</td>
+            <td>1.45</td>
+            <td>-8.2%</td>
+          </tr>
+          <tr>
+            <td>Q2</td>
+            <td>2.1%</td>
+            <td>0.7%</td>
+            <td>0.92</td>
+            <td>-10.5%</td>
+          </tr>
+          <tr>
+            <td>Q3（中位）</td>
+            <td>1.5%</td>
+            <td>0.1%</td>
+            <td>0.68</td>
+            <td>-12.1%</td>
+          </tr>
+          <tr>
+            <td>Q4</td>
+            <td>0.8%</td>
+            <td>-0.6%</td>
+            <td>0.35</td>
+            <td>-14.8%</td>
+          </tr>
+          <tr>
+            <td>Q5（最低）</td>
+            <td>-0.3%</td>
+            <td>-1.7%</td>
+            <td>-0.12</td>
+            <td>-18.3%</td>
+          </tr>
+          <tr class="summary-row">
+            <td>多空对冲</td>
+            <td>4.1%</td>
+            <td>2.4%</td>
+            <td>1.32</td>
+            <td>-6.5%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-hint">点击表头可排序 · 多空对冲 = Q1 − Q5</div>
+  </div>
+
+  <!-- ===== Tab: 因子衰减 ===== -->
+  <div class="tab-panel" id="panel-decay">
+    <div class="panel-heading">不同持有期下的因子有效性</div>
+    <div class="panel-sub">IC 随预测周期延长而衰减 · 点击下方区块展开详情</div>
+
+    <div class="collapse-list">
+      <div class="collapse-item">
+        <div class="collapse-header">
+          <div class="collapse-title">1 日持有期 <span class="sub">短期 · 信号最强</span></div>
+          <svg class="collapse-arrow" viewBox="0 0 14 14" fill="none">
+            <path d="M4 2 L9 7 L4 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="collapse-body">
+          <div class="collapse-inner">
+            <div class="decay-stats">
+              <div class="decay-stat">
+                <div class="k">Mean IC</div>
+                <div class="v">0.085</div>
+              </div>
+              <div class="decay-stat">
+                <div class="k">ICIR</div>
+                <div class="v">1.32</div>
+              </div>
+              <div class="decay-stat">
+                <div class="k">IC 胜率</div>
+                <div class="v">78%</div>
+              </div>
+              <div class="decay-stat">
+                <div class="k">多头超额</div>
+                <div class="v">2.4%</div>
+              </div>
+            </div>
+            <p>1 日预测周期下动量因子表现最为显著，IC 显著为正且胜率达 78%，ICIR 超过 1.3，表明因子在极短周期内具有较强的横截面区分能力。短期价格延续性是主要驱动，适合作为日内或隔日择股信号。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="collapse-item">
+        <div class="collapse-header">
+          <div class="collapse-title">5 日持有期 <span class="sub">中期 · 效应衰减</span></div>
+          <svg class="collapse-arrow" viewBox="0 0 14 14" fill="none">
+            <path d="M4 2 L9 7 L4 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="collapse-body">
+          <div class="collapse-inner">
+            <div class="decay-stats">
+              <div class="decay-stat">
+                <div class="k">Mean IC</div>
+                <div class="v">0.062</div>
+              </div>
+              <div class="decay-stat">
+                <div class="k">ICIR</div>
+                <div class="v">0.95</div>
+              </div>
+              <div class="decay-stat">
+                <div class="k">IC 胜率</div>
+                <div class="v">68%</div>
+              </div>
+              <div class="decay-stat">
+                <div class="k">多头超额</div>
+                <div class="v">1.7%</div>
+              </div>
+            </div>
+            <p>持有期延长至 5 日后，IC 由 0.085 降至 0.062，ICIR 跌破 1.0，胜率回落至 68%。因子仍保持正向预测力，但衰减约 27%，表明价格延续性在中周期内被部分均值回归力量抵消。建议结合反转因子对冲使用。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="collapse-item">
+        <div class="collapse-header">
+          <div class="collapse-title">20 日持有期 <span class="sub">长期 · 显著衰减</span></div>
+          <svg class="collapse-arrow" viewBox="0 0 14 14" fill="none">
+            <path d="M4 2 L9 7 L4 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="collapse-body">
+          <div class="collapse-inner">
+            <div class="decay-stats">
+              <div class="decay-stat">
+                <div class="k">Mean IC</div>
+                <div class="v">0.028</div>
+              </div>
+              <div class="decay-stat">
+                <div class="k">ICIR</div>
+                <div class="v">0.42</div>
+              </div>
+              <div class="decay-stat">
+                <div class="k">IC 胜率</div>
+                <div class="v">54%</div>
+              </div>
+              <div class="decay-stat">
+                <div class="k">多头超额</div>
+                <div class="v">0.6%</div>
+              </div>
+            </div>
+            <p>20 日持有期下因子有效性大幅衰减，IC 仅为 0.028，ICIR 降至 0.42，胜率接近随机水平（54%）。长期来看动量信号基本失效，反转效应开始主导。不建议在月度及以上周期单独使用本因子。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Conclusion ===== -->
+  <section class="section-block">
+    <h2 class="section-title">结论与建议</h2>
+    <ul class="section-list">
+      <li><strong>短期动量效应显著。</strong>1 日与 5 日持有期下 IC 持续为正，ICIR 分别为 1.32 与 0.95，因子在短周期内具有稳定的横截面预测能力。</li>
+      <li><strong>分层单调性良好。</strong>Q1 至 Q5 超额收益呈明显递减趋势，多空对冲组合 5 日超额 2.4%、夏普 1.32，因子方向性可靠。</li>
+      <li><strong>建议作为多头辅助信号。</strong>在 1~5 日周期内将 MOM20 与反转、波动率因子组合使用，可提升组合稳健性并降低单一因子回撤。</li>
+      <li><strong>避免长期单独使用。</strong>20 日持有期下 ICIR 降至 0.42，因子失效，需配合换仓频率控制或反转对冲。</li>
+    </ul>
+  </section>
+
+  <!-- ===== Risk ===== -->
+  <section class="risk-block">
+    <h2 class="section-title">风险提示</h2>
+    <ul class="section-list">
+      <li>本报告基于历史数据回测，过往表现不代表未来收益，因子有效性可能随市场环境变化而衰减。</li>
+      <li>动量因子在趋势反转、风格切换或极端波动行情中可能产生较大回撤，实际部署需设置止损与风控阈值。</li>
+      <li>样本覆盖 2024 年 1 月至 3 月共 40 个交易日，区间较短，统计显著性有限，建议扩展至更长周期复核。</li>
+      <li>分层回测未考虑交易成本、冲击成本与流动性约束，实盘收益可能低于回测结果。</li>
+    </ul>
+  </section>
+
+  <footer class="report-footer">
+    量化策略研究智能体系统 · 自动生成于 2024-03-11 · 报告版本 v1.0
+  </footer>
+
+</div>
+
+<script>
+  /* ============================================================
+   *  Tab switching
+   * ============================================================ */
+  (function initTabs() {
+    var tabs = document.querySelectorAll('.tab');
+    var panels = document.querySelectorAll('.tab-panel');
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        var target = tab.getAttribute('data-tab');
+        tabs.forEach(function (t) { t.classList.remove('active'); });
+        panels.forEach(function (p) { p.classList.remove('active'); });
+        tab.classList.add('active');
+        var panel = document.getElementById('panel-' + target);
+        if (panel) panel.classList.add('active');
+        // redraw chart when switching back to IC tab
+        if (target === 'ic') {
+          window.requestAnimationFrame(drawIcPath);
+        }
+      });
+    });
+  })();
+
+  /* ============================================================
+   *  IC line chart (SVG path + hover tooltip)
+   * ============================================================ */
+  var IC_DATA = [
+    0.12, 0.08, -0.05, 0.15, 0.22, 0.18, 0.09, -0.02, 0.11, 0.17,
+    0.21, 0.14, 0.06, -0.08, 0.13, 0.19, 0.25, 0.16, 0.10, 0.04,
+    -0.06, 0.09, 0.15, 0.20, 0.13, 0.07, -0.03, 0.11, 0.18, 0.14,
+    0.08, -0.01, 0.10, 0.16, 0.12, 0.05, -0.04, 0.09, 0.13, 0.11
+  ];
+  var IC_DATES = [
+    '01-02','01-03','01-04','01-05','01-08','01-09','01-10','01-11','01-12','01-15',
+    '01-16','01-17','01-18','01-19','01-22','01-23','01-24','01-25','01-26','01-29',
+    '01-30','01-31','02-01','02-02','02-05','02-06','02-07','02-08','02-20','02-21',
+    '02-22','02-23','02-26','02-27','02-28','02-29','03-01','03-04','03-05','03-08'
+  ];
+
+  // Chart geometry (must match SVG viewBox constants)
+  var CHART = {
+    left: 50,
+    right: 780,
+    top: 20,
+    bottom: 280,
+    yMax: 0.3,
+    yMin: -0.3
+  };
+
+  function xForIndex(i) {
+    var n = IC_DATA.length;
+    return CHART.left + (i / (n - 1)) * (CHART.right - CHART.left);
+  }
+
+  function yForValue(v) {
+    var range = CHART.yMax - CHART.yMin;
+    return CHART.top + ((CHART.yMax - v) / range) * (CHART.bottom - CHART.top);
+  }
+
+  function buildPathD() {
+    var parts = [];
+    for (var i = 0; i < IC_DATA.length; i++) {
+      var x = xForIndex(i).toFixed(2);
+      var y = yForValue(IC_DATA[i]).toFixed(2);
+      parts.push((i === 0 ? 'M' : 'L') + x + ' ' + y);
+    }
+    return parts.join(' ');
+  }
+
+  function drawIcPath() {
+    var path = document.getElementById('icPath');
+    if (path) path.setAttribute('d', buildPathD());
+  }
+
+  drawIcPath();
+
+  // ---- Hover tooltip ----
+  (function initHover() {
+    var svg = document.getElementById('icChart');
+    var hoverArea = document.getElementById('hoverArea');
+    var hoverDot = document.getElementById('hoverDot');
+    var hoverGuide = document.getElementById('hoverGuide');
+    var tooltip = document.getElementById('chartTooltip');
+    var ttDate = document.getElementById('ttDate');
+    var ttValue = document.getElementById('ttValue');
+    if (!svg || !hoverArea) return;
+
+    function clearHover() {
+      hoverDot.style.opacity = '0';
+      hoverGuide.style.opacity = '0';
+      tooltip.style.opacity = '0';
+    }
+
+    hoverArea.addEventListener('mousemove', function (e) {
+      // Convert mouse coords to SVG coords
+      var pt = svg.createSVGPoint();
+      pt.x = e.clientX;
+      pt.y = e.clientY;
+      var ctm = svg.getScreenCTM();
+      if (!ctm) return;
+      var cursor = pt.matrixTransform(ctm.inverse());
+      var svgX = cursor.x;
+
+      // Find nearest data index
+      var n = IC_DATA.length;
+      var plotLeft = CHART.left;
+      var plotRight = CHART.right;
+      var ratio = (svgX - plotLeft) / (plotRight - plotLeft);
+      ratio = Math.max(0, Math.min(1, ratio));
+      var idx = Math.round(ratio * (n - 1));
+      idx = Math.max(0, Math.min(n - 1, idx));
+
+      var x = xForIndex(idx);
+      var y = yForValue(IC_DATA[idx]);
+
+      // Update guide + dot
+      hoverGuide.setAttribute('x1', x);
+      hoverGuide.setAttribute('x2', x);
+      hoverGuide.setAttribute('y1', CHART.top);
+      hoverGuide.setAttribute('y2', CHART.bottom);
+      hoverGuide.style.opacity = '1';
+
+      hoverDot.setAttribute('cx', x);
+      hoverDot.setAttribute('cy', y);
+      hoverDot.style.opacity = '1';
+
+      // Position tooltip (using screen coords)
+      ttDate.textContent = '日期：' + IC_DATES[idx];
+      ttValue.textContent = 'IC：' + IC_DATA[idx].toFixed(3);
+      tooltip.style.opacity = '1';
+
+      // Place tooltip near the data point in screen space
+      var container = svg.closest('.chart-container');
+      var containerRect = container.getBoundingClientRect();
+      var svgRect = svg.getBoundingClientRect();
+      // Map svg point to screen point
+      var screenPt = svg.createSVGPoint();
+      screenPt.x = x;
+      screenPt.y = y;
+      var screen = screenPt.matrixTransform(ctm);
+      var relX = screen.x - containerRect.left;
+      var relY = screen.y - containerRect.top;
+
+      var ttWidth = tooltip.offsetWidth;
+      var ttHeight = tooltip.offsetHeight;
+      var left = relX + 14;
+      if (left + ttWidth > containerRect.width) {
+        left = relX - ttWidth - 14;
+      }
+      var top = relY - ttHeight - 12;
+      if (top < 0) top = relY + 14;
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = top + 'px';
+    });
+
+    hoverArea.addEventListener('mouseleave', clearHover);
+  })();
+
+  /* ============================================================
+   *  Sortable table
+   * ============================================================ */
+  (function initSort() {
+    var table = document.getElementById('layerTable');
+    if (!table) return;
+    var headers = table.querySelectorAll('thead th');
+    var tbody = document.getElementById('layerBody');
+    var sortState = { col: null, asc: true };
+
+    function parseValue(text, type) {
+      if (type === 'num') {
+        return parseFloat(text.replace('%', '').replace(/[^0-9.\-]/g, '')) || 0;
+      }
+      return text.trim();
+    }
+
+    function render(rows) {
+      var frag = document.createDocumentFragment();
+      rows.forEach(function (r) { frag.appendChild(r.el); });
+      tbody.innerHTML = '';
+      tbody.appendChild(frag);
+    }
+
+    headers.forEach(function (th) {
+      th.addEventListener('click', function () {
+        var col = parseInt(th.getAttribute('data-col'), 10);
+        var type = th.getAttribute('data-type');
+        var asc;
+        if (sortState.col === col) {
+          asc = !sortState.asc;
+        } else {
+          asc = (type === 'num') ? false : true; // num: desc first; text: asc
+        }
+        sortState.col = col;
+        sortState.asc = asc;
+
+        // Update arrow indicators
+        headers.forEach(function (h) {
+          h.classList.remove('sorted');
+          var arrow = h.querySelector('.sort-arrow');
+          if (arrow) arrow.textContent = '▼';
+        });
+        th.classList.add('sorted');
+        var arrow = th.querySelector('.sort-arrow');
+        if (arrow) arrow.textContent = asc ? '▲' : '▼';
+
+        // Collect rows (keep summary row pinned at bottom)
+        var dataRows = [];
+        var summaryRow = null;
+        tbody.querySelectorAll('tr').forEach(function (tr) {
+          if (tr.classList.contains('summary-row')) {
+            summaryRow = tr;
+          } else {
+            dataRows.push({ el: tr, val: parseValue(tr.children[col].textContent, type) });
+          }
+        });
+
+        dataRows.sort(function (a, b) {
+          if (a.val < b.val) return asc ? -1 : 1;
+          if (a.val > b.val) return asc ? 1 : -1;
+          return 0;
+        });
+
+        var ordered = dataRows.slice();
+        if (summaryRow) ordered.push({ el: summaryRow });
+        render(ordered);
+      });
+    });
+  })();
+
+  /* ============================================================
+   *  Collapse / expand
+   * ============================================================ */
+  (function initCollapse() {
+    var headers = document.querySelectorAll('.collapse-header');
+    headers.forEach(function (header) {
+      header.addEventListener('click', function () {
+        var item = header.parentElement;
+        item.classList.toggle('open');
+      });
+    });
+  })();
+</script>
+</body>
+</html>

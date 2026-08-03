@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>研究报告：动量因子有效性分析（暗黑专业版）</title>
+<!-- REPORT_SUMMARY: 动量因子 momentum_20 在 2026-05-01 至 2026-06-30 期间，ICIR 1.32，Mean IC 0.085，IC 胜率 78%，多头超额 2.4%，整体表现稳健，建议关注；需警惕 12 个交易日后的衰减风险。 -->
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    background-color: #0d1117;
+    color: #e6edf3;
+    font-family: "JetBrains Mono", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.8;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    padding: 24px 16px 60px;
+    min-height: 100vh;
+  }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  /* ===== 报告头部 ===== */
+  .report-header {
+    position: relative;
+    background: linear-gradient(180deg, rgba(88, 166, 255, 0.08) 0%, rgba(22, 27, 34, 0.6) 100%);
+    border: 1px solid #30363d;
+    border-bottom: 2px solid #58a6ff;
+    border-radius: 8px;
+    padding: 28px 32px;
+    margin-bottom: 24px;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.03),
+      0 4px 12px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+  }
+
+  .report-header::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%, #58a6ff 50%, transparent 100%);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  }
+
+  .report-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: #e6edf3;
+    margin-bottom: 14px;
+    letter-spacing: 0.5px;
+  }
+
+  .report-title .accent {
+    color: #58a6ff;
+  }
+
+  .report-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    font-size: 13px;
+    color: #8b949e;
+  }
+
+  .report-meta .meta-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .report-meta .meta-label {
+    color: #8b949e;
+  }
+
+  .report-meta .meta-value {
+    color: #d29922;
+    font-weight: 500;
+  }
+
+  .report-meta .meta-value.success {
+    color: #3fb950;
+  }
+
+  /* ===== 关键指标卡片 ===== */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .metric-card {
+    position: relative;
+    background-color: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.03),
+      0 4px 12px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+    transition: transform 0.2s ease, border-color 0.2s ease;
+  }
+
+  .metric-card:hover {
+    transform: translateY(-2px);
+    border-color: #58a6ff;
+  }
+
+  .metric-card::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 3px;
+    background: #58a6ff;
+  }
+
+  .metric-card.green::before { background: #3fb950; }
+  .metric-card.red::before { background: #f97583; }
+  .metric-card.yellow::before { background: #d29922; }
+
+  .metric-label {
+    font-size: 12px;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+  }
+
+  .metric-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #e6edf3;
+    font-family: "JetBrains Mono", monospace;
+    line-height: 1.2;
+  }
+
+  .metric-value.green { color: #3fb950; }
+  .metric-value.red { color: #f97583; }
+  .metric-value.yellow { color: #d29922; }
+  .metric-value.blue { color: #58a6ff; }
+
+  .metric-trend {
+    font-size: 12px;
+    color: #8b949e;
+    margin-top: 6px;
+  }
+
+  .metric-trend.up { color: #3fb950; }
+  .metric-trend.down { color: #f97583; }
+
+  /* ===== Tab 切换区域 ===== */
+  .tab-section {
+    background-color: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.03),
+      0 4px 12px rgba(0, 0, 0, 0.4);
+    margin-bottom: 24px;
+    overflow: hidden;
+  }
+
+  .tab-nav {
+    display: flex;
+    border-bottom: 1px solid #30363d;
+    position: relative;
+    background: linear-gradient(180deg, rgba(88, 166, 255, 0.04) 0%, transparent 100%);
+  }
+
+  .tab-btn {
+    background: transparent;
+    border: none;
+    color: #8b949e;
+    padding: 14px 24px;
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+    position: relative;
+    transition: color 0.2s ease;
+    border-bottom: 2px solid transparent;
+  }
+
+  .tab-btn:hover {
+    color: #e6edf3;
+  }
+
+  .tab-btn.active {
+    color: #58a6ff;
+    border-bottom: 2px solid #58a6ff;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+  }
+
+  .tab-content {
+    padding: 24px;
+  }
+
+  .tab-panel {
+    display: none;
+  }
+
+  .tab-panel.active {
+    display: block;
+  }
+
+  /* ===== SVG 图表 ===== */
+  .chart-wrapper {
+    position: relative;
+    background-color: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 16px;
+  }
+
+  .chart-title {
+    font-size: 13px;
+    color: #8b949e;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .chart-title .legend {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  .svg-chart {
+    width: 100%;
+    height: 320px;
+    display: block;
+  }
+
+  .svg-tooltip {
+    position: absolute;
+    background-color: #161b22;
+    border: 1px solid #58a6ff;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: #e6edf3;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+    z-index: 10;
+    white-space: nowrap;
+  }
+
+  .svg-tooltip .tip-date {
+    color: #8b949e;
+    margin-bottom: 2px;
+  }
+
+  .svg-tooltip .tip-value {
+    color: #58a6ff;
+    font-weight: 600;
+  }
+
+  /* ===== 表格 ===== */
+  .table-wrapper {
+    overflow-x: auto;
+    border-radius: 6px;
+    border: 1px solid #30363d;
+  }
+
+  table.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background-color: #0d1117;
+  }
+
+  table.data-table thead th {
+    background-color: #161b22;
+    color: #8b949e;
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 1px solid #30363d;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  table.data-table thead th:hover {
+    background-color: #21262d;
+    color: #e6edf3;
+  }
+
+  table.data-table thead th.sort-asc::after {
+    content: " ↑";
+    color: #58a6ff;
+  }
+
+  table.data-table thead th.sort-desc::after {
+    content: " ↓";
+    color: #58a6ff;
+  }
+
+  table.data-table tbody td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #21262d;
+    color: #e6edf3;
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  table.data-table tbody tr {
+    transition: background-color 0.15s ease;
+  }
+
+  table.data-table tbody tr:hover {
+    background-color: rgba(88, 166, 255, 0.06);
+  }
+
+  table.data-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .pos { color: #3fb950; }
+  .neg { color: #f97583; }
+  .neu { color: #d29922; }
+
+  /* ===== 折叠区块 ===== */
+  .collapse-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .collapse-item {
+    background-color: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    overflow: hidden;
+    transition: border-color 0.2s ease;
+  }
+
+  .collapse-item.open {
+    border-color: #58a6ff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+
+  .collapse-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    background-color: #161b22;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s ease;
+  }
+
+  .collapse-header:hover {
+    background-color: #21262d;
+  }
+
+  .collapse-title {
+    color: #e6edf3;
+    font-weight: 500;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .collapse-title .badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background-color: rgba(88, 166, 255, 0.15);
+    color: #58a6ff;
+    border: 1px solid rgba(88, 166, 255, 0.3);
+  }
+
+  .collapse-arrow {
+    color: #8b949e;
+    transition: transform 0.2s ease;
+    font-size: 12px;
+  }
+
+  .collapse-item.open .collapse-arrow {
+    transform: rotate(90deg);
+    color: #58a6ff;
+  }
+
+  .collapse-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.3s ease;
+  }
+
+  .collapse-item.open .collapse-body {
+    grid-template-rows: 1fr;
+  }
+
+  .collapse-content {
+    padding: 16px 18px;
+    color: #8b949e;
+    font-size: 13px;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .collapse-content p {
+    margin-bottom: 10px;
+  }
+
+  .collapse-content p:last-child {
+    margin-bottom: 0;
+  }
+
+  .decay-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  .decay-bar-label {
+    width: 90px;
+    color: #8b949e;
+    font-size: 12px;
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  .decay-bar-track {
+    flex: 1;
+    height: 8px;
+    background-color: #21262d;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .decay-bar-fill {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, #3fb950 0%, #d29922 60%, #f97583 100%);
+    border-radius: 4px;
+    transform-origin: left;
+    transition: transform 0.4s ease;
+  }
+
+  .decay-bar-value {
+    width: 60px;
+    text-align: right;
+    color: #e6edf3;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+  }
+
+  /* ===== 结论与建议 ===== */
+  .conclusion-section {
+    background-color: #161b22;
+    border: 1px solid #30363d;
+    border-top: 1px solid #3fb950;
+    border-radius: 8px;
+    padding: 22px 24px;
+    padding-top: 16px;
+    margin-bottom: 24px;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.03),
+      0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+
+  .section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #3fb950;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-title .icon {
+    font-size: 18px;
+  }
+
+  .conclusion-list {
+    list-style: none;
+    padding-left: 0;
+  }
+
+  .conclusion-list li {
+    padding: 8px 0 8px 22px;
+    position: relative;
+    color: #e6edf3;
+    border-bottom: 1px dashed #21262d;
+  }
+
+  .conclusion-list li:last-child {
+    border-bottom: none;
+  }
+
+  .conclusion-list li::before {
+    content: "▸";
+    position: absolute;
+    left: 4px;
+    color: #3fb950;
+  }
+
+  .conclusion-list li .highlight {
+    color: #d29922;
+    font-weight: 600;
+  }
+
+  .conclusion-list li .blue {
+    color: #58a6ff;
+    font-weight: 600;
+  }
+
+  /* ===== 风险提示 ===== */
+  .risk-section {
+    background-color: #161b22;
+    border: 1px solid #30363d;
+    border-top: 1px solid #f97583;
+    border-radius: 8px;
+    padding: 22px 24px;
+    padding-top: 16px;
+    margin-bottom: 24px;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.03),
+      0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+
+  .risk-section .section-title {
+    color: #f97583;
+  }
+
+  .risk-list {
+    list-style: none;
+    padding-left: 0;
+  }
+
+  .risk-list li {
+    padding: 8px 0 8px 22px;
+    position: relative;
+    color: #8b949e;
+    border-bottom: 1px dashed #21262d;
+  }
+
+  .risk-list li:last-child {
+    border-bottom: none;
+  }
+
+  .risk-list li::before {
+    content: "⚠";
+    position: absolute;
+    left: 0;
+    color: #f97583;
+  }
+
+  .risk-list li .danger {
+    color: #f97583;
+    font-weight: 600;
+  }
+
+  /* ===== 页脚 ===== */
+  .report-footer {
+    text-align: center;
+    color: #8b949e;
+    font-size: 12px;
+    padding-top: 16px;
+    border-top: 1px solid #21262d;
+    margin-top: 8px;
+  }
+
+  .report-footer .version {
+    color: #58a6ff;
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  /* ===== 响应式 ===== */
+  @media (max-width: 900px) {
+    .metrics-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 600px) {
+    body {
+      padding: 16px 10px 40px;
+    }
+
+    .report-header {
+      padding: 20px 18px;
+    }
+
+    .report-title {
+      font-size: 18px;
+    }
+
+    .report-meta {
+      gap: 12px;
+      font-size: 12px;
+    }
+
+    .metrics-grid {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .metric-value {
+      font-size: 24px;
+    }
+
+    .tab-btn {
+      padding: 12px 14px;
+      font-size: 13px;
+    }
+
+    .tab-content {
+      padding: 16px;
+    }
+
+    .svg-chart {
+      height: 240px;
+    }
+
+    table.data-table thead th,
+    table.data-table tbody td {
+      padding: 10px 12px;
+      font-size: 12px;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- 报告头部 -->
+  <header class="report-header">
+    <h1 class="report-title">
+      <span class="accent">[量化策略研究]</span> 动量因子有效性分析报告 — <span class="accent">momentum_20</span>
+    </h1>
+    <div class="report-meta">
+      <div class="meta-item">
+        <span class="meta-label">研究日期：</span>
+        <span class="meta-value">2026-07-15</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">数据范围：</span>
+        <span class="meta-value">2026-05-01 ~ 2026-06-30</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">样本数：</span>
+        <span class="meta-value">4,820</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">股票池：</span>
+        <span class="meta-value">沪深300 成份股</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">状态：</span>
+        <span class="meta-value success">已通过质量校验</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- 关键指标卡片 -->
+  <section class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-label">ICIR</div>
+      <div class="metric-value blue">1.32</div>
+      <div class="metric-trend up">▲ 较 6 月均值 +0.18</div>
+    </div>
+    <div class="metric-card green">
+      <div class="metric-label">Mean IC</div>
+      <div class="metric-value green">0.085</div>
+      <div class="metric-trend up">▲ 显著正相关</div>
+    </div>
+    <div class="metric-card yellow">
+      <div class="metric-label">IC 胜率</div>
+      <div class="metric-value yellow">78%</div>
+      <div class="metric-trend up">▲ 高于 60% 阈值</div>
+    </div>
+    <div class="metric-card red">
+      <div class="metric-label">多头超额</div>
+      <div class="metric-value red">2.4%</div>
+      <div class="metric-trend up">▲ 月度超额收益</div>
+    </div>
+  </section>
+
+  <!-- Tab 切换区域 -->
+  <section class="tab-section">
+    <nav class="tab-nav" role="tablist">
+      <button class="tab-btn active" data-tab="ic" role="tab">IC 分析</button>
+      <button class="tab-btn" data-tab="layer" role="tab">分层收益</button>
+      <button class="tab-btn" data-tab="decay" role="tab">因子衰减</button>
+    </nav>
+    <div class="tab-content">
+
+      <!-- IC 分析 Tab -->
+      <div class="tab-panel active" id="panel-ic">
+        <div class="chart-wrapper" id="chartWrapper">
+          <div class="chart-title">
+            <span>每日 IC 时间序列（Spearman Rank IC）</span>
+            <div class="legend">
+              <div class="legend-item">
+                <span class="legend-dot" style="background:#58a6ff;"></span>
+                <span>Daily IC</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot" style="background:#d29922;"></span>
+                <span>IC 均值线</span>
+              </div>
+            </div>
+          </div>
+          <svg class="svg-chart" id="icChart" viewBox="0 0 800 320" preserveAspectRatio="none"></svg>
+          <div class="svg-tooltip" id="icTooltip">
+            <div class="tip-date"></div>
+            <div class="tip-value"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 分层收益 Tab -->
+      <div class="tab-panel" id="panel-layer">
+        <div class="table-wrapper">
+          <table class="data-table" id="layerTable">
+            <thead>
+              <tr>
+                <th data-key="layer" data-type="num">分层</th>
+                <th data-key="avgReturn" data-type="num">平均收益 (%)</th>
+                <th data-key="excess" data-type="num">超额收益 (%)</th>
+                <th data-key="sharpe" data-type="num">Sharpe</th>
+                <th data-key="maxDrawdown" data-type="num">最大回撤 (%)</th>
+                <th data-key="winRate" data-type="num">胜率 (%)</th>
+                <th data-key="turnover" data-type="num">换手率 (%)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 因子衰减 Tab -->
+      <div class="tab-panel" id="panel-decay">
+        <div class="collapse-list">
+          <div class="collapse-item open">
+            <div class="collapse-header">
+              <div class="collapse-title">
+                <span>短期衰减（T+1 ~ T+5）</span>
+                <span class="badge">衰减缓慢</span>
+              </div>
+              <span class="collapse-arrow">▶</span>
+            </div>
+            <div class="collapse-body">
+              <div class="collapse-content">
+                <p>在 T+1 至 T+5 个交易日的预测窗口内，动量因子表现出较好的稳定性。IC 从 T+1 的 0.092 缓慢下降至 T+5 的 0.071，衰减幅度约 22.8%，仍处于有效区间。</p>
+                <div class="decay-bar"><div class="decay-bar-label">T+1</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.96);"></div></div><div class="decay-bar-value">0.092</div></div>
+                <div class="decay-bar"><div class="decay-bar-label">T+2</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.88);"></div></div><div class="decay-bar-value">0.085</div></div>
+                <div class="decay-bar"><div class="decay-bar-label">T+3</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.82);"></div></div><div class="decay-bar-value">0.078</div></div>
+                <div class="decay-bar"><div class="decay-bar-label">T+4</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.76);"></div></div><div class="decay-bar-value">0.074</div></div>
+                <div class="decay-bar"><div class="decay-bar-label">T+5</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.72);"></div></div><div class="decay-bar-value">0.071</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="collapse-item">
+            <div class="collapse-header">
+              <div class="collapse-title">
+                <span>中期衰减（T+6 ~ T+10）</span>
+                <span class="badge">需关注</span>
+              </div>
+              <span class="collapse-arrow">▶</span>
+            </div>
+            <div class="collapse-body">
+              <div class="collapse-content">
+                <p>进入中期窗口，因子衰减速度加快。T+10 的 IC 已下降至 0.048，相比 T+1 衰减约 47.8%。多头超额收益同步收窄至 1.1%，建议在 T+6 之后进行减仓或换仓操作。</p>
+                <div class="decay-bar"><div class="decay-bar-label">T+6</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.64);"></div></div><div class="decay-bar-value">0.062</div></div>
+                <div class="decay-bar"><div class="decay-bar-label">T+7</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.58);"></div></div><div class="decay-bar-value">0.056</div></div>
+                <div class="decay-bar"><div class="decay-bar-label">T+8</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.54);"></div></div><div class="decay-bar-value">0.052</div></div>
+                <div class="decay-bar"><div class="decay-bar-label">T+9</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.50);"></div></div><div class="decay-bar-value">0.050</div></div>
+                <div class="decay-bar"><div class="decay-bar-label">T+10</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.46);"></div></div><div class="decay-bar-value">0.048</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="collapse-item">
+            <div class="collapse-header">
+              <div class="collapse-title">
+                <span>长期衰减（T+11 ~ T+20）</span>
+                <span class="badge" style="background-color:rgba(249,117,131,0.15);color:#f97583;border-color:rgba(249,117,131,0.3);">失效</span>
+              </div>
+              <span class="collapse-arrow">▶</span>
+            </div>
+            <div class="collapse-body">
+              <div class="collapse-content">
+                <p>T+12 之后因子进入失效区间，IC 跌破 0.03 阈值；T+15 时 IC 接近 0，预测能力基本消失；T+20 时出现轻微反向（IC = -0.012），表明动量效应在中长期可能被反转效应取代。</p>
+                <div class="decay-bar"><div class="decay-bar-label">T+12</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.32);"></div></div><div class="decay-bar-value">0.028</div></div>
+                <div class="decay-bar"><div class="decay-bar-label">T+15</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.12);"></div></div><div class="decay-bar-value">0.006</div></div>
+                <div class="decay-bar"><div class="decay-bar-label">T+18</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.06);"></div></div><div class="decay-bar-value">-0.005</div></div>
+                <div class="decay-bar"><div class="decay-bar-label">T+20</div><div class="decay-bar-track"><div class="decay-bar-fill" style="transform:scaleX(0.04);"></div></div><div class="decay-bar-value">-0.012</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 结论与建议 -->
+  <section class="conclusion-section">
+    <h2 class="section-title"><span class="icon">✓</span> 结论与建议</h2>
+    <ul class="conclusion-list">
+      <li>动量因子 <span class="blue">momentum_20</span> 在 2026 年 5–6 月期间表现稳健，<span class="highlight">ICIR 1.32</span>、<span class="highlight">Mean IC 0.085</span>、<span class="highlight">IC 胜率 78%</span>，三项核心指标均显著优于阈值，属于有效因子范畴。</li>
+      <li>分层单调性良好：第 1 层（多头）平均收益 4.6%，第 5 层（空头）平均收益 -0.3%，多空价差 4.9%，分层效果显著。</li>
+      <li>因子在 <span class="blue">T+1 ~ T+5</span> 窗口内衰减缓慢，建议持仓周期控制在 <span class="highlight">5 个交易日</span>以内，可获得最佳风险调整后收益。</li>
+      <li>建议将本因子纳入多因子合成模型，权重可设为 <span class="highlight">0.25</span>（基于 ICIR 归一化），与反转因子 reversal_5 形成互补。</li>
+      <li>后续建议在 <span class="blue">2026-08</span> 进行样本外验证，确认因子在震荡市中的稳健性。</li>
+    </ul>
+  </section>
+
+  <!-- 风险提示 -->
+  <section class="risk-section">
+    <h2 class="section-title"><span class="icon">!</span> 风险提示</h2>
+    <ul class="risk-list">
+      <li>样本期较短（仅 2 个月），<span class="danger">IC 稳定性结论可能受市场风格影响</span>，需在更长周期验证。</li>
+      <li>因子在 T+12 后出现反向衰减，<span class="danger">持仓周期过长将显著侵蚀收益</span>，需严格执行换仓纪律。</li>
+      <li>动量因子在趋势反转行情中容易发生大幅回撤，<span class="danger">最大回撤 -8.2%</span> 集中在 2026-06-18 ~ 2026-06-22 期间。</li>
+      <li>本报告基于历史数据分析，<span class="danger">历史表现不代表未来收益</span>，实盘应用需结合风控规则。</li>
+      <li>成份股调整、停复牌、涨跌停限制等市场微观结构因素可能影响因子实际选股能力。</li>
+    </ul>
+  </section>
+
+  <!-- 页脚 -->
+  <footer class="report-footer">
+    量化策略研究智能体系统 · 报告版本 <span class="version">v1.2.0-dark-pro</span> · 生成于 2026-07-15 14:32:08
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ============ Tab 切换 ============ */
+  function switchTab(target) {
+    var btns = document.querySelectorAll(".tab-btn");
+    var panels = document.querySelectorAll(".tab-panel");
+    btns.forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-tab") === target);
+    });
+    panels.forEach(function (p) {
+      p.classList.toggle("active", p.id === "panel-" + target);
+    });
+  }
+
+  document.querySelectorAll(".tab-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      switchTab(btn.getAttribute("data-tab"));
+    });
+  });
+
+  /* ============ 折叠区块 ============ */
+  document.querySelectorAll(".collapse-header").forEach(function (header) {
+    header.addEventListener("click", function () {
+      var item = header.parentElement;
+      item.classList.toggle("open");
+    });
+  });
+
+  /* ============ 分层收益表格数据 ============ */
+  var layerData = [
+    { layer: 1, avgReturn: 4.6, excess: 2.4, sharpe: 1.85, maxDrawdown: -3.2, winRate: 72, turnover: 38 },
+    { layer: 2, avgReturn: 3.1, excess: 0.9, sharpe: 1.42, maxDrawdown: -4.1, winRate: 64, turnover: 42 },
+    { layer: 3, avgReturn: 2.2, excess: 0.0, sharpe: 1.08, maxDrawdown: -5.3, winRate: 56, turnover: 45 },
+    { layer: 4, avgReturn: 0.8, excess: -1.4, sharpe: 0.42, maxDrawdown: -6.8, winRate: 48, turnover: 47 },
+    { layer: 5, avgReturn: -0.3, excess: -2.5, sharpe: -0.18, maxDrawdown: -8.2, winRate: 42, turnover: 50 }
+  ];
+
+  var sortKey = "layer";
+  var sortDir = "asc";
+
+  function renderTable() {
+    var tbody = document.querySelector("#layerTable tbody");
+    var sorted = layerData.slice().sort(function (a, b) {
+      var av = a[sortKey];
+      var bv = b[sortKey];
+      if (typeof av === "number" && typeof bv === "number") {
+        return sortDir === "asc" ? av - bv : bv - av;
+      }
+      return sortDir === "asc"
+        ? String(av).localeCompare(String(bv))
+        : String(bv).localeCompare(String(av));
+    });
+
+    tbody.innerHTML = sorted.map(function (row) {
+      return "<tr>" +
+        "<td>第 " + row.layer + " 层</td>" +
+        "<td class='" + (row.avgReturn >= 0 ? "pos" : "neg") + "'>" + row.avgReturn.toFixed(2) + "</td>" +
+        "<td class='" + (row.excess >= 0 ? "pos" : "neg") + "'>" + (row.excess >= 0 ? "+" : "") + row.excess.toFixed(2) + "</td>" +
+        "<td class='" + (row.sharpe >= 1 ? "pos" : (row.sharpe >= 0 ? "neu" : "neg")) + "'>" + row.sharpe.toFixed(2) + "</td>" +
+        "<td class='neg'>" + row.maxDrawdown.toFixed(2) + "</td>" +
+        "<td class='" + (row.winRate >= 50 ? "pos" : "neg") + "'>" + row.winRate + "</td>" +
+        "<td class='neu'>" + row.turnover + "</td>" +
+        "</tr>";
+    }).join("");
+
+    // 表头排序状态
+    document.querySelectorAll("#layerTable thead th").forEach(function (th) {
+      th.classList.remove("sort-asc", "sort-desc");
+      if (th.getAttribute("data-key") === sortKey) {
+        th.classList.add(sortDir === "asc" ? "sort-asc" : "sort-desc");
+      }
+    });
+  }
+
+  document.querySelectorAll("#layerTable thead th").forEach(function (th) {
+    th.addEventListener("click", function () {
+      var key = th.getAttribute("data-key");
+      if (sortKey === key) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortKey = key;
+        sortDir = "asc";
+      }
+      renderTable();
+    });
+  });
+
+  renderTable();
+
+  /* ============ IC 时间序列 SVG 折线图 ============ */
+  // 生成 40 个数据点
+  var icData = [
+    0.12, 0.08, 0.15, 0.11, 0.09, 0.14, 0.18, 0.06, -0.02, 0.07,
+    0.13, 0.16, 0.09, 0.11, 0.05, 0.08, 0.14, 0.19, 0.21, 0.15,
+    0.10, 0.06, 0.03, 0.09, 0.12, 0.16, 0.08, 0.04, -0.05, 0.07,
+    0.11, 0.14, 0.09, 0.06, 0.10, 0.13, 0.07, 0.05, 0.09, 0.08
+  ];
+  var icDates = [];
+  var startDate = new Date("2026-05-06");
+  for (var i = 0; i < 40; i++) {
+    var d = new Date(startDate);
+    d.setDate(d.getDate() + i);
+    // 跳过周末
+    while (d.getDay() === 0 || d.getDay() === 6) {
+      d.setDate(d.getDate() + 1);
+    }
+    var mm = (d.getMonth() + 1).toString().padStart(2, "0");
+    var dd = d.getDate().toString().padStart(2, "0");
+    icDates.push(d.getFullYear() + "-" + mm + "-" + dd);
+    startDate = d;
+    startDate.setDate(startDate.getDate() + 1);
+  }
+
+  function drawIcChart() {
+    var svg = document.getElementById("icChart");
+    var width = 800;
+    var height = 320;
+    var padL = 50, padR = 20, padT = 20, padB = 40;
+    var plotW = width - padL - padR;
+    var plotH = height - padT - padB;
+
+    var yMin = -0.3, yMax = 0.3;
+    var xStep = plotW / (icData.length - 1);
+
+    function x(i) { return padL + i * xStep; }
+    function y(v) { return padT + (yMax - v) / (yMax - yMin) * plotH; }
+
+    var svgNS = "http://www.w3.org/2000/svg";
+    var parts = [];
+
+    // 定义渐变
+    parts.push('<defs>');
+    parts.push('<linearGradient id="icGradient" x1="0" y1="0" x2="0" y2="1">');
+    parts.push('<stop offset="0%" stop-color="#58a6ff" stop-opacity="0.4"/>');
+    parts.push('<stop offset="100%" stop-color="#58a6ff" stop-opacity="0"/>');
+    parts.push('</linearGradient>');
+    parts.push('<filter id="icGlow" x="-20%" y="-20%" width="140%" height="140%">');
+    parts.push('<feGaussianBlur stdDeviation="2" result="blur"/>');
+    parts.push('<feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>');
+    parts.push('</filter>');
+    parts.push('</defs>');
+
+    // 网格线
+    for (var g = -0.3; g <= 0.3; g += 0.1) {
+      var gy = y(g);
+      parts.push('<line x1="' + padL + '" y1="' + gy + '" x2="' + (padL + plotW) + '" y2="' + gy + '" stroke="#21262d" stroke-width="1"/>');
+      parts.push('<text x="' + (padL - 8) + '" y="' + (gy + 4) + '" fill="#8b949e" font-size="11" text-anchor="end" font-family="JetBrains Mono, monospace">' + g.toFixed(1) + '</text>');
+    }
+
+    // 0 轴虚线
+    var zeroY = y(0);
+    parts.push('<line x1="' + padL + '" y1="' + zeroY + '" x2="' + (padL + plotW) + '" y2="' + zeroY + '" stroke="#30363d" stroke-width="1.5" stroke-dasharray="6,4"/>');
+
+    // IC 均值线
+    var meanIc = icData.reduce(function (a, b) { return a + b; }, 0) / icData.length;
+    var meanY = y(meanIc);
+    parts.push('<line x1="' + padL + '" y1="' + meanY + '" x2="' + (padL + plotW) + '" y2="' + meanY + '" stroke="#d29922" stroke-width="1" stroke-dasharray="3,3" opacity="0.7"/>');
+    parts.push('<text x="' + (padL + plotW - 5) + '" y="' + (meanY - 5) + '" fill="#d29922" font-size="10" text-anchor="end" font-family="JetBrains Mono, monospace">mean=' + meanIc.toFixed(3) + '</text>');
+
+    // 填充区域
+    var fillPath = 'M ' + x(0) + ' ' + zeroY;
+    for (var i = 0; i < icData.length; i++) {
+      fillPath += ' L ' + x(i) + ' ' + y(icData[i]);
+    }
+    fillPath += ' L ' + x(icData.length - 1) + ' ' + zeroY + ' Z';
+    parts.push('<path d="' + fillPath + '" fill="url(#icGradient)"/>');
+
+    // 折线（带发光）
+    var linePath = 'M ' + x(0) + ' ' + y(icData[0]);
+    for (var i = 1; i < icData.length; i++) {
+      linePath += ' L ' + x(i) + ' ' + y(icData[i]);
+    }
+    parts.push('<path d="' + linePath + '" fill="none" stroke="#58a6ff" stroke-width="2" filter="url(#icGlow)"/>');
+
+    // 数据点
+    for (var i = 0; i < icData.length; i++) {
+      parts.push('<circle class="ic-point" cx="' + x(i) + '" cy="' + y(icData[i]) + '" r="3" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5" data-idx="' + i + '" style="cursor:pointer;"/>');
+    }
+
+    // X 轴标签（每 5 个显示一次）
+    for (var i = 0; i < icData.length; i += 5) {
+      parts.push('<text x="' + x(i) + '" y="' + (height - 10) + '" fill="#8b949e" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">' + icDates[i].slice(5) + '</text>');
+    }
+
+    svg.innerHTML = parts.join("");
+
+    // tooltip 交互
+    var tooltip = document.getElementById("icTooltip");
+    var wrapper = document.getElementById("chartWrapper");
+    var points = svg.querySelectorAll(".ic-point");
+
+    points.forEach(function (p) {
+      p.addEventListener("mouseenter", function (e) {
+        var idx = parseInt(p.getAttribute("data-idx"), 10);
+        tooltip.querySelector(".tip-date").textContent = "日期：" + icDates[idx];
+        tooltip.querySelector(".tip-value").textContent = "IC：" + icData[idx].toFixed(4);
+        tooltip.style.opacity = "1";
+      });
+      p.addEventListener("mousemove", function (e) {
+        var rect = wrapper.getBoundingClientRect();
+        var tx = e.clientX - rect.left + 12;
+        var ty = e.clientY - rect.top - 10;
+        // 防止 tooltip 超出右边界
+        if (tx + 180 > rect.width) tx = e.clientX - rect.left - 190;
+        tooltip.style.left = tx + "px";
+        tooltip.style.top = ty + "px";
+      });
+      p.addEventListener("mouseleave", function () {
+        tooltip.style.opacity = "0";
+      });
+    });
+  }
+
+  drawIcChart();
+
+  // 响应式重绘
+  var resizeTimer;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(drawIcChart, 200);
+  });
+
+})();
+</script>
+</body>
+</html>
