@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Table, Button, Card, Typography, Space, App, Tag, Empty, Select, Tooltip, Modal } from 'antd';
-import { ReloadOutlined, EyeOutlined, StopOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EyeOutlined, StopOutlined, RedoOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { AgentRun, AgentEvent } from './types';
 import { listAgentRuns, cancelAgentRun, getAgentRun } from './api';
@@ -45,6 +46,7 @@ function formatDuration(start: string | null, end: string | null): string {
 }
 
 export default function AgentRunHistory() {
+  const navigate = useNavigate();
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
@@ -93,6 +95,11 @@ export default function AgentRunHistory() {
     }
   };
 
+  // 重新发起：携带原 prompt 跳转回 Agent 运行页面，预填到输入框
+  const handleRerun = (record: AgentRun) => {
+    navigate(`/agent?prompt=${encodeURIComponent(record.prompt)}`);
+  };
+
   const columns: ColumnsType<AgentRun> = [
     {
       title: 'Prompt',
@@ -135,11 +142,14 @@ export default function AgentRunHistory() {
     {
       title: '操作',
       key: 'actions',
-      width: 140,
+      width: 180,
       render: (_, record) => (
         <Space size="small">
           <Tooltip title="查看详情">
             <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.id)} />
+          </Tooltip>
+          <Tooltip title="使用此 Prompt 重新发起">
+            <Button size="small" icon={<RedoOutlined />} onClick={() => handleRerun(record)} />
           </Tooltip>
           {record.status === 'running' && (
             <Tooltip title="取消运行">

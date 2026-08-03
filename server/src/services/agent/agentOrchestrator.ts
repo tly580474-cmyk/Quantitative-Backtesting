@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process';
-import { mkdir, readFile, stat } from 'fs/promises';
-import { resolve } from 'path';
+import { mkdir, readFile, stat, writeFile, unlink } from 'fs/promises';
+import { resolve, join } from 'path';
+import { tmpdir } from 'os';
 import type { Pool } from 'mysql2/promise';
 import { buildPrompt, type TemplateStyle } from './promptBuilder.js';
 import { parseStreamLine, extractReportInfo, type ParsedEvent } from './outputParser.js';
@@ -45,25 +46,47 @@ export class AgentOrchestrator {
     const { runId, prompt, maxTurns, timeoutMs } = params;
 
     // Build full prompt
-    const fullPrompt = buildPrompt(prompt, this.config.wslProjectPath, params.templateStyle as TemplateStyle);
+    const winReportDir = resolve(this.config.reportRoot, 'reports');
+    const winReportPath = resolve(winReportDir, `${runId}.html`);
+    // Convert Windows path to WSL path (e.g. D:\foo\bar -> /mnt/d/foo/bar)
+    const wslReportPath = winReportPath.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
+    const fullPrompt = buildPrompt(prompt, this.config.wslProjectPath, params.templateStyle as TemplateStyle, wslReportPath);
 
     // Ensure report directory exists
-    const reportDir = resolve(this.config.reportRoot, 'reports');
-    await mkdir(reportDir, { recursive: true });
+    await mkdir(winReportDir, { recursive: true });
 
-    // Build command args
-    const args = [
-      this.config.wslProjectPath ? `-d ${this.config.wslProjectPath}` : '',
+    // Write prompt to a temp file to avoid bash quoting/escaping issues when
+    // passing a long multi-line prompt through Windows spawn -> wsl.exe -> bash.
+    // Previous approach (single-quoted prompt on the bash command line) broke
+    // because Windows arg passing mangles embedded newlines/quotes, causing the
+    // prompt body to be interpreted as bash commands.
+    const tmpPromptWinPath = join(tmpdir(), `agent-prompt-${runId}.txt`);
+    await writeFile(tmpPromptWinPath, fullPrompt, 'utf-8');
+    const tmpPromptWslPath = tmpPromptWinPath
+      .replace(/\\/g, '/')
+      .replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
+
+    // Build claude args — prompt is piped via stdin to avoid all shell interpretation.
+    const escapedPath = this.config.wslProjectPath
+      ? `-d '${this.config.wslProjectPath.replace(/'/g, "'\\''")}'`
+      : '';
+    const escapedTmpPath = tmpPromptWslPath.replace(/'/g, "'\\''");
+    const claudeArgs = [
+      escapedPath,
       '--dangerously-skip-permissions',
-      '-p', fullPrompt,
+      '--print',
       '--output-format', 'stream-json',
+      '--verbose',
       '--max-turns', String(maxTurns),
-    ].filter(Boolean);
+    ].filter(Boolean).join(' ');
 
-    // Start process
-    const child = spawn(this.config.claudePath, args, {
+    // cat the prompt file into claude's stdin; --print enables non-interactive mode
+    // and reads the prompt from stdin when no -p argument is provided.
+    const bashCmd = `cat '${escapedTmpPath}' | ${this.config.claudePath} ${claudeArgs}`;
+
+    // Start process via WSL bash
+    const child = spawn('wsl', ['bash', '-c', bashCmd], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: this.config.wslProjectPath || undefined,
     });
 
     const run: ActiveRun = { process: child, seq: 0 };
@@ -112,6 +135,9 @@ export class AgentOrchestrator {
       clearTimeout(timer);
       this.activeRuns.delete(runId);
 
+      // Clean up temp prompt file
+      unlink(tmpPromptWinPath).catch(() => {});
+
       const status = exitCode === 0 ? 'completed' : 'failed';
       await repo.updateRunStatus(runId, status, { exitCode });
 
@@ -128,6 +154,8 @@ export class AgentOrchestrator {
     child.on('error', async (err) => {
       clearTimeout(timer);
       this.activeRuns.delete(runId);
+      // Clean up temp prompt file
+      unlink(tmpPromptWinPath).catch(() => {});
       await repo.updateRunStatus(runId, 'failed', { errorMessage: err.message });
       this.notifyListeners(runId, { type: 'error', content: err.message, timestamp: new Date().toISOString() }, run.seq);
     });
@@ -135,11 +163,11 @@ export class AgentOrchestrator {
 
   private async tryExtractReport(runId: string, repo: AgentRepository): Promise<void> {
     try {
-      const reportPath = resolve(this.config.reportRoot, 'reports', `${runId}.html`);
-      const stats = await stat(reportPath);
-      const html = await readFile(reportPath, 'utf-8');
+      const winReportPath = resolve(this.config.reportRoot, 'reports', `${runId}.html`);
+      const stats = await stat(winReportPath);
+      const html = await readFile(winReportPath, 'utf-8');
       const { title, summary } = extractReportInfo(html);
-      await repo.saveReport(runId, title, reportPath, stats.size, summary, 0);
+      await repo.saveReport(runId, title, winReportPath, stats.size, summary, 0);
     } catch {
       // Report file not found or error reading — skip
     }

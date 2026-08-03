@@ -7,7 +7,7 @@ const TEMPLATE_DESCRIPTIONS: Record<TemplateStyle, string> = {
   'dashboard': '数据仪表盘风格 — Bloomberg 终端风格、紧凑布局、深色背景 #1a1a2e、数据密集型、状态指示灯。适合高信息密度展示。',
 };
 
-export function buildPrompt(userPrompt: string, projectPath: string, templateStyle: TemplateStyle = 'classic-blue'): string {
+export function buildPrompt(userPrompt: string, projectPath: string, templateStyle: TemplateStyle = 'classic-blue', reportPath: string = ''): string {
   const templateFile = `doc/05-架构设计与规划/agent-report-templates/0${templateStyle === 'classic-blue' ? '1' : templateStyle === 'dark-pro' ? '2' : templateStyle === 'minimal-white' ? '3' : '4'}-${templateStyle}.html`;
   return `你是一个量化策略研究智能体，运行在 ${projectPath} 项目环境中。
 
@@ -51,7 +51,7 @@ cd server && npm run factor:run -- --factor momentum_20 --start 2026-05-01 --end
 \`\`\`
 
 ### 6. 报告生成
-最终输出自包含 HTML 文件，写入 \`reports/<runId>.html\`。
+最终输出自包含 HTML 文件。报告写入路径由系统指定（见下方"报告输出路径"）。
 
 ## 用户需求
 
@@ -60,7 +60,11 @@ ${userPrompt}
 ## 报告输出规范
 
 1. 逐步展示思考和执行步骤
-2. 输出**完整的自包含 HTML 文件**到 \`reports/<runId>.html\`
+2. 输出**完整的自包含 HTML 文件**到以下路径：
+   \`\`\`
+   ${reportPath}
+   \`\`\`
+   确保目录存在（\`mkdir -p\`），然后将 HTML 内容写入该文件。
 
 ### HTML 报告要求
 - **自包含**：所有 CSS/JS 内联，不引用外部资源（禁止 CDN）

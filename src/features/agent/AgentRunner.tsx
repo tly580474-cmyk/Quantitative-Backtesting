@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
-import { Input, Button, Space, Typography, Card, Row, Col, Tag, App, InputNumber, Select } from 'antd';
-import { PlayCircleOutlined, StopOutlined, RobotOutlined } from '@ant-design/icons';
+import { useState, useCallback, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { Input, Button, Space, Typography, Card, Row, Col, Tag, App, InputNumber, Select, Tooltip } from 'antd';
+import { PlayCircleOutlined, StopOutlined, RobotOutlined, HistoryOutlined } from '@ant-design/icons';
 import { AgentEventList, calcDuration } from './AgentEventList';
 import { AgentReportView } from './AgentReportView';
 import { useAgentStream } from './useAgentStream';
@@ -9,7 +10,11 @@ import { createAgentRun, cancelAgentRun } from './api';
 const { TextArea } = Input;
 const { Title, Text } = Typography;
 
+const PROMPT_PARAM = 'prompt';
+
 export default function AgentRunner() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [prompt, setPrompt] = useState('');
   const [maxTurns, setMaxTurns] = useState(50);
   const [templateStyle, setTemplateStyle] = useState<string>('classic-blue');
@@ -17,6 +22,16 @@ export default function AgentRunner() {
   const [loading, setLoading] = useState(false);
   const { message } = App.useApp();
   const { state, connect, disconnect } = useAgentStream();
+
+  // 从 URL 参数预填 prompt（支持从运行历史"重新发起"跳转过来）
+  useEffect(() => {
+    const p = searchParams.get(PROMPT_PARAM);
+    if (p) {
+      setPrompt(p);
+      // 用完即清，避免刷新时重复提示
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const handleStart = useCallback(async () => {
     if (prompt.trim().length < 10) {
@@ -91,6 +106,16 @@ export default function AgentRunner() {
                 {statusText[state.status]}
               </Tag>
             )}
+            <Tooltip title="查看历史运行记录">
+              <Button
+                size="small"
+                icon={<HistoryOutlined />}
+                onClick={() => navigate('/agent-runs')}
+                style={{ marginLeft: 'auto' }}
+              >
+                运行历史
+              </Button>
+            </Tooltip>
           </div>
           <TextArea
             value={prompt}

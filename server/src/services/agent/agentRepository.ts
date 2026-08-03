@@ -73,16 +73,18 @@ export class AgentRepository {
   }
 
   async listRuns(limit: number = 50, offset: number = 0, status?: string): Promise<AgentRunRecord[]> {
+    const safeLimit = Math.max(1, Math.min(200, limit));
+    const safeOffset = Math.max(0, offset);
     if (status) {
-      const [rows] = await this.pool.execute(
+      const [rows] = await this.pool.query(
         'SELECT * FROM agent_runs WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
-        [status, limit, offset],
+        [status, safeLimit, safeOffset],
       );
       return rows as AgentRunRecord[];
     }
-    const [rows] = await this.pool.execute(
+    const [rows] = await this.pool.query(
       'SELECT * FROM agent_runs ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [limit, offset],
+      [safeLimit, safeOffset],
     );
     return rows as AgentRunRecord[];
   }
@@ -116,9 +118,11 @@ export class AgentRepository {
   }
 
   async listReports(limit: number = 50, offset: number = 0): Promise<AgentReportRecord[]> {
-    const [rows] = await this.pool.execute(
+    const safeLimit = Math.max(1, Math.min(200, limit));
+    const safeOffset = Math.max(0, offset);
+    const [rows] = await this.pool.query(
       'SELECT * FROM agent_reports ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [limit, offset],
+      [safeLimit, safeOffset],
     );
     return rows as AgentReportRecord[];
   }

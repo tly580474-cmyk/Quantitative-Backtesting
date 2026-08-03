@@ -59,10 +59,12 @@ export function registerAgentRoutes(
   app.get('/api/agent/runs/:runId/stream', async (request, reply) => {
     const { runId } = request.params as { runId: string };
 
+    const origin = request.headers.origin || '*';
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': origin,
     });
 
     const repo = new AgentRepository(deps.pool);
