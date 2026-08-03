@@ -1,16 +1,25 @@
 import { apiFetch } from '@/api/client';
 import type { AgentRun, AgentReport, AgentEvent } from './types';
 
-export async function createAgentRun(prompt: string, maxTurns?: number, timeoutMinutes?: number): Promise<{ runId: string; status: string }> {
+export async function createAgentRun(
+  prompt: string,
+  maxTurns?: number,
+  timeoutMinutes?: number,
+  templateStyle?: string,
+): Promise<{ runId: string; status: string }> {
   return apiFetch<{ runId: string; status: string }>('/api/agent/runs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, maxTurns, timeoutMinutes }),
+    body: JSON.stringify({ prompt, maxTurns, timeoutMinutes, templateStyle }),
   });
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {
   await apiFetch(`/api/agent/runs/${runId}/cancel`, { method: 'POST' });
+}
+
+export async function deleteAgentRun(runId: string): Promise<void> {
+  await apiFetch(`/api/agent/runs/${runId}`, { method: 'DELETE' });
 }
 
 export async function listAgentRuns(limit?: number, offset?: number, status?: string): Promise<{ runs: AgentRun[] }> {

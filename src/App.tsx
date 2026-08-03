@@ -11,6 +11,7 @@ import {
   DotChartOutlined,
   DownloadOutlined,
   ExperimentOutlined,
+  FileTextOutlined,
   FilterOutlined,
   FundProjectionScreenOutlined,
   LineChartOutlined,
@@ -74,6 +75,8 @@ const FactorStrategyPage = lazy(() => import('./features/factorResearch/FactorSt
 const PaperTradingPage = lazy(() => import('./features/paperTrading/PaperTradingPage'));
 const StockSelectionPage = lazy(() => import('./features/stockSelection/StockSelectionPage'));
 const AgentRunner = lazy(() => import('./features/agent/AgentRunner'));
+const AgentReportHistory = lazy(() => import('./features/agent/AgentReportHistory'));
+const AgentRunHistory = lazy(() => import('./features/agent/AgentRunHistory'));
 
 interface MinuteCatalogResponse {
   status: 'ready' | 'unavailable';
@@ -161,6 +164,7 @@ const NAV_ITEMS: MenuProps['items'] = [
     children: [
       { key: '/studio', icon: <FundProjectionScreenOutlined />, label: '策略工作室' },
       { key: '/agent', icon: <RobotOutlined />, label: '智能体' },
+      { key: '/agent-reports', icon: <FileTextOutlined />, label: '报告历史' },
     ],
   },
   {
@@ -192,6 +196,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/factors': '因子研究',
   '/studio': '策略工作室',
   '/agent': '策略研究智能体',
+  '/agent-reports': '报告历史',
 };
 
 function DataLibraryRoute() {
@@ -891,6 +896,8 @@ function AppContent() {
                 <Route path="/factor-strategies" element={<FactorStrategyPage />} />
                 <Route path="/studio" element={<StrategyStudioPage />} />
                 <Route path="/agent" element={<AgentRunner />} />
+                <Route path="/agent-reports" element={<AgentReportHistory />} />
+                <Route path="/agent-runs" element={<AgentRunHistory />} />
               </Routes>
             </Suspense>
           }

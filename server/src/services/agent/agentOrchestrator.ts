@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import { mkdir, readFile, stat } from 'fs/promises';
 import { resolve } from 'path';
 import type { Pool } from 'mysql2/promise';
-import { buildPrompt } from './promptBuilder.js';
+import { buildPrompt, type TemplateStyle } from './promptBuilder.js';
 import { parseStreamLine, extractReportInfo, type ParsedEvent } from './outputParser.js';
 import { AgentRepository } from './agentRepository.js';
 
@@ -18,6 +18,7 @@ export interface StartParams {
   prompt: string;
   maxTurns: number;
   timeoutMs: number;
+  templateStyle?: string;
 }
 
 interface ActiveRun {
@@ -44,7 +45,7 @@ export class AgentOrchestrator {
     const { runId, prompt, maxTurns, timeoutMs } = params;
 
     // Build full prompt
-    const fullPrompt = buildPrompt(prompt, this.config.wslProjectPath);
+    const fullPrompt = buildPrompt(prompt, this.config.wslProjectPath, params.templateStyle as TemplateStyle);
 
     // Ensure report directory exists
     const reportDir = resolve(this.config.reportRoot, 'reports');

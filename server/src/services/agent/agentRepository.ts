@@ -5,6 +5,7 @@ export interface AgentRunRecord {
   prompt: string;
   status: string;
   maxTurns: number;
+  templateStyle: string;
   timeoutMs: number;
   pid: number | null;
   exitCode: number | null;
@@ -41,10 +42,10 @@ export interface AgentReportRecord {
 export class AgentRepository {
   constructor(private pool: Pool) {}
 
-  async createRun(runId: string, prompt: string, maxTurns: number, timeoutMs: number): Promise<void> {
+  async createRun(runId: string, prompt: string, maxTurns: number, timeoutMs: number, templateStyle: string = 'classic-blue'): Promise<void> {
     await this.pool.execute(
-      'INSERT INTO agent_runs (id, prompt, status, max_turns, timeout_ms, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [runId, prompt, 'pending', maxTurns, timeoutMs, new Date().toISOString()],
+      'INSERT INTO agent_runs (id, prompt, status, max_turns, timeout_ms, template_style, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [runId, prompt, 'pending', maxTurns, timeoutMs, templateStyle, new Date().toISOString()],
     );
   }
 

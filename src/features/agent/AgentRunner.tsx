@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Input, Button, Space, Typography, Card, Row, Col, Tag, App, InputNumber } from 'antd';
+import { Input, Button, Space, Typography, Card, Row, Col, Tag, App, InputNumber, Select } from 'antd';
 import { PlayCircleOutlined, StopOutlined, RobotOutlined } from '@ant-design/icons';
 import { AgentEventList, calcDuration } from './AgentEventList';
 import { AgentReportView } from './AgentReportView';
@@ -12,6 +12,7 @@ const { Title, Text } = Typography;
 export default function AgentRunner() {
   const [prompt, setPrompt] = useState('');
   const [maxTurns, setMaxTurns] = useState(50);
+  const [templateStyle, setTemplateStyle] = useState<string>('classic-blue');
   const [runId, setRunId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { message } = App.useApp();
@@ -24,7 +25,7 @@ export default function AgentRunner() {
     }
     setLoading(true);
     try {
-      const result = await createAgentRun(prompt, maxTurns);
+      const result = await createAgentRun(prompt, maxTurns, undefined, templateStyle);
       setRunId(result.runId);
       connect(result.runId);
       message.success('Agent 已启动');
@@ -33,7 +34,7 @@ export default function AgentRunner() {
     } finally {
       setLoading(false);
     }
-  }, [prompt, maxTurns, connect, message]);
+  }, [prompt, maxTurns, templateStyle, connect, message]);
 
   const handleCancel = useCallback(async () => {
     if (!runId) return;
@@ -99,16 +100,33 @@ export default function AgentRunner() {
             disabled={state.status === 'running' || state.status === 'connecting'}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Space>
-              <Text type="secondary">最大轮次:</Text>
-              <InputNumber
-                value={maxTurns}
-                onChange={(v) => setMaxTurns(v ?? 50)}
-                min={1}
-                max={200}
-                style={{ width: 80 }}
-                disabled={state.status === 'running' || state.status === 'connecting'}
-              />
+            <Space size="large">
+              <Space>
+                <Text type="secondary">最大轮次:</Text>
+                <InputNumber
+                  value={maxTurns}
+                  onChange={(v) => setMaxTurns(v ?? 50)}
+                  min={1}
+                  max={200}
+                  style={{ width: 80 }}
+                  disabled={state.status === 'running' || state.status === 'connecting'}
+                />
+              </Space>
+              <Space>
+                <Text type="secondary">报告风格:</Text>
+                <Select
+                  value={templateStyle}
+                  onChange={(v) => setTemplateStyle(v)}
+                  style={{ width: 140 }}
+                  disabled={state.status === 'running' || state.status === 'connecting'}
+                  options={[
+                    { value: 'classic-blue', label: '经典金融蓝' },
+                    { value: 'dark-pro', label: '暗黑专业版' },
+                    { value: 'minimal-white', label: '极简白' },
+                    { value: 'dashboard', label: '数据仪表盘' },
+                  ]}
+                />
+              </Space>
             </Space>
             <Space>
               {state.status === 'running' || state.status === 'connecting' ? (

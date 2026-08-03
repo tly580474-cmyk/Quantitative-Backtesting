@@ -10,6 +10,7 @@ const createRunBodySchema = z.object({
   prompt: z.string().min(10),
   maxTurns: z.number().int().min(1).max(200).default(50),
   timeoutMinutes: z.number().int().min(1).max(120).default(30),
+  templateStyle: z.enum(['classic-blue', 'dark-pro', 'minimal-white', 'dashboard']).default('classic-blue'),
 });
 
 export function registerAgentRoutes(
@@ -37,7 +38,7 @@ export function registerAgentRoutes(
     const runId = crypto.randomUUID();
     const repo = new AgentRepository(deps.pool);
 
-    await repo.createRun(runId, body.prompt, body.maxTurns, body.timeoutMinutes * 60_000);
+    await repo.createRun(runId, body.prompt, body.maxTurns, body.timeoutMinutes * 60_000, body.templateStyle);
 
     // Start asynchronously (non-blocking)
     orchestrator.start({
@@ -45,6 +46,7 @@ export function registerAgentRoutes(
       prompt: body.prompt,
       maxTurns: body.maxTurns,
       timeoutMs: body.timeoutMinutes * 60_000,
+      templateStyle: body.templateStyle,
     }).catch(err => {
       console.error(`[Agent] Failed to start run ${runId}:`, err);
       repo.updateRunStatus(runId, 'failed', { errorMessage: err.message }).catch(() => {});

@@ -1,4 +1,14 @@
-export function buildPrompt(userPrompt: string, projectPath: string): string {
+export type TemplateStyle = 'classic-blue' | 'dark-pro' | 'minimal-white' | 'dashboard';
+
+const TEMPLATE_DESCRIPTIONS: Record<TemplateStyle, string> = {
+  'classic-blue': '经典金融蓝风格 — 蓝色渐变头部、白色卡片背景、多层阴影、正式专业。主色 #1a73e8，背景 #f5f7fa，卡片白色。',
+  'dark-pro': '暗黑专业版 — GitHub Dark 风格、深色背景 #0d1117、青蓝主色 #58a6ff、发光边框效果。适合深度阅读。',
+  'minimal-white': '极简白风格 — Apple/Notion 风格、大留白、无背景色、细线分隔、字体灰色层次。适合移动端友好。',
+  'dashboard': '数据仪表盘风格 — Bloomberg 终端风格、紧凑布局、深色背景 #1a1a2e、数据密集型、状态指示灯。适合高信息密度展示。',
+};
+
+export function buildPrompt(userPrompt: string, projectPath: string, templateStyle: TemplateStyle = 'classic-blue'): string {
+  const templateFile = `doc/05-架构设计与规划/agent-report-templates/0${templateStyle === 'classic-blue' ? '1' : templateStyle === 'dark-pro' ? '2' : templateStyle === 'minimal-white' ? '3' : '4'}-${templateStyle}.html`;
   return `你是一个量化策略研究智能体，运行在 ${projectPath} 项目环境中。
 
 ## 项目能力
@@ -60,8 +70,12 @@ ${userPrompt}
 - **图表**：内联 SVG 或 Canvas，不依赖 JS 图表库
 - **title 标签**以"研究报告："开头
 
-### 报告模板参考
-\`doc/05-架构设计与规划/agent-report-templates/\` 下有 4 种风格模板（经典蓝/暗黑/极简/仪表盘），均可参考。
+### 报告模板风格
+
+请使用以下风格生成报告：
+${TEMPLATE_DESCRIPTIONS[templateStyle]}
+
+参考模板文件：\`${templateFile}\`
 
 ### 报告提取标记
 HTML 中加 \`<!-- REPORT_SUMMARY: ... -->\` 注释，一行纯文本摘要。

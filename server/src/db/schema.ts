@@ -1056,6 +1056,7 @@ export const agentRuns = mysqlTable('agent_runs', {
   prompt: text('prompt').notNull(),
   status: varchar('status', { length: 16 }).notNull().default('pending'),
   maxTurns: int('max_turns').notNull().default(50),
+  templateStyle: varchar('template_style', { length: 24 }).notNull().default('classic-blue'),
   timeoutMs: bigint('timeout_ms', { mode: 'number' }).notNull().default(1800000),
   pid: int('pid'),
   exitCode: int('exit_code'),
