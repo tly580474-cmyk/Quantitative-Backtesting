@@ -156,6 +156,13 @@
 - 累计收益、年化收益、夏普比率、最大回撤、胜率和盈亏比；
 - 历史结果保存及多组结果对比。
 
+### 智能体系统
+
+- 基于 Claude Code（WSL Ubuntu）的 AI 研究助手，输入问题后自动执行多步研究并生成 HTML 报告；
+- 实时流式展示思考过程、工具调用和输出内容，默认折叠思考细节，文本使用 Markdown 渲染；
+- 支持对话历史记录、删除历史任务、继续历史对话，默认不限制最大轮次；
+- 四套可配置报告模板（经典金融蓝/暗色专业/极简白/数据面板），含交互式图表。
+
 ## 技术架构
 
 ```text
@@ -164,7 +171,8 @@
 ├── Lightweight Charts 图表
 ├── IndexedDB 本地数据
 ├── Zustand 页面/业务状态
-└── Web Worker 回测引擎
+├── Web Worker 回测引擎
+└── 智能体界面（实时 SSE 流式展示）
         │
         ▼
 Fastify 服务（localhost:3001）
@@ -173,7 +181,13 @@ Fastify 服务（localhost:3001）
 ├── 本地研究快照、市场消息库与分红事件
 ├── 市场快照、热门板块与技术指标缓存
 ├── 市场数据限流、重试和数据源降级
-└── OpenAI 兼容 AI Provider
+├── OpenAI 兼容 AI Provider
+├── 智能体编排器（Agent Orchestrator）
+│   ├── WSL Claude Code 子进程（研究执行）
+│   ├── SSE 实时事件流推送
+│   ├── MySQL 事件持久化与断点续传
+│   └── HTML 报告生成与存储
+└── 因子研究引擎（DuckDB + MySQL）
 ```
 
 普通 Excel 导入和本地回测可以只使用浏览器。市场数据、MySQL 持久化和 AI 功能需要启动后端服务。
@@ -271,6 +285,28 @@ PORT=3001
 ```
 
 `OPENAI_BASE_URL` 支持 OpenAI、DeepSeek 及其他兼容 Chat Completions 的服务。密钥仅保存在后端环境变量中，不发送到浏览器。
+
+需要启用智能体系统时，在 `server/.env` 中配置：
+
+```dotenv
+AGENT_ENABLED=true
+AGENT_WSL_PROJECT_PATH=/mnt/d/github_public_repo/量化回测
+AGENT_CLAUDE_PATH=claude
+AGENT_DEFAULT_MAX_TURNS=0
+AGENT_TIMEOUT_MINUTES=30
+AGENT_MAX_CONCURRENT=1
+AGENT_REPORT_ROOT=data/agent-reports
+```
+
+- `AGENT_ENABLED`：启用智能体系统（默认 false）；
+- `AGENT_WSL_PROJECT_PATH`：WSL 中的项目路径（`/mnt/d/...` 格式），用于 Claude Code 访问仓库；
+- `AGENT_CLAUDE_PATH`：WSL 中 Claude CLI 的可执行路径（默认 `claude`）；
+- `AGENT_DEFAULT_MAX_TURNS`：默认最大轮次（0=不限制）；
+- `AGENT_TIMEOUT_MINUTES`：单次运行超时（默认 30 分钟）；
+- `AGENT_MAX_CONCURRENT`：最大并发运行数（默认 1）；
+- `AGENT_REPORT_ROOT`：报告文件存储根目录（默认 `data/agent-reports`）。
+
+智能体访问地址：`http://localhost:5558/#/agent`。
 
 需要自动更新 MySQL 全量历史库时，可在 `server/.env` 中启用：
 
@@ -436,6 +472,9 @@ cd server && npm run factor:composite -- --factors momentum_20,reversal_5 --star
 
 # 预览生产构建
 npm run preview
+
+# 智能体手动触发（模拟推送，不发送邮件）
+cd server && npx tsx src/services/marketOpinionPushCli.ts --kind=morning --simulation
 ```
 
 ## 项目结构
@@ -450,6 +489,7 @@ src/
     chart/                   行情分析图表
     indicators/              技术指标计算
     marketData/              自选评分、技术筛选、热门板块、实时行情、K线、研报和 Agent
+    agent/                   智能体系统（AgentRunner、AgentEventList、SSE 流式连接、运行历史、报告历史）
     dataLibrary/             数据集管理
     strategies/              策略协议及内置策略
     visualStrategies/        可视化策略编辑与编译
@@ -463,8 +503,10 @@ src/
 server/src/
   marketData/                数据源、热门板块、技术筛选、标准化、缓存、同步和质量检查
   routes/                    Fastify API 路由
-  services/                  AI 策略与股票调研服务
-  db/                        MySQL Schema 和迁移
+  services/
+    agent/                   智能体编排器、仓储层、提示词构建、输出解析
+    strategyGeneration/      AI 策略生成与提示词模板
+  db/                        MySQL Schema 和迁移（含 agent_runs、agent_events、agent_reports 表）
 ```
 
 ## 技术栈
@@ -511,6 +553,16 @@ server/src/
 - 模型调用可能超过 30 秒，智能交易接口使用更长的前端超时；
 - 价值投资派没有显示股息率时，检查是否已经发布包含 `dividend_events` 的本地研究快照；
 - 外部补充源异常时，系统会继续使用腾讯行情、本地快照、本地消息和官方公告；报告中的对应指标会标记为待补充。
+
+### 智能体系统不可用或报告为空
+
+- 检查 `server/.env` 中 `AGENT_ENABLED=true`；
+- 检查 `AGENT_WSL_PROJECT_PATH` 是否填写正确的 WSL 路径（如 `/mnt/d/github_public_repo/量化回测`）；
+- 确保 WSL Ubuntu 中已安装 `claude` CLI 并完成登录授权；
+- 检查 `claude` 命令是否可在 WSL 中正常执行（`wsl bash -c "claude --version"`）；
+- 启动后端时会输出 `[Agent] System enabled` 日志，确认智能体系统已初始化；
+- 报告为空时检查后端日志是否有 `[Agent]` 开头的错误输出；
+- 智能体点击"查看"或"下载"报告时地址包含 `undefined`，说明数据库中的 `agent_reports` 记录字段名映射异常，可尝试重新运行。
 
 ## 相关文档
 
