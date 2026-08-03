@@ -231,9 +231,10 @@
 
   .chart-svg {
     display: block;
-    width: 100%;
+    width: 100% !important;
     height: auto;
-    min-width: 640px;
+    min-width: 0 !important;
+    max-width: 100% !important;
   }
 
   .chart-legend {
@@ -938,6 +939,62 @@
 
     render();
   })();
+
+  /* =========================================================
+   * 5. SVG 图表自适应修正脚本
+   * 解决模型生成图表时的缩放异常问题
+   * ========================================================= */
+  function resizeCharts() {
+    var wrappers = document.querySelectorAll('.chart-wrap');
+    wrappers.forEach(function(wrap) {
+      var svgs = wrap.querySelectorAll('svg');
+      svgs.forEach(function(svg) {
+        // 1. 移除可能硬编码的 width 和 height 属性
+        svg.removeAttribute('width');
+        svg.removeAttribute('height');
+        
+        // 2. 如果没有 viewBox，从 BBox 计算一个
+        if (!svg.getAttribute('viewBox')) {
+          try {
+            var bbox = svg.getBBox();
+            if (bbox.width > 0 && bbox.height > 0) {
+              svg.setAttribute('viewBox', '0 0 ' + bbox.width + ' ' + bbox.height);
+            }
+          } catch (e) {
+            // getBBox 可能在元素未渲染时报错，跳过
+          }
+        }
+        
+        // 3. 移除 min-width 限制，允许在窄屏自适应
+        svg.style.minWidth = '0';
+        svg.style.maxWidth = '100%';
+        svg.style.width = '100%';
+        svg.style.height = 'auto';
+      });
+    });
+  }
+
+  // 立即执行一次
+  resizeCharts();
+  
+  // 监听窗口大小变化
+  var resizeTimer;
+  window.addEventListener('resize', function() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(resizeCharts, 100);
+  });
+  
+  // 监听 DOM 变化（模型动态插入的图表）
+  if (window.MutationObserver) {
+    var observer = new MutationObserver(function(mutations) {
+      mutations.forEach(function(mutation) {
+        if (mutation.addedNodes && mutation.addedNodes.length > 0) {
+          resizeCharts();
+        }
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
 </script>
 </body>
 </html>

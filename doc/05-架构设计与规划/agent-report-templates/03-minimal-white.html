@@ -182,10 +182,12 @@
   }
 
   .chart-svg {
-    width: 100%;
+    width: 100% !important;
     height: auto;
     display: block;
     overflow: visible;
+    min-width: 0 !important;
+    max-width: 100% !important;
   }
 
   .chart-svg .axis-line {
@@ -1103,6 +1105,51 @@
       });
     });
   })();
+
+  /* =========================================================
+   * SVG 图表自适应修正脚本
+   * ========================================================= */
+  function resizeCharts() {
+    var wrappers = document.querySelectorAll('.chart-wrap, .chart-wrapper, [class*="chart"]');
+    wrappers.forEach(function(wrap) {
+      var svgs = wrap.querySelectorAll('svg');
+      svgs.forEach(function(svg) {
+        svg.removeAttribute('width');
+        svg.removeAttribute('height');
+        if (!svg.getAttribute('viewBox')) {
+          try {
+            var bbox = svg.getBBox();
+            if (bbox.width > 0 && bbox.height > 0) {
+              svg.setAttribute('viewBox', '0 0 ' + bbox.width + ' ' + bbox.height);
+            }
+          } catch (e) {}
+        }
+        svg.style.minWidth = '0';
+        svg.style.maxWidth = '100%';
+        svg.style.width = '100%';
+        svg.style.height = 'auto';
+      });
+    });
+  }
+
+  resizeCharts();
+  
+  var resizeChartsTimer;
+  window.addEventListener('resize', function() {
+    clearTimeout(resizeChartsTimer);
+    resizeChartsTimer = setTimeout(resizeCharts, 100);
+  });
+  
+  if (window.MutationObserver) {
+    var observer = new MutationObserver(function(mutations) {
+      mutations.forEach(function(mutation) {
+        if (mutation.addedNodes && mutation.addedNodes.length > 0) {
+          resizeCharts();
+        }
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
 </script>
 </body>
 </html>

@@ -213,7 +213,7 @@
     margin-bottom: 6px;
     letter-spacing: 0.4px;
   }
-  svg.ic-chart { display: block; width: 100%; height: 280px; }
+  svg.ic-chart { display: block; width: 100% !important; height: auto; min-width: 0 !important; max-width: 100% !important; }
   .tooltip {
     position: absolute;
     background: rgba(10, 22, 40, 0.96);
@@ -867,6 +867,52 @@ document.querySelectorAll('#layerTable thead th').forEach((th, i) => {
     el.addEventListener('mouseleave', hideTooltip);
   });
 })();
+
+/* =========================================================
+ * SVG 图表自适应修正脚本
+ * ========================================================= */
+function resizeCharts() {
+  // 扫描所有 SVG，无论其所在容器类名
+  var svgs = document.querySelectorAll('svg');
+  svgs.forEach(function(svg) {
+    // 只处理可能是图表的 SVG（排除 icon/svg 等小图形）
+    if (svg.width && svg.height && svg.width.baseVal && svg.width.baseVal.value > 50) {
+      svg.removeAttribute('width');
+      svg.removeAttribute('height');
+      if (!svg.getAttribute('viewBox')) {
+        try {
+          var bbox = svg.getBBox();
+          if (bbox.width > 0 && bbox.height > 0) {
+            svg.setAttribute('viewBox', '0 0 ' + bbox.width + ' ' + bbox.height);
+          }
+        } catch (e) {}
+      }
+      svg.style.minWidth = '0';
+      svg.style.maxWidth = '100%';
+      svg.style.width = '100%';
+      svg.style.height = 'auto';
+    }
+  });
+}
+
+resizeCharts();
+
+var resizeChartsTimer;
+window.addEventListener('resize', function() {
+  clearTimeout(resizeChartsTimer);
+  resizeChartsTimer = setTimeout(resizeCharts, 100);
+});
+
+if (window.MutationObserver) {
+  var observer = new MutationObserver(function(mutations) {
+    mutations.forEach(function(mutation) {
+      if (mutation.addedNodes && mutation.addedNodes.length > 0) {
+        resizeCharts();
+      }
+    });
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
 </script>
 </body>
 </html>
