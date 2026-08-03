@@ -52,6 +52,7 @@ export default function AgentRunHistory() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
   const [detailEvents, setDetailEvents] = useState<AgentEvent[]>([]);
+  const [detailPrompt, setDetailPrompt] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
   const { message } = App.useApp();
 
@@ -85,9 +86,11 @@ export default function AgentRunHistory() {
     setDetailRunId(runId);
     setDetailLoading(true);
     setDetailEvents([]);
+    setDetailPrompt('');
     try {
       const result = await getAgentRun(runId);
       setDetailEvents(result.events ?? []);
+      setDetailPrompt(result.run?.prompt ?? '');
     } catch (err) {
       message.error(`加载详情失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -209,7 +212,7 @@ export default function AgentRunHistory() {
         ) : detailEvents.length === 0 ? (
           <Empty description="无事件数据" />
         ) : (
-          <AgentEventList events={detailEvents} />
+          <AgentEventList events={detailEvents} userPrompt={detailPrompt} />
         )}
       </Modal>
     </div>

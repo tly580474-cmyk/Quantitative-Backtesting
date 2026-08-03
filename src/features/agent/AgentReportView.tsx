@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button, Empty, Spin, Typography } from 'antd';
-import { DownloadOutlined, ExpandAltOutlined } from '@ant-design/icons';
+import { DownloadOutlined, ExpandAltOutlined, FileTextOutlined } from '@ant-design/icons';
 import { API_BASE_URL } from '@/api/config';
 import { getReportDownloadUrl } from './api';
 
@@ -10,9 +10,11 @@ interface Props {
   reportUrl: string | null;
   reportMeta: { title: string; summary: string } | null;
   runId: string | null;
+  /** 嵌入对话流模式：显示为紧凑卡片，点击后在新窗口查看完整报告 */
+  embedded?: boolean;
 }
 
-export function AgentReportView({ reportUrl, reportMeta, runId }: Props) {
+export function AgentReportView({ reportUrl, reportMeta, runId, embedded = false }: Props) {
   const [loading, setLoading] = useState(true);
 
   if (!reportUrl || !runId) {
@@ -36,6 +38,64 @@ export function AgentReportView({ reportUrl, reportMeta, runId }: Props) {
     window.open(reportUrl, '_blank');
   };
 
+  // 嵌入模式：紧凑卡片，不在对话流内嵌iframe（太重且影响性能）
+  if (embedded) {
+    return (
+      <div>
+        <div
+          style={{
+            padding: '12px 16px',
+            background: 'linear-gradient(135deg, #f0f5ff 0%, #e6f0ff 100%)',
+            borderBottom: '1px solid #d6e4ff',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <FileTextOutlined style={{ color: '#1a73e8', fontSize: 18 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 14, color: '#1a73e8' }}>
+              {reportMeta?.title ?? '研究报告中...'}
+            </div>
+            {reportMeta?.summary && (
+              <Text
+                type="secondary"
+                style={{
+                  fontSize: 12,
+                  display: 'block',
+                  marginTop: 2,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {reportMeta.summary}
+              </Text>
+            )}
+          </div>
+        </div>
+        <div style={{ padding: '8px 16px', display: 'flex', gap: 8, background: '#fff' }}>
+          <Button
+            size="small"
+            type="primary"
+            icon={<ExpandAltOutlined />}
+            onClick={handleOpenInNewTab}
+          >
+            在新窗口查看
+          </Button>
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            onClick={handleDownload}
+          >
+            下载 HTML
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // 独立模式：iframe 预览（保留给其他用途）
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div

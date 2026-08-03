@@ -39,6 +39,16 @@ export interface AgentReportRecord {
   createdAt: string;
 }
 
+// 将 snake_case 字段名转换为驼峰式，供 SELECT * 返回的行使用
+function toCamelRow<T>(row: Record<string, unknown>): T {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) {
+    const camel = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    out[camel] = v;
+  }
+  return out as T;
+}
+
 export class AgentRepository {
   constructor(private pool: Pool) {}
 
@@ -68,8 +78,8 @@ export class AgentRepository {
 
   async getRun(runId: string): Promise<AgentRunRecord | null> {
     const [rows] = await this.pool.execute('SELECT * FROM agent_runs WHERE id = ?', [runId]);
-    const result = rows as AgentRunRecord[];
-    return result[0] ?? null;
+    const result = rows as Record<string, unknown>[];
+    return result[0] ? toCamelRow<AgentRunRecord>(result[0]) : null;
   }
 
   async listRuns(limit: number = 50, offset: number = 0, status?: string): Promise<AgentRunRecord[]> {
@@ -80,13 +90,13 @@ export class AgentRepository {
         'SELECT * FROM agent_runs WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
         [status, safeLimit, safeOffset],
       );
-      return rows as AgentRunRecord[];
+      return (rows as Record<string, unknown>[]).map(r => toCamelRow<AgentRunRecord>(r));
     }
     const [rows] = await this.pool.query(
       'SELECT * FROM agent_runs ORDER BY created_at DESC LIMIT ? OFFSET ?',
       [safeLimit, safeOffset],
     );
-    return rows as AgentRunRecord[];
+    return (rows as Record<string, unknown>[]).map(r => toCamelRow<AgentRunRecord>(r));
   }
 
   async addEvent(runId: string, seq: number, eventType: string, content: string, toolName?: string, toolInput?: string, toolResult?: string): Promise<void> {
@@ -101,7 +111,7 @@ export class AgentRepository {
       'SELECT * FROM agent_events WHERE run_id = ? ORDER BY seq ASC',
       [runId],
     );
-    return rows as AgentEventRecord[];
+    return (rows as Record<string, unknown>[]).map(r => toCamelRow<AgentEventRecord>(r));
   }
 
   async saveReport(runId: string, title: string, htmlPath: string, fileSize: number, summary: string, chartsCount: number): Promise<void> {
@@ -113,8 +123,8 @@ export class AgentRepository {
 
   async getReport(runId: string): Promise<AgentReportRecord | null> {
     const [rows] = await this.pool.execute('SELECT * FROM agent_reports WHERE run_id = ?', [runId]);
-    const result = rows as AgentReportRecord[];
-    return result[0] ?? null;
+    const result = rows as Record<string, unknown>[];
+    return result[0] ? toCamelRow<AgentReportRecord>(result[0]) : null;
   }
 
   async listReports(limit: number = 50, offset: number = 0): Promise<AgentReportRecord[]> {
@@ -124,6 +134,6 @@ export class AgentRepository {
       'SELECT * FROM agent_reports ORDER BY created_at DESC LIMIT ? OFFSET ?',
       [safeLimit, safeOffset],
     );
-    return rows as AgentReportRecord[];
+    return (rows as Record<string, unknown>[]).map(r => toCamelRow<AgentReportRecord>(r));
   }
 }
