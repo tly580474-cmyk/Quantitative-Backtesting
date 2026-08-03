@@ -85,6 +85,12 @@ cd server && npm run minute:tdx:import      # Import minute data from TDX
 cd server && npm run minute:online:update   # Online minute data update
 cd server && npm run minute:schedule:register  # Register Windows scheduled task
 cd server && npm run minute:test            # Run minute data Python tests
+
+# Market Opinion Push (邮件推送系统)
+cd server && npx tsx src/services/marketOpinionPushCli.ts --kind=morning    # 手动触发早报推送
+cd server && npx tsx src/services/marketOpinionPushCli.ts --kind=morning --simulation  # 模拟推送（不发送邮件）
+cd server && npx tsx src/services/marketOpinionPushCli.ts --kind=morning --correction  # 更正推送
+# --kind 支持: morning(早报), midday(午报), close(盘后总结)
 ```
 
 Start both frontend and backend together: double-click `start.bat` (Windows) or run `scripts/start-dev.ps1`. Three services run by default: business frontend (5558), admin console (5559), backend API (3001).
@@ -207,6 +213,13 @@ server/src/
 - Market data providers follow a plugin pattern: register with `providerRegistry`, implement the `MarketDataProvider` interface
 - **PrimaryProvider** wraps any provider with rate limiting and retry logic
 - **TencentProvider** is the main data source (quotes, K-line, search); East Money provides industry, research reports, and fundamentals
+- **Market Opinion Push (邮件推送系统)**: 定时生成并推送市场观点报告到邮箱。核心文件：
+  - [`marketOpinionPushScheduler.ts`](file:///d:/github_public_repo/量化回测/server/src/marketData/jobs/marketOpinionPushScheduler.ts): 30秒轮询调度器，检查是否到达推送时间点（09:00/12:00/15:10），工作日执行，启用数据库去重和最多3次重试
+  - [`marketOpinionPushService.ts`](file:///d:/github_public_repo/量化回测/server/src/services/marketOpinionPushService.ts): 推送服务编排：数据准备(120s超时) → AI生成(90s超时) → 邮件发送(45s超时)
+  - [`marketOpinionAgent.ts`](file:///d:/github_public_repo/量化回测/server/src/services/marketOpinionAgent.ts): AI智能体，调用 OpenAI/DeepSeek API 生成报告，含新闻筛选、缓存、提示词构建
+  - [`marketOpinionPushCli.ts`](file:///d:/github_public_repo/量化回测/server/src/services/marketOpinionPushCli.ts): CLI 手动触发工具（支持 --simulation 模拟 / --correction 更正）
+  - 配置项（`server/.env`）: `MARKET_OPINION_PUSH_ENABLED`, `MARKET_OPINION_{MORNING,MIDDAY,CLOSE}_TIME`, `SMTP_*`, `MAIL_*`
+  - 运行记录存储在 MySQL `market_data_collector_runs` 表，jobType=`market_opinion_push`
 - AI services use the OpenAI Chat Completions spec — works with OpenAI, DeepSeek, or any compatible endpoint
 - Config is loaded via `dotenv` + Zod schema at startup (`server/src/config.ts`)
 - **Graceful shutdown**: stops sync/index/mining schedulers, closes app/db/pool
