@@ -307,19 +307,86 @@ export function buildPrompt(userPrompt: string, projectPath: string): string {
 
 你可以使用以下工具完成策略研究：
 
-1. **数据查询**：项目有 MySQL 数据库（连接配置见 server/.env），包含日线行情、因子值、
-   回测结果等。你可以用 \`npx tsx -e "..."\` 执行 TypeScript 脚本查询。
+### 1. MySQL 数据库
 
-2. **DuckDB 研究**：Parquet 快照在 server/data/snapshots/ 下，用 DuckDB CLI 查询：
-   \`cd server && npm run duckdb\`
+项目有 MySQL 数据库（连接配置见 \`server/.env\`），你可以用 Python（\`mysql-connector-python\`
+或 \`pymysql\`）或 TypeScript（\`npx tsx -e "..."\`）执行 SQL 查询。
 
-3. **因子研究**：运行因子分析：
-   \`cd server && npm run factor:run -- --factor momentum_20 --start 2026-05-01 --end 2026-06-30\`
+**可查询的主要表和数据范围**：
 
-4. **回测**：前端有完整的回测引擎，但 CLI 暂不开放。你可以编写 TypeScript 脚本调用
-   server/src/backtest/ 中的引擎模块。
+| 表名 | 内容 | 说明 |
+|------|------|------|
+| \`daily_candles\` | 日线 OHLCV 行情 | A 股个股日线，含开高低收、成交量、成交额 |
+| \`daily_bars_v2\` | v2 历史 K 线 | 含复权因子、来源标记 |
+| \`daily_stock_metrics\` | 日度股票指标 | PE_TTM、PB、PS_TTM、换手率、流通市值等 |
+| \`instruments\` | 股票主数据 | 代码、名称、市场、行业、上市/退市日期、状态 |
+| \`adjustment_factors\` / \`adjustment_factors_v2\` | 复权因子 | 前/后复权计算 |
+| \`trading_calendar\` | 交易日历 | 判断交易日、排除非交易日 |
+| \`factor_definitions\` + \`factor_versions\` | 因子定义 | 内置因子目录和版本 |
+| \`factor_runs\` + \`factor_reports\` | 因子研究记录 | IC、ICIR、分层收益等历史结果 |
+| \`factor_candidates\` | 候选因子 | 状态机管理（draft→tested→published） |
+| \`market_datasets\` | 数据集 | 已导入的数据集元信息 |
+| \`index_constituent_members\` | 指数成分股 | 沪深 300、中证 500 等成分股快照 |
+| \`dividend_events\` | 分红事件 | 除权除息记录 |
+| \`sw_industry_definitions\` + \`sw_industry_memberships\` | 申万行业 | 行业分类和成员关系 |
 
-5. **报告生成**：最终输出一份自包含的 HTML 研究报告文件。
+> ⚠️ 因子库中的数据暂不完整，部分因子可能只有定义但没有计算结果。
+> 如需使用未计算的因子，请自行编写 Python 脚本定义和计算因子值。
+
+### 2. DuckDB 研究快照
+
+Parquet 快照在 \`server/data/snapshots/\` 下，用 DuckDB CLI 高效查询：
+
+\`\`\`bash
+cd server && npm run duckdb
+\`\`\`
+
+**DuckDB 使用教程**：完整教程请参考 \`doc/02-因子研究与查询/LOCAL_DUCKDB_CLI_GUIDE.md\`，
+该文档包含 DuckDB CLI 安装、连接 Parquet 快照、常用查询语法、以及与 MySQL 数据
+联表的示例。
+
+DuckDB 快照包含 K 线字段及派生指标（PE_TTM、PB、PS_TTM、量比等），适合大批量
+分析查询，性能远优于直接查 MySQL。
+
+### 3. 外部数据获取
+
+**允许使用外部数据源**。你可以参考项目中的 \`a-stock-data\` 技能（Skill）获取
+A 股实时行情、财务数据、研报等。可用外部数据源包括：
+
+- **akshare**（Python）：A 股行情、财务、资金流、龙虎榜、北向资金等
+- **mootdx / 通达信**：实时行情和 K 线
+- **东方财富 / 同花顺**：研报、财务三表、资金流
+- **巨潮资讯**：公告数据
+
+使用外部数据时，请先安装所需 Python 包（\`pip install akshare\` 等），并在报告中
+注明数据来源。
+
+### 4. 回测
+
+**回测通过编写 Python 脚本完成**。项目中前端有完整的回测引擎（TypeScript），
+但后端 CLI 暂不开放。请在 WSL 中编写 Python 回测脚本，自行实现：
+
+- 信号生成（T 日产生信号，T+1 日开盘执行，避免前视偏差）
+- 买卖滑点和佣金计算（买入：开盘价 × (1 + 滑点)；卖出：开盘价 × (1 - 滑点)）
+- 佣金率参考：买入和卖出均收佣金，卖出额外收印花税
+- 组合管理和净值曲线
+- 绩效指标计算（年化收益、最大回撤、夏普比率、胜率等）
+
+也可参考项目中的回测规则文档 \`CLAUDE.md\` 中的"Backtest Engine Rules"部分。
+
+### 5. 因子研究
+
+可运行项目内置因子分析：
+\`\`\`bash
+cd server && npm run factor:run -- --factor momentum_20 --start 2026-05-01 --end 2026-06-30
+\`\`\`
+
+如需自定义因子，编写 Python 脚本计算因子值并存入 MySQL，或直接在回测脚本中
+内联计算。
+
+### 6. 报告生成
+
+最终输出一份自包含的 HTML 研究报告文件。详见下方"报告输出规范"。
 
 ## 用户需求
 
@@ -356,6 +423,21 @@ ${userPrompt}
 - **图表实现**：使用内联 SVG 或 Canvas API 绘制，不依赖任何 JS 图表库。
   常见图表类型：折线图、柱状图、散点图、热力图
 - **文件标记**：HTML 文件中 \`<title>\` 标签内容以"研究报告："开头
+
+### 报告模板参考
+
+项目提供了 4 种风格的 HTML 报告模板，位于
+\`doc/05-架构设计与规划/agent-report-templates/\` 目录下：
+
+| 模板文件 | 风格 | 适用场景 |
+|----------|------|----------|
+| \`01-classic-blue.html\` | 经典金融蓝 | 正式报告，蓝白配色 |
+| \`02-dark-pro.html\` | 暗黑专业版 | 深度阅读，GitHub Dark 风格 |
+| \`03-minimal-white.html\` | 极简白 | Apple/Notion 风格，移动端友好 |
+| \`04-dashboard.html\` | 数据仪表盘 | Bloomberg 终端风格，高信息密度 |
+
+生成报告时可参考上述模板的 CSS 变量体系、交互组件和布局结构。
+所有模板均通过了 Impeccable 设计检测器验证，无 AI 生成 UI 反模式。
 
 ### 报告提取标记
 
