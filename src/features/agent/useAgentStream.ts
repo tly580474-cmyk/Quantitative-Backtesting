@@ -11,11 +11,21 @@ export function useAgentStream() {
     reportMeta: null,
   });
   const eventSourceRef = useRef<EventSource | null>(null);
+  const lastSeqRef = useRef<number>(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runIdRef = useRef<string | null>(null);
 
   const connect = useCallback((runId: string) => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
+    runIdRef.current = runId;
+    lastSeqRef.current = 0;
 
     setState({
       events: [],
@@ -24,65 +34,96 @@ export function useAgentStream() {
       reportMeta: null,
     });
 
+    const attachHandlers = (es: EventSource) => {
+      es.onopen = () => {
+        setState(prev => ({ ...prev, status: 'running' }));
+      };
+
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data) as AgentEvent;
+          if (data.seq && data.seq > lastSeqRef.current) {
+            lastSeqRef.current = data.seq;
+          }
+          setState(prev => ({
+            ...prev,
+            events: [...prev.events, data],
+            status: data.type === 'done' ? 'completed' : prev.status,
+          }));
+        } catch {
+          // ignore parse errors
+        }
+      };
+
+      es.addEventListener('done', (e) => {
+        try {
+          const data = JSON.parse((e as MessageEvent).data);
+          setState(prev => ({
+            ...prev,
+            status: data.exitCode === 0 ? 'completed' : 'failed',
+          }));
+        } catch {
+          // ignore parse errors
+        }
+      });
+
+      es.addEventListener('text', (e) => {
+        try {
+          const data = JSON.parse((e as MessageEvent).data);
+          setState(prev => ({
+            ...prev,
+            reportMeta: { title: data.title, summary: data.summary },
+            reportUrl: `${API_BASE_URL}${getReportHtmlUrl(runId)}`,
+          }));
+        } catch {
+          // ignore parse errors
+        }
+      });
+
+      es.onerror = () => {
+        setState(prev => {
+          if (
+            prev.status === 'completed' ||
+            prev.status === 'failed' ||
+            prev.status === 'canceled'
+          ) {
+            return prev;
+          }
+          // Schedule reconnect after 3s
+          if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = setTimeout(() => {
+            if (!runIdRef.current) return;
+            const lastSeq = lastSeqRef.current;
+            const url = lastSeq > 0
+              ? `${API_BASE_URL}/api/agent/runs/${runIdRef.current}/stream?lastEventId=${lastSeq}`
+              : `${API_BASE_URL}/api/agent/runs/${runIdRef.current}/stream`;
+            const newEs = new EventSource(url);
+            eventSourceRef.current = newEs;
+            attachHandlers(newEs);
+            setState(prev2 => ({ ...prev2, status: 'connecting' }));
+          }, 3000);
+          return { ...prev, status: 'connecting' as const };
+        });
+      };
+    };
+
     const url = `${API_BASE_URL}/api/agent/runs/${runId}/stream`;
     const es = new EventSource(url);
     eventSourceRef.current = es;
-
-    es.onopen = () => {
-      setState(prev => ({ ...prev, status: 'running' }));
-    };
-
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data) as AgentEvent;
-        setState(prev => ({
-          ...prev,
-          events: [...prev.events, data],
-          status: data.type === 'done' ? 'completed' : prev.status,
-        }));
-      } catch {
-        // ignore parse errors
-      }
-    };
-
-    es.addEventListener('done', (e) => {
-      try {
-        const data = JSON.parse((e as MessageEvent).data);
-        setState(prev => ({
-          ...prev,
-          status: data.exitCode === 0 ? 'completed' : 'failed',
-        }));
-      } catch {
-        // ignore parse errors
-      }
-    });
-
-    es.addEventListener('text', (e) => {
-      try {
-        const data = JSON.parse((e as MessageEvent).data);
-        setState(prev => ({
-          ...prev,
-          reportMeta: { title: data.title, summary: data.summary },
-          reportUrl: `${API_BASE_URL}${getReportHtmlUrl(runId)}`,
-        }));
-      } catch {
-        // ignore parse errors
-      }
-    });
-
-    es.onerror = () => {
-      setState(prev => ({
-        ...prev,
-        status: prev.status === 'completed' ? prev.status : 'failed',
-      }));
-    };
+    attachHandlers(es);
   }, []);
 
   const disconnect = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+    runIdRef.current = null;
+    lastSeqRef.current = 0;
     setState({
       events: [],
       status: 'idle',

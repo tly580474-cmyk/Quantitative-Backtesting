@@ -65,9 +65,15 @@ export function registerAgentRoutes(
 
     const repo = new AgentRepository(deps.pool);
 
-    // Send historical events first
+    // Get Last-Event-ID for reconnection
+    const lastEventId = request.headers['last-event-id'];
+    const startSeq = lastEventId ? parseInt(lastEventId as string, 10) + 1 : 0;
+
+    // Send historical events first (only those after lastEventId)
     const events = await repo.getEvents(runId);
     for (const event of events) {
+      if (event.seq < startSeq) continue;  // skip already-sent events
+      reply.raw.write(`id: ${event.seq}\n`);
       reply.raw.write(`data: ${JSON.stringify({
         type: event.eventType,
         content: event.content,
@@ -75,6 +81,7 @@ export function registerAgentRoutes(
         toolInput: event.toolInput,
         toolResult: event.toolResult,
         seq: event.seq,
+        timestamp: event.createdAt,
       })}\n\n`);
     }
 
@@ -106,17 +113,29 @@ export function registerAgentRoutes(
       return;
     }
 
+    // Heartbeat to keep connection alive
+    const heartbeat = setInterval(() => {
+      try {
+        reply.raw.write(`: heartbeat\n\n`);
+      } catch {
+        clearInterval(heartbeat);
+      }
+    }, 15000);
+
     // Subscribe to live events
-    const unsubscribe = orchestrator.addEventListener(runId, (event) => {
+    const unsubscribe = orchestrator.addEventListener(runId, (event, seq) => {
+      reply.raw.write(`id: ${seq}\n`);
       reply.raw.write(`data: ${JSON.stringify({
         type: event.type,
         content: event.content,
         toolName: event.toolName,
         toolInput: event.toolInput,
         toolResult: event.toolResult,
+        timestamp: event.timestamp,
       })}\n\n`);
 
       if (event.type === 'done') {
+        clearInterval(heartbeat);
         // Check for report
         repo.getReport(runId).then(report => {
           if (report) {
@@ -136,6 +155,7 @@ export function registerAgentRoutes(
     // Handle client disconnect
     request.raw.on('close', () => {
       unsubscribe();
+      clearInterval(heartbeat);
     });
   });
 

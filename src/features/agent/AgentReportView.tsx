@@ -1,7 +1,10 @@
-import { Button, Empty } from 'antd';
+import { useState } from 'react';
+import { Button, Empty, Spin, Typography } from 'antd';
 import { DownloadOutlined, ExpandAltOutlined } from '@ant-design/icons';
 import { API_BASE_URL } from '@/api/config';
 import { getReportDownloadUrl } from './api';
+
+const { Text } = Typography;
 
 interface Props {
   reportUrl: string | null;
@@ -10,6 +13,8 @@ interface Props {
 }
 
 export function AgentReportView({ reportUrl, reportMeta, runId }: Props) {
+  const [loading, setLoading] = useState(true);
+
   if (!reportUrl || !runId) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -33,23 +38,61 @@ export function AgentReportView({ reportUrl, reportMeta, runId }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center', borderBottom: '1px solid #f0f0f0' }}>
+      <div
+        style={{
+          padding: '8px 12px',
+          display: 'flex',
+          gap: 8,
+          alignItems: 'center',
+          borderBottom: '1px solid #f0f0f0',
+        }}
+      >
         <span style={{ fontWeight: 600, flex: 1, fontSize: 14 }}>
           {reportMeta?.title ?? '研究报告中...'}
         </span>
+        {reportMeta?.summary && (
+          <Text
+            type="secondary"
+            style={{
+              fontSize: 12,
+              flex: 2,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {reportMeta.summary}
+          </Text>
+        )}
         <Button size="small" icon={<DownloadOutlined />} onClick={handleDownload}>
-          下载 HTML
+          下载
         </Button>
         <Button size="small" icon={<ExpandAltOutlined />} onClick={handleOpenInNewTab}>
-          新窗口打开
+          新窗口
         </Button>
       </div>
-      <iframe
-        src={reportUrl}
-        style={{ flex: 1, border: 'none', borderRadius: 0 }}
-        sandbox="allow-scripts allow-same-origin"
-        title="Agent Report"
-      />
+      <div style={{ flex: 1, position: 'relative' }}>
+        {loading && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Spin tip="加载报告中..." />
+          </div>
+        )}
+        <iframe
+          src={reportUrl}
+          style={{ width: '100%', height: '100%', border: 'none' }}
+          sandbox="allow-scripts allow-same-origin"
+          title="Agent Report"
+          onLoad={() => setLoading(false)}
+        />
+      </div>
     </div>
   );
 }

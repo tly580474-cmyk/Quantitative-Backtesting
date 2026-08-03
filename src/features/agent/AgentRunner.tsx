@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Input, Button, Space, Typography, Card, Row, Col, Tag, App, InputNumber } from 'antd';
 import { PlayCircleOutlined, StopOutlined, RobotOutlined } from '@ant-design/icons';
-import { AgentEventList } from './AgentEventList';
+import { AgentEventList, calcDuration } from './AgentEventList';
 import { AgentReportView } from './AgentReportView';
 import { useAgentStream } from './useAgentStream';
 import { createAgentRun, cancelAgentRun } from './api';
@@ -69,6 +69,15 @@ export default function AgentRunner() {
     canceled: '已取消',
   };
 
+  // 计算步骤数和总耗时
+  const stepCount = state.events.filter(e => e.type !== 'done').length;
+  const firstEvent = state.events.find(e => e.timestamp);
+  const lastEvent = [...state.events].reverse().find(e => e.timestamp);
+  const totalDuration =
+    firstEvent && lastEvent && firstEvent.timestamp && lastEvent.timestamp
+      ? calcDuration(firstEvent.timestamp, lastEvent.timestamp)
+      : '';
+
   return (
     <div style={{ padding: 24, height: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card>
@@ -129,7 +138,21 @@ export default function AgentRunner() {
         <Row gutter={16} style={{ flex: 1, minHeight: 0 }}>
           <Col span={10}>
             <Card
-              title="实时步骤"
+              title={
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>实时步骤</span>
+                  <Space size="small">
+                    {stepCount > 0 && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>{stepCount} 步</Text>
+                    )}
+                    {totalDuration && (
+                      <Text type="secondary" style={{ fontSize: 12, color: '#1a73e8' }}>
+                        耗时 {totalDuration}
+                      </Text>
+                    )}
+                  </Space>
+                </div>
+              }
               size="small"
               styles={{ body: { height: 'calc(100% - 40px)', overflow: 'hidden' } }}
               style={{ height: '100%' }}

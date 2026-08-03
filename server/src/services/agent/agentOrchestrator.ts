@@ -27,7 +27,7 @@ interface ActiveRun {
 
 export class AgentOrchestrator {
   private activeRuns = new Map<string, ActiveRun>();
-  private eventListeners = new Map<string, Set<(event: ParsedEvent) => void>>();
+  private eventListeners = new Map<string, Set<(event: ParsedEvent, seq: number) => void>>();
 
   constructor(
     private pool: Pool,
@@ -85,13 +85,14 @@ export class AgentOrchestrator {
       for (const line of lines) {
         const event = parseStreamLine(line);
         if (!event) continue;
+        event.timestamp = new Date().toISOString();
 
         run.seq++;
         await repo.addEvent(
           runId, run.seq, event.type, event.content,
           event.toolName, event.toolInput, event.toolResult,
         );
-        this.notifyListeners(runId, event);
+        this.notifyListeners(runId, event, run.seq);
       }
     });
 
@@ -100,9 +101,9 @@ export class AgentOrchestrator {
       const text = chunk.toString().trim();
       if (!text) return;
       run.seq++;
-      const event: ParsedEvent = { type: 'error', content: text };
+      const event: ParsedEvent = { type: 'error', content: text, timestamp: new Date().toISOString() };
       await repo.addEvent(runId, run.seq, 'error', text);
-      this.notifyListeners(runId, event);
+      this.notifyListeners(runId, event, run.seq);
     });
 
     // Process exit
@@ -119,7 +120,7 @@ export class AgentOrchestrator {
       }
 
       // Notify done
-      this.notifyListeners(runId, { type: 'done', content: `Process exited with code ${exitCode}` });
+      this.notifyListeners(runId, { type: 'done', content: `Process exited with code ${exitCode}`, timestamp: new Date().toISOString() }, run.seq);
     });
 
     // Handle errors
@@ -127,7 +128,7 @@ export class AgentOrchestrator {
       clearTimeout(timer);
       this.activeRuns.delete(runId);
       await repo.updateRunStatus(runId, 'failed', { errorMessage: err.message });
-      this.notifyListeners(runId, { type: 'error', content: err.message });
+      this.notifyListeners(runId, { type: 'error', content: err.message, timestamp: new Date().toISOString() }, run.seq);
     });
   }
 
@@ -155,7 +156,7 @@ export class AgentOrchestrator {
     return this.activeRuns.has(runId);
   }
 
-  addEventListener(runId: string, listener: (event: ParsedEvent) => void): () => void {
+  addEventListener(runId: string, listener: (event: ParsedEvent, seq: number) => void): () => void {
     if (!this.eventListeners.has(runId)) {
       this.eventListeners.set(runId, new Set());
     }
@@ -165,11 +166,11 @@ export class AgentOrchestrator {
     };
   }
 
-  private notifyListeners(runId: string, event: ParsedEvent): void {
+  private notifyListeners(runId: string, event: ParsedEvent, seq: number): void {
     const listeners = this.eventListeners.get(runId);
     if (listeners) {
       for (const listener of listeners) {
-        listener(event);
+        listener(event, seq);
       }
     }
   }

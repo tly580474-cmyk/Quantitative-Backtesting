@@ -5,6 +5,7 @@ export interface AgentEvent {
   toolInput?: string;
   toolResult?: string;
   seq?: number;
+  timestamp?: string;
 }
 
 export interface AgentRun {

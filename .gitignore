@@ -9,6 +9,7 @@ logs/
 .env.*
 !.env.example
 server/.env
+server/.cache/codex-*
 server/.cache/market-technical-rows.json
 server/.cache/hot-sectors.json
 server/.cache/sector-constituents.json
@@ -33,6 +34,12 @@ tools/factor-miner/output/
 tech_factors_dailyk.html
 新建 文本文档.txt
 000852perf (1).xlsx
+
+# 运行时产物
+.codex-runtime/
+server/evaluation/
+server/data/multi-asset-artifacts/
+server/data/agent-reports/
 
 # 生成产物目录（含大体积 CSV，勿提交，避免超过 GitHub 100MB 限制）
 server/out/

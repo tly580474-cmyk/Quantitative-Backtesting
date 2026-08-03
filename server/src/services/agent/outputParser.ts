@@ -4,6 +4,7 @@ export interface ParsedEvent {
   toolName?: string;
   toolInput?: string;
   toolResult?: string;
+  timestamp?: string;
 }
 
 export function parseStreamLine(line: string): ParsedEvent | null {
