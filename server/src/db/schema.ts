@@ -1049,3 +1049,48 @@ export const paperTrades = mysqlTable('paper_trades', {
   ),
   accountCreatedIdx: index('idx_pt_account_created').on(table.accountId, table.createdAt),
 }));
+
+// ─── Agent System ────────────────────────────────────────────────
+export const agentRuns = mysqlTable('agent_runs', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  prompt: text('prompt').notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('pending'),
+  maxTurns: int('max_turns').notNull().default(50),
+  timeoutMs: bigint('timeout_ms', { mode: 'number' }).notNull().default(1800000),
+  pid: int('pid'),
+  exitCode: int('exit_code'),
+  errorMessage: varchar('error_message', { length: 2000 }),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+  startedAt: varchar('started_at', { length: 24 }),
+  finishedAt: varchar('finished_at', { length: 24 }),
+}, (table) => ({
+  statusCreatedIdx: index('idx_ar_status_created').on(table.status, table.createdAt),
+}));
+
+export const agentEvents = mysqlTable('agent_events', {
+  id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+  runId: varchar('run_id', { length: 36 }).notNull(),
+  seq: int('seq').notNull(),
+  eventType: varchar('event_type', { length: 24 }).notNull(),
+  content: text('content').notNull(),
+  toolName: varchar('tool_name', { length: 64 }),
+  toolInput: text('tool_input'),
+  toolResult: text('tool_result'),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  runSeqIdx: index('idx_ae_run_seq').on(table.runId, table.seq),
+}));
+
+export const agentReports = mysqlTable('agent_reports', {
+  id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+  runId: varchar('run_id', { length: 36 }).notNull().unique(),
+  title: varchar('title', { length: 255 }).notNull(),
+  htmlPath: varchar('html_path', { length: 512 }).notNull(),
+  fileSize: int('file_size'),
+  summary: text('summary'),
+  tags: json('tags'),
+  chartsCount: int('charts_count').notNull().default(0),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  createdIdx: index('idx_arep_created').on(table.createdAt),
+}));

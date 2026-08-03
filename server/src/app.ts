@@ -18,6 +18,8 @@ import { registerDataQualityRoutes } from './routes/dataQuality.js';
 import { registerFactorResearchRoutes } from './routes/factorResearch.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerPaperTradingRoutes } from './routes/paperTrading.js';
+import { registerAgentRoutes } from './routes/agent.js';
+import { AgentOrchestrator } from './services/agent/agentOrchestrator.js';
 import {
   startPaperTradingScheduler,
   stopPaperTradingScheduler,
@@ -315,6 +317,32 @@ async function main(): Promise<void> {
       timeoutMs: parseInt(config.OPENAI_TIMEOUT_MS, 10),
     },
   });
+  // Agent system
+  const agentEnabled = config.AGENT_ENABLED === 'true';
+  let agentOrchestrator: AgentOrchestrator | null = null;
+  if (agentEnabled && dbOnline) {
+    agentOrchestrator = new AgentOrchestrator(pool, {
+      wslProjectPath: config.AGENT_WSL_PROJECT_PATH,
+      claudePath: config.AGENT_CLAUDE_PATH,
+      reportRoot: config.AGENT_REPORT_ROOT,
+      maxConcurrent: Math.max(1, parseInt(config.AGENT_MAX_CONCURRENT, 10) || 1),
+    });
+    registerAgentRoutes(app, dbOnline, {
+      pool,
+      orchestrator: agentOrchestrator,
+      reportRoot: config.AGENT_REPORT_ROOT,
+      enabled: true,
+    });
+    console.log('[Agent] System enabled');
+  } else {
+    registerAgentRoutes(app, dbOnline, {
+      pool,
+      orchestrator: null as never,
+      reportRoot: config.AGENT_REPORT_ROOT,
+      enabled: false,
+    });
+    if (!agentEnabled) console.log('[Agent] System disabled (AGENT_ENABLED=false)');
+  }
   // Graceful shutdown
   const shutdown = async () => {
     console.log('[Server] Shutting down...');

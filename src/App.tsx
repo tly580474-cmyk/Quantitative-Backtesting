@@ -16,6 +16,7 @@ import {
   LineChartOutlined,
   NodeIndexOutlined,
   ReloadOutlined,
+  RobotOutlined,
   SettingOutlined,
   StarOutlined,
   SwapOutlined,
@@ -72,6 +73,7 @@ const AutomatedFactorMiningPage = lazy(
 const FactorStrategyPage = lazy(() => import('./features/factorResearch/FactorStrategyPage'));
 const PaperTradingPage = lazy(() => import('./features/paperTrading/PaperTradingPage'));
 const StockSelectionPage = lazy(() => import('./features/stockSelection/StockSelectionPage'));
+const AgentRunner = lazy(() => import('./features/agent/AgentRunner'));
 
 interface MinuteCatalogResponse {
   status: 'ready' | 'unavailable';
@@ -158,6 +160,7 @@ const NAV_ITEMS: MenuProps['items'] = [
     label: '策略研发',
     children: [
       { key: '/studio', icon: <FundProjectionScreenOutlined />, label: '策略工作室' },
+      { key: '/agent', icon: <RobotOutlined />, label: '智能体' },
     ],
   },
   {
@@ -188,6 +191,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/results': '回测结果',
   '/factors': '因子研究',
   '/studio': '策略工作室',
+  '/agent': '策略研究智能体',
 };
 
 function DataLibraryRoute() {
@@ -886,6 +890,7 @@ function AppContent() {
                 <Route path="/factor-mining" element={<AutomatedFactorMiningPage />} />
                 <Route path="/factor-strategies" element={<FactorStrategyPage />} />
                 <Route path="/studio" element={<StrategyStudioPage />} />
+                <Route path="/agent" element={<AgentRunner />} />
               </Routes>
             </Suspense>
           }

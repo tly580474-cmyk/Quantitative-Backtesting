@@ -79,6 +79,15 @@ const envSchema = z.object({
   // Overview TTL cache (ms). 0 disables caching. See ADMIN_CONSOLE_OPTIMIZATION_PLAN §1.
   ADMIN_OVERVIEW_CACHE_TTL_MS: z.string().default('10000'),
 
+  // Agent System
+  AGENT_ENABLED: z.enum(['true', 'false']).default('false'),
+  AGENT_WSL_PROJECT_PATH: z.string().default(''),
+  AGENT_CLAUDE_PATH: z.string().default('claude'),
+  AGENT_DEFAULT_MAX_TURNS: z.string().regex(/^\d+$/).default('50'),
+  AGENT_TIMEOUT_MINUTES: z.string().regex(/^\d+$/).default('30'),
+  AGENT_MAX_CONCURRENT: z.string().regex(/^\d+$/).default('1'),
+  AGENT_REPORT_ROOT: z.string().default('data/agent-reports'),
+
   PORT: z.string().default('3001'),
 });
 

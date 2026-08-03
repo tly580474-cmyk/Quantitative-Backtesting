@@ -1,0 +1,232 @@
+import type { FastifyInstance } from 'fastify';
+import type { Pool } from 'mysql2/promise';
+import { readFile } from 'fs/promises';
+import { z } from 'zod';
+import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
+import { AgentRepository } from '../services/agent/agentRepository.js';
+import type { AgentOrchestrator } from '../services/agent/agentOrchestrator.js';
+
+const createRunBodySchema = z.object({
+  prompt: z.string().min(10),
+  maxTurns: z.number().int().min(1).max(200).default(50),
+  timeoutMinutes: z.number().int().min(1).max(120).default(30),
+});
+
+export function registerAgentRoutes(
+  app: FastifyInstance,
+  dbOnline: boolean,
+  deps: {
+    pool: Pool;
+    orchestrator: AgentOrchestrator;
+    reportRoot: string;
+    enabled: boolean;
+  },
+) {
+  const { orchestrator, enabled } = deps;
+
+  // POST /api/agent/runs — 创建并启动 agent
+  app.post('/api/agent/runs', async (request, reply) => {
+    if (!enabled) {
+      return reply.code(503).send(apiError(ErrorCodes.INTERNAL_ERROR, 'Agent 系统未启用'));
+    }
+    if (!dbOnline) {
+      return reply.code(503).send(dbUnavailable());
+    }
+
+    const body = createRunBodySchema.parse(request.body);
+    const runId = crypto.randomUUID();
+    const repo = new AgentRepository(deps.pool);
+
+    await repo.createRun(runId, body.prompt, body.maxTurns, body.timeoutMinutes * 60_000);
+
+    // Start asynchronously (non-blocking)
+    orchestrator.start({
+      runId,
+      prompt: body.prompt,
+      maxTurns: body.maxTurns,
+      timeoutMs: body.timeoutMinutes * 60_000,
+    }).catch(err => {
+      console.error(`[Agent] Failed to start run ${runId}:`, err);
+      repo.updateRunStatus(runId, 'failed', { errorMessage: err.message }).catch(() => {});
+    });
+
+    return reply.code(201).send({ runId, status: 'pending' });
+  });
+
+  // GET /api/agent/runs/:runId/stream — SSE 实时事件流
+  app.get('/api/agent/runs/:runId/stream', async (request, reply) => {
+    const { runId } = request.params as { runId: string };
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+
+    const repo = new AgentRepository(deps.pool);
+
+    // Send historical events first
+    const events = await repo.getEvents(runId);
+    for (const event of events) {
+      reply.raw.write(`data: ${JSON.stringify({
+        type: event.eventType,
+        content: event.content,
+        toolName: event.toolName,
+        toolInput: event.toolInput,
+        toolResult: event.toolResult,
+        seq: event.seq,
+      })}\n\n`);
+    }
+
+    // Check if run is still active
+    const run = await repo.getRun(runId);
+    if (!run) {
+      reply.raw.write(`event: error\ndata: ${JSON.stringify({ message: '运行不存在' })}\n\n`);
+      reply.raw.end();
+      return;
+    }
+
+    if (run.status === 'completed' || run.status === 'failed' || run.status === 'canceled') {
+      // Send done event with exit code
+      reply.raw.write(`event: done\ndata: ${JSON.stringify({
+        exitCode: run.exitCode,
+        status: run.status,
+      })}\n\n`);
+
+      // Check for report
+      const report = await repo.getReport(runId);
+      if (report) {
+        reply.raw.write(`event: text\ndata: ${JSON.stringify({
+          title: report.title,
+          summary: report.summary,
+        })}\n\n`);
+      }
+
+      reply.raw.end();
+      return;
+    }
+
+    // Subscribe to live events
+    const unsubscribe = orchestrator.addEventListener(runId, (event) => {
+      reply.raw.write(`data: ${JSON.stringify({
+        type: event.type,
+        content: event.content,
+        toolName: event.toolName,
+        toolInput: event.toolInput,
+        toolResult: event.toolResult,
+      })}\n\n`);
+
+      if (event.type === 'done') {
+        // Check for report
+        repo.getReport(runId).then(report => {
+          if (report) {
+            reply.raw.write(`event: text\ndata: ${JSON.stringify({
+              title: report.title,
+              summary: report.summary,
+            })}\n\n`);
+          }
+          reply.raw.write(`event: done\ndata: ${JSON.stringify({ exitCode: 0 })}\n\n`);
+          reply.raw.end();
+        }).catch(() => {
+          reply.raw.end();
+        });
+      }
+    });
+
+    // Handle client disconnect
+    request.raw.on('close', () => {
+      unsubscribe();
+    });
+  });
+
+  // POST /api/agent/runs/:runId/cancel — 取消运行
+  app.post('/api/agent/runs/:runId/cancel', async (request, reply) => {
+    const { runId } = request.params as { runId: string };
+    orchestrator.cancel(runId);
+    const repo = new AgentRepository(deps.pool);
+    await repo.updateRunStatus(runId, 'canceled');
+    return reply.send({ runId, status: 'canceled' });
+  });
+
+  // GET /api/agent/runs — 列出历史运行
+  app.get('/api/agent/runs', async (request, reply) => {
+    const query = request.query as { status?: string; limit?: string; offset?: string };
+    const limit = Math.min(parseInt(query.limit ?? '50', 10) || 50, 200);
+    const offset = parseInt(query.offset ?? '0', 10) || 0;
+    const repo = new AgentRepository(deps.pool);
+    const runs = await repo.listRuns(limit, offset, query.status);
+    return reply.send({ runs });
+  });
+
+  // GET /api/agent/runs/:runId — 获取运行详情
+  app.get('/api/agent/runs/:runId', async (request, reply) => {
+    const { runId } = request.params as { runId: string };
+    const repo = new AgentRepository(deps.pool);
+    const [run, events, report] = await Promise.all([
+      repo.getRun(runId),
+      repo.getEvents(runId),
+      repo.getReport(runId),
+    ]);
+    if (!run) {
+      return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '运行不存在'));
+    }
+    return reply.send({ run, events, report });
+  });
+
+  // GET /api/agent/reports/:runId — 获取报告元信息
+  app.get('/api/agent/reports/:runId', async (request, reply) => {
+    const { runId } = request.params as { runId: string };
+    const repo = new AgentRepository(deps.pool);
+    const report = await repo.getReport(runId);
+    if (!report) {
+      return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '报告不存在'));
+    }
+    return reply.send(report);
+  });
+
+  // GET /api/agent/reports/:runId/html — 获取 HTML 报告内容
+  app.get('/api/agent/reports/:runId/html', async (request, reply) => {
+    const { runId } = request.params as { runId: string };
+    const repo = new AgentRepository(deps.pool);
+    const report = await repo.getReport(runId);
+    if (!report) {
+      return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '报告不存在'));
+    }
+    try {
+      const html = await readFile(report.htmlPath);
+      reply.header('Content-Type', 'text/html; charset=utf-8');
+      reply.header('Content-Disposition', `inline; filename="${encodeURIComponent(report.title)}.html"`);
+      return reply.send(html);
+    } catch {
+      return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '报告文件不存在'));
+    }
+  });
+
+  // GET /api/agent/reports/:runId/download — 下载 HTML 报告
+  app.get('/api/agent/reports/:runId/download', async (request, reply) => {
+    const { runId } = request.params as { runId: string };
+    const repo = new AgentRepository(deps.pool);
+    const report = await repo.getReport(runId);
+    if (!report) {
+      return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '报告不存在'));
+    }
+    try {
+      const html = await readFile(report.htmlPath);
+      reply.header('Content-Type', 'text/html; charset=utf-8');
+      reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(report.title)}.html"`);
+      return reply.send(html);
+    } catch {
+      return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '报告文件不存在'));
+    }
+  });
+
+  // GET /api/agent/reports — 列出所有报告
+  app.get('/api/agent/reports', async (request, reply) => {
+    const query = request.query as { limit?: string; offset?: string };
+    const limit = Math.min(parseInt(query.limit ?? '50', 10) || 50, 200);
+    const offset = parseInt(query.offset ?? '0', 10) || 0;
+    const repo = new AgentRepository(deps.pool);
+    const reports = await repo.listReports(limit, offset);
+    return reply.send({ reports });
+  });
+}
