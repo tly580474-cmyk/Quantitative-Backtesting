@@ -52,6 +52,12 @@ try {
         -WindowStyle Hidden | Out-Null
     Wait-Http "$backendUrl/api/market-data/research-agent/status" 35 'Backend'
 
+    # Clear Vite dependency cache to prevent stale module errors on restart
+    $viteCache = Join-Path $root 'node_modules\.vite'
+    if (Test-Path -LiteralPath $viteCache) {
+        Remove-Item -Recurse -Force $viteCache -ErrorAction SilentlyContinue
+    }
+
     # Frontend
     $frontendLog = Join-Path $logDir 'frontend.log'
     Start-Process -FilePath 'cmd.exe' `

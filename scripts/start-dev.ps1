@@ -129,6 +129,13 @@ try {
     Wait-Http "$backendUrl/api/market-data/research-agent/status" 35 'Backend'
     Warm-MarketSentiment
 
+    # Clear Vite dependency cache to prevent stale module errors on restart
+    $viteCache = Join-Path $root 'node_modules\.vite'
+    if (Test-Path -LiteralPath $viteCache) {
+        Write-Step 'FE' 'Clearing Vite dependency cache...'
+        Remove-Item -Recurse -Force $viteCache -ErrorAction SilentlyContinue
+    }
+
     Write-Step 'FE' "Starting Vite at $frontendUrl"
     $frontendCommand = "title Quant-Frontend && cd /d `"$root`" && npm run dev -- --host 127.0.0.1 --port 5558 --strictPort"
     Start-Process -FilePath 'cmd.exe' -ArgumentList '/k', $frontendCommand -WorkingDirectory $root
