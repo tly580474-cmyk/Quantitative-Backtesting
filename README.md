@@ -1,274 +1,163 @@
-# 量化行情分析与策略回测
+<div align="center">
 
-面向 A 股研究的浏览器端行情分析、数据管理、选股研究、智能交易分析、策略构建与回测应用。项目支持 Excel 行情导入、全市场自选股、实时行情、热门板块、技术选股、K 线与技术指标、机构研报、多流派 AI 交易分析、可视化策略、回测撮合和绩效分析。
+#  📊 量化行情分析与策略回测
 
-> 本项目用于研究和学习，不构成投资建议。公开行情接口可能受网络状态、上游限流或接口调整影响。
+**A股研究一体化平台 — 行情分析 · 数据管理 · 选股评分 · 智能交易 · 策略回测 · 因子研究 · AI 智能体**
 
-## 主要功能
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)](https://vitejs.dev)
+[![Fastify](https://img.shields.io/badge/Fastify-5-000000?logo=fastify&logoColor=white)](https://fastify.dev)
+[![MySQL](https://img.shields.io/badge/MySQL-8-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com)
+[![DuckDB](https://img.shields.io/badge/DuckDB-FFF000?logo=duckdb&logoColor=black)](https://duckdb.org)
+[![Ant Design](https://img.shields.io/badge/Ant_Design-6-1677FF?logo=ant-design&logoColor=white)](https://ant.design)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-### 行情分析
+</div>
 
-- 批量导入 `.xlsx`、`.xls` 或 `.csv` 日频行情文件；
-- 自动映射中英文表头，校验日期、重复记录和 OHLC 数据；
-- 展示 K 线、成交量、十字光标和区间涨跌；
-- 支持 SMA、EMA、BOLL、MACD、RSI、KDJ、ATR、CCI、WR、OBV 和成交量均线；
-- 技术指标支持添加、隐藏、删除和参数调整。
+> ⚠️ **风险提示**：本项目用于研究和学习，**不构成投资建议**。公开行情接口可能受网络状态、上游限流或接口调整影响。
 
-### 数据管理
+---
 
-- 将导入行情保存到 IndexedDB 或 MySQL；
-- 按名称、代码查询并打开数据集；
-- 通过校验和识别重复导入；
-- 支持数据迁移、导出及质量检查。
+## 📋 目录
 
-### 市场数据
+- [核心功能](#-核心功能)
+- [技术架构](#-技术架构)
+- [快速开始](#-快速开始)
+- [配置指南](#-配置指南)
+- [使用流程](#-使用流程)
+- [常用命令](#-常用命令)
+- [项目结构](#-项目结构)
+- [技术栈](#-技术栈)
+- [故障排查](#-故障排查)
+- [文档与计划](#-文档与计划)
+- [数据与隐私](#-数据与隐私)
 
-- 按股票代码、简称或拼音搜索 5000+ A 股；
-- 使用自选股模式按需展示标的，不预加载全市场列表；
-- 展示实时价格、涨跌幅、开高低收、涨跌停、换手率、振幅、量比和成交额；
-- 展示 PE(TTM)、静态 PE、PB、总市值、流通市值、上市日期和所属行业；
-- 支持日 K、周 K、年 K 和前复权价格；
-- K 线叠加 MA5、MA10、MA20，并计算 RSI14、MACD；
-- 鼠标悬停时在图表右上角显示固定的半透明数据卡，包括 OHLC、涨跌、成交量和技术指标；
-- 支持价值投资、成长型、逆向抄底、趋势型、短线打板五套独立选股评分规则，展示数据覆盖率和评分明细；
-- 评分专用日 K、沪深 300 基准、估值、财务和分红数据均本地优先，本地缺失时才回退在线接口；详情页复用已加载的实时估值；
-- 所有评分风格都比较个股与沪深 300 的 20/60 日相对强弱；基准缺失时保留因子权重并明确降级；
-- 价值评分将近 12 个月股息率设为最高权重因子，并结合 PE、PB、ROE、市值、回撤和波动；股息率缺失不会被静默移除；
-- 成长评分优先使用营收增速、净利润增速和 ROE，不再把高估值直接当作成长；
-- 对自选股按所选风格批量评分和排名，支持置顶、快速加入/取消自选；
-- 使用涨跌幅、成交额、换手率、量比和振幅完成全市场量价初筛；
-- 对候选股进一步计算 MA5/10/20/60、5/10/20 日涨跌幅、连续涨跌、RSI14、KDJ 和 MACD 金叉/死叉；
-- 展示行业与概念“当日热门板块”，综合板块涨幅、主力资金、上涨广度、活跃度和热度持续性排名；
-- “市场概况”“当日热门板块”“自选评分”和“市场技术筛选”默认折叠，展开后按需加载；
-- 机构研报支持分页、PDF 查看及独立刷新，刷新失败不会清空已有结果；
-- 自选和详情页面中的智能交易系统独占整行展示，不与机构研报并排，避免 Markdown 表格被压缩；
-- 自选股、置顶状态、评分、筛选条件、筛选结果和热门板块快照会持久化或缓存；
-- 页面支持桌面、平板和手机窗口，并提供独立纵向滚动区域。
+---
 
-市场数据来源：
+## 🚀 核心功能
 
-| 数据 | 来源 | 说明 |
-| --- | --- | --- |
-| 实时行情、估值 | 腾讯财经 | GBK 行情接口，按需请求 |
-| 日/周/月线 | 本地指数数据、腾讯财经、新浪财经及可选补充源 | 指数详情优先读取本地数据；美股指数历史日线使用新浪，年 K 由长期数据聚合 |
-| 中证指数成分股 | 中证指数官方文件、本地研究快照 | 指数详情页可搜索最新成分股并进入个股行情；默认覆盖沪深 300、中证 500/1000/2000/A500/全指等宽基 |
-| 分红历史、股息率 | 本地研究快照 | 读取已发布的分红事件，按近 12 个月已实施现金分红计算股息率 |
-| 选股评分财务数据 | 腾讯行情、本地财务库与研究快照、Tushare/新浪财经 | 本地保存公告版本；已覆盖 ROE、营收、净利润、经营现金流、负债率、毛利率和分红；负权益时不估算 ROE，缺失值保持 `null` |
-| 市场消息 | 本地消息库 | 智能交易分析读取近 72 小时已入库消息，不为单次分析主动刷新东财 |
-| 个股公告 | 巨潮资讯、本地消息库 | 优先读取官方公告；无近期公告时静默跳过 |
-| 行业、上市日期 | 腾讯行情及可选补充源 | 补充源失败不影响核心行情 |
-| 行业/概念板块、板块资金 | 本地缓存及可选补充源 | 交互分析优先使用最近有效快照 |
-| 个股研报、PDF | 可选补充源 | 独立刷新，失败不会阻断智能交易分析 |
+### 📈 行情分析
+- 批量导入 `.xlsx`/`.xls`/`.csv` 日频行情，自动映射中英文表头
+- K 线图表（TradingView Lightweight Charts）叠加 MA5/10/20，十字光标与区间涨跌
+- 18 种技术指标：SMA、EMA、BOLL、MACD、RSI、KDJ、ATR、CCI、WR、OBV、成交量均线等
 
-运行智能交易分析时遵循“腾讯行情和本地快照优先、官方公告其次、外部聚合接口仅作可失败补充”的原则。东方财富相关接口不作为核心链路的单点依赖；其返回失败时保留已有缓存或将对应证据标记为缺失。
+### 📊 市场数据
+- 5000+ A 股搜索（代码/简称/拼音），自选股模式按需加载
+- 实时行情、PE/PB、估值、市值、换手率、量比、振幅
+- 日 K / 周 K / 年 K / 前复权，自定义区间
+- 五套独立选股评分：价值投资、成长型、逆向抄底、趋势型、短线打板
+- 当日热门板块、市场技术筛选、全市场概况
 
-日线、周线、年线和分时数据在进入页面前统一使用“股”作为成交量单位。腾讯等网络接口返回的“手”会在服务端乘以 100 后再与数据库历史合并；K 线接口同时返回 `volumeUnit: "share"`。页面仅负责将股数格式化为万股或亿股，不再参与单位换算。
+### 🤖 智能交易系统
+- 8 种交易流派：价值投资、成长赛道、周期投资、逆向抄底、传统指标、缠论结构、趋势跟踪、短线打板
+- 多策略冲突裁决：风险否决 > 大盘环境 > 个股强弱 > 策略证据 > 消息催化
+- 自动整合实时行情、K 线、全市场快照、公告、分红、新闻
+- 深度分析报告，Markdown 渲染
 
-### 多风格选股评分
+### 🧠 智能体系统
+- 基于 **Claude Code**（WSL Ubuntu）的 AI 研究助手
+- 输入问题后自动执行多步研究，生成结构化 HTML 报告
+- 实时 SSE 流式展示思考过程、工具调用与输出，Markdown 渲染
+- 对话历史管理、删除任务、继续对话（`--resume` 恢复上下文）
+- 四套可配置报告模板：经典金融蓝 / 暗色专业 / 极简白 / 数据面板
 
-页面即时评分采用“五年全市场回测结论 + 当前标的可用数据”的混合口径：
+### 🎯 策略研究
+- **策略工作室**：自然语言生成策略 DSL，可视化节点编辑器
+- **策略回测**：双均线、RSI、MACD、BOLL 等内置策略，支持自定义参数
+- 回测引擎：T 日信号 → T+1 开盘成交，滑点/手续费/印花税，绩效指标
+- **因子研究**：20+ 内置因子，单因子/多因子复合运行，IC/ICIR/分层收益
+- 因子候选工作流：草稿 → 冻结 → 测试 → 审批 → 发布
 
-| 风格 | 风险 | 推荐观察/持有期 | 主要证据 |
-| --- | --- | ---: | --- |
-| 价值投资 | 稳健 | 60 日 | 股息率、PE/PB、ROE、规模、低回撤、低波动、相对大盘 |
-| 成长型 | 稳中求进 | 60 日 | 营收/净利增长、ROE、60 日动量、量能、趋势、相对大盘 |
-| 逆向抄底 | 进取 | 20 日 | 超跌、低 RSI、缩量、趋势反转、相对大盘弱势修复 |
-| 趋势型 | 进取 | 60 日 | 均线多头、突破、动量、ATR、量能、相对大盘强势 |
-| 短线打板 | 激进 | 10 日 | 连板、突破、量比、BIAS、KDJ、日内强度、相对大盘 |
+### 🗄️ 数据管理
+- IndexedDB / MySQL 双存储，数据迁移与导出
+- 全量历史行情库（MySQL）自动同步，研究快照（Parquet）构建
+- 成交量单位自动校验与修复，除权除息检测
+- 运维管理台：诊断、配置编辑、监控大盘
 
-- 最新研究中，短线打板的 1 日评分被证伪，因此产品使用 10 日退化方案并保留高风险提示。
-- 页面因子总权重固定为 100%。缺失因子按中性 50 分占位，不把缺失权重转嫁给其他因子，同时显示实际数据覆盖率。
-- 20 日均成交额低于 1000 万元仍会触发统一流动性硬过滤，最终分数最高限制为 39 分。
-- 页面单股历史分位是低延迟代理，不等同于研究回测使用的全市场横截面 z-score；评分用于候选排序，不构成收益承诺。
+---
 
-### 指数代码别名与走势图修复
+## 🏗️ 技术架构
 
-- 指数卡片进入详情时保留配置的规范别名；同时兼容曾经生成的旧错误别名。中证 2000、标普 500、道琼斯、日经 225 和韩国 KOSPI 均会解析到同一个规范指数标的。
-- `932000` 被明确识别为中证 2000 指数，不再进入个股行情链路。
-- 指数详情优先读取 `market_datasets/candles` 本地历史数据；数据库暂未覆盖时才请求在线数据，指数统一使用不复权口径。
-- 纳斯达克 100、标普 500 和道琼斯的历史 K 线使用新浪完整日线，腾讯单点行情仅作最终兜底；新浪异常 OHLC 行会在服务端规范到合法价格区间。
-- 中证 2000、日经 225 和韩国 KOSPI 保留东方财富补充源，但最近一次成功的指数 K 线会进入缓存；中证 2000 已具备本地历史数据和本地报价兜底，不再因单次上游失败丢失整张走势图。
-
-### 智能交易系统
-
-- 复用策略工作室配置的 OpenAI 兼容模型、地址和密钥；
-- 支持同时选择 1–3 种交易流派，并按风险偏好从稳健到激进排列：
-  - 价值投资派；
-  - 成长赛道流；
-  - 周期投资派；
-  - 逆向抄底流；
-  - 传统指标派；
-  - 缠论结构派；
-  - 趋势跟踪派；
-  - 短线打板流；
-- 自动整合腾讯实时行情、日 K、周 K、全市场快照、本地消息、官方公告、分红历史及按流派加载的扩展证据；
-- 分析大盘指数、涨跌广度、成交额、市场情绪、主力资金和热点板块，判断风险偏好扩张、震荡分化或风险收缩；
-- 所有流派都必须比较个股与中证全指、中证 A500、沪深 300 等核心宽基的表现，并结合市场广度，将个股定位为“逆势强、顺势强、市场同步、相对弱”或“待确认”；
-- 价值投资派强制展示股息率，并同时检查 PE/PB、ROE、盈利质量、现金流、分红持续性与派息覆盖能力；股息率缺失时明确标记“待补充”，不得省略或编造；
-- 个股近期没有新闻或公告时直接省略相关内容，不输出无信息价值的缺失提示；
-- 每种流派独立给出适配度、大盘博弈定位、支持证据、反对证据、触发条件和失效条件；
-- 最终只输出观察、等待确认、风险回避或带前置条件的候选方案，不输出无条件买卖指令；
-- 报告使用 Markdown 渲染，支持标题、列表、表格、引用和代码样式；
-- 运行时展开分析过程摘要，完成后自动折叠；
-- 过程摘要只展示可审计的取数和分析步骤，不展示模型隐藏思维链；
-- 已生成的报告会在页面切换后保留。
-
-#### 多策略冲突裁决
-
-系统保留不同流派的独立观点，但不允许将互相矛盾的买卖指令并列交给用户。统一裁决顺序为：
-
-```text
-风险否决 > 大盘环境 > 个股相对强弱 > 用户主策略 > 辅助策略 > 消息催化
 ```
-
-- 首先执行统一市场风险闸门。大盘风险收缩时，趋势追涨、打板等进攻型流派自动降低权重和仓位上限；
-- 按时间周期隔离结论。价值、成长和周期偏中长期，传统技术、趋势和缠论偏短中期，打板属于超短期；“长期有价值、短期未止跌”属于周期差异，不直接视为互相否定；
-- 财务异常、流动性不足、个股持续弱于大盘或价格触发失效条件时，风险层拥有一票否决权；
-- 各流派使用统一维度比较：大盘环境适配、个股相对强弱、流派自身证据、基本面/消息验证和风险收益比；
-- 多个流派形成共识只能提高证据置信度，不能突破统一仓位上限；
-- 最终执行层只能生成一个状态：风险回避、继续观察、等待确认、小仓试错、条件满足后分批参与，或持有并执行退出纪律；
-- 报告必须说明主导流派、被否决流派、冲突来自时间周期还是证据口径，以及最终裁决原因。
-
-### 策略工作室
-
-- 使用自然语言生成策略 DSL；
-- 支持模型选择、策略修改、解释和结构校验；
-- 支持可视化策略节点编辑、校验、编译及信号预览；
-- 支持成交量/量比、前期高低点突破和滚动回撤指标，并可由 AI 生成对应规则；
-- AI 输出仅作为策略草稿，需经过预览和回测确认。
-
-### 策略回测
-
-内置策略：
-
-- 双均线交叉；
-- RSI 超买超卖；
-- MACD 金叉死叉；
-- BOLL 布林带回归。
-
-回测能力：
-
-- 初始资金、全仓买卖，以及按剩余资金/当前持仓百分比逐步加减仓；
-- 手续费、最低手续费、卖出印花税和滑点；
-- 收盘后生成信号，下一交易日开盘成交；
-- 期末强制平仓；
-- 买卖信号、成交记录和权益曲线；
-- 累计收益、年化收益、夏普比率、最大回撤、胜率和盈亏比；
-- 历史结果保存及多组结果对比。
-
-### 智能体系统
-
-- 基于 Claude Code（WSL Ubuntu）的 AI 研究助手，输入问题后自动执行多步研究并生成 HTML 报告；
-- 实时流式展示思考过程、工具调用和输出内容，默认折叠思考细节，文本使用 Markdown 渲染；
-- 支持对话历史记录、删除历史任务、继续历史对话，默认不限制最大轮次；
-- 四套可配置报告模板（经典金融蓝/暗色专业/极简白/数据面板），含交互式图表。
-
-## 技术架构
-
-```text
-浏览器
-├── React + Ant Design 界面
-├── Lightweight Charts 图表
-├── IndexedDB 本地数据
-├── Zustand 页面/业务状态
-├── Web Worker 回测引擎
-└── 智能体界面（实时 SSE 流式展示）
+Browser
+├── React 19 + Ant Design 6  —  UI 界面
+├── TradingView Lightweight Charts  —  K 线图表
+├── IndexedDB (Dexie)  —  本地数据持久化
+├── Zustand  —  状态管理
+├── Web Worker  —  回测引擎异步执行
+└── SSE Client  —  智能体实时事件流
         │
         ▼
-Fastify 服务（localhost:3001）
-├── MySQL 持久化（可选）
-├── 腾讯行情、巨潮公告与可选补充数据适配
-├── 本地研究快照、市场消息库与分红事件
-├── 市场快照、热门板块与技术指标缓存
-├── 市场数据限流、重试和数据源降级
-├── OpenAI 兼容 AI Provider
-├── 智能体编排器（Agent Orchestrator）
-│   ├── WSL Claude Code 子进程（研究执行）
-│   ├── SSE 实时事件流推送
-│   ├── MySQL 事件持久化与断点续传
-│   └── HTML 报告生成与存储
-└── 因子研究引擎（DuckDB + MySQL）
+Fastify 5 Server (localhost:3001)
+├── MySQL 8 (Drizzle ORM)  —  持久化存储
+├── Market Data Providers
+│   ├── 腾讯财经  —  实时行情、估值、K 线
+│   ├── 新浪财经  —  美股指数、全市场名单
+│   ├── 巨潮资讯  —  个股公告
+│   ├── 东方财富  —  研报、新闻、板块（可选补充）
+│   └── Tushare  —  证券主表（可选）
+├── Python Toolchain
+│   ├── 指数成分股 / 分红事件 / 申万行业
+│   └── 分钟数据湖（TDX 导入 + 在线更新）
+├── DuckDB  —  OLAP 研究快照查询引擎
+├── OpenAI SDK  —  AI 策略生成 + 智能交易
+├── Agent Orchestrator
+│   ├── WSL Claude Code  —  研究执行
+│   ├── SSE 实时流推送  —  事件持久化与断点续传
+│   └── HTML 报告生成
+└── Scheduler  —  数据同步、因子挖掘、市场推送
 ```
 
-普通 Excel 导入和本地回测可以只使用浏览器。市场数据、MySQL 持久化和 AI 功能需要启动后端服务。
+---
 
-## 环境要求
+## 🚀 快速开始
 
-- Node.js `^20.19.0` 或 `>=22.12.0`；
-- npm；
-- 支持 IndexedDB、Web Worker 和现代 CSS 的浏览器；
-- MySQL 8.x（仅 API 持久化模式需要）。
+### 环境要求
 
-## 快速开始
+- Node.js `^20.19.0` 或 `>=22.12.0`
+- npm
+- MySQL 8.x（仅 API 持久化模式需要）
 
-### Windows 一键启动
+### 一键启动（Windows）
 
-双击：
-
-```text
-start.bat
-```
-
-脚本会：
-
-1. 安装缺失的前后端依赖；
-2. 检查 3001 端口上的后端版本；
-3. 自动替换缺少当前市场数据路由的旧后端进程；
-4. 启动后端 `http://localhost:3001`；
-5. 启动前端并打开 `http://localhost:5173`。
+双击 `start.bat`，自动安装依赖、启动后端（3001）和前端（5173/5558）。
 
 ### 手动启动
 
-安装前端依赖：
-
 ```bash
+# 安装前端依赖
 npm install
-```
 
-安装后端依赖：
+# 安装后端依赖
+cd server && npm install && cd ..
 
-```bash
-cd server
-npm install
-cd ..
-```
-
-分别启动两个终端：
-
-```bash
 # 终端 1：后端
-cd server
-npm run dev
+cd server && npm run dev
 
 # 终端 2：前端
 npm run dev
 ```
 
-访问 `http://localhost:5173/`。
+访问 `http://localhost:5173/`（开发）或 `http://localhost:5558/`（生产）。
 
-## 配置
+---
+
+## ⚙️ 配置指南
 
 ### 前端配置
 
-复制 `.env.example` 为 `.env`：
-
 ```dotenv
-# api：后端/MySQL，是唯一权威可写数据源
-VITE_DATA_SOURCE=api
+# .env
+VITE_DATA_SOURCE=api                      # api / indexeddb
 VITE_API_URL=http://localhost:3001
 VITE_ALLOW_INDEXEDDB_MIGRATION=false
 ```
 
-旧版本浏览器数据需要迁移时，可临时同时设置
-`VITE_DATA_SOURCE=indexeddb` 和 `VITE_ALLOW_INDEXEDDB_MIGRATION=true`。该模式只允许读取和
-导出，禁止新增、修改和删除；导出的 Excel 首张“迁移清单”记录各表行数、日期范围、
-记录 ID 样本和确定性 checksum。完成迁移后必须恢复 API 模式。
-
-### 后端与 AI 配置
-
-复制 `server/.env.example` 为 `server/.env`：
+### 后端核心配置
 
 ```dotenv
+# server/.env
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=root
@@ -279,311 +168,177 @@ AI_STRATEGY_ENABLED=true
 OPENAI_API_KEY=your-api-key
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=deepseek-v4-flash
-OPENAI_TIMEOUT_MS=60000
 
 PORT=3001
 ```
 
-`OPENAI_BASE_URL` 支持 OpenAI、DeepSeek 及其他兼容 Chat Completions 的服务。密钥仅保存在后端环境变量中，不发送到浏览器。
-
-需要启用智能体系统时，在 `server/.env` 中配置：
+### 智能体系统配置
 
 ```dotenv
 AGENT_ENABLED=true
 AGENT_WSL_PROJECT_PATH=/mnt/d/github_public_repo/量化回测
 AGENT_CLAUDE_PATH=claude
-AGENT_DEFAULT_MAX_TURNS=0
+AGENT_DEFAULT_MAX_TURNS=0     # 0=不限制
 AGENT_TIMEOUT_MINUTES=30
 AGENT_MAX_CONCURRENT=1
 AGENT_REPORT_ROOT=data/agent-reports
 ```
 
-- `AGENT_ENABLED`：启用智能体系统（默认 false）；
-- `AGENT_WSL_PROJECT_PATH`：WSL 中的项目路径（`/mnt/d/...` 格式），用于 Claude Code 访问仓库；
-- `AGENT_CLAUDE_PATH`：WSL 中 Claude CLI 的可执行路径（默认 `claude`）；
-- `AGENT_DEFAULT_MAX_TURNS`：默认最大轮次（0=不限制）；
-- `AGENT_TIMEOUT_MINUTES`：单次运行超时（默认 30 分钟）；
-- `AGENT_MAX_CONCURRENT`：最大并发运行数（默认 1）；
-- `AGENT_REPORT_ROOT`：报告文件存储根目录（默认 `data/agent-reports`）。
+> 智能体访问地址：`http://localhost:5558/#/agent`，需在 WSL Ubuntu 中安装 `claude` CLI。
 
-智能体访问地址：`http://localhost:5558/#/agent`。
-
-需要自动更新 MySQL 全量历史库时，可在 `server/.env` 中启用：
+### 市场数据自动同步
 
 ```dotenv
 MARKET_DATA_ENABLED=true
 MARKET_DATA_PROVIDER=tencent
-INSTRUMENT_SYNC_ENABLED=true
 INSTRUMENT_SYNC_TIME=15:20
 MARKET_DATA_SYNC_TIME=15:30
 SCHEDULE_SKIP_NON_TRADING_PERIODS=true
-MARKET_DATA_INTRADAY_INTERVAL_MINUTES=30
-MARKET_INDEX_AUTO_UPDATE_ENABLED=true
-MARKET_CN_INDEX_UPDATE_TIME=20:00
-MARKET_US_INDEX_UPDATE_TIME=05:00
-FINANCIAL_DATA_ENABLED=true
-FINANCIAL_DATA_UPDATE_TIME=19:00
-FINANCIAL_DATA_LOOKBACK_DAYS=21
 ```
 
-服务会先在 A 股盘后 15:20 刷新证券主表，再于 15:30 统一更新并定稿个股日线，
-盘中不会写入当天个股日线。证券主表不使用东方财富：配置 `TUSHARE_TOKEN` 时优先
-使用 Tushare `stock_basic`，未配置时使用新浪财经免 Token 全市场名单；同步结果为空
-或低于当前主表数量的 70% 时会拒绝写入。新增证券会补充上市日期，并自动进入日线、
-分钟、财务和研究快照的活跃股票更新范围。
+> 所有调度时间按 `Asia/Shanghai` 解释。更多配置见 [配置文件说明](doc/05-架构设计与规划/)。
 
-增量任务只处理状态为 `active` 的股票，不请求待上市或已退市证券；腾讯批量行情负责
-当日更新，缺失多个交易日时再按证券补拉 K 线。腾讯不支持的新 `920xxx` 北交所代码
-使用新浪日 K 和全市场行情降级，不再把“任务完成但无行情”视为数据已覆盖。
+---
 
-所有调度时间均按 `Asia/Shanghai` 解释。服务在 15:30 之后启动时会补偿执行当天
-尚未完成的任务，成功后当天不重复；失败任务按分钟重试。交易日历缺失时，服务
-会先从腾讯指数日线确认沪、深、北三市是否开市。
+## 📖 使用流程
 
-首次启用证券主表自动更新后的验收基线为 2026-07-27：同步源返回 5,532 只交易中
-A 股，数据库保留 3 只需要后续复核的本地活跃记录，因此活跃股票合计 5,535 只；
-新增 49 只证券的上市日期全部补齐，47 只已产生收盘数据的证券日 K 覆盖率为
-47/47，另外 2 只当日首发证券等待收盘任务。详细流程见
-[证券主表与新股接入](doc/01-盘后数据更新/INSTRUMENT_MASTER_SYNC.md)。
+### 市场数据 + 智能交易
 
-`SCHEDULE_SKIP_NON_TRADING_PERIODS` 默认开启，也可在运维管理台的“行情数据”中
-切换。开启时，自动行情、指数、分钟数据湖和研究快照会跳过周末及交易日历已标记
-的休市日；盘后任务仍在交易日收盘后执行，手动更新始终不受该开关限制。关闭后，
-这些自动任务每天按各自配置时间触发。
+1. 启动前端和后端
+2. 打开「市场数据」→ 搜索股票加入自选
+3. 展开「市场概况」「热门板块」「自选评分」「技术筛选」
+4. 查看个股实时指标、K 线、评分明细
+5. 在智能交易系统中选择 1–3 种流派，运行分析
 
-财务报表任务默认在交易日 19:00 轮换处理最多 200 只未覆盖或最久未更新的股票，
-并在管理台“数据更新进度”中单独展示。批次中存在失败股票时结果为 `partial`，
-不会误报为全部完成。全量历史回补和 2026-07-27 验收已覆盖 5,486 只活跃股票、
-518,695 个公告版本；2025 年报中营收、净利润、经营现金流和负债率完整率均为
-100%。详细口径与验收基线见
-[财务报表与 ROE 数据链路](doc/03-运维监控/FINANCIAL_DATA_PIPELINE.md)。
+### 导入数据 + 策略回测
 
-数据库中的日线成交量统一使用“股”。系统会在写入和读取时使用
-`成交额 ÷ 成交量` 与当日 OHLC 区间交叉验证；仅当 100 倍换算能够把隐含成交均价
-恢复到合理价格区间，且拟合改善至少 20 倍时，才会自动纠正股/手单位。可先审计、
-再修复历史存量：
+1. 点击「导入 Excel」→ 选择本地日频行情文件
+2. 保存数据集 → 在「数据管理」中打开
+3. 进入「策略回测」→ 选择策略、设置参数
+4. 运行回测 → 查看绩效和交易明细
 
-```powershell
-cd server
-npm run data:volume-units:check
-npm run data:volume-units:repair
-```
+### 智能体研究
 
-修复是幂等的，并在 `source_version` 追加 `vol/100` 或 `vol*100` 标记。
+1. 打开智能体页面（`/agent`）
+2. 输入研究问题（如"调查 长鑫科技 近期影响新闻"）
+3. 实时观察思考过程与工具调用
+4. 查看生成的 HTML 研究报告
 
-业务前端默认运行在 `http://127.0.0.1:5558`，运维管理台运行在
-`http://127.0.0.1:5559`。注册 Windows 登录后会同时启动后端、业务前端和
-运维管理台：
+---
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\register-startup.ps1
-```
-
-后台日志分别写入 `logs/backend.log`、`logs/frontend.log` 和
-`logs/admin.log`。启动脚本是幂等的，服务已经运行时不会创建重复进程。
-
-当交易所昨收价与数据库上一交易日收盘价不一致时，系统将该证券标记为疑似除权
-除息，只为该证券拉取近期前复权数据并重新校验压缩因子。校验通过后按证券原子
-发布新因子版本，不复权日线不会被改写。
-
-## 使用流程
-
-### 使用公开市场数据
-
-1. 启动前端和后端；
-2. 打开“市场数据”；
-3. 搜索股票代码、简称或拼音并加入自选；
-4. 展开“市场概况”查看全市场情绪与涨跌分布；
-5. 展开“当日热门板块”，查看行业/概念热度、主力资金、上涨广度和领涨股；
-6. 展开“自选评分”，查看自选股排名、置顶关注标的；
-7. 展开“市场技术筛选”，设置实时量价和日 K 技术条件，将结果加入或移出自选；
-8. 查看个股实时指标，切换日 K、周 K 或年 K，并展开评分“详细数据”查看评分依据；
-9. 在“机构研报”中查看 PDF，网络失败时点击该卡片右上角“刷新”；
-10. 在智能交易系统中选择 1–3 种交易流派，输入关注问题并运行分析；
-11. 先检查全市场环境和个股相对强弱，再查看各流派结论及最终冲突裁决；
-12. 价值投资派需确认报告已展示股息率、分红质量及相关数据缺口。
-
-### 导入数据并回测
-
-1. 点击“导入 Excel”，选择本地日频行情文件；
-2. 检查导入结果和异常警告；
-3. 保存数据集并在“数据管理”中打开；
-4. 进入“策略回测”，选择策略并设置参数；
-5. 设置资金、费用和滑点；
-6. 运行回测，在“回测结果”中查看绩效和交易明细。
-
-## Excel 数据格式
-
-当前面向单工作表、单标的、日频行情。必填字段：
-
-| 字段 | 说明 |
-| --- | --- |
-| 日期 | 支持常见日期文本和 `YYYYMMDD` |
-| 标的代码 | 按字符串处理，保留前导零 |
-| Open | 开盘价 |
-| High | 最高价 |
-| Low | 最低价 |
-| Close | 收盘价 |
-
-可选字段包括涨跌、涨跌幅、成交量、成交金额和样本数量。导入器兼容中英文混合表头。
-
-## 回测规则
-
-- 第 `T` 根 K 线只允许使用第 `T` 根及以前的数据；
-- 第 `T` 日收盘后生成信号，第 `T+1` 个交易日开盘撮合；
-- 买入金额按仓位比例计算，并按最小交易金额向下取整；
-- 买入成交价加入正向滑点，卖出成交价扣除滑点；
-- 买入收取手续费，卖出收取手续费和印花税；
-- 当前版本以日频、单标的、只做多回测为主。
-
-## 常用命令
+## 🔧 常用命令
 
 ```bash
-# 前端开发服务器
-npm run dev
+# 前端
+npm run dev              # 开发服务器 (5558)
+npm run build            # 生产构建
+npm test                 # 测试
 
-# 前端生产构建与类型检查
-npm run build
+# 后端
+cd server && npm run dev        # 开发服务器 (3001)
+cd server && npm run typecheck  # 类型检查
 
-# 前端测试
-npm test
-npm run test:watch
+# 数据底座
+cd server && npm run snapshot:freshness   # 研究快照新鲜度
+cd server && npm run snapshot:build       # 构建快照
+cd server && npm run data:gate            # 数据健康门禁
 
-# 后端开发服务器
-cd server && npm run dev
-
-# 后端类型检查
-cd server && npm run typecheck
-
-# 5.5/第六阶段数据底座：确认研究快照已追平 MySQL
-cd server && npm run snapshot:freshness
-cd server && npm run backup:verify -- --path ./data/backups/<backup-id>
-cd server && npm run backup:restore-check -- --path ./data/backups/<backup-id> --database quant_backtest_restore_check --confirm-drop quant_backtest_restore_check --cleanup true
-
-# 历史行情只读预检（路径也可配置为 STOCK_HISTORY_ROOT）
-cd server && npm run import:history -- --source "D:\github_public_repo\所有股票的历史数据\每只股票一个文件" --limit 10 --dry-run
-
-# 第六阶段：查看内置因子并运行单因子研究报告
+# 因子研究
 cd server && npm run factor:list
-cd server && npm run factor:run -- --factor momentum_20 --start 2026-05-01 --end 2026-06-30 --horizon 5 --layers 5
-cd server && npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --validationStart 2026-06-11 --horizon 5 --layers 5
-cd server && npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --validationStart 2026-06-11 --weighting ic --horizon 5 --layers 5
-cd server && npm run factor:composite -- --factors momentum_20,reversal_5 --start 2026-06-01 --end 2026-06-20 --weighting manual --weights momentum_20:2,reversal_5:-1 --horizon 5 --layers 5
+cd server && npm run factor:run -- --factor momentum_20 --start 2026-05-01 --end 2026-06-30
 
-# 预览生产构建
-npm run preview
-
-# 智能体手动触发（模拟推送，不发送邮件）
-cd server && npx tsx src/services/marketOpinionPushCli.ts --kind=morning --simulation
+# 备份
+cd server && npm run backup:create
+cd server && npm run backup:verify -- --path ./data/backups/<backup-id>
 ```
 
-## 项目结构
+---
 
-```text
-src/
-  api/                       前端 API 与 Repository
-  components/                通用页面组件
-  db/                        IndexedDB 数据库
-  features/
-    import/                  Excel 解析与行情校验
-    chart/                   行情分析图表
-    indicators/              技术指标计算
-    marketData/              自选评分、技术筛选、热门板块、实时行情、K线、研报和 Agent
-    agent/                   智能体系统（AgentRunner、AgentEventList、SSE 流式连接、运行历史、报告历史）
-    dataLibrary/             数据集管理
-    strategies/              策略协议及内置策略
-    visualStrategies/        可视化策略编辑与编译
-    strategyStudio/          AI 策略工作室
-    backtest/                撮合、账户和回测引擎
-    backtestResults/         回测报告和结果对比
-  models/                    TypeScript 业务模型
-  stores/                    Zustand 状态管理
-  workers/                   Web Worker 回测入口
+## 📁 项目结构
 
-server/src/
-  marketData/                数据源、热门板块、技术筛选、标准化、缓存、同步和质量检查
-  routes/                    Fastify API 路由
-  services/
-    agent/                   智能体编排器、仓储层、提示词构建、输出解析
-    strategyGeneration/      AI 策略生成与提示词模板
-  db/                        MySQL Schema 和迁移（含 agent_runs、agent_events、agent_reports 表）
+```
+src/                          # 前端应用
+├── api/                      # API 客户端
+├── components/               # 通用组件
+├── features/
+│   ├── import/               # Excel 导入与行情校验
+│   ├── chart/                # K 线图表
+│   ├── indicators/           # 技术指标（18 种）
+│   ├── marketData/           # 自选评分、市场概况、热门板块
+│   ├── agent/                # 智能体系统（AgentRunner、SSE 流式、事件列表）
+│   ├── dataLibrary/          # 数据集管理
+│   ├── strategies/           # 策略协议与内置策略
+│   ├── visualStrategies/     # 可视化策略编辑器
+│   ├── strategyStudio/       # AI 策略工作室
+│   ├── backtest/             # 回测引擎
+│   ├── backtestResults/      # 回测报告
+│   └── factorResearch/       # 因子研究 UI
+├── models/                   # 业务模型
+├── stores/                   # Zustand 状态管理
+├── workers/                  # Web Worker 回测入口
+├── db/                       # IndexedDB 数据库
+└── admin/                    # 运维管理台
+
+server/src/                   # 后端服务
+├── marketData/               # 数据源、同步、缓存、质量
+├── routes/                   # Fastify API 路由
+├── services/
+│   ├── agent/                # 智能体编排器、仓储、提示词
+│   └── strategyGeneration/   # AI 策略生成
+├── factorResearch/           # 因子引擎、候选工作流、挖掘
+├── research/                 # 研究快照、DuckDB 查询
+├── historyImport/            # 历史数据批量导入
+├── backup/                   # 备份与恢复
+├── referenceData/            # 指数、分红、行业（Python）
+├── minuteData/               # 分钟数据湖（Python）
+├── admin/                    # 管理 API
+└── db/                       # MySQL Schema 与迁移
 ```
 
-## 技术栈
+---
 
-- React 19、TypeScript、Vite；
-- Ant Design；
-- TradingView Lightweight Charts；
-- React Markdown / remark-gfm；
-- Zustand、Dexie / IndexedDB；
-- Fastify、Drizzle ORM、MySQL；
-- OpenAI 兼容 SDK；
-- SheetJS、Zod、Vitest。
+## 🛠️ 技术栈
 
-## 故障排查
+| 层 | 技术 |
+|---|---|
+| **前端** | React 19, TypeScript 6, Vite, Ant Design 6 |
+| **图表** | TradingView Lightweight Charts 5 |
+| **状态** | Zustand 5 + Immer |
+| **本地存储** | Dexie 4 (IndexedDB) |
+| **后端** | Fastify 5, TypeScript 5 |
+| **数据库** | MySQL 8 (Drizzle ORM), DuckDB (OLAP) |
+| **AI** | OpenAI SDK (DeepSeek / OpenAI), Claude Code |
+| **数据处理** | Python (参考数据/分钟数据), SheetJS (Excel) |
+| **验证** | Zod 4, Vitest |
 
-### 市场数据接口返回 404
+---
 
-通常是 3001 端口上仍运行着旧后端。重新运行 `start.bat`，脚本会检查 `/api/market-data/research-agent/status` 并替换旧进程。
+## 🔍 故障排查
 
-### 行情或 K 线首次加载失败
+| 问题 | 解决 |
+|---|---|
+| 市场数据 404 | 3001 端口运行旧后端，重新运行 `start.bat` |
+| 行情加载失败 | 点击「刷新行情」，检查后端是否运行 |
+| 智能交易不可用 | 检查 `AI_STRATEGY_ENABLED=true` 和 API Key |
+| 智能体不可用 | 检查 `AGENT_ENABLED=true`，WSL 中 `claude` 已安装并登录 |
+| 智能体报告为空 | 查看后端 `[Agent]` 日志，检查 DeepSeek thinking 模式配置 |
+| 机构研报为空 | 点击卡片右上角「刷新」，东财有频率控制 |
 
-- 点击行情卡片的“刷新行情”；
-- 检查后端是否运行在 `localhost:3001`；
-- 腾讯接口偶发网络抖动时稍后重试。
+---
 
-### 热门板块或市场技术筛选加载失败
-
-- 热门板块和全市场快照依赖公开行情接口，上游超时后会继续展示最近一次成功快照；
-- 首次市场技术筛选会先读取全市场快照，再并发分析候选股日 K，后续筛选会复用缓存；
-- 可点击对应折叠面板中的“刷新”或“开始筛选”重试；
-- 检查后端是否运行在 `localhost:3001`。
-
-### 机构研报为空
-
-- 点击“机构研报”卡片右上角“刷新”；
-- 东方财富存在频率控制，系统会串行请求并保留上次成功数据；
-- 避免短时间对大量股票连续刷新。
-- 机构研报属于补充证据，即使为空也不会阻断智能交易分析。
-
-### 智能交易系统不可用
-
-- 检查 `server/.env` 中 `AI_STRATEGY_ENABLED=true`；
-- 检查 API Key、Base URL 和模型名称；
-- 模型调用可能超过 30 秒，智能交易接口使用更长的前端超时；
-- 价值投资派没有显示股息率时，检查是否已经发布包含 `dividend_events` 的本地研究快照；
-- 外部补充源异常时，系统会继续使用腾讯行情、本地快照、本地消息和官方公告；报告中的对应指标会标记为待补充。
-
-### 智能体系统不可用或报告为空
-
-- 检查 `server/.env` 中 `AGENT_ENABLED=true`；
-- 检查 `AGENT_WSL_PROJECT_PATH` 是否填写正确的 WSL 路径（如 `/mnt/d/github_public_repo/量化回测`）；
-- 确保 WSL Ubuntu 中已安装 `claude` CLI 并完成登录授权；
-- 检查 `claude` 命令是否可在 WSL 中正常执行（`wsl bash -c "claude --version"`）；
-- 启动后端时会输出 `[Agent] System enabled` 日志，确认智能体系统已初始化；
-- 报告为空时检查后端日志是否有 `[Agent]` 开头的错误输出；
-- 智能体点击"查看"或"下载"报告时地址包含 `undefined`，说明数据库中的 `agent_reports` 记录字段名映射异常，可尝试重新运行。
-
-## 相关文档
+## 📚 文档与计划
 
 - [项目总览与完整业务流程](./doc/PROJECT_OVERVIEW.md)
-- [独立运维管理台](./doc/ADMIN_CONSOLE_GUIDE.md)
-- [一期开发计划](./doc/PHASE1_PLAN.md)
-- [二期回测开发计划](./doc/PHASE2_PLAN.md)
-- [三期可视化策略与 AI 生成开发计划](./doc/PHASE3_PLAN.md)
-- [3.5 阶段目标与验收](./doc/PHASE3_5_PLAN.md)
-- [第四阶段参数研究与策略稳健性分析计划](./doc/PHASE4_PLAN.md)
-- [第五阶段市场数据平台计划](./doc/PHASE5_PLAN.md)
-- [5.5 阶段全量历史行情库与高性能研究底座](./doc/PHASE5_5_PLAN.md)
-- [第六阶段因子研究与多因子评价平台](./doc/PHASE6_PLAN.md)
+- [运维管理台指南](./doc/ADMIN_CONSOLE_GUIDE.md)
+- 开发计划：[Phase 1](./doc/PHASE1_PLAN.md) · [Phase 2](./doc/PHASE2_PLAN.md) · [Phase 3](./doc/PHASE3_PLAN.md) · [Phase 3.5](./doc/PHASE3_5_PLAN.md) · [Phase 4](./doc/PHASE4_PLAN.md) · [Phase 5](./doc/PHASE5_PLAN.md) · [Phase 5.5](./doc/PHASE5_5_PLAN.md) · [Phase 6](./doc/PHASE6_PLAN.md)
 
-## 数据与隐私说明
+---
 
-- 默认 API 模式下，导入行情、策略和回测结果统一写入后端 MySQL；
-- IndexedDB 仅保留为显式启用的只读历史迁移源，不会在 MySQL 不可用时自动降级写入；
-- 自选股、置顶状态、评分结果、市场筛选条件/结果和热门板块快照保存在浏览器 Local Storage；
-- 服务端会在 `server/.cache/` 保存市场快照和热门板块缓存，刷新失败时可继续使用最近一次成功数据；
-- AI 请求会将当前股票的公开行情、K线、研报元数据和用户问题发送到配置的模型服务；
-- API Key 仅由后端读取；
-- 清理浏览器缓存可能删除本地数据；
-- 暂不模拟停牌、涨跌停成交限制、成交量限制、融资融券和实盘交易。
+## 🔒 数据与隐私
+
+- 默认 API 模式：行情、策略、回测结果写入后端 MySQL
+- IndexedDB 仅作为显式启用的只读迁移源
+- 自选股、评分、筛选条件保存在浏览器 Local Storage
+- AI 请求将公开行情、K 线、研报元数据发送到配置的模型服务
+- API Key 仅由后端读取，不发送到浏览器
+- 暂不模拟停牌、涨跌停成交限制、融资融券和实盘交易
