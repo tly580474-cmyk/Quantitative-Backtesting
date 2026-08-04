@@ -27,6 +27,19 @@ export function calcDuration(prevTimestamp?: string, currTimestamp?: string): st
   }
 }
 
+function formatDuration(fromTs?: string, toTs?: string): string {
+  if (!fromTs || !toTs) return '';
+  try {
+    const diff = new Date(toTs).getTime() - new Date(fromTs).getTime();
+    if (diff < 0) return '';
+    if (diff < 1000) return `${diff}ms`;
+    if (diff < 60000) return `${Math.floor(diff / 1000)}s`;
+    return `${Math.floor(diff / 60000)}m ${Math.floor((diff % 60000) / 1000)}s`;
+  } catch {
+    return '';
+  }
+}
+
 // ChatGPT同款：折叠思考/工具块（极细线框）。支持：
 // 1) defaultOpen 仅在首次挂载时生效（用户手动切换优先级最高）
 // 2) forcedOpen 为强制受控值（非 undefined 时覆盖用户手动状态）
@@ -48,9 +61,7 @@ function Accordion({
   instanceKey?: string;
 }) {
   const [open, setOpen] = useState<boolean>(defaultOpen);
-  // 用户手动点击后，在同一 instanceKey 周期内忽略后续的 forcedOpen
   const userTouchedRef = useRef(false);
-  // 当 instanceKey 变化时，重置用户手动标记（一个全新的 Accordion 实例）
   const lastKeyRef = useRef<string | undefined>(undefined);
   if (instanceKey !== lastKeyRef.current) {
     lastKeyRef.current = instanceKey;
@@ -199,160 +210,86 @@ function AssistantAvatar() {
   );
 }
 
-function AssistantEventBlock({
-  ev,
-  eventIndex,
-  totalVisible,
-  isStreaming,
-  autoCollapseIntermediates,
-}: {
-  ev: AgentEvent;
-  eventIndex: number;
-  totalVisible: number;
-  isStreaming: boolean;
-  autoCollapseIntermediates: boolean;
-}) {
-  // 流式阶段：最后一个块（最新的）保持展开；其它用户没动过的保持折叠即可
-  // 完成阶段（autoCollapseIntermediates）：所有中间类型强制折叠
-  const isLast = eventIndex === totalVisible - 1;
-  const intermediateEv = ev.type === 'thought' || ev.type === 'tool_use' || ev.type === 'tool_result';
-  let forcedOpen: boolean | undefined;
-  if (autoCollapseIntermediates && intermediateEv) {
-    // 完成后：中间步骤全部折叠
-    forcedOpen = false;
-  } else if (isStreaming) {
-    // 流式中：最后一项始终展开（让用户看到最新内容）；其它保持用户手动状态（undefined 不强制）
-    if (intermediateEv && isLast) forcedOpen = true;
-  }
-  const instanceKey = `${ev.type}-${eventIndex}-${ev.timestamp ?? ''}`;
-
-  // 思考内容
+// 单个中间事件的渲染（折叠在 IntermediateGroup 内部）
+function IntermediateEventItem({ ev }: { ev: AgentEvent }) {
   if (ev.type === 'thought') {
     return (
-      <Accordion
-        instanceKey={instanceKey}
-        forcedOpen={forcedOpen}
-        label={
-          <span style={{ color: '#8e8ea0' }}>
-            思考
-            <span style={{ opacity: 0.7, marginLeft: 6, fontSize: 11 }}>
-              · {ev.content.length > 60 ? ev.content.slice(0, 60) + '…' : ev.content}
-            </span>
-          </span>
-        }
-        icon={<BulbOutlined style={{ fontSize: 12 }} />}
-        color="#9ca3af"
-      >
+      <div style={{ margin: '3px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#9ca3af', marginBottom: 2 }}>
+          <BulbOutlined style={{ fontSize: 10 }} />
+          <span>思考</span>
+        </div>
         <div
           style={{
             margin: 0,
             color: '#6b7280',
-            fontSize: 13,
+            fontSize: 12,
             whiteSpace: 'pre-wrap',
-            lineHeight: 1.6,
+            lineHeight: 1.55,
+            paddingLeft: 16,
           }}
         >
-          {ev.content}
+          {ev.content.length > 200 ? ev.content.slice(0, 200) + '…' : ev.content}
         </div>
-      </Accordion>
-    );
-  }
-
-  // 工具调用
-  if (ev.type === 'tool_use') {
-    return (
-      <Accordion
-        instanceKey={instanceKey}
-        forcedOpen={forcedOpen}
-        label={
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ color: '#8e8ea0' }}>使用工具</span>
-            {ev.toolName && (
-              <Tag
-                color="blue"
-                style={{ margin: 0, fontSize: 10, borderRadius: 4, padding: '0 6px', lineHeight: '18px' }}
-              >
-                {ev.toolName}
-              </Tag>
-            )}
-          </span>
-        }
-        icon={<CodeOutlined style={{ fontSize: 12 }} />}
-        color="#1a73e8"
-      >
-        {ev.toolInput && (
-          <div style={{ margin: '4px 0' }}>
-            <CodeBlock text={ev.toolInput} color="#4b5563" />
-          </div>
-        )}
-      </Accordion>
-    );
-  }
-
-  // 工具执行结果
-  if (ev.type === 'tool_result') {
-    return (
-      <Accordion
-        instanceKey={instanceKey}
-        forcedOpen={forcedOpen}
-        label={
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ color: '#8e8ea0' }}>执行结果</span>
-            {ev.toolName && (
-              <Tag
-                color="green"
-                style={{ margin: 0, fontSize: 10, borderRadius: 4, padding: '0 6px', lineHeight: '18px' }}
-              >
-                {ev.toolName}
-              </Tag>
-            )}
-          </span>
-        }
-        icon={<CheckCircleOutlined style={{ fontSize: 12 }} />}
-        color="#10b981"
-      >
-        {ev.toolResult && (
-          <CodeBlock text={ev.toolResult} color="#065f46" />
-        )}
-      </Accordion>
-    );
-  }
-
-  // 文本输出：渲染为 Markdown
-  if (ev.type === 'text') {
-    if (!ev.content.trim()) return null;
-    return (
-      <div
-        className="markdown-preview"
-        style={{
-          fontSize: 15,
-          lineHeight: 1.75,
-          color: '#374151',
-          marginTop: 4,
-          marginBottom: 4,
-        }}
-      >
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {ev.content}
-        </ReactMarkdown>
       </div>
     );
   }
 
-  // 错误：红底卡片
+  if (ev.type === 'tool_use') {
+    return (
+      <div style={{ margin: '3px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#1a73e8', marginBottom: 2 }}>
+          <CodeOutlined style={{ fontSize: 10 }} />
+          <span>使用工具</span>
+          {ev.toolName && (
+            <Tag color="blue" style={{ margin: 0, fontSize: 10, borderRadius: 4, padding: '0 6px', lineHeight: '18px' }}>
+              {ev.toolName}
+            </Tag>
+          )}
+        </div>
+        {ev.toolInput && (
+          <div style={{ paddingLeft: 16 }}>
+            <CodeBlock text={ev.toolInput} color="#4b5563" />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (ev.type === 'tool_result') {
+    return (
+      <div style={{ margin: '3px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#10b981', marginBottom: 2 }}>
+          <CheckCircleOutlined style={{ fontSize: 10 }} />
+          <span>执行结果</span>
+          {ev.toolName && (
+            <Tag color="green" style={{ margin: 0, fontSize: 10, borderRadius: 4, padding: '0 6px', lineHeight: '18px' }}>
+              {ev.toolName}
+            </Tag>
+          )}
+        </div>
+        {ev.toolResult && (
+          <div style={{ paddingLeft: 16 }}>
+            <CodeBlock text={ev.toolResult} color="#065f46" />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (ev.type === 'error') {
     return (
       <div
         style={{
           background: '#fef2f2',
           border: '1px solid #fee2e2',
-          padding: '10px 12px',
-          borderRadius: 10,
-          fontSize: 13,
+          padding: '6px 10px',
+          borderRadius: 6,
+          fontSize: 12,
           color: '#b91c1c',
-          margin: '6px 0',
+          margin: '3px 0',
           whiteSpace: 'pre-wrap',
-          lineHeight: 1.6,
+          lineHeight: 1.5,
         }}
       >
         <WarningOutlined style={{ marginRight: 6 }} />
@@ -362,6 +299,132 @@ function AssistantEventBlock({
   }
 
   return null;
+}
+
+// 中间步骤分组：将连续的 thought/tool_use/tool_result 合并为一个可折叠块
+function IntermediateGroup({
+  events,
+  isStreaming,
+  isLastIntermediateGroup,
+  autoCollapseIntermediates,
+  groupKey,
+}: {
+  events: AgentEvent[];
+  isStreaming: boolean;
+  isLastIntermediateGroup: boolean;
+  autoCollapseIntermediates: boolean;
+  groupKey: string;
+}) {
+  const firstTs = events[0]?.timestamp;
+  const lastTs = events[events.length - 1]?.timestamp;
+  const duration = formatDuration(firstTs, lastTs);
+  const stepCount = events.length;
+
+  // 完成后所有中间步骤自动折叠；流式中最后一个中间组保持展开
+  let forcedOpen: boolean | undefined;
+  if (autoCollapseIntermediates) {
+    forcedOpen = false;
+  } else if (isStreaming && isLastIntermediateGroup) {
+    forcedOpen = true;
+  }
+
+  const labelText = duration
+    ? `已处理 ${duration} · ${stepCount} 步`
+    : `已处理 ${stepCount} 步`;
+
+  return (
+    <Accordion
+      instanceKey={groupKey}
+      forcedOpen={forcedOpen}
+      defaultOpen={false}
+      label={
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ color: '#6b7280', fontWeight: 500 }}>{labelText}</span>
+        </span>
+      }
+      icon={<BulbOutlined style={{ fontSize: 12 }} />}
+      color="#6b7280"
+    >
+      <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+        {events.map((ev, idx) => (
+          <IntermediateEventItem key={idx} ev={ev} />
+        ))}
+      </div>
+    </Accordion>
+  );
+}
+
+// 结论块：文本输出（展开显示）
+function ConclusionBlock({ events }: { events: AgentEvent[] }) {
+  return (
+    <div
+      style={{
+        margin: '8px 0',
+        padding: '14px 16px',
+        background: '#ffffff',
+        border: '1px solid #e5e7eb',
+        borderRadius: 12,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+      }}
+    >
+      {events.map((ev, idx) => (
+        <div
+          key={idx}
+          className="markdown-preview"
+          style={{
+            fontSize: 15,
+            lineHeight: 1.75,
+            color: '#374151',
+            marginTop: idx === 0 ? 0 : 8,
+            marginBottom: 0,
+          }}
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {ev.content}
+          </ReactMarkdown>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// 将助手事件拆分为交替的中间组和文本组
+type Segment =
+  | { kind: 'intermediate'; events: AgentEvent[] }
+  | { kind: 'text'; events: AgentEvent[] };
+
+function splitIntoSegments(events: AgentEvent[]): Segment[] {
+  const segments: Segment[] = [];
+  let currentIntermediate: AgentEvent[] = [];
+  let currentText: AgentEvent[] = [];
+
+  const flushIntermediate = () => {
+    if (currentIntermediate.length > 0) {
+      segments.push({ kind: 'intermediate', events: currentIntermediate });
+      currentIntermediate = [];
+    }
+  };
+  const flushText = () => {
+    if (currentText.length > 0) {
+      segments.push({ kind: 'text', events: currentText });
+      currentText = [];
+    }
+  };
+
+  for (const ev of events) {
+    if (ev.type === 'thought' || ev.type === 'tool_use' || ev.type === 'tool_result' || ev.type === 'error') {
+      flushText();
+      currentIntermediate.push(ev);
+    } else if (ev.type === 'text') {
+      if (!ev.content.trim()) continue;
+      flushIntermediate();
+      currentText.push(ev);
+    }
+  }
+  flushIntermediate();
+  flushText();
+
+  return segments;
 }
 
 // 将事件分组为对话轮次：用户消息 / 助手事件序列
@@ -411,7 +474,6 @@ export function AgentEventList({
   isStreaming = false,
   autoCollapseIntermediates = false,
 }: Props) {
-  // Filter out 'done' events — they're handled by status display
   const displayEvents = events.filter(e => e.type !== 'done');
   const turns = groupTurns(displayEvents);
   const hasContent = userPrompt || displayEvents.length > 0 || (reportUrl && reportMeta);
@@ -448,40 +510,49 @@ export function AgentEventList({
         </div>
       )}
 
-      {/* 初始用户消息 */}
       {userPrompt && <UserBubble text={userPrompt} />}
 
-      {/* 按轮次交替渲染用户消息和助手回复 */}
       {turns.map((turn, turnIdx) => {
         if (turn.type === 'user') {
           return <UserBubble key={`turn-${turnIdx}`} text={turn.events[0].content} />;
         }
 
-        // 助手事件序列
-        const visibleEvents = turn.events.filter(ev => !(ev.type === 'text' && !ev.content.trim()));
-        if (visibleEvents.length === 0) return null;
-        const totalVisible = visibleEvents.length;
+        const segments = splitIntoSegments(turn.events);
+        if (segments.length === 0) return null;
+
+        // 计算中间段的索引（用于判断哪个是最后一个）
+        const intermediateIndices: number[] = [];
+        segments.forEach((seg, i) => {
+          if (seg.kind === 'intermediate') intermediateIndices.push(i);
+        });
+        const lastIntermediateIdx = intermediateIndices.length > 0
+          ? intermediateIndices[intermediateIndices.length - 1]
+          : -1;
 
         return (
           <div key={`turn-${turnIdx}`} style={{ margin: '8px 0 24px', display: 'flex', gap: 12 }}>
             <AssistantAvatar />
             <div style={{ flex: 1, minWidth: 0 }}>
-              {visibleEvents.map((ev, evIdx) => (
-                <AssistantEventBlock
-                  key={evIdx}
-                  ev={ev}
-                  eventIndex={evIdx}
-                  totalVisible={totalVisible}
-                  isStreaming={isStreaming}
-                  autoCollapseIntermediates={autoCollapseIntermediates}
-                />
-              ))}
+              {segments.map((seg, segIdx) => {
+                if (seg.kind === 'intermediate') {
+                  return (
+                    <IntermediateGroup
+                      key={`seg-${segIdx}`}
+                      events={seg.events}
+                      isStreaming={isStreaming}
+                      isLastIntermediateGroup={segIdx === lastIntermediateIdx}
+                      autoCollapseIntermediates={autoCollapseIntermediates}
+                      groupKey={`turn-${turnIdx}-seg-${segIdx}`}
+                    />
+                  );
+                }
+                return <ConclusionBlock key={`seg-${segIdx}`} events={seg.events} />;
+              })}
             </div>
           </div>
         );
       })}
 
-      {/* 报告卡片 */}
       {reportUrl && reportMeta && runId && (
         <div style={{ margin: '20px 0 8px', display: 'flex', gap: 12 }}>
           <div
