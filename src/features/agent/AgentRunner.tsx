@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Input, Button, Typography, Tag, App, InputNumber, Select, Tooltip, Spin, Empty, Dropdown, type MenuProps,
@@ -9,6 +9,7 @@ import {
   MenuFoldOutlined, MenuUnfoldOutlined,
   SendOutlined, PaperClipOutlined,
   DeleteOutlined, MessageOutlined,
+  DownOutlined, RightOutlined,
 } from '@ant-design/icons';
 import { AgentEventList, calcDuration } from './AgentEventList';
 import { useAgentStream } from './useAgentStream';
@@ -73,6 +74,41 @@ function formatChatDate(iso?: string | null): string {
   }
 }
 
+type DateGroup = 'today' | 'yesterday' | 'week' | 'earlier';
+
+const GROUP_LABELS: Record<DateGroup, string> = {
+  today: '今天',
+  yesterday: '昨天',
+  week: '本周',
+  earlier: '更早',
+};
+
+function groupRunsByDate(runs: AgentRun[]): { group: DateGroup; runs: AgentRun[] }[] {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const yesterdayStart = todayStart - 86400000;
+  const weekStart = todayStart - (now.getDay() * 86400000);
+
+  const buckets: Record<DateGroup, AgentRun[]> = { today: [], yesterday: [], week: [], earlier: [] };
+
+  for (const run of runs) {
+    if (!run.createdAt) {
+      buckets.earlier.push(run);
+      continue;
+    }
+    const t = new Date(run.createdAt).getTime();
+    if (t >= todayStart) buckets.today.push(run);
+    else if (t >= yesterdayStart) buckets.yesterday.push(run);
+    else if (t >= weekStart) buckets.week.push(run);
+    else buckets.earlier.push(run);
+  }
+
+  const order: DateGroup[] = ['today', 'yesterday', 'week', 'earlier'];
+  return order
+    .map(g => ({ group: g, runs: buckets[g] }))
+    .filter(b => b.runs.length > 0);
+}
+
 export default function AgentRunner() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -88,6 +124,7 @@ export default function AgentRunner() {
   const [currentPrompt, setCurrentPrompt] = useState('');
   const [currentRunStartTime, setCurrentRunStartTime] = useState<string | null>(null);
   const [continueFromRunId, setContinueFromRunId] = useState<string | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(new Set(['yesterday', 'week', 'earlier']));
   const { message } = App.useApp();
   const { state, connect, disconnect, pushUserMessage } = useAgentStream();
   const inputRef = useRef<{ focus: () => void; resizableTextArea?: { textArea: HTMLTextAreaElement } } | null>(null);
@@ -137,6 +174,17 @@ export default function AgentRunner() {
       fetchHistory();
     }
   }, [state.status, fetchHistory]);
+
+  const groupedRuns = useMemo(() => groupRunsByDate(historyRuns), [historyRuns]);
+
+  const toggleGroup = useCallback((group: DateGroup) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  }, []);
 
   const handleStart = useCallback(async () => {
     if (prompt.trim().length < 1) {
@@ -245,7 +293,50 @@ export default function AgentRunner() {
       : '';
 
   const isRunning = state.status === 'running' || state.status === 'connecting';
+  const isFinalized = state.status === 'completed' || state.status === 'failed' || state.status === 'canceled';
   const hasActiveRun = !!runId;
+
+  // 外层滚动容器：流式输出时自动跟随到底部；用户手动上滚则暂停跟随
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const followBottomRef = useRef(true);
+  const lastRunIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    // 切换到新 run 时重置跟随状态
+    if (runId !== lastRunIdRef.current) {
+      lastRunIdRef.current = runId;
+      followBottomRef.current = true;
+    }
+  }, [runId]);
+
+  // 事件新增 → 如果处于跟随模式则平滑滚到底部
+  useEffect(() => {
+    if (!scrollContainerRef.current) return;
+    if (followBottomRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior: isRunning ? 'smooth' : 'auto',
+      });
+    }
+  }, [state.events.length, state.events, state.reportUrl, isRunning]);
+
+  // 用户滚动：如果距离底部 >= 40px 则视为手动回看，停止跟随
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    followBottomRef.current = dist < 40;
+  }, []);
+
+  // 一键回到底部
+  const scrollToBottomNow = useCallback(() => {
+    followBottomRef.current = true;
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  }, []);
 
   // 当前回合的显示日期（从当前运行的 startedAt 或 currentRunStartTime 取）
   const displayDate = formatChatDate(
@@ -298,12 +389,13 @@ export default function AgentRunner() {
 
         {/* 对话流（ChatGPT同款：纯白带日期分隔线居中） */}
         <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
           style={{
             flex: 1,
             minHeight: 0,
             overflowY: 'auto',
             padding: '56px 20px 180px',
-            scrollBehavior: 'smooth',
           }}
         >
           <div style={{ maxWidth: 768, margin: '0 auto' }}>
@@ -328,9 +420,41 @@ export default function AgentRunner() {
               reportUrl={state.reportUrl}
               reportMeta={state.reportMeta}
               runId={runId}
+              isStreaming={isRunning}
+              autoCollapseIntermediates={isFinalized}
             />
           </div>
         </div>
+
+        {/* 跟随底部按钮（用户向上滚动查看历史时，固定在右下角显示） */}
+        {!followBottomRef.current && hasActiveRun && (
+          <button
+            onClick={scrollToBottomNow}
+            title="回到底部最新内容"
+            style={{
+              position: 'absolute',
+              right: 28,
+              bottom: 140,
+              zIndex: 20,
+              width: 38,
+              height: 38,
+              borderRadius: '50%',
+              border: '1px solid #e5e7eb',
+              background: '#ffffff',
+              color: '#374151',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+              transition: 'transform 0.12s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+          >
+            <DownOutlined />
+          </button>
+        )}
 
         {/* 底部固定输入区（ChatGPT同款：输入框悬浮居中，大圆角内嵌按钮） */}
         <div
@@ -571,89 +695,127 @@ export default function AgentRunner() {
                 <Empty description="暂无历史对话" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               </div>
             )}
-            {historyRuns.map(run => (
-              <div
-                key={run.id}
-                onClick={() => {
-                  setRunId(run.id);
-                  setCurrentPrompt(run.prompt);
-                  setCurrentRunStartTime(run.createdAt);
-                  connect(run.id);
-                }}
-                style={{
-                  padding: '10px 12px',
-                  cursor: 'pointer',
-                  borderRadius: 8,
-                  marginBottom: 2,
-                  background: runId === run.id ? '#e6f0ff' : 'transparent',
-                  transition: 'background 0.12s',
-                  position: 'relative',
-                }}
-                onMouseEnter={e => {
-                  if (runId !== run.id) e.currentTarget.style.background = '#f0f0f0';
-                }}
-                onMouseLeave={e => {
-                  if (runId !== run.id) e.currentTarget.style.background = 'transparent';
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <Tag color={statusColor[run.status]} style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>
-                    {statusText[run.status] ?? run.status}
-                  </Tag>
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    {formatRelativeTime(run.createdAt)}
-                  </Text>
-                  {/* 操作按钮（悬浮显示） */}
-                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
-                    {(run.status === 'completed' || run.status === 'failed' || run.status === 'canceled') && (
-                      <Tooltip title="继续对话">
-                        <Button
-                          size="small"
-                          type="text"
-                          icon={<MessageOutlined style={{ fontSize: 12 }} />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleContinueRun(run);
+            {groupedRuns.map(({ group, runs }) => {
+              const isCollapsed = collapsedGroups.has(group);
+              return (
+                <div key={group} style={{ marginBottom: 2 }}>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleGroup(group)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') toggleGroup(group); }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '8px 10px',
+                      cursor: 'pointer',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      color: '#6b7280',
+                      fontWeight: 500,
+                      userSelect: 'none',
+                      transition: 'background 0.12s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#f0f0f0'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    {isCollapsed
+                      ? <RightOutlined style={{ fontSize: 10, color: '#9ca3af' }} />
+                      : <DownOutlined style={{ fontSize: 10, color: '#9ca3af' }} />
+                    }
+                    <span style={{ flex: 1 }}>{GROUP_LABELS[group]}</span>
+                    <span style={{ fontSize: 11, color: '#9ca3af' }}>{runs.length}</span>
+                  </div>
+                  {!isCollapsed && (
+                    <div style={{ overflow: 'hidden' }}>
+                      {runs.map(run => (
+                        <div
+                          key={run.id}
+                          onClick={() => {
+                            setRunId(run.id);
+                            setCurrentPrompt(run.prompt);
+                            setCurrentRunStartTime(run.createdAt);
+                            connect(run.id);
                           }}
-                          style={{ width: 22, height: 22, minWidth: 22, color: '#1a73e8' }}
-                        />
-                      </Tooltip>
-                    )}
-                    <Tooltip title="删除">
-                      <Button
-                        size="small"
-                        type="text"
-                        danger
-                        icon={<DeleteOutlined style={{ fontSize: 12 }} />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteRun(run.id);
-                        }}
-                        style={{ width: 22, height: 22, minWidth: 22 }}
-                      />
-                    </Tooltip>
-                  </div>
+                          style={{
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            borderRadius: 8,
+                            marginBottom: 1,
+                            background: runId === run.id ? '#e6f0ff' : 'transparent',
+                            transition: 'background 0.12s',
+                            position: 'relative',
+                          }}
+                          onMouseEnter={e => {
+                            if (runId !== run.id) e.currentTarget.style.background = '#f0f0f0';
+                          }}
+                          onMouseLeave={e => {
+                            if (runId !== run.id) e.currentTarget.style.background = 'transparent';
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                            <Tag color={statusColor[run.status]} style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>
+                              {statusText[run.status] ?? run.status}
+                            </Tag>
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              {formatRelativeTime(run.createdAt)}
+                            </Text>
+                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
+                              {(run.status === 'completed' || run.status === 'failed' || run.status === 'canceled') && (
+                                <Tooltip title="继续对话">
+                                  <Button
+                                    size="small"
+                                    type="text"
+                                    icon={<MessageOutlined style={{ fontSize: 12 }} />}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleContinueRun(run);
+                                    }}
+                                    style={{ width: 22, height: 22, minWidth: 22, color: '#1a73e8' }}
+                                  />
+                                </Tooltip>
+                              )}
+                              <Tooltip title="删除">
+                                <Button
+                                  size="small"
+                                  type="text"
+                                  danger
+                                  icon={<DeleteOutlined style={{ fontSize: 12 }} />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteRun(run.id);
+                                  }}
+                                  style={{ width: 22, height: 22, minWidth: 22 }}
+                                />
+                              </Tooltip>
+                            </div>
+                          </div>
+                          <Text
+                            style={{
+                              fontSize: 13,
+                              color: '#595959',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              lineHeight: 1.45,
+                            }}
+                          >
+                            {truncatePrompt(run.prompt)}
+                          </Text>
+                          {continueFromRunId === run.id && (
+                            <div style={{ marginTop: 4, fontSize: 11, color: '#1a73e8' }}>
+                              继续此对话中…
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: '#595959',
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden',
-                    lineHeight: 1.45,
-                  }}
-                >
-                  {truncatePrompt(run.prompt)}
-                </Text>
-                {continueFromRunId === run.id && (
-                  <div style={{ marginTop: 4, fontSize: 11, color: '#1a73e8' }}>
-                    继续此对话中…
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div style={{ padding: 8, borderTop: '1px solid #ececf1' }}>
             <Dropdown menu={{ items: historyMenuItems }} placement="topLeft">

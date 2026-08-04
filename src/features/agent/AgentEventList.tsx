@@ -27,21 +27,43 @@ export function calcDuration(prevTimestamp?: string, currTimestamp?: string): st
   }
 }
 
-// ChatGPT同款：折叠思考/工具块（极细线框），默认折叠
+// ChatGPT同款：折叠思考/工具块（极细线框）。支持：
+// 1) defaultOpen 仅在首次挂载时生效（用户手动切换优先级最高）
+// 2) forcedOpen 为强制受控值（非 undefined 时覆盖用户手动状态）
 function Accordion({
   label,
   icon,
   color,
   children,
   defaultOpen = false,
+  forcedOpen,
+  instanceKey,
 }: {
   label: React.ReactNode;
   icon: React.ReactNode;
   color: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
+  forcedOpen?: boolean;
+  instanceKey?: string;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState<boolean>(defaultOpen);
+  // 用户手动点击后，在同一 instanceKey 周期内忽略后续的 forcedOpen
+  const userTouchedRef = useRef(false);
+  // 当 instanceKey 变化时，重置用户手动标记（一个全新的 Accordion 实例）
+  const lastKeyRef = useRef<string | undefined>(undefined);
+  if (instanceKey !== lastKeyRef.current) {
+    lastKeyRef.current = instanceKey;
+    userTouchedRef.current = false;
+  }
+
+  useEffect(() => {
+    if (forcedOpen !== undefined && !userTouchedRef.current) {
+      setOpen(forcedOpen);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forcedOpen, instanceKey]);
+
   return (
     <div
       style={{
@@ -53,7 +75,10 @@ function Accordion({
       }}
     >
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => {
+          userTouchedRef.current = true;
+          setOpen(o => !o);
+        }}
         style={{
           width: '100%',
           padding: '6px 11px',
@@ -174,11 +199,39 @@ function AssistantAvatar() {
   );
 }
 
-function AssistantEventBlock({ ev }: { ev: AgentEvent }) {
-  // 思考内容：默认折叠
+function AssistantEventBlock({
+  ev,
+  eventIndex,
+  totalVisible,
+  isStreaming,
+  autoCollapseIntermediates,
+}: {
+  ev: AgentEvent;
+  eventIndex: number;
+  totalVisible: number;
+  isStreaming: boolean;
+  autoCollapseIntermediates: boolean;
+}) {
+  // 流式阶段：最后一个块（最新的）保持展开；其它用户没动过的保持折叠即可
+  // 完成阶段（autoCollapseIntermediates）：所有中间类型强制折叠
+  const isLast = eventIndex === totalVisible - 1;
+  const intermediateEv = ev.type === 'thought' || ev.type === 'tool_use' || ev.type === 'tool_result';
+  let forcedOpen: boolean | undefined;
+  if (autoCollapseIntermediates && intermediateEv) {
+    // 完成后：中间步骤全部折叠
+    forcedOpen = false;
+  } else if (isStreaming) {
+    // 流式中：最后一项始终展开（让用户看到最新内容）；其它保持用户手动状态（undefined 不强制）
+    if (intermediateEv && isLast) forcedOpen = true;
+  }
+  const instanceKey = `${ev.type}-${eventIndex}-${ev.timestamp ?? ''}`;
+
+  // 思考内容
   if (ev.type === 'thought') {
     return (
       <Accordion
+        instanceKey={instanceKey}
+        forcedOpen={forcedOpen}
         label={
           <span style={{ color: '#8e8ea0' }}>
             思考
@@ -205,10 +258,12 @@ function AssistantEventBlock({ ev }: { ev: AgentEvent }) {
     );
   }
 
-  // 工具调用：默认折叠
+  // 工具调用
   if (ev.type === 'tool_use') {
     return (
       <Accordion
+        instanceKey={instanceKey}
+        forcedOpen={forcedOpen}
         label={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span style={{ color: '#8e8ea0' }}>使用工具</span>
@@ -234,10 +289,12 @@ function AssistantEventBlock({ ev }: { ev: AgentEvent }) {
     );
   }
 
-  // 工具执行结果：默认折叠
+  // 工具执行结果
   if (ev.type === 'tool_result') {
     return (
       <Accordion
+        instanceKey={instanceKey}
+        forcedOpen={forcedOpen}
         label={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span style={{ color: '#8e8ea0' }}>执行结果</span>
@@ -341,25 +398,26 @@ interface Props {
   reportUrl?: string | null;
   reportMeta?: { title: string; summary: string } | null;
   runId?: string | null;
+  isStreaming?: boolean;
+  autoCollapseIntermediates?: boolean;
 }
 
-export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runId }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
+export function AgentEventList({
+  events,
+  userPrompt,
+  reportUrl,
+  reportMeta,
+  runId,
+  isStreaming = false,
+  autoCollapseIntermediates = false,
+}: Props) {
   // Filter out 'done' events — they're handled by status display
   const displayEvents = events.filter(e => e.type !== 'done');
   const turns = groupTurns(displayEvents);
-
-  useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  }, [displayEvents.length]);
-
   const hasContent = userPrompt || displayEvents.length > 0 || (reportUrl && reportMeta);
 
   return (
-    <div ref={containerRef} style={{ height: '100%', overflow: 'visible' }}>
+    <div style={{ height: '100%', overflow: 'visible' }}>
       {!hasContent && (
         <div style={{ textAlign: 'center', padding: '80px 20px', color: '#8e8ea0' }}>
           <div
@@ -394,21 +452,29 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
       {userPrompt && <UserBubble text={userPrompt} />}
 
       {/* 按轮次交替渲染用户消息和助手回复 */}
-      {turns.map((turn, idx) => {
+      {turns.map((turn, turnIdx) => {
         if (turn.type === 'user') {
-          return <UserBubble key={`turn-${idx}`} text={turn.events[0].content} />;
+          return <UserBubble key={`turn-${turnIdx}`} text={turn.events[0].content} />;
         }
 
         // 助手事件序列
         const visibleEvents = turn.events.filter(ev => !(ev.type === 'text' && !ev.content.trim()));
         if (visibleEvents.length === 0) return null;
+        const totalVisible = visibleEvents.length;
 
         return (
-          <div key={`turn-${idx}`} style={{ margin: '8px 0 24px', display: 'flex', gap: 12 }}>
+          <div key={`turn-${turnIdx}`} style={{ margin: '8px 0 24px', display: 'flex', gap: 12 }}>
             <AssistantAvatar />
             <div style={{ flex: 1, minWidth: 0 }}>
               {visibleEvents.map((ev, evIdx) => (
-                <AssistantEventBlock key={evIdx} ev={ev} />
+                <AssistantEventBlock
+                  key={evIdx}
+                  ev={ev}
+                  eventIndex={evIdx}
+                  totalVisible={totalVisible}
+                  isStreaming={isStreaming}
+                  autoCollapseIntermediates={autoCollapseIntermediates}
+                />
               ))}
             </div>
           </div>
