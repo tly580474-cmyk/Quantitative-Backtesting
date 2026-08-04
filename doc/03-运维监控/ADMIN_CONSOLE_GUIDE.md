@@ -63,11 +63,28 @@ http://127.0.0.1:5559
 
 ## 4. Windows 开机自启
 
-现有统一启动任务会同时启动后端、业务前端和运维管理台：
+注册一个登录时触发的计划任务，同时启动后端、业务前端和运维管理台：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\register-startup.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\register-autostart.ps1
 ```
+
+任务名：`QuantBacktest-AutoStart`。脚本幂等，会自动清理历史任务（`QuantBacktestServer`、`QuantBacktest`）和旧的启动文件夹快捷方式。
+
+**运行模式**：
+- 后端用 `tsx src/app.ts`（与开发模式一致）
+- 前端和管理台用 `vite preview`（服务预构建的 `dist/`），**不走 `vite dev`**
+
+> 为什么不用 `vite dev`？vite 8 的依赖预构建（dep optimization）在自启动场景下不稳定：`ready` 日志出现在预构建完成之前，浏览器在优化期间访问会因 chunk hash 不匹配而 `ERR_ABORTED` 白屏。`vite preview` 服务的是已构建好的静态产物，HTTP 一通页面即可用。
+
+**首次使用 / 代码更新后**需先构建 dist（自启动脚本不会自动重建）：
+
+```powershell
+npm run build         # 前端 → dist/
+npm run admin:build   # 管理台 → admin/dist/
+```
+
+构建产物存在后，自启动脚本会直接用 `vite preview` 启动，秒级就绪。
 
 对应端口：
 
@@ -77,8 +94,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\register-startup.p
 运维管理台   http://127.0.0.1:5559
 ```
 
-日志分别写入 `logs/backend.log`、`logs/frontend.log` 和 `logs/admin.log`。
-启动脚本会先检查已运行的服务，不会重复创建进程。
+日志分别写入 `logs/backend.log`、`logs/frontend.log` 和 `logs/admin.log`（每次启动会清空旧日志，只保留本次启动后的内容）。启动脚本会先检查端口，若已被本项目进程占用则跳过启动；若被其他进程占用则发出警告并跳过该服务。
+
+常用命令：
+
+```powershell
+# 立即触发一次启动（无需注销重登）
+Start-ScheduledTask -TaskName 'QuantBacktest-AutoStart'
+
+# 卸载自启动任务
+Unregister-ScheduledTask -TaskName 'QuantBacktest-AutoStart' -Confirm:$false
+```
 
 ## 5. 生产构建
 
