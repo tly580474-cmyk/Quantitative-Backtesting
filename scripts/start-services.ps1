@@ -96,7 +96,16 @@ function Invoke-Build([string]$workDir, [string]$npmScript, [string]$logFile) {
     if (Test-Path $logPath) { Clear-Content $logPath -ErrorAction SilentlyContinue }
     Push-Location $workDir
     try {
-        & npm.cmd run $npmScript *>> $logPath
+        # npm.cmd writes progress/warnings to stderr; under $ErrorActionPreference='Stop'
+        # that would raise a terminating RemoteException. Temporarily relax to 'Continue'
+        # and rely on $LASTEXITCODE to detect actual build failures.
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & npm.cmd run $npmScript *>> $logPath
+        } finally {
+            $ErrorActionPreference = $prevEAP
+        }
         if ($LASTEXITCODE -ne 0) {
             Write-Step 'BUILD' "$npmScript failed (exit $LASTEXITCODE). See logs\$logFile."
             return $false
