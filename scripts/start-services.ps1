@@ -1,8 +1,8 @@
 # Quant Backtest autostart launcher.
 # Starts backend (3001) + frontend (5558) + admin (5559) in hidden windows.
 # Frontend/admin use `vite preview` (serves pre-built dist) — no runtime dep
-# optimization, so the page is usable the moment HTTP is up. If dist is missing
-# or stale, it is (re)built before preview starts.
+# optimization, so the page is usable the moment HTTP is up. Dist is ALWAYS
+# rebuilt before preview starts so startup never depends on stale artifacts.
 # Designed to be invoked by the scheduled task registered via register-autostart.ps1.
 
 $ErrorActionPreference = 'Stop'
@@ -10,10 +10,6 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $serverRoot = Join-Path $root 'server'
 $logRoot = Join-Path $root 'logs'
-$distDir = Join-Path $root 'dist'
-$adminDistDir = Join-Path $root 'admin\dist'
-# Rebuild if dist is older than this (hours). 0 = never auto-rebuild (assume fresh).
-$staleHours = 0
 
 # Match the dev launcher defaults so frontend talks to the local backend.
 $env:VITE_DATA_SOURCE = 'api'
@@ -94,15 +90,6 @@ function Wait-Http([string]$url, [int]$timeoutSec, [string]$label) {
     return $false
 }
 
-# Returns $true if $dir exists and (when $staleHours > 0) is fresher than the threshold.
-function Test-DistReady([string]$dir) {
-    if (-not (Test-Path $dir)) { return $false }
-    if ($staleHours -le 0) { return $true }
-    $index = Join-Path $dir 'index.html'
-    if (-not (Test-Path $index)) { return $false }
-    return ((Get-Date) - (Get-Item $index).LastWriteTime).TotalHours -lt $staleHours
-}
-
 # Build frontend or admin bundle synchronously. Logs go to the corresponding log file.
 function Invoke-Build([string]$workDir, [string]$npmScript, [string]$logFile) {
     $logPath = Join-Path $logRoot $logFile
@@ -131,11 +118,9 @@ if (-not (Test-PortOccupied 3001 'server*src/app.ts' 'Backend')) {
 # ---------- Frontend (5558) ----------
 $frontendStarted = $false
 if (-not (Test-PortOccupied 5558 'node_modules*vite' 'Frontend')) {
-    if (-not (Test-DistReady $distDir)) {
-        Write-Step 'FE' 'dist missing or stale — building frontend bundle...'
-        if (Invoke-Build $root 'build' 'frontend.log') {
-            Write-Step 'FE' 'Frontend bundle built'
-        }
+    Write-Step 'FE' 'Building frontend bundle (always rebuild on autostart)...'
+    if (Invoke-Build $root 'build' 'frontend.log') {
+        Write-Step 'FE' 'Frontend bundle built'
     }
     Start-HiddenCommand $root 'npm.cmd run preview -- --host 127.0.0.1 --port 5558 --strictPort' 'frontend.log'
     Write-Step 'FE' 'Frontend launched (vite preview)'
@@ -145,11 +130,9 @@ if (-not (Test-PortOccupied 5558 'node_modules*vite' 'Frontend')) {
 # ---------- Admin (5559) ----------
 $adminStarted = $false
 if (-not (Test-PortOccupied 5559 'admin*vite.config.ts' 'Admin')) {
-    if (-not (Test-DistReady $adminDistDir)) {
-        Write-Step 'ADMIN' 'admin/dist missing or stale — building admin bundle...'
-        if (Invoke-Build $root 'admin:build' 'admin.log') {
-            Write-Step 'ADMIN' 'Admin bundle built'
-        }
+    Write-Step 'ADMIN' 'Building admin bundle (always rebuild on autostart)...'
+    if (Invoke-Build $root 'admin:build' 'admin.log') {
+        Write-Step 'ADMIN' 'Admin bundle built'
     }
     Start-HiddenCommand $root 'npm.cmd run admin:preview' 'admin.log'
     Write-Step 'ADMIN' 'Admin console launched (vite preview)'
@@ -169,7 +152,5 @@ Write-Host '        Frontend http://127.0.0.1:5558/'
 Write-Host '        Admin    http://127.0.0.1:5559/'
 Write-Host ''
 Write-Host '      NOTE: frontend/admin run in PREVIEW mode (pre-built dist).'
-Write-Host '            After code changes, rebuild with:'
-Write-Host '              npm run build        (frontend)'
-Write-Host '              npm run admin:build  (admin)'
-Write-Host '            Then restart services via this script or Start-ScheduledTask.'
+Write-Host '            Dist is rebuilt on every autostart; to pick up code changes'
+Write-Host '            outside autostart, rerun this script or Start-ScheduledTask.'
