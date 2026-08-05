@@ -11,10 +11,8 @@ import {
   DotChartOutlined,
   DownloadOutlined,
   ExperimentOutlined,
-  FileTextOutlined,
   FilterOutlined,
   FundProjectionScreenOutlined,
-  HistoryOutlined,
   LineChartOutlined,
   NodeIndexOutlined,
   ReloadOutlined,
@@ -165,8 +163,6 @@ const NAV_ITEMS: MenuProps['items'] = [
     children: [
       { key: '/studio', icon: <FundProjectionScreenOutlined />, label: '策略工作室' },
       { key: '/agent', icon: <RobotOutlined />, label: '智能体' },
-      { key: '/agent-runs', icon: <HistoryOutlined />, label: '运行历史' },
-      { key: '/agent-reports', icon: <FileTextOutlined />, label: '报告历史' },
     ],
   },
   {
@@ -198,8 +194,6 @@ const PAGE_LABELS: Record<string, string> = {
   '/factors': '因子研究',
   '/studio': '策略工作室',
   '/agent': '策略研究智能体',
-  '/agent-runs': '运行历史',
-  '/agent-reports': '报告历史',
 };
 
 function DataLibraryRoute() {

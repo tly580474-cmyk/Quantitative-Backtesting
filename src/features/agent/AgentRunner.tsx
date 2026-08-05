@@ -1,10 +1,10 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
-  Input, Button, Typography, Tag, App, InputNumber, Select, Tooltip, Spin, Empty, Dropdown, type MenuProps,
+  Input, Button, Typography, Tag, App, InputNumber, Select, Tooltip, Spin, Empty,
 } from 'antd';
 import {
-  StopOutlined, HistoryOutlined,
+  StopOutlined,
   PlusOutlined, SettingOutlined, ReloadOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined,
   SendOutlined, PaperClipOutlined,
@@ -112,7 +112,6 @@ function groupRunsByDate(runs: AgentRun[]): { group: DateGroup; runs: AgentRun[]
 
 export default function AgentRunner() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const [prompt, setPrompt] = useState('');
   const [maxTurns, setMaxTurns] = useState(0);
   const [templateStyle, setTemplateStyle] = useState<string>('classic-blue');
@@ -273,24 +272,6 @@ export default function AgentRunner() {
     setPrompt('');
     inputRef.current?.focus();
   }, [runId, connect]);
-
-  // 历史会话上下文菜单操作
-  const historyMenuItems: MenuProps['items'] = [
-    {
-      key: 'rerun',
-      label: '重新发起',
-      icon: <ReloadOutlined />,
-      onClick: ({ domEvent }) => {
-        domEvent.stopPropagation();
-      },
-    },
-    {
-      key: 'goto-history',
-      label: '查看全部历史',
-      icon: <HistoryOutlined />,
-      onClick: () => navigate('/agent-runs'),
-    },
-  ];
 
   // 计算步骤数和总耗时
   const stepCount = state.events.filter(e => e.type !== 'done').length;
@@ -841,13 +822,6 @@ export default function AgentRunner() {
                 </div>
               );
             })}
-          </div>
-          <div style={{ padding: 8, borderTop: `1px solid ${t.borderSubtle}` }}>
-            <Dropdown menu={{ items: historyMenuItems }} placement="topLeft">
-              <Button size="small" block icon={<HistoryOutlined />} style={{ borderRadius: 8 }}>
-                运行历史
-              </Button>
-            </Dropdown>
           </div>
         </div>
       )}
