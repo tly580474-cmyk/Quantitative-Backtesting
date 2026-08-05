@@ -746,7 +746,7 @@
               </div>
             </div>
           </div>
-          <svg class="svg-chart" id="icChart" viewBox="0 0 800 320" preserveAspectRatio="none"></svg>
+          <svg class="svg-chart" id="icChart" viewBox="0 0 800 320" preserveAspectRatio="xMidYMid meet"></svg>
           <div class="svg-tooltip" id="icTooltip">
             <div class="tip-date"></div>
             <div class="tip-value"></div>
@@ -1101,34 +1101,35 @@
 /* =========================================================
  * SVG 图表自适应修正脚本
  * ========================================================= */
+var _resizeChartsRunning = false;
 function resizeCharts() {
-  var wrappers = document.querySelectorAll('.chart-wrap, .chart-wrapper');
-  wrappers.forEach(function(wrap) {
-    var svgs = wrap.querySelectorAll('svg');
+  if (_resizeChartsRunning) return;
+  _resizeChartsRunning = true;
+  try {
+    var svgs = document.querySelectorAll('svg');
     svgs.forEach(function(svg) {
-      // 移除可能硬编码的 width 和 height 属性
+      // 跳过没有 viewBox 的 SVG（可能是图标）
+      var vb = svg.getAttribute('viewBox');
+      if (!vb) return;
+      // 跳过太小的 SVG（图标类）
+      var parts = vb.split(' ');
+      if (parts.length === 4) {
+        var w = parseFloat(parts[2]);
+        var h = parseFloat(parts[3]);
+        if (w < 50 || h < 30) return;
+      }
+      // 移除硬编码的 width 和 height 属性
       svg.removeAttribute('width');
       svg.removeAttribute('height');
-      
-      // 如果没有 viewBox，从 BBox 计算一个
-      if (!svg.getAttribute('viewBox')) {
-        try {
-          var bbox = svg.getBBox();
-          if (bbox.width > 0 && bbox.height > 0) {
-            svg.setAttribute('viewBox', '0 0 ' + bbox.width + ' ' + bbox.height);
-          }
-        } catch (e) {
-          // getBBox 可能在元素未渲染时报错，跳过
-        }
-      }
-      
-      // 移除 min-width 限制，允许在窄屏自适应
+      // 移除可能的 CSS 尺寸限制
       svg.style.minWidth = '0';
       svg.style.maxWidth = '100%';
       svg.style.width = '100%';
       svg.style.height = 'auto';
     });
-  });
+  } finally {
+    _resizeChartsRunning = false;
+  }
 }
 
 // 立即执行一次
@@ -1143,12 +1144,10 @@ window.addEventListener('resize', function() {
 
 // 监听 DOM 变化
 if (window.MutationObserver) {
-  var observer = new MutationObserver(function(mutations) {
-    mutations.forEach(function(mutation) {
-      if (mutation.addedNodes && mutation.addedNodes.length > 0) {
-        resizeCharts();
-      }
-    });
+  var _observerTimer;
+  var observer = new MutationObserver(function() {
+    clearTimeout(_observerTimer);
+    _observerTimer = setTimeout(resizeCharts, 200);
   });
   observer.observe(document.body, { childList: true, subtree: true });
 }

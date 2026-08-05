@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useAgentTheme } from '@/theme';
 import type { AgentEvent } from './types';
 import { AgentReportView } from './AgentReportView';
 
@@ -123,12 +124,13 @@ function Accordion({
 }
 
 function CodeBlock({ text, color }: { text: string; color: string }) {
+  const t = useAgentTheme();
   return (
     <pre
       style={{
         margin: '4px 0 0',
         padding: '8px 10px',
-        background: '#ffffff',
+        background: t.codeBg,
         borderRadius: 6,
         fontSize: 12,
         overflowX: 'auto',
@@ -136,7 +138,7 @@ function CodeBlock({ text, color }: { text: string; color: string }) {
         color,
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
-        border: '1px solid #f0f0f0',
+        border: `1px solid ${t.codeBorder}`,
       }}
     >
       {text}
@@ -145,13 +147,14 @@ function CodeBlock({ text, color }: { text: string; color: string }) {
 }
 
 function UserBubble({ text }: { text: string }) {
+  const t = useAgentTheme();
   return (
     <div style={{ display: 'flex', gap: 10, margin: '20px 0 24px', justifyContent: 'flex-end' }}>
       <div
         style={{
           maxWidth: '72%',
-          background: '#f9fafb',
-          color: '#1f2937',
+          background: t.bgUserBubble,
+          color: t.text,
           padding: '10px 16px',
           borderRadius: '20px 20px 4px 20px',
           fontSize: 15,
@@ -168,8 +171,8 @@ function UserBubble({ text }: { text: string }) {
           width: 30,
           height: 30,
           borderRadius: '50%',
-          background: '#e5e7eb',
-          color: '#6b7280',
+          background: t.bgHover,
+          color: t.textSecondary,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -212,6 +215,7 @@ function AssistantAvatar() {
 
 // 单个中间事件的渲染（折叠在 IntermediateGroup 内部）
 function IntermediateEventItem({ ev }: { ev: AgentEvent }) {
+  const t = useAgentTheme();
   if (ev.type === 'thought') {
     return (
       <div style={{ margin: '3px 0' }}>
@@ -281,12 +285,12 @@ function IntermediateEventItem({ ev }: { ev: AgentEvent }) {
     return (
       <div
         style={{
-          background: '#fef2f2',
-          border: '1px solid #fee2e2',
+          background: t.errorBg,
+          border: `1px solid ${t.errorBorder}`,
           padding: '6px 10px',
           borderRadius: 6,
           fontSize: 12,
-          color: '#b91c1c',
+          color: t.errorText,
           margin: '3px 0',
           whiteSpace: 'pre-wrap',
           lineHeight: 1.5,
@@ -356,13 +360,14 @@ function IntermediateGroup({
 
 // 结论块：文本输出（展开显示）
 function ConclusionBlock({ events }: { events: AgentEvent[] }) {
+  const t = useAgentTheme();
   return (
     <div
       style={{
         margin: '8px 0',
         padding: '14px 16px',
-        background: '#ffffff',
-        border: '1px solid #e5e7eb',
+        background: t.bgCard,
+        border: `1px solid ${t.border}`,
         borderRadius: 12,
         boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
       }}
@@ -374,7 +379,7 @@ function ConclusionBlock({ events }: { events: AgentEvent[] }) {
           style={{
             fontSize: 15,
             lineHeight: 1.75,
-            color: '#374151',
+            color: t.text,
             marginTop: idx === 0 ? 0 : 8,
             marginBottom: 0,
           }}
@@ -385,6 +390,38 @@ function ConclusionBlock({ events }: { events: AgentEvent[] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// 高5: 中间结论块 — 运行结束后折叠非最终的文本输出
+function CollapsibleConclusionBlock({ events, label }: { events: AgentEvent[]; label: string }) {
+  const t = useAgentTheme();
+  return (
+    <Accordion
+      label={<span style={{ color: t.textSecondary, fontWeight: 500 }}>{label}</span>}
+      icon={<CodeOutlined style={{ fontSize: 12 }} />}
+      color={t.textMuted}
+      defaultOpen={false}
+    >
+      <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+        {events.map((ev, idx) => (
+          <div
+            key={idx}
+            className="markdown-preview"
+            style={{
+              fontSize: 13,
+              lineHeight: 1.7,
+              color: t.textSecondary,
+              marginTop: idx === 0 ? 0 : 8,
+            }}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {ev.content}
+            </ReactMarkdown>
+          </div>
+        ))}
+      </div>
+    </Accordion>
   );
 }
 
@@ -474,6 +511,7 @@ export function AgentEventList({
   isStreaming = false,
   autoCollapseIntermediates = false,
 }: Props) {
+  const t = useAgentTheme();
   const displayEvents = events.filter(e => e.type !== 'done');
   const turns = groupTurns(displayEvents);
   const hasContent = userPrompt || displayEvents.length > 0 || (reportUrl && reportMeta);
@@ -481,14 +519,14 @@ export function AgentEventList({
   return (
     <div style={{ height: '100%', overflow: 'visible' }}>
       {!hasContent && (
-        <div style={{ textAlign: 'center', padding: '80px 20px', color: '#8e8ea0' }}>
+        <div style={{ textAlign: 'center', padding: '80px 20px', color: t.textSecondary }}>
           <div
             style={{
               width: 56,
               height: 56,
               borderRadius: '50%',
-              background: 'linear-gradient(135deg, #e8f0fe, #f0f7ff)',
-              color: '#1a73e8',
+              background: t.bgSelected,
+              color: t.textOnBlue,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -501,10 +539,10 @@ export function AgentEventList({
               <path d="M12 6v6l4 2" />
             </svg>
           </div>
-          <div style={{ fontSize: 17, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+          <div style={{ fontSize: 17, fontWeight: 600, color: t.text, marginBottom: 6 }}>
             开始新的策略研究对话
           </div>
-          <div style={{ fontSize: 13, color: '#9ca3af' }}>
+          <div style={{ fontSize: 13, color: t.textMuted }}>
             输入你的问题或策略描述，智能体会逐步执行并生成报告
           </div>
         </div>
@@ -522,11 +560,16 @@ export function AgentEventList({
 
         // 计算中间段的索引（用于判断哪个是最后一个）
         const intermediateIndices: number[] = [];
+        const textIndices: number[] = [];
         segments.forEach((seg, i) => {
           if (seg.kind === 'intermediate') intermediateIndices.push(i);
+          else textIndices.push(i);
         });
         const lastIntermediateIdx = intermediateIndices.length > 0
           ? intermediateIndices[intermediateIndices.length - 1]
+          : -1;
+        const lastTextIdx = textIndices.length > 0
+          ? textIndices[textIndices.length - 1]
           : -1;
 
         return (
@@ -543,6 +586,16 @@ export function AgentEventList({
                       isLastIntermediateGroup={segIdx === lastIntermediateIdx}
                       autoCollapseIntermediates={autoCollapseIntermediates}
                       groupKey={`turn-${turnIdx}-seg-${segIdx}`}
+                    />
+                  );
+                }
+                // 高5: 运行结束后，非最终的文本块折叠为可展开的中间结论
+                if (autoCollapseIntermediates && segIdx !== lastTextIdx) {
+                  return (
+                    <CollapsibleConclusionBlock
+                      key={`seg-${segIdx}`}
+                      events={seg.events}
+                      label="中间结论"
                     />
                   );
                 }
@@ -581,8 +634,8 @@ export function AgentEventList({
             style={{
               flex: 1,
               minWidth: 0,
-              background: '#fff',
-              border: '1px solid #e5e7eb',
+              background: t.bgCard,
+              border: `1px solid ${t.border}`,
               borderRadius: 14,
               overflow: 'hidden',
               boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02)',

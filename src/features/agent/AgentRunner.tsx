@@ -14,6 +14,7 @@ import {
 import { AgentEventList, calcDuration } from './AgentEventList';
 import { useAgentStream } from './useAgentStream';
 import { createAgentRun, cancelAgentRun, listAgentRuns, deleteAgentRun, continueAgentRun, getAgentRun } from './api';
+import { useAgentTheme } from '@/theme';
 import type { AgentRun, AgentEvent } from './types';
 
 const { TextArea } = Input;
@@ -127,6 +128,7 @@ export default function AgentRunner() {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(new Set(['yesterday', 'week', 'earlier']));
   const { message } = App.useApp();
   const { state, connect, disconnect, pushUserMessage } = useAgentStream();
+  const t = useAgentTheme();
   const inputRef = useRef<{ focus: () => void; resizableTextArea?: { textArea: HTMLTextAreaElement } } | null>(null);
 
   // 从 URL 参数预填 prompt 或设置继续对话（支持从运行历史跳转过来）
@@ -174,6 +176,13 @@ export default function AgentRunner() {
       fetchHistory();
     }
   }, [state.status, fetchHistory]);
+
+  // 高1: 运行结束后自动进入续接模式，允许在同一界面直接继续对话
+  useEffect(() => {
+    if ((state.status === 'completed' || state.status === 'failed') && runId) {
+      setContinueFromRunId(runId);
+    }
+  }, [state.status, runId]);
 
   const groupedRuns = useMemo(() => groupRunsByDate(historyRuns), [historyRuns]);
 
@@ -299,6 +308,9 @@ export default function AgentRunner() {
   // 外层滚动容器：流式输出时自动跟随到底部；用户手动上滚则暂停跟随
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const followBottomRef = useRef(true);
+  // 高2: 程序化滚动标记，防止 smooth 滚动动画中途触发 handleScroll 误判为用户手动上滚
+  const programmaticScrollRef = useRef(false);
+  const programmaticScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRunIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -313,15 +325,22 @@ export default function AgentRunner() {
   useEffect(() => {
     if (!scrollContainerRef.current) return;
     if (followBottomRef.current) {
+      programmaticScrollRef.current = true;
+      if (programmaticScrollTimerRef.current) clearTimeout(programmaticScrollTimerRef.current);
       scrollContainerRef.current.scrollTo({
         top: scrollContainerRef.current.scrollHeight,
         behavior: isRunning ? 'smooth' : 'auto',
       });
+      // smooth 滚动动画期间忽略 handleScroll，动画完成后释放标记
+      programmaticScrollTimerRef.current = setTimeout(() => {
+        programmaticScrollRef.current = false;
+      }, 600);
     }
   }, [state.events.length, state.events, state.reportUrl, isRunning]);
 
   // 用户滚动：如果距离底部 >= 40px 则视为手动回看，停止跟随
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (programmaticScrollRef.current) return;
     const el = e.currentTarget;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     followBottomRef.current = dist < 40;
@@ -331,10 +350,15 @@ export default function AgentRunner() {
   const scrollToBottomNow = useCallback(() => {
     followBottomRef.current = true;
     if (scrollContainerRef.current) {
+      programmaticScrollRef.current = true;
+      if (programmaticScrollTimerRef.current) clearTimeout(programmaticScrollTimerRef.current);
       scrollContainerRef.current.scrollTo({
         top: scrollContainerRef.current.scrollHeight,
         behavior: 'smooth',
       });
+      programmaticScrollTimerRef.current = setTimeout(() => {
+        programmaticScrollRef.current = false;
+      }, 600);
     }
   }, []);
 
@@ -349,7 +373,7 @@ export default function AgentRunner() {
         height: '100%',
         display: 'flex',
         overflow: 'hidden',
-        background: '#ffffff',
+        background: t.bg,
         position: 'relative',
       }}
     >
@@ -373,7 +397,7 @@ export default function AgentRunner() {
               icon={<ReloadOutlined style={{ fontSize: 15 }} />}
               onClick={fetchHistory}
               loading={historyLoading}
-              style={{ color: '#8e8ea0', borderRadius: 8, width: 32, height: 32 }}
+              style={{ color: t.textSecondary, borderRadius: 8, width: 32, height: 32 }}
             />
           </Tooltip>
           <Tooltip title={sidebarCollapsed ? '展开会话列表' : '收起会话列表'}>
@@ -382,7 +406,7 @@ export default function AgentRunner() {
               type="text"
               icon={(sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />) as React.ReactElement}
               onClick={() => setSidebarCollapsed(c => !c)}
-              style={{ color: '#8e8ea0', borderRadius: 8, width: 32, height: 32 }}
+              style={{ color: t.textSecondary, borderRadius: 8, width: 32, height: 32 }}
             />
           </Tooltip>
         </div>
@@ -400,7 +424,7 @@ export default function AgentRunner() {
         >
           <div style={{ maxWidth: 768, margin: '0 auto' }}>
             {hasActiveRun && (
-              <div style={{ textAlign: 'center', color: '#8e8ea0', fontSize: 12, marginBottom: 18 }}>
+              <div style={{ textAlign: 'center', color: t.textSecondary, fontSize: 12, marginBottom: 18 }}>
                 {displayDate}
                 {stepCount > 0 && <span style={{ marginLeft: 8 }}>· {stepCount} 步</span>}
                 {totalDuration && <span style={{ marginLeft: 8 }}>· {totalDuration}</span>}
@@ -439,14 +463,14 @@ export default function AgentRunner() {
               width: 38,
               height: 38,
               borderRadius: '50%',
-              border: '1px solid #e5e7eb',
-              background: '#ffffff',
-              color: '#374151',
+              border: `1px solid ${t.border}`,
+              background: t.bgCard,
+              color: t.text,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
               transition: 'transform 0.12s',
             }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
@@ -463,7 +487,7 @@ export default function AgentRunner() {
             bottom: 0,
             left: 0,
             right: 0,
-            background: 'linear-gradient(to top, #ffffff 0%, #ffffff 60%, rgba(255,255,255,0) 100%)',
+            background: `linear-gradient(to top, ${t.bgGradientTop} 0%, ${t.bgGradientTop} 60%, ${t.bgGradientTop}00 100%)`,
             padding: '28px 20px 36px',
             pointerEvents: 'none',
           }}
@@ -474,8 +498,8 @@ export default function AgentRunner() {
               <div
                 style={{
                   marginBottom: 10,
-                  background: '#f9fafb',
-                  border: '1px solid #f0f0f0',
+                  background: t.bgSubtle,
+                  border: `1px solid ${t.borderSubtle}`,
                   borderRadius: 14,
                   padding: '10px 14px',
                   display: 'flex',
@@ -518,8 +542,8 @@ export default function AgentRunner() {
             {/* 主输入框（ChatGPT同款圆角胶囊） */}
             <div
               style={{
-                background: '#ffffff',
-                border: '1px solid #e5e7eb',
+                background: t.bgInput,
+                border: `1px solid ${t.border}`,
                 borderRadius: 24,
                 boxShadow: '0 0 0 1px rgba(0,0,0,0.02), 0 2px 6px rgba(0,0,0,0.03)',
                 padding: '8px 8px 8px 16px',
@@ -530,11 +554,11 @@ export default function AgentRunner() {
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.boxShadow = '0 0 0 1px rgba(26,115,232,0.15), 0 4px 12px rgba(0,0,0,0.05)';
-                e.currentTarget.style.borderColor = '#d2d4db';
+                e.currentTarget.style.borderColor = t.textOnBlue;
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.02), 0 2px 6px rgba(0,0,0,0.03)';
-                e.currentTarget.style.borderColor = '#e5e7eb';
+                e.currentTarget.style.borderColor = t.border;
               }}
             >
               {/* 左侧设置按钮（ChatGPT同款附件图标位置） */}
@@ -547,14 +571,14 @@ export default function AgentRunner() {
                     cursor: 'pointer',
                     padding: 6,
                     borderRadius: '50%',
-                    color: showSettings ? '#1a73e8' : '#8e8ea0',
+                    color: showSettings ? t.textOnBlue : t.textSecondary,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginBottom: 6,
                     flexShrink: 0,
                   }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = '#f3f4f6'; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = t.bgHover; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 >
                   {showSettings ? <SettingOutlined style={{ fontSize: 16 }} /> : <PaperClipOutlined style={{ fontSize: 16 }} />}
@@ -602,10 +626,10 @@ export default function AgentRunner() {
                       width: 34,
                       height: 34,
                       borderRadius: '50%',
-                      background: '#f0f0f0',
+                      background: t.bgHover,
                       border: 'none',
                       cursor: 'pointer',
-                      color: '#1f2937',
+                      color: t.text,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -613,8 +637,8 @@ export default function AgentRunner() {
                       flexShrink: 0,
                       transition: 'background 0.15s',
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = '#e5e7eb'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = '#f0f0f0'; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = t.border; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = t.bgHover; }}
                   >
                     <StopOutlined style={{ fontSize: 13 }} />
                   </button>
@@ -628,10 +652,10 @@ export default function AgentRunner() {
                       width: 34,
                       height: 34,
                       borderRadius: '50%',
-                      background: prompt.trim().length >= 1 && !loading ? '#1f2937' : '#f0f0f0',
+                      background: prompt.trim().length >= 1 && !loading ? '#1f2937' : t.bgHover,
                       border: 'none',
                       cursor: prompt.trim().length >= 1 && !loading ? 'pointer' : 'not-allowed',
-                      color: prompt.trim().length >= 1 && !loading ? '#ffffff' : '#c9ccd3',
+                      color: prompt.trim().length >= 1 && !loading ? '#ffffff' : t.textMuted,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -653,7 +677,7 @@ export default function AgentRunner() {
             </div>
 
             {!showSettings && !isRunning && (
-              <div style={{ textAlign: 'center', marginTop: 10, color: '#8e8ea0', fontSize: 11 }}>
+              <div style={{ textAlign: 'center', marginTop: 10, color: t.textSecondary, fontSize: 11 }}>
                 按 Ctrl + Enter 发送 · 点击左侧附件图标配置轮次与报告风格 · 0=不限轮次
               </div>
             )}
@@ -666,14 +690,14 @@ export default function AgentRunner() {
         <div
           style={{
             width: 260,
-            borderLeft: '1px solid #ececf1',
-            background: '#fafafa',
+            borderLeft: `1px solid ${t.borderSubtle}`,
+            background: t.bgSubtle,
             display: 'flex',
             flexDirection: 'column',
             flexShrink: 0,
           }}
         >
-          <div style={{ padding: 12, borderBottom: '1px solid #ececf1' }}>
+          <div style={{ padding: 12, borderBottom: `1px solid ${t.borderSubtle}` }}>
             <Button
               type="primary"
               icon={<PlusOutlined />}
@@ -691,7 +715,7 @@ export default function AgentRunner() {
               </div>
             )}
             {!historyLoading && historyRuns.length === 0 && (
-              <div style={{ textAlign: 'center', padding: 24, color: '#86868b' }}>
+              <div style={{ textAlign: 'center', padding: 24, color: t.textMuted }}>
                 <Empty description="暂无历史对话" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               </div>
             )}
@@ -712,20 +736,20 @@ export default function AgentRunner() {
                       cursor: 'pointer',
                       borderRadius: 6,
                       fontSize: 12,
-                      color: '#6b7280',
+                      color: t.textSecondary,
                       fontWeight: 500,
                       userSelect: 'none',
                       transition: 'background 0.12s',
                     }}
-                    onMouseEnter={e => { e.currentTarget.style.background = '#f0f0f0'; }}
+                    onMouseEnter={e => { e.currentTarget.style.background = t.bgHover; }}
                     onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                   >
                     {isCollapsed
-                      ? <RightOutlined style={{ fontSize: 10, color: '#9ca3af' }} />
-                      : <DownOutlined style={{ fontSize: 10, color: '#9ca3af' }} />
+                      ? <RightOutlined style={{ fontSize: 10, color: t.textMuted }} />
+                      : <DownOutlined style={{ fontSize: 10, color: t.textMuted }} />
                     }
                     <span style={{ flex: 1 }}>{GROUP_LABELS[group]}</span>
-                    <span style={{ fontSize: 11, color: '#9ca3af' }}>{runs.length}</span>
+                    <span style={{ fontSize: 11, color: t.textMuted }}>{runs.length}</span>
                   </div>
                   {!isCollapsed && (
                     <div style={{ overflow: 'hidden' }}>
@@ -743,12 +767,13 @@ export default function AgentRunner() {
                             cursor: 'pointer',
                             borderRadius: 8,
                             marginBottom: 1,
-                            background: runId === run.id ? '#e6f0ff' : 'transparent',
-                            transition: 'background 0.12s',
+                            background: runId === run.id ? t.bgSelected : 'transparent',
+                            borderLeft: runId === run.id ? `2px solid ${t.textOnBlue}` : '2px solid transparent',
+                            transition: 'background 0.15s, border-color 0.15s',
                             position: 'relative',
                           }}
                           onMouseEnter={e => {
-                            if (runId !== run.id) e.currentTarget.style.background = '#f0f0f0';
+                            if (runId !== run.id) e.currentTarget.style.background = t.bgHover;
                           }}
                           onMouseLeave={e => {
                             if (runId !== run.id) e.currentTarget.style.background = 'transparent';
@@ -772,7 +797,7 @@ export default function AgentRunner() {
                                       e.stopPropagation();
                                       handleContinueRun(run);
                                     }}
-                                    style={{ width: 22, height: 22, minWidth: 22, color: '#1a73e8' }}
+                                    style={{ width: 22, height: 22, minWidth: 22, color: t.textOnBlue }}
                                   />
                                 </Tooltip>
                               )}
@@ -794,7 +819,7 @@ export default function AgentRunner() {
                           <Text
                             style={{
                               fontSize: 13,
-                              color: '#595959',
+                              color: t.text,
                               display: '-webkit-box',
                               WebkitLineClamp: 2,
                               WebkitBoxOrient: 'vertical',
@@ -805,7 +830,7 @@ export default function AgentRunner() {
                             {truncatePrompt(run.prompt)}
                           </Text>
                           {continueFromRunId === run.id && (
-                            <div style={{ marginTop: 4, fontSize: 11, color: '#1a73e8' }}>
+                            <div style={{ marginTop: 4, fontSize: 11, color: t.textOnBlue }}>
                               继续此对话中…
                             </div>
                           )}
@@ -817,7 +842,7 @@ export default function AgentRunner() {
               );
             })}
           </div>
-          <div style={{ padding: 8, borderTop: '1px solid #ececf1' }}>
+          <div style={{ padding: 8, borderTop: `1px solid ${t.borderSubtle}` }}>
             <Dropdown menu={{ items: historyMenuItems }} placement="topLeft">
               <Button size="small" block icon={<HistoryOutlined />} style={{ borderRadius: 8 }}>
                 运行历史
