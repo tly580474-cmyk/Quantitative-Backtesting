@@ -162,7 +162,7 @@ const NAV_ITEMS: MenuProps['items'] = [
     label: '策略研发',
     children: [
       { key: '/studio', icon: <FundProjectionScreenOutlined />, label: '策略工作室' },
-      { key: '/agent', icon: <RobotOutlined />, label: '智能体' },
+      { key: '/agent', icon: <RobotOutlined />, label: '万行智研' },
     ],
   },
   {
@@ -193,7 +193,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/results': '回测结果',
   '/factors': '因子研究',
   '/studio': '策略工作室',
-  '/agent': '策略研究智能体',
+  '/agent': '万行智研',
 };
 
 function DataLibraryRoute() {

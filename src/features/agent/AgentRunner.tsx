@@ -574,8 +574,8 @@ export default function AgentRunner() {
                   isRunning
                     ? 'Agent 运行中…'
                     : continueFromRunId
-                    ? '输入继续指令，Agent 将接着上次对话工作…'
-                    : '向智能体提问，或描述你的策略研究需求…'
+                    ? '输入继续指令，万行智研将接着上次对话工作…'
+                    : '向万行智研提问，或描述你的策略研究需求…'
                 }
                 autoSize={{ minRows: 1, maxRows: 8 }}
                 disabled={isRunning}
@@ -666,18 +666,19 @@ export default function AgentRunner() {
         </div>
       </div>
 
-      {/* 右侧会话列表栏（可折叠） */}
-      {!sidebarCollapsed && (
-        <div
-          style={{
-            width: 260,
-            borderLeft: `1px solid ${t.borderSubtle}`,
-            background: t.bgSubtle,
-            display: 'flex',
-            flexDirection: 'column',
-            flexShrink: 0,
-          }}
-        >
+      {/* 右侧会话列表栏（可折叠，与左侧导航同款 width transition） */}
+      <div
+        style={{
+          width: sidebarCollapsed ? 0 : 260,
+          borderLeft: sidebarCollapsed ? 'none' : `1px solid ${t.borderSubtle}`,
+          background: t.bgSubtle,
+          display: 'flex',
+          flexDirection: 'column',
+          flexShrink: 0,
+          overflow: 'hidden',
+          transition: 'width 0.2s cubic-bezier(0.2, 0, 0, 1), border-left-color 0.2s',
+        }}
+      >
           <div style={{ padding: 12, borderBottom: `1px solid ${t.borderSubtle}` }}>
             <Button
               type="primary"
@@ -823,8 +824,7 @@ export default function AgentRunner() {
               );
             })}
           </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

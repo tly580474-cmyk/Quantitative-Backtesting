@@ -543,7 +543,7 @@ export function AgentEventList({
             开始新的策略研究对话
           </div>
           <div style={{ fontSize: 13, color: t.textMuted }}>
-            输入你的问题或策略描述，智能体会逐步执行并生成报告
+            输入你的问题或策略描述，万行智研会逐步执行并生成报告
           </div>
         </div>
       )}

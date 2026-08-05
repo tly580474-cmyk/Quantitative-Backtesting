@@ -149,7 +149,7 @@ export function AgentReportView({ reportUrl, reportMeta, runId, embedded = false
           src={reportUrl}
           style={{ width: '100%', height: '100%', border: 'none' }}
           sandbox="allow-scripts allow-same-origin"
-          title="Agent Report"
+          title="万行智研报告"
           onLoad={() => setLoading(false)}
         />
       </div>
