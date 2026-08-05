@@ -121,15 +121,11 @@ function Invoke-Build([string]$workDir, [string]$npmScript, [string]$logFile) {
 }
 
 # ---------- Backend (3001) ----------
+# 通过 backend-supervisor.ps1 启动，启用 /api/admin/restart 快捷重启能力
 if (-not (Test-PortOccupied 3001 'server*src/app.ts' 'Backend')) {
-    $tsxCmd = Join-Path $serverRoot 'node_modules\.bin\tsx.cmd'
-    if (Test-Path $tsxCmd) {
-        Start-HiddenCommand $serverRoot "$tsxCmd src/app.ts" 'backend.log'
-        Write-Step 'BE' 'Backend launched (tsx src/app.ts)'
-    } else {
-        Start-HiddenCommand $serverRoot 'npm.cmd run start' 'backend.log'
-        Write-Step 'BE' 'Backend launched (npm run start, tsx not found)'
-    }
+    $supervisor = Join-Path $root 'scripts\backend-supervisor.ps1'
+    Start-HiddenCommand $serverRoot "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$supervisor`"" 'backend.log'
+    Write-Step 'BE' 'Backend launched (supervised, restart-capable via admin console)'
 }
 
 # ---------- Frontend (5558) ----------
