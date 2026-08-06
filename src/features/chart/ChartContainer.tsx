@@ -416,9 +416,22 @@ export default function ChartContainer({
       const rl = rangeLineRef.current;
       if (rl) {
         if (rl.getDragging() && param.point) {
-          const newTime = chart.timeScale().coordinateToTime(param.point.x);
-          if (newTime) {
-            const timeStr = String(newTime);
+          const currentCandles = candlesRef.current;
+          let timeStr: string | null = null;
+          if (currentCandles.length > 0) {
+            // 优先用逻辑索引匹配（分时与日K通用，避免 coordinateToTime 在分时下返回数字时间戳）
+            const logical = chart.timeScale().coordinateToLogical(param.point.x);
+            if (logical != null) {
+              const idx = Math.max(0, Math.min(currentCandles.length - 1, Math.round(logical)));
+              timeStr = currentCandles[idx].time;
+            }
+          }
+          if (!timeStr) {
+            // 回退：用 coordinateToTime + chartTimeKey 归一化
+            const newTime = chart.timeScale().coordinateToTime(param.point.x);
+            if (newTime) timeStr = chartTimeKey(newTime);
+          }
+          if (timeStr) {
             const otherEnd = rl.getDragging() === 'start' ? rl.getEndTime() : rl.getStartTime();
             // Enforce order: start < end
             if (rl.getDragging() === 'start' && otherEnd && timeStr >= otherEnd) {
@@ -559,10 +572,34 @@ export default function ChartContainer({
       && availableTimes.has(rangeLine.getStartTime()!)
       && availableTimes.has(rangeLine.getEndTime()!)
     ) return;
-    const startCandle = candles[Math.floor(candles.length * 0.2)];
-    const endCandle = candles[Math.floor(candles.length * 0.8)];
-    rangeLine.setStartTime(startCandle.time);
-    rangeLine.setEndTime(endCandle.time);
+    // 优先取当前可见视口的中间 50% 作为初始区间，方便用户在缩放范围内选择
+    let startIdx: number;
+    let endIdx: number;
+    const visibleLogical = mainChartRef.current?.timeScale().getVisibleLogicalRange();
+    if (visibleLogical && Number.isFinite(visibleLogical.from) && Number.isFinite(visibleLogical.to)) {
+      const visFrom = Math.max(0, Math.floor(visibleLogical.from));
+      const visTo = Math.min(candles.length - 1, Math.ceil(visibleLogical.to));
+      if (visTo - visFrom >= 1) {
+        const visLen = visTo - visFrom;
+        // 取可见范围的中间 50%
+        startIdx = Math.max(0, Math.floor(visFrom + visLen * 0.25));
+        endIdx = Math.min(candles.length - 1, Math.ceil(visFrom + visLen * 0.75));
+      } else {
+        startIdx = Math.floor(candles.length * 0.2);
+        endIdx = Math.floor(candles.length * 0.8);
+      }
+    } else {
+      // 回退：整个数据集的 20%-80%
+      startIdx = Math.floor(candles.length * 0.2);
+      endIdx = Math.floor(candles.length * 0.8);
+    }
+    if (startIdx >= endIdx) {
+      // 极端边界情况保护
+      startIdx = Math.max(0, Math.floor(candles.length * 0.2));
+      endIdx = Math.min(candles.length - 1, Math.floor(candles.length * 0.8));
+    }
+    rangeLine.setStartTime(candles[startIdx].time);
+    rangeLine.setEndTime(candles[endIdx].time);
   }, [candles, showRangeLines]);
 
   // Update candle/volume data

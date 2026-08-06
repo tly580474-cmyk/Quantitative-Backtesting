@@ -17,7 +17,7 @@ import HotSectorPanel from './HotSectorPanel';
 import DragonTigerPanel from './DragonTigerPanel';
 import MarketNewsPanel from './MarketNewsPanel';
 import IndexConstituentDrawer from './IndexConstituentDrawer';
-import { klineCacheKey, marketDataCache } from './marketDataCache';
+import { klineCacheKey, marketDataCache, readIndexIntradayCache, readIndexKlineCache, writeIndexIntradayCache, writeIndexKlineCache } from './marketDataCache';
 import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
 import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem, TradingStyleId, TradingStyleOption } from './types';
 import type { ImportResult } from '@/models';
@@ -228,7 +228,11 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function IndexSparkline({ points, label, tone }: { points: KlinePoint[] | undefined; label: string; tone: 'up' | 'down' | 'flat' }) {
   if (points === undefined) return <div className="market-index-preview is-loading" aria-label={`${label}走势预览加载中`}><span /></div>;
-  const values = points.slice(-30).map((point) => point.close).filter(Number.isFinite);
+  // 检测是否为分时数据（date 包含空格，如 "2026-08-06 09:30"）
+  const isIntraday = points.length > 0 && points[0].date?.includes(' ');
+  const values = isIntraday
+    ? points.slice(-120).map((point) => point.close).filter(Number.isFinite)
+    : points.slice(-30).map((point) => point.close).filter(Number.isFinite);
   if (values.length < 2) return <div className="market-index-preview is-empty" aria-label={`${label}暂无走势数据`}><span>暂无走势</span></div>;
   const width = 240;
   const height = 46;
@@ -242,8 +246,8 @@ function IndexSparkline({ points, label, tone }: { points: KlinePoint[] | undefi
   }));
   const line = coordinates.map(({ x, y }) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
   const area = `M ${coordinates[0].x.toFixed(1)} ${height} L ${coordinates.map(({ x, y }) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(' L ')} L ${coordinates[coordinates.length - 1].x.toFixed(1)} ${height} Z`;
-  return <svg className={`market-index-preview is-${tone}`} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={`${label}近30个交易日走势预览`}>
-    <title>{label}近30个交易日走势预览</title>
+  return <svg className={`market-index-preview is-${tone}`} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={`${label}${isIntraday ? '日内' : '近30个交易日'}走势预览`}>
+    <title>{label}{isIntraday ? '日内走势' : '近30个交易日走势'}</title>
     <line x1="0" y1={height / 2} x2={width} y2={height / 2} className="market-index-preview-baseline" />
     <path d={area} className="market-index-preview-area" />
     <polyline points={line} className="market-index-preview-line" />
@@ -1068,14 +1072,37 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       const option = MARKET_INDEX_OPTIONS.find((item) => item.key === key);
       if (!option) return [key, []] as const;
       const instrumentCode = marketIndexInstrumentCode(option);
-      const cacheKey = klineCacheKey(instrumentCode, 'day');
-      const cached = marketDataCache.klines[cacheKey];
-      if (cached) return [key, cached] as const;
+      // 优先读取分时缓存
+      const intradayCacheKey = klineCacheKey(instrumentCode, 'intraday' as const);
+      const cachedIntraday = readIndexIntradayCache(intradayCacheKey);
+      if (cachedIntraday && cachedIntraday.length > 0) {
+        return [key, cachedIntraday] as const;
+      }
+      // 分时缓存失效，先拉分时数据
       try {
-        const data = await apiFetch<{ items: KlinePoint[] }>(`/api/market-data/stocks/${instrumentCode}/kline?period=day`);
-        const next = data.items ?? [];
-        marketDataCache.klines[cacheKey] = next;
-        return [key, next] as const;
+        const intradayData = await apiFetch<{ items: KlinePoint[] }>(
+          `/api/market-data/stocks/${instrumentCode}/kline?period=intraday`,
+        );
+        const intradayItems = intradayData.items ?? [];
+        if (intradayItems.length > 0) {
+          writeIndexIntradayCache(intradayCacheKey, intradayItems);
+          return [key, intradayItems] as const;
+        }
+        // 非交易时间或无分时数据 → 回退日线
+      } catch {
+        // 分时接口失败，继续回退日线
+      }
+      // 回退日线数据
+      const dayCacheKey = klineCacheKey(instrumentCode, 'day');
+      const cachedDay = readIndexKlineCache(dayCacheKey);
+      if (cachedDay) return [key, cachedDay] as const;
+      try {
+        const dayData = await apiFetch<{ items: KlinePoint[] }>(
+          `/api/market-data/stocks/${instrumentCode}/kline?period=day`,
+        );
+        const dayItems = dayData.items ?? [];
+        writeIndexKlineCache(dayCacheKey, dayItems);
+        return [key, dayItems] as const;
       } catch {
         return [key, []] as const;
       }
@@ -1083,6 +1110,39 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       if (!cancelled) setIndexPreviewKlines((current) => ({ ...current, ...Object.fromEntries(entries) }));
     });
     return () => { cancelled = true; };
+  }, [isResearchView, selectedIndexKeys]);
+
+  /** 强制刷新指数预览（分时优先，日线回退） */
+  const refreshIndexPreviewKlines = useCallback(async () => {
+    if (isResearchView) return;
+    const entries = await Promise.all(selectedIndexKeys.map(async (key) => {
+      const option = MARKET_INDEX_OPTIONS.find((item) => item.key === key);
+      if (!option) return [key, []] as const;
+      const instrumentCode = marketIndexInstrumentCode(option);
+      // 优先拉分时
+      try {
+        const intradayData = await apiFetch<{ items: KlinePoint[] }>(
+          `/api/market-data/stocks/${instrumentCode}/kline?period=intraday`,
+        );
+        const intradayItems = intradayData.items ?? [];
+        if (intradayItems.length > 0) {
+          writeIndexIntradayCache(klineCacheKey(instrumentCode, 'intraday' as const), intradayItems);
+          return [key, intradayItems] as const;
+        }
+      } catch { /* 分时失败则回退日线 */ }
+      // 回退日线
+      try {
+        const dayData = await apiFetch<{ items: KlinePoint[] }>(
+          `/api/market-data/stocks/${instrumentCode}/kline?period=day`,
+        );
+        const dayItems = dayData.items ?? [];
+        writeIndexKlineCache(klineCacheKey(instrumentCode, 'day'), dayItems);
+        return [key, dayItems] as const;
+      } catch {
+        return [key, []] as const;
+      }
+    }));
+    setIndexPreviewKlines((current) => ({ ...current, ...Object.fromEntries(entries) }));
   }, [isResearchView, selectedIndexKeys]);
   useEffect(() => {
     if (isResearchView) return undefined;
@@ -1350,7 +1410,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       </AutoComplete>
       <Space size={6}>
         <Tooltip title="设置展示的指数"><Button icon={<SettingOutlined />} aria-label="设置展示的指数" onClick={openIndexConfig} /></Tooltip>
-        <Tooltip title="刷新指数与市场概况"><Button icon={<ReloadOutlined />} loading={indexLoading || marketSentimentLoading} aria-label="刷新市场总览" onClick={() => { void loadIndexQuotes(); void loadMarketSentiment(false, true); }} /></Tooltip>
+        <Tooltip title="刷新指数与市场概况"><Button icon={<ReloadOutlined />} loading={indexLoading || marketSentimentLoading} aria-label="刷新市场总览" onClick={() => { void loadIndexQuotes(); void refreshIndexPreviewKlines(); void loadMarketSentiment(false, true); }} /></Tooltip>
       </Space>
     </section>
     <section className={`market-index-grid is-count-${visibleIndexCards.length}${isReordering ? ' is-reordering' : ''}`} aria-label="当前交易日主要指数">

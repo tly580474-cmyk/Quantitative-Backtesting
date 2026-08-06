@@ -54,6 +54,7 @@ import {
   exportAdjustedKlinesToExcel,
   resolveInstrumentBySymbol,
 } from './features/marketData/exportMarketData';
+import { fetchHistoryCandles, type AdjustmentMode } from './features/dataLibrary/historyBar';
 import {
   applyColorMode,
   COLOR_MODE_STORAGE_KEY,
@@ -235,6 +236,7 @@ function MarketAnalysisRoute() {
   const [indicatorDrawerOpen, setIndicatorDrawerOpen] = useState(false);
   const [inspectorMode, setInspectorMode] = useState<'indicator' | 'chan'>('indicator');
   const [exportingAnalysis, setExportingAnalysis] = useState(false);
+  const [switchingAdjustment, setSwitchingAdjustment] = useState(false);
   const [minuteCandles, setMinuteCandles] = useState<ImportResult['candles']>([]);
   const [minuteRange, setMinuteRange] = useState<[string, string] | null>(null);
   const [minuteCatalog, setMinuteCatalog] = useState<MinuteCatalogResponse | null>(null);
@@ -246,6 +248,39 @@ function MarketAnalysisRoute() {
   const sourceCandles = useCandleStore((state) => state.candles);
   const importResult = useCandleStore((state) => state.importResult);
   const analysisSymbol = importResult?.symbol ?? sourceCandles[0]?.symbol ?? '';
+  const adjustmentMode: AdjustmentMode = importResult?.adjustmentMode ?? 'none';
+  const canSwitchAdjustment = !!importResult?.instrumentId && !isMinutePeriod(period);
+  const handleAnalysisAdjustmentChange = useCallback(async (value: string | number) => {
+    const nextMode = value as AdjustmentMode;
+    const current = useCandleStore.getState().importResult;
+    if (!current?.instrumentId || nextMode === (current.adjustmentMode ?? 'none')) return;
+    setSwitchingAdjustment(true);
+    try {
+      const { response, candles } = await fetchHistoryCandles(current.instrumentId, current.symbol, nextMode);
+      useCandleStore.getState().setCandles(candles);
+      useCandleStore.getState().setImportResult({
+        ...current,
+        dateRange: {
+          from: candles[0]?.time ?? current.dateRange.from,
+          to: candles[candles.length - 1]?.time ?? current.dateRange.to,
+        },
+        totalRows: response.total,
+        validRows: candles.length,
+        candles,
+        adjustmentMode: response.adjustmentMode,
+        factorVersion: response.factorVersion,
+        adjustmentQualityStatus: response.adjustmentQualityStatus,
+        adjustmentWarnings: response.adjustmentWarnings,
+      });
+      if (response.adjustmentQualityStatus === 'warning') {
+        notification.warning({ message: `${nextMode === 'qfq' ? '前复权' : nextMode === 'hfq' ? '后复权' : '不复权'}已加载，但源数据交叉校验存在警告` });
+      }
+    } catch (error) {
+      notification.error({ message: error instanceof Error ? error.message : '复权行情加载失败' });
+    } finally {
+      setSwitchingAdjustment(false);
+    }
+  }, [notification]);
   const activeSourceCandles = isMinutePeriod(period) ? minuteCandles : sourceCandles;
   const displayCandles = useMemo(
     () => aggregateCandles(activeSourceCandles, period),
@@ -617,6 +652,18 @@ function MarketAnalysisRoute() {
           DuckDB · {minuteMeta.sourceFiles} 日 · {displayCandles.length} 根 · {minuteMeta.elapsedMs}ms
         </Tag>
       )}
+      <Segmented<AdjustmentMode | ''>
+        size="small"
+        aria-label="价格复权方式"
+        value={canSwitchAdjustment ? adjustmentMode : ''}
+        disabled={!canSwitchAdjustment || switchingAdjustment}
+        options={[
+          { label: switchingAdjustment ? '加载中…' : '不复权', value: 'none' },
+          { label: '前复权', value: 'qfq' },
+          { label: '后复权', value: 'hfq' },
+        ]}
+        onChange={handleAnalysisAdjustmentChange}
+      />
       <Button
         size="small"
         icon={<DownloadOutlined />}
