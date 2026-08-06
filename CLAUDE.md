@@ -98,7 +98,7 @@ Start both frontend and backend together: double-click `start.bat` (Windows) or 
 ## Tech Stack
 
 ### Frontend (business UI at `src/`)
-- **React 19** + TypeScript 6, Vite (dev server at localhost:5558)
+- **React 19** + TypeScript 7, Vite (dev server at localhost:5558)
 - **React Router 7** (HashRouter) for client-side routing, pages are lazy-loaded
 - **Ant Design 6** with Chinese locale (zhCN) and @ant-design/icons
 - **TradingView Lightweight Charts 5** for K-line and indicator charts
@@ -119,7 +119,7 @@ Start both frontend and backend together: double-click `start.bat` (Windows) or 
 - Calls backend `/api/admin/*` endpoints
 
 ### Backend (`server/`)
-- **Fastify 5** + TypeScript 5, run with tsx (bodyLimit 100MB, CORS localhost-only)
+- **Fastify 5** + TypeScript 7, run with tsx (bodyLimit 100MB, CORS localhost-only)
 - **Drizzle ORM** + MySQL2 for server-side persistence (24 SQL migrations)
 - **DuckDB** (`@duckdb/node-api`) as embedded OLAP engine for factor research and snapshot queries
 - **OpenAI SDK** for AI strategy generation and stock research agent

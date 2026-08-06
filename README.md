@@ -5,7 +5,7 @@
 **A股研究一体化平台 — 行情分析 · 数据管理 · 选股评分 · 智能交易 · 策略回测 · 因子研究 · AI 智能体**
 
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)](https://vitejs.dev)
 [![Fastify](https://img.shields.io/badge/Fastify-5-000000?logo=fastify&logoColor=white)](https://fastify.dev)
 [![MySQL](https://img.shields.io/badge/MySQL-8-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com)
@@ -301,11 +301,11 @@ server/src/                   # 后端服务
 
 | 层 | 技术 |
 |---|---|
-| **前端** | React 19, TypeScript 6, Vite, Ant Design 6 |
+| **前端** | React 19, TypeScript 7, Vite, Ant Design 6 |
 | **图表** | TradingView Lightweight Charts 5 |
 | **状态** | Zustand 5 + Immer |
 | **本地存储** | Dexie 4 (IndexedDB) |
-| **后端** | Fastify 5, TypeScript 5 |
+| **后端** | Fastify 5, TypeScript 7 |
 | **数据库** | MySQL 8 (Drizzle ORM), DuckDB (OLAP) |
 | **AI** | OpenAI SDK (DeepSeek / OpenAI), Claude Code |
 | **数据处理** | Python (参考数据/分钟数据), SheetJS (Excel) |
