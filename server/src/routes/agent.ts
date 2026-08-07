@@ -5,20 +5,7 @@ import { z } from 'zod';
 import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
 import { AgentRepository } from '../services/agent/agentRepository.js';
 import type { AgentOrchestrator } from '../services/agent/agentOrchestrator.js';
-
-const createRunBodySchema = z.object({
-  prompt: z.string().min(1),
-  maxTurns: z.number().int().min(0).max(200).default(0),
-  timeoutMinutes: z.number().int().min(1).max(120).default(30),
-  templateStyle: z.enum(['classic-blue', 'dark-pro', 'minimal-white', 'dashboard']).default('classic-blue'),
-});
-
-const continueBodySchema = z.object({
-  prompt: z.string().min(1),
-  maxTurns: z.number().int().min(0).max(200).default(0),
-  timeoutMinutes: z.number().int().min(1).max(120).default(30),
-  templateStyle: z.enum(['classic-blue', 'dark-pro', 'minimal-white', 'dashboard']).default('classic-blue'),
-});
+import type { EnvConfig } from '../config.js';
 
 export function registerAgentRoutes(
   app: FastifyInstance,
@@ -28,9 +15,28 @@ export function registerAgentRoutes(
     orchestrator: AgentOrchestrator;
     reportRoot: string;
     enabled: boolean;
+    config: EnvConfig;
   },
 ) {
-  const { orchestrator, enabled } = deps;
+  const { orchestrator, enabled, config } = deps;
+
+  // 从配置读取默认值，确保 .env 与路由一致；不设运行时间上限
+  const defaultMaxTurns = parseInt(config.AGENT_DEFAULT_MAX_TURNS, 10) || 50;
+  const defaultTimeoutMinutes = parseInt(config.AGENT_TIMEOUT_MINUTES, 10) || 60;
+
+  const createRunBodySchema = z.object({
+    prompt: z.string().min(1),
+    maxTurns: z.number().int().min(0).max(200).default(defaultMaxTurns),
+    timeoutMinutes: z.number().int().min(1).default(defaultTimeoutMinutes),
+    templateStyle: z.enum(['classic-blue', 'dark-pro', 'minimal-white', 'dashboard']).default('classic-blue'),
+  });
+
+  const continueBodySchema = z.object({
+    prompt: z.string().min(1),
+    maxTurns: z.number().int().min(0).max(200).default(defaultMaxTurns),
+    timeoutMinutes: z.number().int().min(1).default(defaultTimeoutMinutes),
+    templateStyle: z.enum(['classic-blue', 'dark-pro', 'minimal-white', 'dashboard']).default('classic-blue'),
+  });
 
   // POST /api/agent/runs — 创建并启动 agent
   app.post('/api/agent/runs', async (request, reply) => {

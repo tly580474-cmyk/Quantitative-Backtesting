@@ -100,7 +100,10 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
   });
 
   app.get('/api/admin/data-update-progress', { preHandler: authorize }, async () => (
-    collectDataUpdateProgress(options.dbOnline)
+    collectDataUpdateProgress(options.dbOnline, undefined, undefined, {
+      pool: options.dbOnline ? options.pool : null,
+      minuteRoot: options.config.MINUTE_DATA_ROOT,
+    })
   ));
 
   app.get('/api/admin/database-backup', { preHandler: authorize }, async () => (

@@ -379,6 +379,11 @@ async function handle(
         details: error.details,
       });
     }
-    throw error;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[PaperTrading] Route handler error:', error);
+    return reply.code(500).send({
+      error: 'INTERNAL_ERROR',
+      message: errorMessage || '服务器内部错误',
+    });
   }
 }

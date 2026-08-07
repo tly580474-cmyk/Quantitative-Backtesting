@@ -219,6 +219,8 @@ export default function PaperTradingPage() {
       setSelectedAccountId(undefined);
       setOrderPreview(null);
       await loadAccounts(false);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '删除模拟账户失败');
     } finally {
       setDeletingAccount(false);
     }

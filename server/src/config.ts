@@ -84,7 +84,7 @@ const envSchema = z.object({
   AGENT_WSL_PROJECT_PATH: z.string().default(''),
   AGENT_CLAUDE_PATH: z.string().default('claude'),
   AGENT_DEFAULT_MAX_TURNS: z.string().regex(/^\d+$/).default('50'),
-  AGENT_TIMEOUT_MINUTES: z.string().regex(/^\d+$/).default('30'),
+  AGENT_TIMEOUT_MINUTES: z.string().regex(/^\d+$/).default('60'),
   AGENT_MAX_CONCURRENT: z.string().regex(/^\d+$/).default('1'),
   AGENT_REPORT_ROOT: z.string().default('data/agent-reports'),
 

@@ -46,12 +46,12 @@ export class AgentOrchestrator {
     const repo = new AgentRepository(this.pool);
     const { runId, prompt, maxTurns, timeoutMs, resumeSessionId } = params;
 
-    // Build full prompt (skip report path when resuming — continuation doesn't need a new report)
+    // Build full prompt — for resume sessions, add "直接生成报告" guidance
     const winReportDir = resolve(this.config.reportRoot, 'reports');
     const winReportPath = resolve(winReportDir, `${runId}.html`);
     // Convert Windows path to WSL path (e.g. D:\foo\bar -> /mnt/d/foo/bar)
     const wslReportPath = winReportPath.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
-    const fullPrompt = buildPrompt(prompt, this.config.wslProjectPath, params.templateStyle as TemplateStyle, wslReportPath);
+    const fullPrompt = buildPrompt(prompt, this.config.wslProjectPath, params.templateStyle as TemplateStyle, wslReportPath, !!params.resumeSessionId);
 
     // Ensure report directory exists
     await mkdir(winReportDir, { recursive: true });
@@ -95,9 +95,11 @@ export class AgentOrchestrator {
 
     await repo.updateRunStatus(runId, 'running', { pid: child.pid ?? null });
 
-    // Set timeout
+    // Set timeout — record error message so users know why it was killed
     const timer = setTimeout(() => {
       this.cancel(runId);
+      const repo = new AgentRepository(this.pool);
+      repo.updateRunStatus(runId, 'failed', { errorMessage: `任务超时（${Math.round(timeoutMs / 60_000)}分钟），可能卡在报告生成步骤` }).catch(() => {});
     }, timeoutMs);
 
     // Stream stdout

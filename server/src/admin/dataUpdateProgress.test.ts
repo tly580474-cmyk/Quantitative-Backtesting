@@ -45,6 +45,41 @@ describe('admin data update progress', () => {
     expect(progress.message).toContain('可能已中断');
   });
 
+  it('reports completed when the lake snapshot already covers the authoritative date', () => {
+    // 在线更新大面积失败后进程退出，但 TDX 导入已将快照补齐到权威日期
+    const progress = normalizeMinuteProgress({
+      status: 'running', phase: 'fetching-online', completed: 277, total: 5535, failed: 2723,
+      updatedAt: '2026-08-07T08:10:52.000Z', startedAt: '2026-08-07T07:40:05.000Z',
+    }, new Date('2026-08-07T09:30:00.000Z'), {
+      lastDate: '2026-08-07',
+      authoritativeDate: '2026-08-07',
+    });
+    expect(progress.status).toBe('completed');
+    expect(progress.percent).toBe(100);
+    expect(progress.failed).toBe(0);
+    expect(progress.message).toContain('分钟湖已覆盖 2026-08-07');
+  });
+
+  it('keeps the failed heartbeat verdict when the snapshot lags the authoritative date', () => {
+    const progress = normalizeMinuteProgress({
+      status: 'running', phase: 'fetching-online', updatedAt: '2026-08-07T08:10:52.000Z',
+    }, new Date('2026-08-07T09:30:00.000Z'), {
+      lastDate: '2026-08-06',
+      authoritativeDate: '2026-08-07',
+    });
+    expect(progress.status).toBe('failed');
+    expect(progress.message).toContain('可能已中断');
+  });
+
+  it('reports a completed lake from the snapshot even when no heartbeat file exists', () => {
+    const progress = normalizeMinuteProgress(null, new Date('2026-08-07T09:30:00.000Z'), {
+      lastDate: '2026-08-07',
+      authoritativeDate: '2026-08-07',
+    });
+    expect(progress.status).toBe('completed');
+    expect(progress.phase).toBe('快照已覆盖');
+  });
+
   it('maps daily K-line sync job counters without a second progress store', () => {
     const progress = normalizeDailyProgress({
       id: 'job-1', jobType: 'incremental', status: 'running', providerId: 'test', requestSnapshot: {},

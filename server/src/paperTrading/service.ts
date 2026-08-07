@@ -230,29 +230,12 @@ export async function deletePaperAccount(pool: mysql.Pool, accountId: string) {
        WHERE account_id = ?`,
       [accountId],
     );
-    const [optionalRows] = await connection.execute<RowDataPacket[]>(
-      `SELECT table_name
-       FROM information_schema.tables
-       WHERE table_schema = DATABASE()
-         AND table_name IN (
-           'paper_risk_events',
-           'paper_equity_snapshots',
-           'paper_strategy_bindings',
-           'paper_risk_configs'
-         )`,
-    );
-    const optionalTables = new Set(optionalRows.map((row) => String(row.table_name)));
+    // 按外键依赖顺序删除所有子表数据（迁移 0030/0031/0032 确保表已创建）
     for (const table of [
       'paper_risk_events',
       'paper_equity_snapshots',
       'paper_strategy_bindings',
       'paper_risk_configs',
-    ]) {
-      if (optionalTables.has(table)) {
-        await connection.execute(`DELETE FROM ${table} WHERE account_id = ?`, [accountId]);
-      }
-    }
-    for (const table of [
       'paper_audit_logs',
       'paper_cash_ledger',
       'paper_trades',

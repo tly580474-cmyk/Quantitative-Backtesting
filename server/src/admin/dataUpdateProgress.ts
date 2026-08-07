@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import type { Pool, RowDataPacket } from 'mysql2/promise';
 import type { SyncJob } from '../marketData/types.js';
 import { listSyncJobs } from '../marketData/repositories/syncJobRepository.js';
 import {
@@ -37,19 +38,34 @@ interface MinuteProgressFile {
 }
 
 const MINUTE_STALE_MS = 15 * 60_000;
+const DEFAULT_MINUTE_ROOT = '../../所有股票的历史数据/1m_price_parquet';
+
+export interface MinuteSnapshot {
+  /** 分钟湖快照（manifest）实际覆盖的最新日期 */
+  lastDate: string | null;
+  /** MySQL 权威日线日期（daily_candles 最大 trade_date） */
+  authoritativeDate: string | null;
+}
+
+export interface MinuteProgressContext {
+  pool: Pool | null;
+  minuteRoot: string;
+}
 
 export async function collectDataUpdateProgress(
   dbOnline: boolean,
   serverRoot = resolve(process.cwd().replace(/[\\/]server$/, ''), 'server'),
   now = new Date(),
+  minute: MinuteProgressContext = { pool: null, minuteRoot: DEFAULT_MINUTE_ROOT },
 ): Promise<{ generatedAt: string; items: DataUpdateProgressItem[] }> {
-  const [instrument, minute, daily, financial] = await Promise.all([
+  const [instrument, minuteItem, daily, financial] = await Promise.all([
     dbOnline ? readInstrumentProgress().catch((error) => failedInstrumentProgress(error)) : Promise.resolve(idleInstrumentProgress('数据库未连接')),
-    readMinuteProgress(resolve(serverRoot, '.logs', 'minute-data', 'progress.json'), now),
+    readMinuteProgress(resolve(serverRoot, '.logs', 'minute-data', 'progress.json'), now, minute)
+      .catch((error) => failedMinuteProgress(error)),
     dbOnline ? readDailyProgress().catch((error) => failedDailyProgress(error)) : Promise.resolve(idleDailyProgress('数据库未连接')),
     dbOnline ? readFinancialProgress().catch((error) => failedFinancialProgress(error)) : Promise.resolve(idleFinancialProgress('数据库未连接')),
   ]);
-  return { generatedAt: now.toISOString(), items: [instrument, minute, daily, financial] };
+  return { generatedAt: now.toISOString(), items: [instrument, minuteItem, daily, financial] };
 }
 
 export function normalizeInstrumentProgress(job: SyncJob | null): DataUpdateProgressItem {
@@ -79,11 +95,39 @@ export function normalizeInstrumentProgress(job: SyncJob | null): DataUpdateProg
   };
 }
 
-export function normalizeMinuteProgress(value: MinuteProgressFile | null, now = new Date()): DataUpdateProgressItem {
+export function normalizeMinuteProgress(
+  value: MinuteProgressFile | null,
+  now = new Date(),
+  snapshot: MinuteSnapshot | null = null,
+): DataUpdateProgressItem {
+  const base = value ? {
+    completed: positiveInteger(value.completed),
+    total: positiveInteger(value.total),
+    failed: positiveInteger(value.failed),
+  } : { completed: 0, total: 0, failed: 0 };
+  // 快照已覆盖权威日期 → 数据就绪，优先于在线更新心跳状态
+  // （在线更新失败后通过 TDX 等渠道补全时，进度文件可能仍停留在失败/中断状态）
+  const snapshotCurrent = snapshot?.authoritativeDate != null
+    && snapshot.lastDate != null
+    && snapshot.lastDate >= snapshot.authoritativeDate;
+  if (snapshotCurrent) {
+    const updatedAt = value ? validTimestamp(value.updatedAt) : null;
+    return {
+      key: 'minute_lake',
+      label: '分钟湖数据',
+      status: 'completed',
+      phase: '快照已覆盖',
+      completed: base.total > 0 ? base.total : 1,
+      total: base.total > 0 ? base.total : 1,
+      failed: 0,
+      percent: 100,
+      startedAt: value ? validTimestamp(value.startedAt) : null,
+      updatedAt,
+      finishedAt: updatedAt ?? snapshot.authoritativeDate,
+      message: `分钟湖已覆盖 ${snapshot.authoritativeDate}（快照 ${snapshot.lastDate}）`,
+    };
+  }
   if (!value) return idleMinuteProgress();
-  const completed = positiveInteger(value.completed);
-  const total = positiveInteger(value.total);
-  const failed = positiveInteger(value.failed);
   let status = normalizeStatus(value.status);
   let message = value.message?.trim() || null;
   if ((status === 'running' || status === 'pending') && isOlderThan(value.updatedAt, now, MINUTE_STALE_MS)) {
@@ -95,10 +139,10 @@ export function normalizeMinuteProgress(value: MinuteProgressFile | null, now = 
     label: '分钟湖数据',
     status,
     phase: value.phase?.trim() || status,
-    completed,
-    total,
-    failed,
-    percent: total > 0 ? clampPercent((completed + failed) / total * 100) : status === 'completed' ? 100 : null,
+    completed: base.completed,
+    total: base.total,
+    failed: base.failed,
+    percent: base.total > 0 ? clampPercent((base.completed + base.failed) / base.total * 100) : status === 'completed' ? 100 : null,
     startedAt: validTimestamp(value.startedAt),
     updatedAt: validTimestamp(value.updatedAt),
     finishedAt: validTimestamp(value.finishedAt),
@@ -166,14 +210,54 @@ export function normalizeFinancialProgress(run: CollectorRun | null): DataUpdate
   };
 }
 
-async function readMinuteProgress(path: string, now: Date): Promise<DataUpdateProgressItem> {
+async function readMinuteProgress(path: string, now: Date, minute: MinuteProgressContext): Promise<DataUpdateProgressItem> {
+  const [value, snapshot] = await Promise.all([
+    readMinuteProgressFile(path),
+    readMinuteSnapshot(minute),
+  ]);
+  return normalizeMinuteProgress(value, now, snapshot);
+}
+
+async function readMinuteProgressFile(path: string): Promise<MinuteProgressFile | null> {
   try {
     const source = (await readFile(path, 'utf8')).replace(/^\uFEFF/, '');
-    return normalizeMinuteProgress(JSON.parse(source) as MinuteProgressFile, now);
+    return JSON.parse(source) as MinuteProgressFile;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return idleMinuteProgress();
-    return { ...idleMinuteProgress(), status: 'failed', phase: '读取进度失败', message: error instanceof Error ? error.message : String(error) };
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
   }
+}
+
+async function readMinuteSnapshot(minute: MinuteProgressContext): Promise<MinuteSnapshot> {
+  const [lastDate, authoritativeDate] = await Promise.all([
+    readMinuteManifestLastDate(minute.minuteRoot),
+    minute.pool ? latestAuthoritativeDailyDate(minute.pool).catch(() => null) : Promise.resolve(null),
+  ]);
+  return { lastDate, authoritativeDate };
+}
+
+async function readMinuteManifestLastDate(minuteRoot: string): Promise<string | null> {
+  try {
+    const root = resolve(process.cwd(), minuteRoot);
+    const manifest = JSON.parse(await readFile(resolve(root, 'manifest.json'), 'utf8')) as {
+      files?: Array<{ date?: string }>;
+      years?: Array<{ lastDate?: string }>;
+    };
+    const files = Array.isArray(manifest.files) ? manifest.files : [];
+    const dates = files.map((item) => (typeof item.date === 'string' ? item.date : '')).filter(Boolean).sort();
+    if (dates.length > 0) return dates[dates.length - 1];
+    const years = Array.isArray(manifest.years) ? manifest.years : [];
+    return years.map((item) => item.lastDate ?? '').filter(Boolean).sort().at(-1) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function latestAuthoritativeDailyDate(pool: Pool): Promise<string | null> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT DATE_FORMAT(MAX(trade_date), '%Y-%m-%d') AS maxDate FROM daily_candles",
+  );
+  return typeof rows[0]?.maxDate === 'string' && rows[0].maxDate ? rows[0].maxDate : null;
 }
 
 async function readDailyProgress(): Promise<DataUpdateProgressItem> {
@@ -235,6 +319,10 @@ function failedInstrumentProgress(error: unknown): DataUpdateProgressItem {
 
 function failedFinancialProgress(error: unknown): DataUpdateProgressItem {
   return { ...idleFinancialProgress(), status: 'failed', phase: '读取进度失败', message: error instanceof Error ? error.message : String(error) };
+}
+
+function failedMinuteProgress(error: unknown): DataUpdateProgressItem {
+  return { ...idleMinuteProgress(), status: 'failed', phase: '读取进度失败', message: error instanceof Error ? error.message : String(error) };
 }
 
 function normalizeStatus(value: unknown): DataUpdateStatus {

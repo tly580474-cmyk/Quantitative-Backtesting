@@ -332,6 +332,7 @@ async function main(): Promise<void> {
       orchestrator: agentOrchestrator,
       reportRoot: config.AGENT_REPORT_ROOT,
       enabled: true,
+      config,
     });
     console.log('[Agent] System enabled');
   } else {
@@ -340,6 +341,7 @@ async function main(): Promise<void> {
       orchestrator: null as never,
       reportRoot: config.AGENT_REPORT_ROOT,
       enabled: false,
+      config,
     });
     if (!agentEnabled) console.log('[Agent] System disabled (AGENT_ENABLED=false)');
   }
