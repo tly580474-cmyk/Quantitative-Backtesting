@@ -38,6 +38,10 @@ server/out/
 
 # TRAE 桌面端运行时数据
 .reasonix/
+reasonix.toml
+
+# 本地邮件预览生成脚本
+scripts/gen_email_preview.ts
 
 # Playwright CLI 临时产物
 .playwright-cli/
