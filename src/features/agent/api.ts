@@ -1,5 +1,29 @@
-import { apiFetch } from '@/api/client';
-import type { AgentRun, AgentReport, AgentEvent } from './types';
+import { ApiError, apiFetch } from '@/api/client';
+import type { AgentRun, AgentReport, AgentEvent, AgentConversationTurn } from './types';
+
+interface AgentEventRecord {
+  type?: AgentEvent['type'];
+  eventType?: AgentEvent['type'];
+  content: string;
+  toolName?: string | null;
+  toolInput?: string | null;
+  toolResult?: string | null;
+  seq?: number;
+  timestamp?: string;
+  createdAt?: string;
+}
+
+function normalizeAgentEvent(event: AgentEventRecord): AgentEvent {
+  return {
+    type: event.type ?? event.eventType ?? 'text',
+    content: event.content,
+    toolName: event.toolName ?? undefined,
+    toolInput: event.toolInput ?? undefined,
+    toolResult: event.toolResult ?? undefined,
+    seq: event.seq,
+    timestamp: event.timestamp ?? event.createdAt,
+  };
+}
 
 export async function createAgentRun(
   prompt: string,
@@ -45,7 +69,37 @@ export async function listAgentRuns(limit?: number, offset?: number, status?: st
 }
 
 export async function getAgentRun(runId: string): Promise<{ run: AgentRun; events: AgentEvent[]; report: AgentReport | null }> {
-  return apiFetch<{ run: AgentRun; events: AgentEvent[]; report: AgentReport | null }>(`/api/agent/runs/${runId}`);
+  const result = await apiFetch<{ run: AgentRun; events: AgentEventRecord[]; report: AgentReport | null }>(`/api/agent/runs/${runId}`);
+  return { ...result, events: result.events.map(normalizeAgentEvent) };
+}
+
+export async function getAgentConversation(runId: string): Promise<{ turns: AgentConversationTurn[] }> {
+  try {
+    const result = await apiFetch<{ turns: Array<Omit<AgentConversationTurn, 'events'> & { events: AgentEventRecord[] }> }>(
+      `/api/agent/runs/${runId}/conversation`,
+    );
+    return {
+      turns: result.turns.map(turn => ({
+        ...turn,
+        events: turn.events.map(normalizeAgentEvent),
+      })),
+    };
+  } catch (error) {
+    // Compatibility with an already-running older server: rebuild the chain
+    // from the established run-detail endpoint until the server is restarted.
+    if (!(error instanceof ApiError) || error.statusCode !== 404) throw error;
+
+    const turns: AgentConversationTurn[] = [];
+    const visited = new Set<string>();
+    let currentId: string | null = runId;
+    while (currentId && !visited.has(currentId) && turns.length < 200) {
+      visited.add(currentId);
+      const detail = await getAgentRun(currentId);
+      turns.push(detail);
+      currentId = detail.run.parentRunId;
+    }
+    return { turns: turns.reverse() };
+  }
 }
 
 export function getReportHtmlUrl(runId: string): string {

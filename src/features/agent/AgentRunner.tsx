@@ -13,9 +13,9 @@ import {
 } from '@ant-design/icons';
 import { AgentEventList, calcDuration } from './AgentEventList';
 import { useAgentStream } from './useAgentStream';
-import { createAgentRun, cancelAgentRun, listAgentRuns, deleteAgentRun, continueAgentRun, getAgentRun } from './api';
+import { createAgentRun, cancelAgentRun, listAgentRuns, deleteAgentRun, continueAgentRun, getAgentConversation } from './api';
 import { useAgentTheme } from '@/theme';
-import type { AgentRun, AgentEvent } from './types';
+import type { AgentRun, AgentEvent, AgentConversationTurn } from './types';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -110,6 +110,21 @@ function groupRunsByDate(runs: AgentRun[]): { group: DateGroup; runs: AgentRun[]
     .filter(b => b.runs.length > 0);
 }
 
+function conversationEvents(turns: AgentConversationTurn[]): AgentEvent[] {
+  return turns.flatMap(({ run, events }) => [
+    {
+      type: 'user' as const,
+      content: run.prompt,
+      timestamp: run.createdAt,
+    },
+    ...events.filter(event => event.type !== 'done'),
+  ]);
+}
+
+function lastEventSeq(turn?: AgentConversationTurn): number {
+  return turn?.events.reduce((max, event) => Math.max(max, event.seq ?? 0), 0) ?? 0;
+}
+
 export default function AgentRunner() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [prompt, setPrompt] = useState('');
@@ -119,6 +134,7 @@ export default function AgentRunner() {
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [compactLayout, setCompactLayout] = useState(false);
   const [historyRuns, setHistoryRuns] = useState<AgentRun[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [currentPrompt, setCurrentPrompt] = useState('');
@@ -126,9 +142,35 @@ export default function AgentRunner() {
   const [continueFromRunId, setContinueFromRunId] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(new Set(['yesterday', 'week', 'earlier']));
   const { message } = App.useApp();
-  const { state, connect, disconnect, pushUserMessage } = useAgentStream();
+  const { state, connect, disconnect } = useAgentStream();
   const t = useAgentTheme();
   const inputRef = useRef<{ focus: () => void; resizableTextArea?: { textArea: HTMLTextAreaElement } } | null>(null);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 900px)');
+    const syncLayout = () => {
+      setCompactLayout(media.matches);
+      if (media.matches) setSidebarCollapsed(true);
+    };
+    syncLayout();
+    media.addEventListener('change', syncLayout);
+    return () => media.removeEventListener('change', syncLayout);
+  }, []);
+
+  const loadConversation = useCallback(async (id: string) => {
+    const result = await getAgentConversation(id);
+    const selectedTurn = result.turns[result.turns.length - 1];
+    if (!selectedTurn) throw new Error('对话内容为空');
+
+    setRunId(id);
+    setCurrentPrompt('');
+    setCurrentRunStartTime(result.turns[0]?.run.createdAt ?? selectedTurn.run.createdAt);
+    connect(id, {
+      initialEvents: conversationEvents(result.turns),
+      lastSeq: lastEventSeq(selectedTurn),
+    });
+    return selectedTurn.run;
+  }, [connect]);
 
   // 从 URL 参数预填 prompt 或设置继续对话（支持从运行历史跳转过来）
   useEffect(() => {
@@ -140,23 +182,19 @@ export default function AgentRunner() {
     const continueId = searchParams.get('continue');
     if (continueId) {
       setContinueFromRunId(continueId);
-      setRunId(continueId);
-      // 加载历史对话内容
-      getAgentRun(continueId).then(result => {
-        setCurrentPrompt(result.run?.prompt ?? '');
-        setCurrentRunStartTime(result.run?.createdAt ?? null);
-      }).catch(() => {});
-      connect(continueId);
+      loadConversation(continueId).catch(() => {
+        message.error('加载历史对话失败');
+      });
       setSearchParams({}, { replace: true });
       inputRef.current?.focus();
     }
-  }, [searchParams, setSearchParams, connect]);
+  }, [searchParams, setSearchParams, loadConversation, message]);
 
   // 加载历史会话列表
   const fetchHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const result = await listAgentRuns(30, 0);
+      const result = await listAgentRuns(100, 0);
       setHistoryRuns(result.runs ?? []);
     } catch {
       // ignore
@@ -183,7 +221,25 @@ export default function AgentRunner() {
     }
   }, [state.status, runId]);
 
-  const groupedRuns = useMemo(() => groupRunsByDate(historyRuns), [historyRuns]);
+  // A continuation is another execution record, not another sidebar conversation.
+  // Only show leaf runs so one conversation stays one item as it grows.
+  const conversationRuns = useMemo(() => {
+    const parentIds = new Set(historyRuns.map(run => run.parentRunId).filter(Boolean));
+    return historyRuns.filter(run => !parentIds.has(run.id));
+  }, [historyRuns]);
+  const runById = useMemo(() => new Map(historyRuns.map(run => [run.id, run])), [historyRuns]);
+  const conversationTitle = useCallback((run: AgentRun) => {
+    let root = run;
+    const visited = new Set<string>();
+    while (root.parentRunId && !visited.has(root.id)) {
+      visited.add(root.id);
+      const parent = runById.get(root.parentRunId);
+      if (!parent) break;
+      root = parent;
+    }
+    return root.prompt;
+  }, [runById]);
+  const groupedRuns = useMemo(() => groupRunsByDate(conversationRuns), [conversationRuns]);
 
   const toggleGroup = useCallback((group: DateGroup) => {
     setCollapsedGroups(prev => {
@@ -201,22 +257,27 @@ export default function AgentRunner() {
     }
     setLoading(true);
     try {
+      const submittedPrompt = prompt.trim();
       let result: { runId: string; status: string };
       const isContinue = !!continueFromRunId;
       if (isContinue) {
-        result = await continueAgentRun(continueFromRunId, prompt, maxTurns, undefined, templateStyle);
-        // 在当前事件流中插入用户消息气泡
-        pushUserMessage(prompt);
+        result = await continueAgentRun(continueFromRunId, submittedPrompt, maxTurns, undefined, templateStyle);
       } else {
-        result = await createAgentRun(prompt, maxTurns, undefined, templateStyle);
+        result = await createAgentRun(submittedPrompt, maxTurns, undefined, templateStyle);
       }
       setRunId(result.runId);
       if (!isContinue) {
-        setCurrentPrompt(prompt);
+        setCurrentPrompt('');
+        setCurrentRunStartTime(new Date().toISOString());
       }
-      setCurrentRunStartTime(new Date().toISOString());
-      // 继续对话时保留已有事件（历史记录），新事件会追加
-      connect(result.runId, { keepEvents: isContinue });
+      const userEvent: AgentEvent = {
+        type: 'user',
+        content: submittedPrompt,
+        timestamp: new Date().toISOString(),
+      };
+      connect(result.runId, {
+        initialEvents: isContinue ? [...state.events, userEvent] : [userEvent],
+      });
       setPrompt('');
       setContinueFromRunId(null);
     } catch (err) {
@@ -224,7 +285,7 @@ export default function AgentRunner() {
     } finally {
       setLoading(false);
     }
-  }, [prompt, maxTurns, templateStyle, connect, message, continueFromRunId, pushUserMessage]);
+  }, [prompt, maxTurns, templateStyle, connect, message, continueFromRunId, state.events]);
 
   const handleCancel = useCallback(async () => {
     if (!runId) return;
@@ -259,19 +320,16 @@ export default function AgentRunner() {
     }
   }, [runId, fetchHistory, handleNewConversation, message]);
 
-  const handleContinueRun = useCallback((parentRun: AgentRun) => {
-    // 如果不是当前正在查看的对话，先切换到该对话
-    if (runId !== parentRun.id) {
-      setRunId(parentRun.id);
-      setCurrentPrompt(parentRun.prompt);
-      setCurrentRunStartTime(parentRun.createdAt);
-      connect(parentRun.id);
+  const handleContinueRun = useCallback(async (parentRun: AgentRun) => {
+    try {
+      if (runId !== parentRun.id) await loadConversation(parentRun.id);
+      setContinueFromRunId(parentRun.id);
+      setPrompt('');
+      inputRef.current?.focus();
+    } catch {
+      message.error('加载对话失败，暂时无法继续');
     }
-    // 设置继续对话模式，保留当前对话记录
-    setContinueFromRunId(parentRun.id);
-    setPrompt('');
-    inputRef.current?.focus();
-  }, [runId, connect]);
+  }, [runId, loadConversation, message]);
 
   // 计算步骤数和总耗时
   const stepCount = state.events.filter(e => e.type !== 'done').length;
@@ -373,6 +431,7 @@ export default function AgentRunner() {
         >
           <Tooltip title="刷新历史列表">
             <Button
+              aria-label="刷新历史对话"
               size="small"
               type="text"
               icon={<ReloadOutlined style={{ fontSize: 15 }} />}
@@ -383,6 +442,7 @@ export default function AgentRunner() {
           </Tooltip>
           <Tooltip title={sidebarCollapsed ? '展开会话列表' : '收起会话列表'}>
             <Button
+              aria-label={sidebarCollapsed ? '展开会话列表' : '收起会话列表'}
               size="small"
               type="text"
               icon={(sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />) as React.ReactElement}
@@ -434,6 +494,8 @@ export default function AgentRunner() {
         {/* 跟随底部按钮（用户向上滚动查看历史时，固定在右下角显示） */}
         {!followBottomRef.current && hasActiveRun && (
           <button
+            type="button"
+            aria-label="回到最新消息"
             onClick={scrollToBottomNow}
             title="回到底部最新内容"
             style={{
@@ -545,6 +607,8 @@ export default function AgentRunner() {
               {/* 左侧设置按钮（ChatGPT同款附件图标位置） */}
               <Tooltip title={showSettings ? '收起配置' : '高级配置'}>
                 <button
+                  type="button"
+                  aria-label={showSettings ? '收起高级配置' : '打开高级配置'}
                   onClick={() => setShowSettings(s => !s)}
                   style={{
                     background: 'transparent',
@@ -567,6 +631,7 @@ export default function AgentRunner() {
               </Tooltip>
 
               <TextArea
+                aria-label="对话消息"
                 ref={inputRef as never}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
@@ -602,6 +667,8 @@ export default function AgentRunner() {
               {isRunning ? (
                 <Tooltip title="停止运行">
                   <button
+                    type="button"
+                    aria-label="停止运行"
                     onClick={handleCancel}
                     style={{
                       width: 34,
@@ -627,6 +694,8 @@ export default function AgentRunner() {
               ) : (
                 <Tooltip title={prompt.trim().length < 1 ? '请输入内容' : '发送 (Ctrl+Enter)'}>
                   <button
+                    type="button"
+                    aria-label="发送消息"
                     onClick={handleStart}
                     disabled={prompt.trim().length < 1 || loading}
                     style={{
@@ -659,23 +728,48 @@ export default function AgentRunner() {
 
             {!showSettings && !isRunning && (
               <div style={{ textAlign: 'center', marginTop: 10, color: t.textSecondary, fontSize: 11 }}>
-                按 Ctrl + Enter 发送 · 点击左侧附件图标配置轮次与报告风格 · 0=不限轮次
+                {compactLayout
+                  ? 'Ctrl + Enter 发送 · 回形针中可调整设置'
+                  : '按 Ctrl + Enter 发送 · 点击左侧附件图标配置轮次与报告风格 · 0=不限轮次'}
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* 右侧会话列表栏（可折叠，与左侧导航同款 width transition） */}
+      {compactLayout && !sidebarCollapsed && (
+        <button
+          type="button"
+          aria-label="关闭会话列表"
+          onClick={() => setSidebarCollapsed(true)}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 25,
+            border: 0,
+            padding: 0,
+            background: 'rgba(2, 6, 23, 0.36)',
+            cursor: 'pointer',
+          }}
+        />
+      )}
+
+      {/* 右侧会话列表栏；窄屏时作为抽屉覆盖，不挤压对话正文。 */}
       <div
         style={{
-          width: sidebarCollapsed ? 0 : 260,
+          width: sidebarCollapsed ? 0 : compactLayout ? 'min(280px, calc(100% - 16px))' : 260,
+          position: compactLayout ? 'absolute' : 'relative',
+          top: compactLayout ? 0 : undefined,
+          right: compactLayout ? 0 : undefined,
+          bottom: compactLayout ? 0 : undefined,
+          zIndex: compactLayout ? 30 : undefined,
           borderLeft: sidebarCollapsed ? 'none' : `1px solid ${t.borderSubtle}`,
           background: t.bgSubtle,
           display: 'flex',
           flexDirection: 'column',
           flexShrink: 0,
           overflow: 'hidden',
+          boxShadow: compactLayout && !sidebarCollapsed ? '-16px 0 40px rgba(0, 0, 0, 0.22)' : 'none',
           transition: 'width 0.2s cubic-bezier(0.2, 0, 0, 1), border-left-color 0.2s',
         }}
       >
@@ -696,7 +790,7 @@ export default function AgentRunner() {
                 <Spin size="small" />
               </div>
             )}
-            {!historyLoading && historyRuns.length === 0 && (
+            {!historyLoading && conversationRuns.length === 0 && (
               <div style={{ textAlign: 'center', padding: 24, color: t.textMuted }}>
                 <Empty description="暂无历史对话" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               </div>
@@ -739,10 +833,9 @@ export default function AgentRunner() {
                         <div
                           key={run.id}
                           onClick={() => {
-                            setRunId(run.id);
-                            setCurrentPrompt(run.prompt);
-                            setCurrentRunStartTime(run.createdAt);
-                            connect(run.id);
+                            loadConversation(run.id).catch(() => {
+                              message.error('加载对话失败');
+                            });
                           }}
                           style={{
                             padding: '8px 12px',
@@ -772,12 +865,13 @@ export default function AgentRunner() {
                               {(run.status === 'completed' || run.status === 'failed' || run.status === 'canceled') && (
                                 <Tooltip title="继续对话">
                                   <Button
+                                    aria-label="继续此对话"
                                     size="small"
                                     type="text"
                                     icon={<MessageOutlined style={{ fontSize: 12 }} />}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      handleContinueRun(run);
+                                      void handleContinueRun(run);
                                     }}
                                     style={{ width: 22, height: 22, minWidth: 22, color: t.textOnBlue }}
                                   />
@@ -785,6 +879,7 @@ export default function AgentRunner() {
                               )}
                               <Tooltip title="删除">
                                 <Button
+                                  aria-label="删除此轮运行"
                                   size="small"
                                   type="text"
                                   danger
@@ -809,7 +904,7 @@ export default function AgentRunner() {
                               lineHeight: 1.45,
                             }}
                           >
-                            {truncatePrompt(run.prompt)}
+                            {truncatePrompt(conversationTitle(run))}
                           </Text>
                           {continueFromRunId === run.id && (
                             <div style={{ marginTop: 4, fontSize: 11, color: t.textOnBlue }}>

@@ -83,7 +83,8 @@ export function registerAgentRoutes(
     const repo = new AgentRepository(deps.pool);
 
     // Get Last-Event-ID for reconnection
-    const lastEventId = request.headers['last-event-id'];
+    const query = request.query as { lastEventId?: string };
+    const lastEventId = request.headers['last-event-id'] ?? query.lastEventId;
     const startSeq = lastEventId ? parseInt(lastEventId as string, 10) + 1 : 0;
 
     // Send historical events first (only those after lastEventId)
@@ -232,6 +233,10 @@ export function registerAgentRoutes(
 
     const newRunId = crypto.randomUUID();
     await repo.createRun(newRunId, body.prompt, body.maxTurns, body.timeoutMinutes * 60_000, body.templateStyle, parentRunId);
+    // A resumed CLI session keeps the same conversation id. Persist it eagerly so
+    // the next turn can continue even if the resumed process exits before emitting
+    // another system/init event.
+    await repo.updateSessionId(newRunId, parentRun.sessionId);
 
     orchestrator.start({
       runId: newRunId,
@@ -256,6 +261,31 @@ export function registerAgentRoutes(
     const repo = new AgentRepository(deps.pool);
     const runs = await repo.listRuns(limit, offset, query.status);
     return reply.send({ runs });
+  });
+
+  // GET /api/agent/runs/:runId/conversation — load the complete ancestor chain
+  app.get('/api/agent/runs/:runId/conversation', async (request, reply) => {
+    const { runId } = request.params as { runId: string };
+    const repo = new AgentRepository(deps.pool);
+    const runs = await repo.getRunChain(runId);
+    if (runs.length === 0 || runs[runs.length - 1]?.id !== runId) {
+      return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '对话不存在'));
+    }
+
+    const turns = await Promise.all(runs.map(async run => ({
+      run,
+      events: (await repo.getEvents(run.id)).map(event => ({
+        type: event.eventType,
+        content: event.content,
+        toolName: event.toolName ?? undefined,
+        toolInput: event.toolInput ?? undefined,
+        toolResult: event.toolResult ?? undefined,
+        seq: event.seq,
+        timestamp: event.createdAt,
+      })),
+      report: await repo.getReport(run.id),
+    })));
+    return reply.send({ turns });
   });
 
   // GET /api/agent/runs/:runId — 获取运行详情

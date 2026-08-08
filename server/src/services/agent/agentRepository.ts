@@ -99,6 +99,23 @@ export class AgentRepository {
     return result[0] ? toCamelRow<AgentRunRecord>(result[0]) : null;
   }
 
+  /** Return the selected run and all of its ancestors in conversation order. */
+  async getRunChain(runId: string): Promise<AgentRunRecord[]> {
+    const chain: AgentRunRecord[] = [];
+    const visited = new Set<string>();
+    let currentId: string | null = runId;
+
+    while (currentId && !visited.has(currentId) && chain.length < 200) {
+      visited.add(currentId);
+      const run = await this.getRun(currentId);
+      if (!run) break;
+      chain.push(run);
+      currentId = run.parentRunId;
+    }
+
+    return chain.reverse();
+  }
+
   async listRuns(limit: number = 50, offset: number = 0, status?: string): Promise<AgentRunRecord[]> {
     const safeLimit = Math.max(1, Math.min(200, limit));
     const safeOffset = Math.max(0, offset);

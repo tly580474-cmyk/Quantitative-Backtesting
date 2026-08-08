@@ -15,7 +15,10 @@ export function useAgentStream() {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runIdRef = useRef<string | null>(null);
 
-  const connect = useCallback((runId: string, opts?: { keepEvents?: boolean }) => {
+  const connect = useCallback((
+    runId: string,
+    opts?: { keepEvents?: boolean; initialEvents?: AgentEvent[]; lastSeq?: number },
+  ) => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
@@ -25,9 +28,16 @@ export function useAgentStream() {
     }
 
     runIdRef.current = runId;
-    lastSeqRef.current = 0;
+    lastSeqRef.current = opts?.lastSeq ?? 0;
 
-    if (opts?.keepEvents) {
+    if (opts?.initialEvents) {
+      setState({
+        events: opts.initialEvents,
+        status: 'connecting',
+        reportUrl: null,
+        reportMeta: null,
+      });
+    } else if (opts?.keepEvents) {
       // 追加模式：保留已有事件（继续对话场景），只更新状态
       setState(prev => ({
         ...prev,
@@ -118,7 +128,9 @@ export function useAgentStream() {
       };
     };
 
-    const url = `${API_BASE_URL}/api/agent/runs/${runId}/stream`;
+    const url = lastSeqRef.current > 0
+      ? `${API_BASE_URL}/api/agent/runs/${runId}/stream?lastEventId=${lastSeqRef.current}`
+      : `${API_BASE_URL}/api/agent/runs/${runId}/stream`;
     const es = new EventSource(url);
     eventSourceRef.current = es;
     attachHandlers(es);

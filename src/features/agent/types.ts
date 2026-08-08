@@ -41,3 +41,9 @@ export interface AgentStreamState {
   reportUrl: string | null;
   reportMeta: { title: string; summary: string } | null;
 }
+
+export interface AgentConversationTurn {
+  run: AgentRun;
+  events: AgentEvent[];
+  report: AgentReport | null;
+}

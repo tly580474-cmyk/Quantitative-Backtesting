@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useId, useState } from 'react';
 import { Tag } from 'antd';
 import {
   BulbOutlined,
@@ -7,7 +7,7 @@ import {
   WarningOutlined,
   UserOutlined,
   DownOutlined,
-  UpOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -33,9 +33,9 @@ function formatDuration(fromTs?: string, toTs?: string): string {
   try {
     const diff = new Date(toTs).getTime() - new Date(fromTs).getTime();
     if (diff < 0) return '';
-    if (diff < 1000) return `${diff}ms`;
-    if (diff < 60000) return `${Math.floor(diff / 1000)}s`;
-    return `${Math.floor(diff / 60000)}m ${Math.floor((diff % 60000) / 1000)}s`;
+    if (diff < 1000) return `${diff}毫秒`;
+    if (diff < 60000) return `${Math.floor(diff / 1000)}秒`;
+    return `${Math.floor(diff / 60000)}分 ${Math.floor((diff % 60000) / 1000)}秒`;
   } catch {
     return '';
   }
@@ -46,22 +46,20 @@ function formatDuration(fromTs?: string, toTs?: string): string {
 // 2) forcedOpen 为强制受控值（非 undefined 时覆盖用户手动状态）
 function Accordion({
   label,
-  icon,
-  color,
   children,
   defaultOpen = false,
   forcedOpen,
   instanceKey,
 }: {
   label: React.ReactNode;
-  icon: React.ReactNode;
-  color: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
   forcedOpen?: boolean;
   instanceKey?: string;
 }) {
+  const t = useAgentTheme();
   const [open, setOpen] = useState<boolean>(defaultOpen);
+  const contentId = useId();
   const userTouchedRef = useRef(false);
   const lastKeyRef = useRef<string | undefined>(undefined);
   if (instanceKey !== lastKeyRef.current) {
@@ -79,43 +77,46 @@ function Accordion({
   return (
     <div
       style={{
-        margin: '6px 0',
-        border: `1px solid ${color}22`,
-        background: `${color}08`,
-        borderRadius: 10,
+        margin: '2px 0 14px',
+        borderBottom: `1px solid ${t.borderSubtle}`,
+        background: 'transparent',
         overflow: 'hidden',
       }}
     >
       <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={contentId}
         onClick={() => {
           userTouchedRef.current = true;
           setOpen(o => !o);
         }}
         style={{
           width: '100%',
-          padding: '6px 11px',
+          padding: '4px 0',
           background: 'transparent',
           border: 'none',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: 6,
           textAlign: 'left',
-          fontSize: 12,
-          color: '#8e8ea0',
+          fontSize: 13,
+          color: t.textSecondary,
           lineHeight: 1.3,
+          minHeight: 44,
+          outlineOffset: -2,
         }}
       >
-        <span style={{ color, display: 'flex', alignItems: 'center' }}>{icon}</span>
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {label}
         </span>
-        <span style={{ opacity: 0.5, flexShrink: 0 }}>
-          {open ? <UpOutlined style={{ fontSize: 9 }} /> : <DownOutlined style={{ fontSize: 9 }} />}
+        <span style={{ opacity: 0.55, flexShrink: 0, display: 'flex' }}>
+          {open ? <DownOutlined style={{ fontSize: 9 }} /> : <RightOutlined style={{ fontSize: 9 }} />}
         </span>
       </button>
       {open && (
-        <div style={{ padding: '4px 11px 10px', fontSize: 12, borderTop: `1px solid ${color}14` }}>
+        <div id={contentId} style={{ padding: '4px 0 12px', fontSize: 12 }}>
           {children}
         </div>
       )}
@@ -216,6 +217,22 @@ function AssistantAvatar() {
 // 单个中间事件的渲染（折叠在 IntermediateGroup 内部）
 function IntermediateEventItem({ ev }: { ev: AgentEvent }) {
   const t = useAgentTheme();
+  if (ev.type === 'text' && ev.content.trim()) {
+    return (
+      <div
+        className="markdown-preview"
+        style={{
+          margin: '10px 0',
+          color: t.textSecondary,
+          fontSize: 13,
+          lineHeight: 1.7,
+        }}
+      >
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{ev.content}</ReactMarkdown>
+      </div>
+    );
+  }
+
   if (ev.type === 'thought') {
     return (
       <div style={{ margin: '3px 0' }}>
@@ -233,7 +250,7 @@ function IntermediateEventItem({ ev }: { ev: AgentEvent }) {
             paddingLeft: 16,
           }}
         >
-          {ev.content.length > 200 ? ev.content.slice(0, 200) + '…' : ev.content}
+          {ev.content}
         </div>
       </div>
     );
@@ -305,51 +322,31 @@ function IntermediateEventItem({ ev }: { ev: AgentEvent }) {
   return null;
 }
 
-// 中间步骤分组：将连续的 thought/tool_use/tool_result 合并为一个可折叠块
-function IntermediateGroup({
+// 每个助手回合只有一个处理摘要：阶段文本、思考与工具事件全部收在这里。
+function ProcessGroup({
   events,
   isStreaming,
-  isLastIntermediateGroup,
-  autoCollapseIntermediates,
   groupKey,
+  durationEndTimestamp,
 }: {
   events: AgentEvent[];
   isStreaming: boolean;
-  isLastIntermediateGroup: boolean;
-  autoCollapseIntermediates: boolean;
   groupKey: string;
+  durationEndTimestamp?: string;
 }) {
   const firstTs = events[0]?.timestamp;
-  const lastTs = events[events.length - 1]?.timestamp;
+  const lastTs = durationEndTimestamp ?? events[events.length - 1]?.timestamp;
   const duration = formatDuration(firstTs, lastTs);
-  const stepCount = events.length;
-
-  // 完成后所有中间步骤自动折叠；流式中最后一个中间组保持展开
-  let forcedOpen: boolean | undefined;
-  if (autoCollapseIntermediates) {
-    forcedOpen = false;
-  } else if (isStreaming && isLastIntermediateGroup) {
-    forcedOpen = true;
-  }
-
-  const labelText = duration
-    ? `已处理 ${duration} · ${stepCount} 步`
-    : `已处理 ${stepCount} 步`;
+  const labelText = duration ? `已处理 ${duration}` : `已处理 ${events.length} 步`;
 
   return (
     <Accordion
       instanceKey={groupKey}
-      forcedOpen={forcedOpen}
+      forcedOpen={isStreaming}
       defaultOpen={false}
-      label={
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ color: '#6b7280', fontWeight: 500 }}>{labelText}</span>
-        </span>
-      }
-      icon={<BulbOutlined style={{ fontSize: 12 }} />}
-      color="#6b7280"
+      label={<span style={{ fontWeight: 400 }}>{labelText}</span>}
     >
-      <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+      <div style={{ maxHeight: 520, overflowY: 'auto', paddingRight: 6 }}>
         {events.map((ev, idx) => (
           <IntermediateEventItem key={idx} ev={ev} />
         ))}
@@ -364,12 +361,8 @@ function ConclusionBlock({ events }: { events: AgentEvent[] }) {
   return (
     <div
       style={{
-        margin: '8px 0',
-        padding: '14px 16px',
-        background: t.bgCard,
-        border: `1px solid ${t.border}`,
-        borderRadius: 12,
-        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        margin: '8px 0 0',
+        padding: 0,
       }}
     >
       {events.map((ev, idx) => (
@@ -391,77 +384,6 @@ function ConclusionBlock({ events }: { events: AgentEvent[] }) {
       ))}
     </div>
   );
-}
-
-// 高5: 中间结论块 — 运行结束后折叠非最终的文本输出
-function CollapsibleConclusionBlock({ events, label }: { events: AgentEvent[]; label: string }) {
-  const t = useAgentTheme();
-  return (
-    <Accordion
-      label={<span style={{ color: t.textSecondary, fontWeight: 500 }}>{label}</span>}
-      icon={<CodeOutlined style={{ fontSize: 12 }} />}
-      color={t.textMuted}
-      defaultOpen={false}
-    >
-      <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-        {events.map((ev, idx) => (
-          <div
-            key={idx}
-            className="markdown-preview"
-            style={{
-              fontSize: 13,
-              lineHeight: 1.7,
-              color: t.textSecondary,
-              marginTop: idx === 0 ? 0 : 8,
-            }}
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {ev.content}
-            </ReactMarkdown>
-          </div>
-        ))}
-      </div>
-    </Accordion>
-  );
-}
-
-// 将助手事件拆分为交替的中间组和文本组
-type Segment =
-  | { kind: 'intermediate'; events: AgentEvent[] }
-  | { kind: 'text'; events: AgentEvent[] };
-
-function splitIntoSegments(events: AgentEvent[]): Segment[] {
-  const segments: Segment[] = [];
-  let currentIntermediate: AgentEvent[] = [];
-  let currentText: AgentEvent[] = [];
-
-  const flushIntermediate = () => {
-    if (currentIntermediate.length > 0) {
-      segments.push({ kind: 'intermediate', events: currentIntermediate });
-      currentIntermediate = [];
-    }
-  };
-  const flushText = () => {
-    if (currentText.length > 0) {
-      segments.push({ kind: 'text', events: currentText });
-      currentText = [];
-    }
-  };
-
-  for (const ev of events) {
-    if (ev.type === 'thought' || ev.type === 'tool_use' || ev.type === 'tool_result' || ev.type === 'error') {
-      flushText();
-      currentIntermediate.push(ev);
-    } else if (ev.type === 'text') {
-      if (!ev.content.trim()) continue;
-      flushIntermediate();
-      currentText.push(ev);
-    }
-  }
-  flushIntermediate();
-  flushText();
-
-  return segments;
 }
 
 // 将事件分组为对话轮次：用户消息 / 助手事件序列
@@ -509,7 +431,6 @@ export function AgentEventList({
   reportMeta,
   runId,
   isStreaming = false,
-  autoCollapseIntermediates = false,
 }: Props) {
   const t = useAgentTheme();
   const displayEvents = events.filter(e => e.type !== 'done');
@@ -555,52 +476,36 @@ export function AgentEventList({
           return <UserBubble key={`turn-${turnIdx}`} text={turn.events[0].content} />;
         }
 
-        const segments = splitIntoSegments(turn.events);
-        if (segments.length === 0) return null;
+        const isCurrentTurn = turnIdx === turns.length - 1;
+        const turnIsStreaming = isStreaming && isCurrentTurn;
+        const meaningfulEvents = turn.events.filter(event => (
+          event.type !== 'done' && (event.type !== 'text' || event.content.trim().length > 0)
+        ));
+        if (meaningfulEvents.length === 0) return null;
 
-        // 计算中间段的索引（用于判断哪个是最后一个）
-        const intermediateIndices: number[] = [];
-        const textIndices: number[] = [];
-        segments.forEach((seg, i) => {
-          if (seg.kind === 'intermediate') intermediateIndices.push(i);
-          else textIndices.push(i);
-        });
-        const lastIntermediateIdx = intermediateIndices.length > 0
-          ? intermediateIndices[intermediateIndices.length - 1]
+        // 运行完成后，仅最后一条正式文本留在正文；此前所有阶段性文本、
+        // 思考和工具事件统一进入一个“已处理 …”摘要。
+        const lastEventIndex = meaningfulEvents.length - 1;
+        const finalTextIndex = !turnIsStreaming && meaningfulEvents[lastEventIndex]?.type === 'text'
+          ? lastEventIndex
           : -1;
-        const lastTextIdx = textIndices.length > 0
-          ? textIndices[textIndices.length - 1]
-          : -1;
+        const finalEvents = finalTextIndex >= 0 ? [meaningfulEvents[finalTextIndex]] : [];
+        const processEvents = meaningfulEvents.filter((_, index) => index !== finalTextIndex);
+        const durationEndTimestamp = meaningfulEvents[meaningfulEvents.length - 1]?.timestamp;
 
         return (
           <div key={`turn-${turnIdx}`} style={{ margin: '8px 0 24px', display: 'flex', gap: 12 }}>
             <AssistantAvatar />
             <div style={{ flex: 1, minWidth: 0 }}>
-              {segments.map((seg, segIdx) => {
-                if (seg.kind === 'intermediate') {
-                  return (
-                    <IntermediateGroup
-                      key={`seg-${segIdx}`}
-                      events={seg.events}
-                      isStreaming={isStreaming}
-                      isLastIntermediateGroup={segIdx === lastIntermediateIdx}
-                      autoCollapseIntermediates={autoCollapseIntermediates}
-                      groupKey={`turn-${turnIdx}-seg-${segIdx}`}
-                    />
-                  );
-                }
-                // 高5: 运行结束后，非最终的文本块折叠为可展开的中间结论
-                if (autoCollapseIntermediates && segIdx !== lastTextIdx) {
-                  return (
-                    <CollapsibleConclusionBlock
-                      key={`seg-${segIdx}`}
-                      events={seg.events}
-                      label="中间结论"
-                    />
-                  );
-                }
-                return <ConclusionBlock key={`seg-${segIdx}`} events={seg.events} />;
-              })}
+              {processEvents.length > 0 && (
+                <ProcessGroup
+                  events={processEvents}
+                  isStreaming={turnIsStreaming}
+                  groupKey={`turn-${turnIdx}-process`}
+                  durationEndTimestamp={durationEndTimestamp}
+                />
+              )}
+              {finalEvents.length > 0 && <ConclusionBlock events={finalEvents} />}
             </div>
           </div>
         );
