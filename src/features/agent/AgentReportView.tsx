@@ -28,6 +28,7 @@ export function AgentReportView({ reportUrl, reportMeta, runId, embedded = false
   const downloadUrl = `${API_BASE_URL}${getReportDownloadUrl(runId)}`;
 
   const handleDownload = () => {
+    if (!window.confirm('将下载为本地独立 HTML 文件。请仅在可信环境中打开，是否继续？')) return;
     const a = document.createElement('a');
     a.href = downloadUrl;
     a.download = `${reportMeta?.title ?? 'report'}.html`;
@@ -148,7 +149,7 @@ export function AgentReportView({ reportUrl, reportMeta, runId, embedded = false
         <iframe
           src={reportUrl}
           style={{ width: '100%', height: '100%', border: 'none' }}
-          sandbox="allow-scripts allow-same-origin"
+          sandbox=""
           title="万行智研报告"
           onLoad={() => setLoading(false)}
         />

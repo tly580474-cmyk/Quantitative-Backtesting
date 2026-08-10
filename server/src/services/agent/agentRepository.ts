@@ -1,17 +1,25 @@
-import type { Pool } from 'mysql2/promise';
+import type { Pool, ResultSetHeader } from 'mysql2/promise';
+import type { PublicAgentEvent, TerminalPayload, TerminalStatus } from './eventProtocol.js';
+
+export type RunStatus = 'pending' | 'starting' | 'running' | TerminalStatus;
 
 export interface AgentRunRecord {
   id: string;
   prompt: string;
-  status: string;
+  status: RunStatus;
   maxTurns: number;
   templateStyle: string;
   timeoutMs: number;
   pid: number | null;
   sessionId: string | null;
   parentRunId: string | null;
+  conversationId: string;
+  turnIndex: number;
+  protocolVersion: number;
+  rootPrompt?: string;
   exitCode: number | null;
   errorMessage: string | null;
+  errorCode: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -24,29 +32,25 @@ export interface AgentEventRecord {
   eventType: string;
   content: string;
   toolName: string | null;
+  toolUseId: string | null;
+  durationMs: number | null;
+  terminal: TerminalPayload | null;
+  protocolVersion: number;
   toolInput: string | null;
   toolResult: string | null;
   createdAt: string;
 }
 
 export interface AgentReportRecord {
-  id: number;
-  runId: string;
-  title: string;
-  htmlPath: string;
-  fileSize: number | null;
-  summary: string | null;
-  tags: unknown;
-  chartsCount: number;
-  createdAt: string;
+  id: number; runId: string; title: string; htmlPath: string; fileSize: number | null;
+  summary: string | null; tags: unknown; chartsCount: number; createdAt: string;
 }
 
-// 将 snake_case 字段名转换为驼峰式，供 SELECT * 返回的行使用
 function toCamelRow<T>(row: Record<string, unknown>): T {
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(row)) {
-    const camel = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-    out[camel] = v;
+  for (const [key, value] of Object.entries(row)) {
+    const camel = key === 'terminal_json' ? 'terminal' : key.replace(/_([a-z])/g, (_, char) => char.toUpperCase());
+    out[camel] = key === 'terminal_json' && typeof value === 'string' ? JSON.parse(value) : value;
   }
   return out as T;
 }
@@ -54,40 +58,73 @@ function toCamelRow<T>(row: Record<string, unknown>): T {
 export class AgentRepository {
   constructor(private pool: Pool) {}
 
-  async createRun(runId: string, prompt: string, maxTurns: number, timeoutMs: number, templateStyle: string = 'classic-blue', parentRunId?: string): Promise<void> {
+  async createRun(
+    runId: string, prompt: string, maxTurns: number, timeoutMs: number,
+    templateStyle = 'classic-blue', parentRunId?: string,
+    conversationId = runId, turnIndex = 0,
+  ): Promise<void> {
     await this.pool.execute(
-      'INSERT INTO agent_runs (id, prompt, status, max_turns, timeout_ms, template_style, parent_run_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [runId, prompt, 'pending', maxTurns, timeoutMs, templateStyle, parentRunId ?? null, new Date().toISOString()],
+      `INSERT INTO agent_runs
+       (id, prompt, status, max_turns, timeout_ms, template_style, parent_run_id,
+        conversation_id, turn_index, protocol_version, created_at)
+       VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, 2, ?)`,
+      [runId, prompt, maxTurns, timeoutMs, templateStyle, parentRunId ?? null,
+        conversationId, turnIndex, new Date().toISOString()],
     );
   }
 
-  async updateRunStatus(runId: string, status: string, extra?: Partial<AgentRunRecord>): Promise<void> {
-    const fields: string[] = ['status = ?'];
-    const values: (string | number | null)[] = [status];
-    if (extra?.pid !== undefined) { fields.push('pid = ?'); values.push(extra.pid); }
-    if (extra?.sessionId !== undefined) { fields.push('session_id = ?'); values.push(extra.sessionId); }
-    if (extra?.exitCode !== undefined) { fields.push('exit_code = ?'); values.push(extra.exitCode); }
-    if (extra?.errorMessage !== undefined) { fields.push('error_message = ?'); values.push(extra.errorMessage); }
-    if (status === 'running' && !extra?.startedAt) { fields.push('started_at = ?'); values.push(new Date().toISOString()); }
+  async transitionRun(
+    runId: string, from: RunStatus[], status: RunStatus,
+    extra: { pid?: number | null; exitCode?: number | null; errorMessage?: string | null; errorCode?: string | null } = {},
+  ): Promise<boolean> {
+    const fields = ['status = ?'];
+    const values: Array<string | number | null> = [status];
+    if ('pid' in extra) { fields.push('pid = ?'); values.push(extra.pid ?? null); }
+    if ('exitCode' in extra) { fields.push('exit_code = ?'); values.push(extra.exitCode ?? null); }
+    if ('errorMessage' in extra) { fields.push('error_message = ?'); values.push(extra.errorMessage ?? null); }
+    if ('errorCode' in extra) { fields.push('error_code = ?'); values.push(extra.errorCode ?? null); }
+    if (status === 'running') { fields.push('started_at = COALESCE(started_at, ?)'); values.push(new Date().toISOString()); }
     if (status === 'completed' || status === 'failed' || status === 'canceled') {
-      fields.push('finished_at = ?'); values.push(new Date().toISOString());
+      fields.push('finished_at = COALESCE(finished_at, ?)'); values.push(new Date().toISOString());
     }
-    values.push(runId);
-    await this.pool.execute(
-      `UPDATE agent_runs SET ${fields.join(', ')} WHERE id = ?`,
-      values,
+    const placeholders = from.map(() => '?').join(', ');
+    values.push(runId, ...from);
+    const [result] = await this.pool.execute(
+      `UPDATE agent_runs SET ${fields.join(', ')} WHERE id = ? AND status IN (${placeholders})`, values,
     );
+    return (result as ResultSetHeader).affectedRows === 1;
+  }
+
+  /** Legacy call retained for old routes; terminal states are still immutable. */
+  async updateRunStatus(runId: string, status: RunStatus, extra: Partial<AgentRunRecord> = {}): Promise<void> {
+    const from: RunStatus[] = status === 'starting' ? ['pending']
+      : status === 'running' ? ['pending', 'starting']
+      : ['pending', 'starting', 'running'];
+    await this.transitionRun(runId, from, status, extra);
   }
 
   async updateSessionId(runId: string, sessionId: string): Promise<void> {
-    await this.pool.execute(
-      'UPDATE agent_runs SET session_id = ? WHERE id = ?',
-      [sessionId, runId],
-    );
+    await this.pool.execute('UPDATE agent_runs SET session_id = ? WHERE id = ?', [sessionId, runId]);
+  }
+
+  async reconcileOrphanedRuns(): Promise<number> {
+    const [rows] = await this.pool.execute("SELECT id FROM agent_runs WHERE status IN ('starting', 'running')");
+    const orphaned = rows as Array<{ id: string }>;
+    for (const { id } of orphaned) {
+      const changed = await this.transitionRun(id, ['starting', 'running'], 'failed', {
+        errorCode: 'SERVER_RESTART', errorMessage: '服务重启，运行已中断', exitCode: null,
+      });
+      if (!changed) continue;
+      const seq = (await this.getLastSeq(id)) + 1;
+      await this.addPublicEvent(id, seq, {
+        type: 'terminal', publicContent: '服务重启，运行已中断', timestamp: new Date().toISOString(),
+        terminal: { status: 'failed', exitCode: null, errorCode: 'SERVER_RESTART' },
+      });
+    }
+    return orphaned.length;
   }
 
   async deleteRun(runId: string): Promise<void> {
-    // Delete in order: events, reports, then the run itself
     await this.pool.execute('DELETE FROM agent_events WHERE run_id = ?', [runId]);
     await this.pool.execute('DELETE FROM agent_reports WHERE run_id = ?', [runId]);
     await this.pool.execute('DELETE FROM agent_runs WHERE id = ?', [runId]);
@@ -95,79 +132,115 @@ export class AgentRepository {
 
   async getRun(runId: string): Promise<AgentRunRecord | null> {
     const [rows] = await this.pool.execute('SELECT * FROM agent_runs WHERE id = ?', [runId]);
-    const result = rows as Record<string, unknown>[];
-    return result[0] ? toCamelRow<AgentRunRecord>(result[0]) : null;
+    const row = (rows as Record<string, unknown>[])[0];
+    return row ? toCamelRow<AgentRunRecord>(row) : null;
   }
 
-  /** Return the selected run and all of its ancestors in conversation order. */
   async getRunChain(runId: string): Promise<AgentRunRecord[]> {
-    const chain: AgentRunRecord[] = [];
-    const visited = new Set<string>();
-    let currentId: string | null = runId;
-
-    while (currentId && !visited.has(currentId) && chain.length < 200) {
-      visited.add(currentId);
-      const run = await this.getRun(currentId);
-      if (!run) break;
-      chain.push(run);
-      currentId = run.parentRunId;
-    }
-
-    return chain.reverse();
+    const selected = await this.getRun(runId);
+    if (!selected) return [];
+    const [rows] = await this.pool.execute(
+      'SELECT * FROM agent_runs WHERE conversation_id = ? AND turn_index <= ? ORDER BY turn_index ASC LIMIT 200',
+      [selected.conversationId, selected.turnIndex],
+    );
+    return (rows as Record<string, unknown>[]).map(row => toCamelRow<AgentRunRecord>(row));
   }
 
-  async listRuns(limit: number = 50, offset: number = 0, status?: string): Promise<AgentRunRecord[]> {
+  async listRuns(limit = 50, offset = 0, status?: string): Promise<AgentRunRecord[]> {
     const safeLimit = Math.max(1, Math.min(200, limit));
     const safeOffset = Math.max(0, offset);
-    if (status) {
-      const [rows] = await this.pool.query(
-        'SELECT * FROM agent_runs WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
-        [status, safeLimit, safeOffset],
-      );
-      return (rows as Record<string, unknown>[]).map(r => toCamelRow<AgentRunRecord>(r));
-    }
+    const sql = status
+      ? 'SELECT * FROM agent_runs WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+      : 'SELECT * FROM agent_runs ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    const params = status ? [status, safeLimit, safeOffset] : [safeLimit, safeOffset];
+    const [rows] = await this.pool.query(sql, params);
+    return (rows as Record<string, unknown>[]).map(row => toCamelRow<AgentRunRecord>(row));
+  }
+
+  async listConversations(limit = 30, cursor?: string): Promise<AgentRunRecord[]> {
+    const safeLimit = Math.max(1, Math.min(100, limit));
+    const params: Array<string | number> = [];
+    const cursorWhere = cursor ? 'AND latest.created_at < ?' : '';
+    if (cursor) params.push(cursor);
+    params.push(safeLimit);
     const [rows] = await this.pool.query(
-      'SELECT * FROM agent_runs ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [safeLimit, safeOffset],
+      `SELECT latest.*, root.prompt AS root_prompt FROM agent_runs latest
+       JOIN (SELECT conversation_id, MAX(turn_index) AS max_turn FROM agent_runs GROUP BY conversation_id) leaf
+         ON leaf.conversation_id = latest.conversation_id AND leaf.max_turn = latest.turn_index
+       JOIN agent_runs root ON root.conversation_id = latest.conversation_id AND root.turn_index = 0
+       WHERE 1=1 ${cursorWhere} ORDER BY latest.created_at DESC LIMIT ?`, params,
     );
-    return (rows as Record<string, unknown>[]).map(r => toCamelRow<AgentRunRecord>(r));
+    return (rows as Record<string, unknown>[]).map(row => toCamelRow<AgentRunRecord>(row));
   }
 
-  async addEvent(runId: string, seq: number, eventType: string, content: string, toolName?: string, toolInput?: string, toolResult?: string): Promise<void> {
+  async listConversationTurns(conversationId: string, limit = 20, beforeTurn?: number): Promise<AgentRunRecord[]> {
+    const safeLimit = Math.max(1, Math.min(100, limit));
+    const [rows] = await this.pool.query(
+      `SELECT * FROM agent_runs WHERE conversation_id = ? ${beforeTurn == null ? '' : 'AND turn_index < ?'}
+       ORDER BY turn_index DESC LIMIT ?`,
+      beforeTurn == null ? [conversationId, safeLimit] : [conversationId, beforeTurn, safeLimit],
+    );
+    return (rows as Record<string, unknown>[]).map(row => toCamelRow<AgentRunRecord>(row)).reverse();
+  }
+
+  async addPublicEvent(runId: string, seq: number, event: PublicAgentEvent): Promise<void> {
     await this.pool.execute(
-      'INSERT INTO agent_events (run_id, seq, event_type, content, tool_name, tool_input, tool_result, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [runId, seq, eventType, content, toolName ?? null, toolInput ?? null, toolResult ?? null, new Date().toISOString()],
+      `INSERT INTO agent_events
+       (run_id, seq, event_type, content, tool_name, tool_use_id, duration_ms, terminal_json,
+        protocol_version, tool_input, tool_result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 2, NULL, NULL, ?)`,
+      [runId, seq, event.type, event.publicContent, event.toolName ?? null, event.toolUseId ?? null,
+        event.durationMs ?? null, event.terminal ? JSON.stringify(event.terminal) : null, event.timestamp],
     );
   }
 
-  async getEvents(runId: string): Promise<AgentEventRecord[]> {
+  async getEvents(runId: string, afterSeq = -1, limit = 10_000): Promise<AgentEventRecord[]> {
+    const safeLimit = Math.max(1, Math.min(10_000, Math.trunc(limit)));
     const [rows] = await this.pool.execute(
-      'SELECT * FROM agent_events WHERE run_id = ? ORDER BY seq ASC',
-      [runId],
+      `SELECT * FROM agent_events WHERE run_id = ? AND seq > ? ORDER BY seq ASC LIMIT ${safeLimit}`,
+      [runId, Math.max(-1, afterSeq)],
     );
-    return (rows as Record<string, unknown>[]).map(r => toCamelRow<AgentEventRecord>(r));
+    return (rows as Record<string, unknown>[]).map(row => toCamelRow<AgentEventRecord>(row));
+  }
+
+  async getLastSeq(runId: string): Promise<number> {
+    const [rows] = await this.pool.execute('SELECT COALESCE(MAX(seq), 0) AS seq FROM agent_events WHERE run_id = ?', [runId]);
+    return Number((rows as Array<{ seq: number }>)[0]?.seq ?? 0);
   }
 
   async saveReport(runId: string, title: string, htmlPath: string, fileSize: number, summary: string, chartsCount: number): Promise<void> {
     await this.pool.execute(
-      'INSERT INTO agent_reports (run_id, title, html_path, file_size, summary, charts_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE title = ?, html_path = ?, file_size = ?, summary = ?, charts_count = ?',
-      [runId, title, htmlPath, fileSize, summary, chartsCount, new Date().toISOString(), title, htmlPath, fileSize, summary, chartsCount],
+      `INSERT INTO agent_reports (run_id, title, html_path, file_size, summary, charts_count, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE
+       title = ?, html_path = ?, file_size = ?, summary = ?, charts_count = ?`,
+      [runId, title, htmlPath, fileSize, summary, chartsCount, new Date().toISOString(),
+        title, htmlPath, fileSize, summary, chartsCount],
     );
   }
 
   async getReport(runId: string): Promise<AgentReportRecord | null> {
     const [rows] = await this.pool.execute('SELECT * FROM agent_reports WHERE run_id = ?', [runId]);
-    const result = rows as Record<string, unknown>[];
-    return result[0] ? toCamelRow<AgentReportRecord>(result[0]) : null;
+    const row = (rows as Record<string, unknown>[])[0];
+    return row ? toCamelRow<AgentReportRecord>(row) : null;
   }
 
-  async listReports(limit: number = 50, offset: number = 0): Promise<AgentReportRecord[]> {
-    const safeLimit = Math.max(1, Math.min(200, limit));
-    const safeOffset = Math.max(0, offset);
+  async listReports(limit = 50, offset = 0): Promise<AgentReportRecord[]> {
     const [rows] = await this.pool.query(
       'SELECT * FROM agent_reports ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [safeLimit, safeOffset],
+      [Math.max(1, Math.min(200, limit)), Math.max(0, offset)],
     );
-    return (rows as Record<string, unknown>[]).map(r => toCamelRow<AgentReportRecord>(r));
+    return (rows as Record<string, unknown>[]).map(row => toCamelRow<AgentReportRecord>(row));
+  }
+
+  async getMetrics(): Promise<{ statuses: Record<string, number>; events: number; eventBytes: number; conversations: number }> {
+    const [[statusRows], [eventRows], [conversationRows]] = await Promise.all([
+      this.pool.query('SELECT status, COUNT(*) AS count FROM agent_runs GROUP BY status'),
+      this.pool.query('SELECT COUNT(*) AS count, COALESCE(SUM(CHAR_LENGTH(content)), 0) AS bytes FROM agent_events'),
+      this.pool.query('SELECT COUNT(DISTINCT conversation_id) AS count FROM agent_runs'),
+    ]);
+    const statuses = Object.fromEntries((statusRows as Array<{ status: string; count: number }>).map(row => [row.status, Number(row.count)]));
+    const event = (eventRows as Array<{ count: number; bytes: number }>)[0];
+    const conversation = (conversationRows as Array<{ count: number }>)[0];
+    return { statuses, events: Number(event?.count ?? 0), eventBytes: Number(event?.bytes ?? 0), conversations: Number(conversation?.count ?? 0) };
   }
 }
