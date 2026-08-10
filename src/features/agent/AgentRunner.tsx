@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Input, Button, Typography, Tag, App, InputNumber, Select, Tooltip, Spin, Empty,
+  Input, Button, Typography, Tag, App, InputNumber, Select, Switch, Tooltip, Spin, Empty,
 } from 'antd';
 import {
   StopOutlined,
@@ -13,7 +13,7 @@ import {
 } from '@ant-design/icons';
 import { AgentEventList, calcDuration } from './AgentEventList';
 import { useAgentStream } from './useAgentStream';
-import { createAgentRun, cancelAgentRun, listAgentRuns, deleteAgentRun, continueAgentRun, getAgentConversation } from './api';
+import { createAgentRun, cancelAgentRun, listAgentConversations, deleteAgentRun, continueAgentRun, getAgentConversation } from './api';
 import { useAgentTheme } from '@/theme';
 import type { AgentRun, AgentEvent, AgentConversationTurn } from './types';
 
@@ -25,6 +25,7 @@ const PROMPT_PARAM = 'prompt';
 const statusColor: Record<string, string> = {
   idle: 'default',
   connecting: 'processing',
+  starting: 'processing',
   running: 'processing',
   completed: 'success',
   failed: 'error',
@@ -35,6 +36,7 @@ const statusColor: Record<string, string> = {
 const statusText: Record<string, string> = {
   idle: '待机',
   connecting: '连接中',
+  starting: '启动中',
   running: '运行中',
   completed: '已完成',
   failed: '失败',
@@ -116,8 +118,9 @@ function conversationEvents(turns: AgentConversationTurn[]): AgentEvent[] {
       type: 'user' as const,
       content: run.prompt,
       timestamp: run.createdAt,
+      runId: run.id,
     },
-    ...events.filter(event => event.type !== 'done'),
+    ...events.map(event => ({ ...event, runId: event.runId ?? run.id })),
   ]);
 }
 
@@ -130,6 +133,7 @@ export default function AgentRunner() {
   const [prompt, setPrompt] = useState('');
   const [maxTurns, setMaxTurns] = useState(0);
   const [templateStyle, setTemplateStyle] = useState<string>('classic-blue');
+  const [generateReport, setGenerateReport] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -137,12 +141,14 @@ export default function AgentRunner() {
   const [compactLayout, setCompactLayout] = useState(false);
   const [historyRuns, setHistoryRuns] = useState<AgentRun[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [currentPrompt, setCurrentPrompt] = useState('');
   const [currentRunStartTime, setCurrentRunStartTime] = useState<string | null>(null);
   const [continueFromRunId, setContinueFromRunId] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(new Set(['yesterday', 'week', 'earlier']));
   const { message } = App.useApp();
-  const { state, connect, disconnect } = useAgentStream();
+  const { state, connect, disconnect, hydrate } = useAgentStream();
   const t = useAgentTheme();
   const inputRef = useRef<{ focus: () => void; resizableTextArea?: { textArea: HTMLTextAreaElement } } | null>(null);
 
@@ -157,20 +163,25 @@ export default function AgentRunner() {
     return () => media.removeEventListener('change', syncLayout);
   }, []);
 
-  const loadConversation = useCallback(async (id: string) => {
+  const loadConversation = useCallback(async (id: string, selectedRunId?: string) => {
     const result = await getAgentConversation(id);
     const selectedTurn = result.turns[result.turns.length - 1];
     if (!selectedTurn) throw new Error('对话内容为空');
 
-    setRunId(id);
+    setRunId(selectedRunId ?? selectedTurn.run.id);
     setCurrentPrompt('');
     setCurrentRunStartTime(result.turns[0]?.run.createdAt ?? selectedTurn.run.createdAt);
-    connect(id, {
-      initialEvents: conversationEvents(result.turns),
-      lastSeq: lastEventSeq(selectedTurn),
-    });
+    const selectedId = selectedRunId ?? selectedTurn.run.id;
+    const initialEvents = conversationEvents(result.turns);
+    if (selectedTurn.run.status === 'completed' || selectedTurn.run.status === 'failed' || selectedTurn.run.status === 'canceled') {
+      hydrate(selectedId, initialEvents, selectedTurn.run.status, selectedTurn.report ? {
+        title: selectedTurn.report.title, summary: selectedTurn.report.summary ?? '',
+      } : null);
+    } else {
+      connect(selectedId, { initialEvents, lastSeq: lastEventSeq(selectedTurn) });
+    }
     return selectedTurn.run;
-  }, [connect]);
+  }, [connect, hydrate]);
 
   // 从 URL 参数预填 prompt 或设置继续对话（支持从运行历史跳转过来）
   useEffect(() => {
@@ -193,15 +204,36 @@ export default function AgentRunner() {
   // 加载历史会话列表
   const fetchHistory = useCallback(async () => {
     setHistoryLoading(true);
+    setHistoryError(null);
     try {
-      const result = await listAgentRuns(100, 0);
-      setHistoryRuns(result.runs ?? []);
-    } catch {
-      // ignore
+      const result = await listAgentConversations(30);
+      setHistoryRuns(result.conversations ?? []);
+      setHistoryCursor(result.nextCursor);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setHistoryError(detail);
+      message.error(`加载历史对话失败：${detail}`);
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  }, [message]);
+
+  const loadMoreHistory = useCallback(async () => {
+    if (!historyCursor || historyLoading) return;
+    setHistoryLoading(true);
+    try {
+      const result = await listAgentConversations(30, historyCursor);
+      setHistoryRuns(previous => {
+        const known = new Set(previous.map(run => run.id));
+        return [...previous, ...result.conversations.filter(run => !known.has(run.id))];
+      });
+      setHistoryCursor(result.nextCursor);
+    } catch (error) {
+      message.error(`加载更多历史对话失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyCursor, historyLoading, message]);
 
   useEffect(() => {
     fetchHistory();
@@ -221,24 +253,8 @@ export default function AgentRunner() {
     }
   }, [state.status, runId]);
 
-  // A continuation is another execution record, not another sidebar conversation.
-  // Only show leaf runs so one conversation stays one item as it grows.
-  const conversationRuns = useMemo(() => {
-    const parentIds = new Set(historyRuns.map(run => run.parentRunId).filter(Boolean));
-    return historyRuns.filter(run => !parentIds.has(run.id));
-  }, [historyRuns]);
-  const runById = useMemo(() => new Map(historyRuns.map(run => [run.id, run])), [historyRuns]);
-  const conversationTitle = useCallback((run: AgentRun) => {
-    let root = run;
-    const visited = new Set<string>();
-    while (root.parentRunId && !visited.has(root.id)) {
-      visited.add(root.id);
-      const parent = runById.get(root.parentRunId);
-      if (!parent) break;
-      root = parent;
-    }
-    return root.prompt;
-  }, [runById]);
+  const conversationRuns = historyRuns;
+  const conversationTitle = useCallback((run: AgentRun) => run.rootPrompt ?? run.prompt, []);
   const groupedRuns = useMemo(() => groupRunsByDate(conversationRuns), [conversationRuns]);
 
   const toggleGroup = useCallback((group: DateGroup) => {
@@ -250,20 +266,22 @@ export default function AgentRunner() {
     });
   }, []);
 
-  const handleStart = useCallback(async () => {
-    if (prompt.trim().length < 1) {
+  const submitMessage = useCallback(async (value: string) => {
+    const submittedPrompt = value.trim();
+    if (submittedPrompt.length < 1) {
       message.warning('请输入内容');
       return;
     }
     setLoading(true);
     try {
-      const submittedPrompt = prompt.trim();
       let result: { runId: string; status: string };
-      const isContinue = !!continueFromRunId;
-      if (isContinue) {
-        result = await continueAgentRun(continueFromRunId, submittedPrompt, maxTurns, undefined, templateStyle);
+      const parentRunId = continueFromRunId
+        ?? ((state.status === 'completed' || state.status === 'failed' || state.status === 'canceled') ? runId : null);
+      const isContinue = !!parentRunId;
+      if (parentRunId) {
+        result = await continueAgentRun(parentRunId, submittedPrompt, maxTurns, undefined, templateStyle, generateReport);
       } else {
-        result = await createAgentRun(submittedPrompt, maxTurns, undefined, templateStyle);
+        result = await createAgentRun(submittedPrompt, maxTurns, undefined, templateStyle, generateReport);
       }
       setRunId(result.runId);
       if (!isContinue) {
@@ -274,6 +292,7 @@ export default function AgentRunner() {
         type: 'user',
         content: submittedPrompt,
         timestamp: new Date().toISOString(),
+        runId: result.runId,
       };
       connect(result.runId, {
         initialEvents: isContinue ? [...state.events, userEvent] : [userEvent],
@@ -285,7 +304,12 @@ export default function AgentRunner() {
     } finally {
       setLoading(false);
     }
-  }, [prompt, maxTurns, templateStyle, connect, message, continueFromRunId, state.events]);
+  }, [maxTurns, templateStyle, generateReport, connect, message, continueFromRunId, state.events, state.status, runId]);
+
+  const handleStart = useCallback(() => submitMessage(prompt), [prompt, submitMessage]);
+  const handleConfirmation = useCallback((response: string) => {
+    void submitMessage(response);
+  }, [submitMessage]);
 
   const handleCancel = useCallback(async () => {
     if (!runId) return;
@@ -332,7 +356,7 @@ export default function AgentRunner() {
   }, [runId, loadConversation, message]);
 
   // 计算步骤数和总耗时
-  const stepCount = state.events.filter(e => e.type !== 'done').length;
+  const stepCount = state.events.filter(e => e.type !== 'terminal').length;
   const firstEvent = state.events.find(e => e.timestamp);
   const lastEvent = [...state.events].reverse().find(e => e.timestamp);
   const totalDuration =
@@ -487,6 +511,8 @@ export default function AgentRunner() {
               runId={runId}
               isStreaming={isRunning}
               autoCollapseIntermediates={isFinalized}
+              onConfirm={handleConfirmation}
+              confirmationDisabled={loading || isRunning}
             />
           </div>
         </div>
@@ -566,6 +592,8 @@ export default function AgentRunner() {
                   <Text type="secondary" style={{ fontSize: 11, color: '#10b981' }}>不限制</Text>
                 )}
                 <Text type="secondary" style={{ fontSize: 12 }}>报告风格：</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>生成 HTML 报告：</Text>
+                <Switch size="small" checked={generateReport} onChange={setGenerateReport} disabled={isRunning} />
                 <Select
                   size="small"
                   value={templateStyle}
@@ -790,7 +818,13 @@ export default function AgentRunner() {
                 <Spin size="small" />
               </div>
             )}
-            {!historyLoading && conversationRuns.length === 0 && (
+            {!historyLoading && historyError && (
+              <div role="alert" style={{ padding: 16, textAlign: 'center', color: t.errorText }}>
+                <div style={{ marginBottom: 8 }}>历史对话加载失败</div>
+                <Button size="small" icon={<ReloadOutlined />} onClick={() => void fetchHistory()}>重试</Button>
+              </div>
+            )}
+            {!historyLoading && !historyError && conversationRuns.length === 0 && (
               <div style={{ textAlign: 'center', padding: 24, color: t.textMuted }}>
                 <Empty description="暂无历史对话" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               </div>
@@ -833,7 +867,7 @@ export default function AgentRunner() {
                         <div
                           key={run.id}
                           onClick={() => {
-                            loadConversation(run.id).catch(() => {
+                            loadConversation(run.conversationId, run.id).catch(() => {
                               message.error('加载对话失败');
                             });
                           }}
@@ -918,6 +952,11 @@ export default function AgentRunner() {
                 </div>
               );
             })}
+            {!historyLoading && historyCursor && (
+              <Button type="text" block onClick={() => void loadMoreHistory()} style={{ margin: '8px 0' }}>
+                加载更多
+              </Button>
+            )}
           </div>
       </div>
     </div>

@@ -1,11 +1,13 @@
 import { spawn, type ChildProcess } from 'child_process';
-import { mkdir, readFile, stat, writeFile, unlink } from 'fs/promises';
-import { resolve, join } from 'path';
-import { tmpdir } from 'os';
+import { mkdir, readFile, stat, writeFile } from 'fs/promises';
+import { resolve } from 'path';
 import type { Pool } from 'mysql2/promise';
 import { buildPrompt, type TemplateStyle } from './promptBuilder.js';
 import { parseStreamLine, extractReportInfo, extractSessionId, type ParsedEvent } from './outputParser.js';
+import { sanitizePublicContent, type TerminalPayload, type TerminalStatus } from './eventProtocol.js';
 import { AgentRepository } from './agentRepository.js';
+import { validateAgentReport } from './reportValidator.js';
+import { renderStaticAgentReport } from './reportRenderer.js';
 
 export interface OrchestratorConfig {
   wslProjectPath: string;
@@ -21,199 +23,312 @@ export interface StartParams {
   timeoutMs: number;
   templateStyle?: string;
   resumeSessionId?: string;
+  generateReport?: boolean;
 }
 
 interface ActiveRun {
-  process: ChildProcess;
+  process: ChildProcess | null;
   seq: number;
+  finalized: boolean;
+  timer?: NodeJS.Timeout;
+  outputQueue: Promise<void>;
+  toolStartedAt: Map<string, number>;
+  toolNames: Map<string, string>;
+  accepting: boolean;
+  requireReport: boolean;
+  finalContent: string;
+  lastEventType?: ParsedEvent['type'];
+  lastEventContent?: string;
+}
+
+type EventListener = (event: ParsedEvent, seq: number) => void;
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 export class AgentOrchestrator {
   private activeRuns = new Map<string, ActiveRun>();
-  private eventListeners = new Map<string, Set<(event: ParsedEvent, seq: number) => void>>();
+  private eventListeners = new Map<string, Set<EventListener>>();
 
-  constructor(
-    private pool: Pool,
-    private config: OrchestratorConfig,
-  ) {}
+  constructor(private pool: Pool, private config: OrchestratorConfig) {}
+
+  async initialize(): Promise<number> {
+    return new AgentRepository(this.pool).reconcileOrphanedRuns();
+  }
 
   async start(params: StartParams): Promise<void> {
-    // Check concurrency
-    if (this.activeRuns.size >= this.config.maxConcurrent) {
-      throw new Error('已达到最大并发数，请等待当前任务完成');
-    }
-
     const repo = new AgentRepository(this.pool);
-    const { runId, prompt, maxTurns, timeoutMs, resumeSessionId } = params;
+    // Reserve synchronously before the first await so concurrent starts cannot oversubscribe.
+    if (this.activeRuns.size >= this.config.maxConcurrent) {
+      const message = '智能体当前正忙，请等待正在运行的任务结束后重试';
+      const transitioned = await repo.transitionRun(params.runId, ['pending'], 'failed', {
+        exitCode: null, errorCode: 'CONCURRENCY_LIMIT', errorMessage: message,
+      });
+      if (transitioned) {
+        await repo.addPublicEvent(params.runId, await repo.getLastSeq(params.runId) + 1, {
+          type: 'terminal', publicContent: message, timestamp: new Date().toISOString(),
+          terminal: { status: 'failed', exitCode: null, errorCode: 'CONCURRENCY_LIMIT' },
+        });
+      }
+      throw new Error(message);
+    }
+    if (this.activeRuns.has(params.runId)) throw new Error('运行已启动');
+    const active: ActiveRun = {
+      process: null, seq: 0, finalized: false, outputQueue: Promise.resolve(),
+      toolStartedAt: new Map(), toolNames: new Map(), accepting: true,
+      requireReport: Boolean(params.generateReport), finalContent: '',
+    };
+    this.activeRuns.set(params.runId, active);
 
-    // Build full prompt — for resume sessions, add "直接生成报告" guidance
-    const winReportDir = resolve(this.config.reportRoot, 'reports');
-    const winReportPath = resolve(winReportDir, `${runId}.html`);
-    // Convert Windows path to WSL path (e.g. D:\foo\bar -> /mnt/d/foo/bar)
-    const wslReportPath = winReportPath.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
-    const fullPrompt = buildPrompt(prompt, this.config.wslProjectPath, params.templateStyle as TemplateStyle, wslReportPath, !!params.resumeSessionId);
+    try {
+      const claimed = await repo.transitionRun(params.runId, ['pending'], 'starting');
+      if (!claimed) throw new Error('运行状态不允许启动');
+      active.seq = await repo.getLastSeq(params.runId);
 
-    // Ensure report directory exists
-    await mkdir(winReportDir, { recursive: true });
+      const reportDir = resolve(this.config.reportRoot, 'reports');
+      await mkdir(reportDir, { recursive: true });
 
-    // Write prompt to a temp file to avoid bash quoting/escaping issues when
-    // passing a long multi-line prompt through Windows spawn -> wsl.exe -> bash.
-    const tmpPromptWinPath = join(tmpdir(), `agent-prompt-${runId}.txt`);
-    await writeFile(tmpPromptWinPath, fullPrompt, 'utf-8');
-    const tmpPromptWslPath = tmpPromptWinPath
-      .replace(/\\/g, '/')
-      .replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
+      const prompt = buildPrompt(
+        params.prompt, this.config.wslProjectPath, params.templateStyle as TemplateStyle,
+        Boolean(params.resumeSessionId), Boolean(params.generateReport),
+      );
+      const args = [
+        '--print', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+        '--dangerously-skip-permissions',
+        ...(params.maxTurns > 0 ? ['--max-turns', String(params.maxTurns)] : []),
+        ...(params.resumeSessionId ? ['--resume', params.resumeSessionId] : []),
+      ];
+      const command = `mkdir -p ${shellQuote(this.config.wslProjectPath)} && cd ${shellQuote(this.config.wslProjectPath)} && exec ${shellQuote(this.config.claudePath)} ${args.map(shellQuote).join(' ')}`;
+      const child = spawn('wsl', ['bash', '-lc', command], {
+        stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+        // Do not pass the backend's database, admin, SMTP or provider credentials to the child.
+        env: {
+          SystemRoot: process.env.SystemRoot,
+          WINDIR: process.env.WINDIR,
+          PATH: process.env.PATH,
+          TEMP: process.env.TEMP,
+          TMP: process.env.TMP,
+        },
+      });
+      active.process = child;
+      const running = await repo.transitionRun(params.runId, ['starting'], 'running', { pid: child.pid ?? null });
+      if (!running) {
+        this.killProcessTree(child);
+        throw new Error('运行在启动期间被取消');
+      }
+      await this.publish(params.runId, active, repo, {
+        type: 'progress',
+        publicContent: '智能体已启动，正在分析任务',
+        timestamp: new Date().toISOString(),
+      });
 
-    // Build claude args — prompt is piped via stdin to avoid all shell interpretation.
-    const escapedPath = this.config.wslProjectPath
-      ? `-d '${this.config.wslProjectPath.replace(/'/g, "'\\''")}'`
-      : '';
-    const escapedTmpPath = tmpPromptWslPath.replace(/'/g, "'\\''");
-    const claudeArgs = [
-      escapedPath,
-      '--dangerously-skip-permissions',
-      '--print',
-      '--output-format', 'stream-json',
-      '--verbose',
-      // maxTurns=0 means unlimited — omit the flag entirely
-      ...(maxTurns > 0 ? ['--max-turns', String(maxTurns)] : []),
-      // Resume from previous session if provided
-      ...(resumeSessionId ? ['--resume', resumeSessionId] : []),
-    ].filter(Boolean).join(' ');
-
-    // cat the prompt file into claude's stdin; --print enables non-interactive mode
-    // and reads the prompt from stdin when no -p argument is provided.
-    const bashCmd = `cat '${escapedTmpPath}' | ${this.config.claudePath} ${claudeArgs}`;
-
-    // Start process via WSL bash
-    const child = spawn('wsl', ['bash', '-c', bashCmd], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    const run: ActiveRun = { process: child, seq: 0 };
-    this.activeRuns.set(runId, run);
-
-    await repo.updateRunStatus(runId, 'running', { pid: child.pid ?? null });
-
-    // Set timeout — record error message so users know why it was killed
-    const timer = setTimeout(() => {
-      this.cancel(runId);
-      const repo = new AgentRepository(this.pool);
-      repo.updateRunStatus(runId, 'failed', { errorMessage: `任务超时（${Math.round(timeoutMs / 60_000)}分钟），可能卡在报告生成步骤` }).catch(() => {});
-    }, timeoutMs);
-
-    // Stream stdout
-    let buffer = '';
-    let sessionIdCaptured = false;
-    child.stdout?.on('data', async (chunk: Buffer) => {
-      buffer += chunk.toString();
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        // Capture session_id without creating a display event
-        if (!sessionIdCaptured) {
-          const sid = extractSessionId(line);
-          if (sid) {
-            sessionIdCaptured = true;
-            await repo.updateSessionId(runId, sid).catch(() => {});
+      let stdoutBuffer = '';
+      let sessionCaptured = false;
+      const consumeLine = async (line: string) => {
+        if (!sessionCaptured) {
+          const sessionId = extractSessionId(line);
+          if (sessionId) {
+            sessionCaptured = true;
+            await repo.updateSessionId(params.runId, sessionId);
           }
         }
+        for (const event of parseStreamLine(line)) await this.publish(params.runId, active, repo, event);
+      };
+      const enqueue = (work: () => Promise<void>) => {
+        if (!active.accepting) return;
+        active.outputQueue = active.outputQueue.then(work).catch(error => {
+          console.error(`[Agent] output processing failed for ${params.runId}:`, error);
+        });
+      };
 
-        const event = parseStreamLine(line);
-        if (!event) continue;
-        event.timestamp = new Date().toISOString();
+      child.stdout?.on('data', (chunk: Buffer) => {
+        stdoutBuffer += chunk.toString('utf8');
+        const lines = stdoutBuffer.split('\n');
+        stdoutBuffer = lines.pop() ?? '';
+        enqueue(async () => { for (const line of lines) await consumeLine(line); });
+      });
+      child.stderr?.on('data', (chunk: Buffer) => {
+        const message = sanitizePublicContent(chunk.toString('utf8'), '智能体进程报告错误');
+        if (message) enqueue(() => this.publish(params.runId, active, repo, {
+          type: 'error', publicContent: message, timestamp: new Date().toISOString(),
+        }));
+      });
 
-        run.seq++;
-        await repo.addEvent(
-          runId, run.seq, event.type, event.content,
-          event.toolName, event.toolInput, event.toolResult,
-        );
-        this.notifyListeners(runId, event, run.seq);
-      }
-    });
+      active.timer = setTimeout(() => {
+        active.accepting = false;
+        this.killProcessTree(child);
+        void active.outputQueue.then(() => this.finalize(params.runId, active, repo, 'failed', null, 'TIMEOUT', '运行超时'));
+      }, params.timeoutMs);
 
-    // Stream stderr
-    child.stderr?.on('data', async (chunk: Buffer) => {
-      const text = chunk.toString().trim();
-      if (!text) return;
-      run.seq++;
-      const event: ParsedEvent = { type: 'error', content: text, timestamp: new Date().toISOString() };
-      await repo.addEvent(runId, run.seq, 'error', text);
-      this.notifyListeners(runId, event, run.seq);
-    });
+      child.once('error', error => {
+        active.accepting = false;
+        void active.outputQueue.then(() => this.finalize(params.runId, active, repo, 'failed', null, 'SPAWN_ERROR', error.message));
+      });
+      child.once('close', exitCode => {
+        enqueue(async () => {
+          if (stdoutBuffer.trim()) await consumeLine(stdoutBuffer);
+          active.accepting = false;
+          await this.finalize(
+            params.runId, active, repo, exitCode === 0 ? 'completed' : 'failed', exitCode,
+            exitCode === 0 ? undefined : 'PROCESS_EXIT', exitCode === 0 ? undefined : `进程退出码 ${exitCode}`,
+          );
+        });
+      });
 
-    // Process exit
-    child.on('close', async (exitCode) => {
-      clearTimeout(timer);
-      this.activeRuns.delete(runId);
-
-      // Clean up temp prompt file
-      unlink(tmpPromptWinPath).catch(() => {});
-
-      const status = exitCode === 0 ? 'completed' : 'failed';
-      await repo.updateRunStatus(runId, status, { exitCode });
-
-      // If completed, check for HTML report
-      if (exitCode === 0) {
-        await this.tryExtractReport(runId, repo);
-      }
-
-      // Notify done
-      this.notifyListeners(runId, { type: 'done', content: `Process exited with code ${exitCode}`, timestamp: new Date().toISOString() }, run.seq);
-    });
-
-    // Handle errors
-    child.on('error', async (err) => {
-      clearTimeout(timer);
-      this.activeRuns.delete(runId);
-      // Clean up temp prompt file
-      unlink(tmpPromptWinPath).catch(() => {});
-      await repo.updateRunStatus(runId, 'failed', { errorMessage: err.message });
-      this.notifyListeners(runId, { type: 'error', content: err.message, timestamp: new Date().toISOString() }, run.seq);
-    });
+      child.stdin?.end(prompt, 'utf8');
+    } catch (error) {
+      await this.finalize(
+        params.runId, active, repo, 'failed', null, 'STARTUP_ERROR',
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
+    }
   }
 
-  private async tryExtractReport(runId: string, repo: AgentRepository): Promise<void> {
+  private async publish(runId: string, active: ActiveRun, repo: AgentRepository, event: ParsedEvent): Promise<void> {
+    if (active.finalized && event.type !== 'terminal') return;
+    if (event.type === 'progress' && active.lastEventType === 'progress'
+      && active.lastEventContent === event.publicContent) return;
+    if (event.type === 'tool_started' && event.toolUseId) {
+      // Partial stream events announce the tool before the complete assistant
+      // message repeats it. Keep one public start event per tool call.
+      if (active.toolStartedAt.has(event.toolUseId)) return;
+      active.toolStartedAt.set(event.toolUseId, Date.now());
+      if (event.toolName) active.toolNames.set(event.toolUseId, event.toolName);
+    }
+    if (event.type === 'assistant_final') active.finalContent = event.publicContent;
+    if (event.type === 'tool_finished' && event.toolUseId) {
+      const started = active.toolStartedAt.get(event.toolUseId);
+      if (started) event.durationMs = Math.max(0, Date.now() - started);
+      event.toolName = event.toolName ?? active.toolNames.get(event.toolUseId);
+      active.toolStartedAt.delete(event.toolUseId);
+      active.toolNames.delete(event.toolUseId);
+    }
+    const seq = ++active.seq;
+    await repo.addPublicEvent(runId, seq, event);
+    active.lastEventType = event.type;
+    active.lastEventContent = event.publicContent;
+    this.notifyListeners(runId, event, seq);
+  }
+
+  private async finalize(
+    runId: string, active: ActiveRun, repo: AgentRepository, status: TerminalStatus,
+    exitCode: number | null, errorCode?: string, errorMessage?: string,
+  ): Promise<boolean> {
+    if (active.finalized) return false;
+    active.accepting = false;
+    active.finalized = true;
+    if (active.timer) clearTimeout(active.timer);
+    let targetStatus = status;
+    let targetErrorCode = errorCode;
+    let targetErrorMessage = errorMessage;
+    if (status === 'completed' && active.requireReport) {
+      let reportSaved = await this.tryExtractReport(runId, repo);
+      if (!reportSaved && active.finalContent) {
+        reportSaved = await this.createStaticReport(runId, active.finalContent, repo);
+      }
+      if (!reportSaved) {
+        targetStatus = 'failed';
+        targetErrorCode = 'REPORT_INVALID_OR_MISSING';
+        targetErrorMessage = '报告缺失或未通过静态安全校验';
+      }
+    }
+    const transitioned = await repo.transitionRun(
+      runId, ['pending', 'starting', 'running'], targetStatus,
+      { exitCode, errorCode: targetErrorCode ?? null, errorMessage: targetErrorMessage ?? null },
+    );
+    if (!transitioned) {
+      this.activeRuns.delete(runId);
+      return false;
+    }
+    const terminal: TerminalPayload = {
+      status: targetStatus, exitCode, ...(targetErrorCode ? { errorCode: targetErrorCode } : {}),
+    };
+    // Terminal is persisted before listeners see it, making reconnect replay authoritative.
+    active.finalized = false;
+    await this.publish(runId, active, repo, {
+      type: 'terminal', publicContent: targetErrorMessage ?? '', timestamp: new Date().toISOString(), terminal,
+    });
+    active.finalized = true;
+    this.activeRuns.delete(runId);
+    return true;
+  }
+
+  private async tryExtractReport(runId: string, repo: AgentRepository): Promise<boolean> {
     try {
-      const winReportPath = resolve(this.config.reportRoot, 'reports', `${runId}.html`);
-      const stats = await stat(winReportPath);
-      const html = await readFile(winReportPath, 'utf-8');
+      const reportPath = resolve(this.config.reportRoot, 'reports', `${runId}.html`);
+      const stats = await stat(reportPath);
+      const html = await readFile(reportPath, 'utf8');
+      const validation = validateAgentReport(html, stats.size);
+      if (!validation.valid) {
+        console.warn(`[Agent] Rejected report ${runId}: ${validation.reason}`);
+        return false;
+      }
       const { title, summary } = extractReportInfo(html);
-      await repo.saveReport(runId, title, winReportPath, stats.size, summary, 0);
+      await repo.saveReport(runId, title, reportPath, stats.size, summary, 0);
+      return true;
     } catch {
-      // Report file not found or error reading — skip
+      // A normal chat turn is allowed to complete without a report.
+      return false;
     }
   }
 
-  cancel(runId: string): void {
-    const run = this.activeRuns.get(runId);
-    if (run) {
-      run.process.kill('SIGTERM');
-      this.activeRuns.delete(runId);
+  private async createStaticReport(runId: string, content: string, repo: AgentRepository): Promise<boolean> {
+    try {
+      const rendered = renderStaticAgentReport(content);
+      const bytes = Buffer.byteLength(rendered.html);
+      const validation = validateAgentReport(rendered.html, bytes);
+      if (!validation.valid) return false;
+      const reportPath = resolve(this.config.reportRoot, 'reports', `${runId}.html`);
+      await writeFile(reportPath, rendered.html, 'utf8');
+      await repo.saveReport(runId, rendered.title, reportPath, bytes, rendered.summary, 0);
+      return true;
+    } catch {
+      return false;
     }
   }
 
-  isRunning(runId: string): boolean {
-    return this.activeRuns.has(runId);
+  async cancel(runId: string): Promise<boolean> {
+    const active = this.activeRuns.get(runId);
+    if (!active) return false;
+    active.accepting = false;
+    if (active.process) this.killProcessTree(active.process);
+    await active.outputQueue;
+    const canceled = await this.finalize(runId, active, new AgentRepository(this.pool), 'canceled', null, 'CANCELED', '已由用户取消');
+    return canceled;
   }
 
-  addEventListener(runId: string, listener: (event: ParsedEvent, seq: number) => void): () => void {
-    if (!this.eventListeners.has(runId)) {
-      this.eventListeners.set(runId, new Set());
-    }
-    this.eventListeners.get(runId)!.add(listener);
+  async shutdown(): Promise<void> {
+    await Promise.all([...this.activeRuns.keys()].map(runId => this.cancel(runId)));
+  }
+
+  isRunning(runId: string): boolean { return this.activeRuns.has(runId); }
+
+  getRuntimeStats(): { active: number; capacity: number } {
+    return { active: this.activeRuns.size, capacity: this.config.maxConcurrent };
+  }
+
+  addEventListener(runId: string, listener: EventListener): () => void {
+    const listeners = this.eventListeners.get(runId) ?? new Set<EventListener>();
+    listeners.add(listener);
+    this.eventListeners.set(runId, listeners);
     return () => {
-      this.eventListeners.get(runId)?.delete(listener);
+      listeners.delete(listener);
+      if (listeners.size === 0) this.eventListeners.delete(runId);
     };
   }
 
   private notifyListeners(runId: string, event: ParsedEvent, seq: number): void {
-    const listeners = this.eventListeners.get(runId);
-    if (listeners) {
-      for (const listener of listeners) {
-        listener(event, seq);
-      }
+    for (const listener of this.eventListeners.get(runId) ?? []) listener(event, seq);
+  }
+
+  private killProcessTree(child: ChildProcess): void {
+    if (!child.pid) return;
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).unref();
+    } else {
+      child.kill('SIGTERM');
     }
   }
 }

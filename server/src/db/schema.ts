@@ -1061,13 +1061,20 @@ export const agentRuns = mysqlTable('agent_runs', {
   pid: int('pid'),
   sessionId: varchar('session_id', { length: 128 }),
   parentRunId: varchar('parent_run_id', { length: 36 }),
+  conversationId: varchar('conversation_id', { length: 36 }).notNull(),
+  turnIndex: int('turn_index').notNull().default(0),
   exitCode: int('exit_code'),
   errorMessage: varchar('error_message', { length: 2000 }),
+  errorCode: varchar('error_code', { length: 64 }),
+  protocolVersion: int('protocol_version').notNull().default(2),
   createdAt: varchar('created_at', { length: 24 }).notNull(),
   startedAt: varchar('started_at', { length: 24 }),
   finishedAt: varchar('finished_at', { length: 24 }),
 }, (table) => ({
   statusCreatedIdx: index('idx_ar_status_created').on(table.status, table.createdAt),
+  conversationTurnIdx: index('idx_ar_conversation_turn').on(table.conversationId, table.turnIndex),
+  conversationCreatedIdx: index('idx_ar_conversation_created').on(table.conversationId, table.createdAt),
+  parentRunIdx: index('idx_ar_parent_run').on(table.parentRunId),
 }));
 
 export const agentEvents = mysqlTable('agent_events', {
@@ -1077,11 +1084,15 @@ export const agentEvents = mysqlTable('agent_events', {
   eventType: varchar('event_type', { length: 24 }).notNull(),
   content: text('content').notNull(),
   toolName: varchar('tool_name', { length: 64 }),
+  toolUseId: varchar('tool_use_id', { length: 128 }),
+  durationMs: bigint('duration_ms', { mode: 'number' }),
+  terminal: json('terminal_json'),
+  protocolVersion: int('protocol_version').notNull().default(1),
   toolInput: text('tool_input'),
   toolResult: text('tool_result'),
   createdAt: varchar('created_at', { length: 24 }).notNull(),
 }, (table) => ({
-  runSeqIdx: index('idx_ae_run_seq').on(table.runId, table.seq),
+  runSeqIdx: uniqueIndex('idx_ae_run_seq').on(table.runId, table.seq),
 }));
 
 export const agentReports = mysqlTable('agent_reports', {

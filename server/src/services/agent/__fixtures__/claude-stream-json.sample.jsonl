@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"session-example"}
+{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"never public"},{"type":"text","text":"正在检查数据"},{"type":"tool_use","id":"tool-example","name":"Read","input":{"file_path":"example.csv"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-example","content":"raw result is not public"}]}}
+{"type":"result","subtype":"success","session_id":"session-example","result":"检查完成"}
