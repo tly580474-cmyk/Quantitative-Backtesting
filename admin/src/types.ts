@@ -169,7 +169,7 @@ export interface MetricsHistoryResponse {
 }
 
 export interface DataUpdateProgressItem {
-  key: 'instrument_master' | 'minute_lake' | 'daily_kline' | 'financial_reports';
+  key: 'fund_flow' | 'instrument_master' | 'minute_lake' | 'daily_kline' | 'financial_reports';
   label: string;
   status: 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   phase: string;
@@ -181,6 +181,9 @@ export interface DataUpdateProgressItem {
   updatedAt: string | null;
   finishedAt: string | null;
   message: string | null;
+  currentDate?: string | null;
+  processedRows?: number | null;
+  etaAt?: string | null;
 }
 
 export interface DataUpdateProgressResponse {

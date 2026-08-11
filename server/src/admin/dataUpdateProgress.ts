@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import type { SyncJob } from '../marketData/types.js';
 import { listSyncJobs } from '../marketData/repositories/syncJobRepository.js';
@@ -11,7 +11,7 @@ import {
 export type DataUpdateStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface DataUpdateProgressItem {
-  key: 'instrument_master' | 'minute_lake' | 'daily_kline' | 'financial_reports';
+  key: 'fund_flow' | 'instrument_master' | 'minute_lake' | 'daily_kline' | 'financial_reports';
   label: string;
   status: DataUpdateStatus;
   phase: string;
@@ -23,6 +23,9 @@ export interface DataUpdateProgressItem {
   updatedAt: string | null;
   finishedAt: string | null;
   message: string | null;
+  currentDate?: string | null;
+  processedRows?: number | null;
+  etaAt?: string | null;
 }
 
 interface MinuteProgressFile {
@@ -37,7 +40,23 @@ interface MinuteProgressFile {
   message?: string;
 }
 
+interface FundFlowProgressFile {
+  status?: DataUpdateStatus | 'completed_with_errors';
+  phase?: string;
+  completed?: number;
+  total?: number;
+  failed?: number;
+  startedAt?: string;
+  updatedAt?: string;
+  finishedAt?: string;
+  message?: string;
+  inserted?: number;
+  currentDate?: string;
+  coverage?: number;
+}
+
 const MINUTE_STALE_MS = 15 * 60_000;
+const FUND_FLOW_STALE_MS = 5 * 60_000;
 const DEFAULT_MINUTE_ROOT = '../../所有股票的历史数据/1m_price_parquet';
 
 export interface MinuteSnapshot {
@@ -58,14 +77,65 @@ export async function collectDataUpdateProgress(
   now = new Date(),
   minute: MinuteProgressContext = { pool: null, minuteRoot: DEFAULT_MINUTE_ROOT },
 ): Promise<{ generatedAt: string; items: DataUpdateProgressItem[] }> {
-  const [instrument, minuteItem, daily, financial] = await Promise.all([
+  const [fundFlow, instrument, minuteItem, daily, financial] = await Promise.all([
+    readFundFlowProgress(resolve(serverRoot, '.logs', 'fund-flow', 'progress.json'), now)
+      .catch((error) => failedFundFlowProgress(error)),
     dbOnline ? readInstrumentProgress().catch((error) => failedInstrumentProgress(error)) : Promise.resolve(idleInstrumentProgress('数据库未连接')),
     readMinuteProgress(resolve(serverRoot, '.logs', 'minute-data', 'progress.json'), now, minute)
       .catch((error) => failedMinuteProgress(error)),
     dbOnline ? readDailyProgress().catch((error) => failedDailyProgress(error)) : Promise.resolve(idleDailyProgress('数据库未连接')),
     dbOnline ? readFinancialProgress().catch((error) => failedFinancialProgress(error)) : Promise.resolve(idleFinancialProgress('数据库未连接')),
   ]);
-  return { generatedAt: now.toISOString(), items: [instrument, minuteItem, daily, financial] };
+  return { generatedAt: now.toISOString(), items: [fundFlow, instrument, minuteItem, daily, financial] };
+}
+
+export function normalizeFundFlowProgress(
+  value: FundFlowProgressFile | null,
+  now = new Date(),
+  startedAt: string | null = null,
+): DataUpdateProgressItem {
+  if (!value) return idleFundFlowProgress();
+  const completed = positiveInteger(value.completed);
+  const total = positiveInteger(value.total);
+  const failed = positiveInteger(value.failed);
+  const processedRows = positiveInteger(value.inserted);
+  const updatedAt = validTimestamp(value.updatedAt);
+  let status: DataUpdateStatus = value.status === 'completed_with_errors'
+    ? 'completed'
+    : normalizeStatus(value.status);
+  let message = value.message?.trim() || null;
+  if ((status === 'running' || status === 'pending') && isOlderThan(value.updatedAt, now, FUND_FLOW_STALE_MS)) {
+    status = 'failed';
+    message = '资金流进度超过 5 分钟未更新，回补进程可能已中断';
+  }
+  const percent = total > 0
+    ? clampPercent((completed + failed) / total * 100)
+    : status === 'completed' ? 100 : null;
+  const etaAt = status === 'running' && value.phase === 'tinyshare-backfill'
+    ? estimateCompletionTime(startedAt, now, completed, total)
+    : null;
+  const details = [
+    value.currentDate ? `当前回补至 ${value.currentDate}` : null,
+    processedRows > 0 ? `已写入 ${processedRows.toLocaleString('zh-CN')} 行` : null,
+    failed > 0 ? `${failed} 个交易日待重试` : null,
+  ].filter(Boolean).join(' · ');
+  return {
+    key: 'fund_flow',
+    label: '个股资金流',
+    status,
+    phase: value.phase?.trim() || (status === 'running' ? 'tinyshare-backfill' : status),
+    completed,
+    total,
+    failed,
+    percent,
+    startedAt: validTimestamp(startedAt),
+    updatedAt,
+    finishedAt: validTimestamp(value.finishedAt),
+    message: message ?? (details || null),
+    currentDate: value.currentDate?.trim() || null,
+    processedRows,
+    etaAt,
+  };
 }
 
 export function normalizeInstrumentProgress(job: SyncJob | null): DataUpdateProgressItem {
@@ -218,6 +288,20 @@ async function readMinuteProgress(path: string, now: Date, minute: MinuteProgres
   return normalizeMinuteProgress(value, now, snapshot);
 }
 
+async function readFundFlowProgress(path: string, now: Date): Promise<DataUpdateProgressItem> {
+  try {
+    const [source, runStat] = await Promise.all([
+      readFile(path, 'utf8'),
+      stat(resolve(dirname(path), 'backfill.log')).catch(() => stat(path)),
+    ]);
+    const value = JSON.parse(source.replace(/^\uFEFF/, '')) as FundFlowProgressFile;
+    return normalizeFundFlowProgress(value, now, value.startedAt ?? runStat.birthtime.toISOString());
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return idleFundFlowProgress();
+    throw error;
+  }
+}
+
 async function readMinuteProgressFile(path: string): Promise<MinuteProgressFile | null> {
   try {
     const source = (await readFile(path, 'utf8')).replace(/^\uFEFF/, '');
@@ -279,6 +363,26 @@ function idleMinuteProgress(): DataUpdateProgressItem {
   return { key: 'minute_lake', label: '分钟湖数据', status: 'idle', phase: '等待计划任务', completed: 0, total: 0, failed: 0, percent: null, startedAt: null, updatedAt: null, finishedAt: null, message: null };
 }
 
+function idleFundFlowProgress(message: string | null = null): DataUpdateProgressItem {
+  return {
+    key: 'fund_flow',
+    label: '个股资金流',
+    status: 'idle',
+    phase: '等待资金流更新',
+    completed: 0,
+    total: 0,
+    failed: 0,
+    percent: null,
+    startedAt: null,
+    updatedAt: null,
+    finishedAt: null,
+    message,
+    currentDate: null,
+    processedRows: null,
+    etaAt: null,
+  };
+}
+
 function idleInstrumentProgress(message: string | null = null): DataUpdateProgressItem {
   return {
     key: 'instrument_master',
@@ -325,6 +429,10 @@ function failedMinuteProgress(error: unknown): DataUpdateProgressItem {
   return { ...idleMinuteProgress(), status: 'failed', phase: '读取进度失败', message: error instanceof Error ? error.message : String(error) };
 }
 
+function failedFundFlowProgress(error: unknown): DataUpdateProgressItem {
+  return { ...idleFundFlowProgress(), status: 'failed', phase: '读取进度失败', message: error instanceof Error ? error.message : String(error) };
+}
+
 function normalizeStatus(value: unknown): DataUpdateStatus {
   return ['pending', 'running', 'completed', 'failed', 'cancelled'].includes(String(value))
     ? value as DataUpdateStatus
@@ -347,6 +455,15 @@ function validTimestamp(value: unknown): string | null {
 function isOlderThan(value: unknown, now: Date, maxAgeMs: number): boolean {
   const timestamp = typeof value === 'string' ? Date.parse(value) : Number.NaN;
   return !Number.isFinite(timestamp) || now.getTime() - timestamp > maxAgeMs;
+}
+
+function estimateCompletionTime(startedAt: string | null, now: Date, completed: number, total: number): string | null {
+  const started = startedAt ? Date.parse(startedAt) : Number.NaN;
+  if (!Number.isFinite(started) || completed <= 0 || total <= completed) return null;
+  const elapsed = now.getTime() - started;
+  if (elapsed <= 0) return null;
+  const remainingMs = elapsed / completed * (total - completed);
+  return new Date(now.getTime() + remainingMs).toISOString();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

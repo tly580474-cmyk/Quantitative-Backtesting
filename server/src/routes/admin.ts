@@ -182,7 +182,10 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
         const updatedKeys = await updateEnvFile(options.envFilePath, parsed.data.updates);
         const scheduleSync = await synchronizeScheduleConfig(updatedKeys);
         const restartRequired = updatedKeys.some((key) =>
-          !key.startsWith('RESEARCH_SNAPSHOT_') && !key.startsWith('MINUTE_DATA_'));
+          !key.startsWith('RESEARCH_SNAPSHOT_')
+          && !key.startsWith('MINUTE_DATA_')
+          && !key.startsWith('FUND_FLOW_')
+          && key !== 'TINYSHARE_TOKEN');
         request.log.warn({ updatedKeys, scheduleSync }, 'Admin configuration updated');
         overviewCache.invalidate();
         const scheduleMessage = scheduleSync.updatedTasks.length > 0

@@ -78,7 +78,7 @@ describe('admin routes', () => {
     await app.close();
   });
 
-  it('exposes minute-lake, daily K-line, and financial progress only to authenticated admins', async () => {
+  it('exposes fund-flow, minute-lake, daily K-line, and financial progress only to authenticated admins', async () => {
     process.env.ADMIN_API_TOKEN = 'test-admin-token';
     const app = Fastify();
     registerAdminRoutes(app, {
@@ -95,6 +95,7 @@ describe('admin routes', () => {
     });
     expect(accepted.statusCode).toBe(200);
     expect(accepted.json().items.map((item: { key: string }) => item.key)).toEqual([
+      'fund_flow',
       'instrument_master',
       'minute_lake',
       'daily_kline',

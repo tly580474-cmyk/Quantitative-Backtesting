@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   AlertOutlined,
+  BarChartOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
   CloseCircleOutlined,
@@ -62,6 +63,12 @@ const RESTART_SCOPE_LABELS: Record<AdminConfigItem['restartScope'], string> = {
   market: '部分即时 / 部分重启',
   access: '需重启后端',
 };
+
+const FUND_FLOW_CONFIG_KEYS = new Set([
+  'TINYSHARE_TOKEN',
+  'FUND_FLOW_UPDATE_TIME',
+  'FUND_FLOW_RETRY_TIME',
+]);
 
 /** 前端实时校验，与 server/src/admin/envConfig.ts validateEnvValue 规则一致（见 §4.3） */
 function validateConfigValue(key: string, value: string): string | null {
@@ -468,6 +475,7 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
           ) : (
             <ConfigurationSection
               items={config}
+              fundFlowProgress={dataUpdates.find((item) => item.key === 'fund_flow') ?? null}
               onEdit={setEditing}
               search={configSearch}
               onSearchChange={setConfigSearch}
@@ -784,9 +792,15 @@ function DatabaseBackupPanel({ status, starting, onStart, onDownload }: {
 }
 
 function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressItem[] }) {
+  const runningCount = items.filter((item) => item.status === 'running' || item.status === 'pending').length;
+  const issueCount = items.filter((item) => item.status === 'failed' || item.failed > 0).length;
   return (
-    <Panel title="数据更新进度" subtitle="每 2 秒刷新 · 证券主表、分钟湖、个股日 K 线与财务报表均在后台执行" icon={<ClockCircleOutlined />}>
-      <div className="data-update-grid" aria-live="polite">
+    <Panel
+      title="数据更新进度"
+      subtitle={`每 2 秒刷新 · ${runningCount > 0 ? `${runningCount} 项运行中` : '当前无运行任务'} · ${issueCount > 0 ? `${issueCount} 项需留意` : '未发现异常'}`}
+      icon={<ClockCircleOutlined />}
+    >
+      <div className="data-update-grid" aria-live="polite" aria-atomic="false">
         {items.length === 0 ? (
           <div className="data-update-empty">正在读取后台任务状态…</div>
         ) : items.map((item) => {
@@ -794,14 +808,18 @@ function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressItem[] })
           const level: HealthLevel = item.status === 'failed'
             ? 'critical' : item.status === 'completed' && item.failed === 0 ? 'healthy' : running || item.failed > 0 ? 'warning' : 'disabled';
           const width = item.percent ?? (running ? 12 : 0);
+          const featured = item.key === 'fund_flow';
           return (
-            <article className={`data-update-card status-surface-${level}`} key={item.key}>
+            <article
+              className={`data-update-card status-surface-${level} ${running ? 'is-running' : ''} ${featured ? 'is-featured' : ''}`}
+              key={item.key}
+            >
               <div className="data-update-head">
                 <div>
                   <strong>{item.label}</strong>
                   <span>{formatUpdatePhase(item.phase)}</span>
                 </div>
-                <StatusBadge level={level} compact />
+                <UpdateStatusBadge status={item.status} level={level} />
               </div>
               <div
                 className={`data-update-track ${running && item.percent == null ? 'is-indeterminate' : ''}`}
@@ -820,6 +838,13 @@ function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressItem[] })
                   : item.message ?? '暂无运行中的任务'}</span>
                 <strong>{item.percent == null ? '—' : `${item.percent}%`}</strong>
               </div>
+              {featured && (item.currentDate || item.processedRows || item.etaAt) && (
+                <dl className="data-update-highlights">
+                  <div><dt>当前日期</dt><dd>{item.currentDate ?? '—'}</dd></div>
+                  <div><dt>累计写入</dt><dd>{item.processedRows ? `${item.processedRows.toLocaleString('zh-CN')} 行` : '—'}</dd></div>
+                  <div><dt>预计完成</dt><dd>{item.etaAt ? new Date(item.etaAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) : '计算中'}</dd></div>
+                </dl>
+              )}
               {(item.message || item.updatedAt) && (
                 <p>{item.message ?? '进度已更新'}{item.updatedAt ? ` · ${new Date(item.updatedAt).toLocaleString('zh-CN', { hour12: false })}` : ''}</p>
               )}
@@ -840,8 +865,21 @@ function formatUpdatePhase(phase: string): string {
     pending: '排队准备', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消',
     '采集财务报表': '采集财务报表', '等待财报更新': '等待财报更新',
     '排队准备': '排队准备', '更新行情': '更新个股日 K 行情', '等待计划任务': '等待计划任务', '等待盘后更新': '等待盘后更新',
+    'tinyshare-backfill': 'Tinyshare 历史回补', 'akshare-daily': 'AKShare 盘后增量', '等待资金流更新': '等待盘后资金流更新',
   };
   return labels[phase] ?? phase;
+}
+
+function UpdateStatusBadge({ status, level }: { status: DataUpdateProgressItem['status']; level: HealthLevel }) {
+  const labels: Record<DataUpdateProgressItem['status'], string> = {
+    idle: '等待中', pending: '排队中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消',
+  };
+  return (
+    <span className={`status-badge level-${level} is-compact`}>
+      {status === 'running' || status === 'pending' ? <ClockCircleOutlined /> : <StatusIcon level={level} />}
+      {labels[status]}
+    </span>
+  );
 }
 
 function LineageRow({
@@ -900,11 +938,13 @@ function DiagnosticsSection({ checks }: { checks: DiagnosticCheck[] }) {
 
 function ConfigurationSection({
   items,
+  fundFlowProgress,
   onEdit,
   search,
   onSearchChange,
 }: {
   items: AdminConfigItem[];
+  fundFlowProgress: DataUpdateProgressItem | null;
   onEdit: (item: AdminConfigItem) => void;
   search: string;
   onSearchChange: (value: string) => void;
@@ -938,6 +978,10 @@ function ConfigurationSection({
       {categories.map((category) => {
         const categoryItems = items.filter((item) => item.category === category && matchesSearch(item));
         if (categoryItems.length === 0) return null;
+        const fundFlowItems = category === 'market'
+          ? categoryItems.filter((item) => FUND_FLOW_CONFIG_KEYS.has(item.key))
+          : [];
+        const standardItems = categoryItems.filter((item) => !FUND_FLOW_CONFIG_KEYS.has(item.key));
         return (
           <Panel
             key={category}
@@ -946,38 +990,121 @@ function ConfigurationSection({
             icon={category === 'database' ? <DatabaseOutlined /> : category === 'access' ? <LockOutlined /> : <SettingOutlined />}
           >
             <div className="config-list">
-              {categoryItems.map((item) => (
-                <div className="config-row" key={item.key}>
-                  <div className={`config-indicator ${item.configured ? 'is-configured' : ''}`}>
-                    {item.configured ? <CheckCircleOutlined /> : <WarningOutlined />}
-                  </div>
-                  <div className="config-copy">
-                    <div className="config-title">
-                      <strong>{item.label}</strong>
-                      <code>{item.key}</code>
-                    </div>
-                    <p>{item.description}</p>
-                  </div>
-                  <div className="config-value">
-                    <span>
-                      {item.inputType === 'boolean' && item.maskedValue
-                        ? (item.maskedValue === 'true' ? '已开启' : '已关闭')
-                        : (item.maskedValue ?? '未配置')}
-                    </span>
-                    <small className={`scope-tag scope-${item.restartScope}`}>
-                      {item.restartRequired ? RESTART_SCOPE_LABELS[item.restartScope] : '立即生效'}
-                    </small>
-                  </div>
-                  <button className="secondary-button" disabled={!item.editable} onClick={() => onEdit(item)}>
-                    {item.editable ? '更新' : '仅手动修改'}
-                  </button>
-                </div>
-              ))}
+              {fundFlowItems.length > 0 && (
+                <>
+                  <FundFlowConfigSummary progress={fundFlowProgress} items={fundFlowItems} />
+                  <ConfigGroupHeading
+                    title="资金流配置"
+                    description="主力、超大单、大单、中单和小单资金净流入"
+                  />
+                  {fundFlowItems.map((item) => <ConfigRow item={item} onEdit={onEdit} key={item.key} />)}
+                </>
+              )}
+              {category === 'market' && fundFlowItems.length > 0 && standardItems.length > 0 && (
+                <ConfigGroupHeading title="基础行情配置" description="证券、K 线、分钟数据与财务报表" />
+              )}
+              {standardItems.map((item) => <ConfigRow item={item} onEdit={onEdit} key={item.key} />)}
             </div>
           </Panel>
         );
       })}
     </>
+  );
+}
+
+function FundFlowConfigSummary({ progress, items }: {
+  progress: DataUpdateProgressItem | null;
+  items: AdminConfigItem[];
+}) {
+  const running = progress?.status === 'running' || progress?.status === 'pending';
+  const level: HealthLevel = progress?.status === 'failed'
+    ? 'critical'
+    : progress?.status === 'completed' && progress.failed === 0
+      ? 'healthy'
+      : running || (progress?.failed ?? 0) > 0
+        ? 'warning'
+        : 'disabled';
+  const updateTime = items.find((item) => item.key === 'FUND_FLOW_UPDATE_TIME')?.maskedValue ?? '16:20';
+  const retryTime = items.find((item) => item.key === 'FUND_FLOW_RETRY_TIME')?.maskedValue ?? '17:20';
+  const percent = progress?.percent ?? 0;
+
+  return (
+    <article className={`fund-flow-summary status-surface-${level}`} aria-live="polite">
+      <div className="fund-flow-summary-head">
+        <div className="fund-flow-summary-title">
+          <span className="fund-flow-summary-icon"><BarChartOutlined /></span>
+          <div>
+            <strong>资金数据</strong>
+            <span>Tinyshare 历史回补 · AKShare 每日增量</span>
+          </div>
+        </div>
+        {progress ? (
+          <UpdateStatusBadge status={progress.status} level={level} />
+        ) : (
+          <span className="status-badge level-disabled is-compact"><ClockCircleOutlined />读取中</span>
+        )}
+      </div>
+      <div
+        className={`data-update-track ${running && progress?.percent == null ? 'is-indeterminate' : ''}`}
+        role="progressbar"
+        aria-label="资金数据更新进度"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={progress?.percent ?? undefined}
+      >
+        <span className={`data-update-fill level-${level}`} style={{ width: `${progress?.percent ?? (running ? 12 : 0)}%` }} />
+      </div>
+      <div className="fund-flow-progress-copy">
+        <span>{progress ? formatUpdatePhase(progress.phase) : '正在读取资金数据状态'}</span>
+        <strong>{progress?.percent == null ? '—' : `${percent}%`}</strong>
+      </div>
+      <dl className="fund-flow-facts">
+        <div><dt>当前回补日期</dt><dd>{progress?.currentDate ?? '—'}</dd></div>
+        <div><dt>累计写入</dt><dd>{progress?.processedRows == null ? '—' : `${progress.processedRows.toLocaleString('zh-CN')} 行`}</dd></div>
+        <div><dt>历史覆盖</dt><dd>{progress?.total ? `${progress.completed + progress.failed} / ${progress.total} 日` : '—'}</dd></div>
+        <div><dt>每日更新</dt><dd>{updateTime}<small>失败 {retryTime} 重试</small></dd></div>
+      </dl>
+      {progress?.etaAt && <p>预计完成：{new Date(progress.etaAt).toLocaleString('zh-CN', { hour12: false, dateStyle: 'short', timeStyle: 'short' })}</p>}
+    </article>
+  );
+}
+
+function ConfigGroupHeading({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="config-group-heading">
+      <strong>{title}</strong>
+      <span>{description}</span>
+    </div>
+  );
+}
+
+function ConfigRow({ item, onEdit }: { item: AdminConfigItem; onEdit: (item: AdminConfigItem) => void }) {
+  return (
+    <div className="config-row">
+      <div className={`config-indicator ${item.configured ? 'is-configured' : ''}`}>
+        {item.configured ? <CheckCircleOutlined /> : <WarningOutlined />}
+      </div>
+      <div className="config-copy">
+        <div className="config-title">
+          <strong>{item.label}</strong>
+          <code>{item.key}</code>
+        </div>
+        <p>{item.description}</p>
+      </div>
+      <div className="config-value">
+        <span>
+          {item.inputType === 'boolean' && item.maskedValue
+            ? (item.maskedValue === 'true' ? '已开启' : '已关闭')
+            : (item.maskedValue ?? '未配置')}
+        </span>
+        <small className={`scope-tag scope-${item.restartScope}`}>
+          {item.restartRequired ? RESTART_SCOPE_LABELS[item.restartScope] : '立即生效'}
+        </small>
+      </div>
+      <button className="secondary-button" disabled={!item.editable} onClick={() => onEdit(item)}>
+        {item.editable ? '更新' : '仅手动修改'}
+      </button>
+    </div>
   );
 }
 

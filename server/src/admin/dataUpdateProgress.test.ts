@@ -4,11 +4,34 @@ import type { CollectorRun } from '../marketData/repositories/collectorRunReposi
 import {
   normalizeDailyProgress,
   normalizeFinancialProgress,
+  normalizeFundFlowProgress,
   normalizeInstrumentProgress,
   normalizeMinuteProgress,
 } from './dataUpdateProgress.js';
 
 describe('admin data update progress', () => {
+  it('maps the Tinyshare backfill heartbeat with rows and ETA', () => {
+    const progress = normalizeFundFlowProgress({
+      status: 'running', phase: 'tinyshare-backfill', completed: 300, total: 4000,
+      failed: 0, inserted: 520000, currentDate: '2011-04-01',
+      updatedAt: '2026-08-11T01:05:00.000Z',
+    }, new Date('2026-08-11T01:05:00.000Z'), '2026-08-11T01:00:00.000Z');
+    expect(progress.key).toBe('fund_flow');
+    expect(progress.percent).toBe(7.5);
+    expect(progress.processedRows).toBe(520000);
+    expect(progress.etaAt).toBeTruthy();
+    expect(progress.message).toContain('2011-04-01');
+  });
+
+  it('marks a stale fund-flow backfill as interrupted', () => {
+    const progress = normalizeFundFlowProgress({
+      status: 'running', completed: 300, total: 4000,
+      updatedAt: '2026-08-11T01:00:00.000Z',
+    }, new Date('2026-08-11T01:05:01.000Z'), '2026-08-11T00:55:00.000Z');
+    expect(progress.status).toBe('failed');
+    expect(progress.message).toContain('可能已中断');
+  });
+
   it('shows the latest full-market instrument reconciliation', () => {
     const progress = normalizeInstrumentProgress({
       id: 'instrument-job',

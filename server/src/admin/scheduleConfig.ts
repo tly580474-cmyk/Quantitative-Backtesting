@@ -15,6 +15,11 @@ const MINUTE_KEYS = new Set([
   'MINUTE_DATA_RETRY_TIME',
 ]);
 
+const FUND_FLOW_KEYS = new Set([
+  'FUND_FLOW_UPDATE_TIME',
+  'FUND_FLOW_RETRY_TIME',
+]);
+
 export interface ScheduleSyncResult {
   updatedTasks: string[];
   warnings: string[];
@@ -26,7 +31,8 @@ export async function synchronizeScheduleConfig(
 ): Promise<ScheduleSyncResult> {
   const needsResearch = updatedKeys.some((key) => RESEARCH_KEYS.has(key));
   const needsMinute = updatedKeys.some((key) => MINUTE_KEYS.has(key));
-  if (!needsResearch && !needsMinute) return { updatedTasks: [], warnings: [] };
+  const needsFundFlow = updatedKeys.some((key) => FUND_FLOW_KEYS.has(key));
+  if (!needsResearch && !needsMinute && !needsFundFlow) return { updatedTasks: [], warnings: [] };
   if (process.platform !== 'win32') {
     return {
       updatedTasks: [],
@@ -53,6 +59,16 @@ export async function synchronizeScheduleConfig(
       args: [
         '-At', values.MINUTE_DATA_UPDATE_TIME || '16:30',
         '-RetryAt', values.MINUTE_DATA_RETRY_TIME || '17:30',
+      ],
+    });
+  }
+  if (needsFundFlow) {
+    invocations.push({
+      taskName: 'QuantBacktest-FundFlowUpdate',
+      script: new URL('../fundFlow/register-task.ps1', import.meta.url),
+      args: [
+        '-At', values.FUND_FLOW_UPDATE_TIME || '16:20',
+        '-RetryAt', values.FUND_FLOW_RETRY_TIME || '17:20',
       ],
     });
   }

@@ -81,6 +81,8 @@ describe('admin env config', () => {
       RESEARCH_SNAPSHOT_MORNING_RETRY_TIME: '08:30',
       MINUTE_DATA_UPDATE_TIME: '16:30',
       MINUTE_DATA_RETRY_TIME: '17:30',
+      FUND_FLOW_UPDATE_TIME: '16:20',
+      FUND_FLOW_RETRY_TIME: '17:20',
     });
     for (const key of [
       'INSTRUMENT_SYNC_TIME',
@@ -95,12 +97,22 @@ describe('admin env config', () => {
       'RESEARCH_SNAPSHOT_MORNING_RETRY_TIME',
       'MINUTE_DATA_UPDATE_TIME',
       'MINUTE_DATA_RETRY_TIME',
+      'FUND_FLOW_UPDATE_TIME',
+      'FUND_FLOW_RETRY_TIME',
     ]) {
       expect(items.find((item) => item.key === key)).toMatchObject({
         editable: true,
         inputType: 'time',
       });
     }
+  });
+
+  it('masks the Tinyshare authorization code in admin responses', () => {
+    const item = listAdminConfig({ TINYSHARE_TOKEN: 'tiny-secret-code' }).find(
+      (entry) => entry.key === 'TINYSHARE_TOKEN',
+    );
+    expect(item).toMatchObject({ editable: true, secret: true, maskedValue: '••••code' });
+    expect(JSON.stringify(item)).not.toContain('tiny-secret-code');
   });
 
   it('exposes the instrument master refresh as an enabled boolean option by default', () => {
