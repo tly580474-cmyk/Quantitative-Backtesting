@@ -11,7 +11,6 @@
 [![MySQL](https://img.shields.io/badge/MySQL-8-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com)
 [![DuckDB](https://img.shields.io/badge/DuckDB-FFF000?logo=duckdb&logoColor=black)](https://duckdb.org)
 [![Ant Design](https://img.shields.io/badge/Ant_Design-6-1677FF?logo=ant-design&logoColor=white)](https://ant.design)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </div>
 
