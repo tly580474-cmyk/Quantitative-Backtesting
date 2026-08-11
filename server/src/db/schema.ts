@@ -656,6 +656,48 @@ export const dailyStockMetrics = mysqlTable('daily_stock_metrics', {
   tradeDateIdx: index('idx_dsm_trade_date_instrument').on(table.tradeDate, table.instrumentKey),
 }));
 
+export const stockFundFlows = mysqlTable('stock_fund_flows', {
+  instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
+  tradeDate: date('trade_date', { mode: 'string' }).notNull(),
+  closePrice: double('close_price'),
+  changePct: double('change_pct'),
+  mainNetIn: double('main_net_in').notNull(),
+  mainNetRatio: double('main_net_ratio'),
+  superLargeNetIn: double('super_large_net_in').notNull(),
+  superLargeNetRatio: double('super_large_net_ratio'),
+  largeNetIn: double('large_net_in').notNull(),
+  largeNetRatio: double('large_net_ratio'),
+  mediumNetIn: double('medium_net_in').notNull(),
+  mediumNetRatio: double('medium_net_ratio'),
+  smallNetIn: double('small_net_in').notNull(),
+  smallNetRatio: double('small_net_ratio'),
+  providerNetIn: double('provider_net_in'),
+  sourceKey: varchar('source_key', { length: 32 }).notNull(),
+  sourceVersion: varchar('source_version', { length: 64 }).notNull(),
+  fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+  isFinal: int('is_final', { unsigned: true }).notNull().default(1),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.instrumentKey, table.tradeDate] }),
+  tradeDateIdx: index('idx_sff_trade_date_instrument').on(table.tradeDate, table.instrumentKey),
+  tradeDateMainIdx: index('idx_sff_trade_date_main').on(table.tradeDate, table.mainNetIn),
+  sourceDateIdx: index('idx_sff_source_date').on(table.sourceKey, table.tradeDate),
+}));
+
+export const fundFlowSyncDates = mysqlTable('fund_flow_sync_dates', {
+  sourceKey: varchar('source_key', { length: 32 }).notNull(),
+  tradeDate: date('trade_date', { mode: 'string' }).notNull(),
+  status: varchar('status', { length: 16 }).notNull(),
+  providerRows: int('provider_rows', { unsigned: true }).notNull().default(0),
+  storedRows: int('stored_rows', { unsigned: true }).notNull().default(0),
+  expectedMarketRows: int('expected_market_rows', { unsigned: true }).notNull().default(0),
+  coveragePct: double('coverage_pct'),
+  errorMessage: varchar('error_message', { length: 1000 }),
+  updatedAt: datetime('updated_at', { mode: 'string' }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.sourceKey, table.tradeDate] }),
+  statusDateIdx: index('idx_ffsd_status_date').on(table.status, table.tradeDate),
+}));
+
 export const adjustmentFactorsV2 = mysqlTable('adjustment_factors_v2', {
   instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
   effectiveDate: date('effective_date', { mode: 'string' }).notNull(),

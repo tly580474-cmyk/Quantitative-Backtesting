@@ -73,7 +73,7 @@ class RateLimiter:
 class TushareSource:
     def __init__(self, token: str, requests_per_minute: int, retries: int) -> None:
         try:
-            import tushare as ts
+            import tinyshare as ts
         except ImportError as error:
             raise RuntimeError(
                 "缺少 tushare；请执行 python -m pip install -r src/minuteData/requirements.txt",
