@@ -1,19 +1,56 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from online_update import (
+    AdaptiveRequestGate,
+    OnlineResult,
+    fetch_universe,
     normalize_symbol,
     normalize_online_minutes,
     parse_sina_payload,
     reconcile_online_daily,
     sina_symbol,
 )
-from tdx_import import DailyReference
+from tdx_import import DailyReference, Instrument
 from update import normalize_symbol_minutes
 
 
 class OnlineMinuteUpdateTest(unittest.TestCase):
+    def test_shared_throttle_does_not_multiply_for_concurrent_workers(self) -> None:
+        gate = AdaptiveRequestGate(requests_per_second=10, base_cooldown=60, max_cooldown=300)
+        with patch("online_update.time.monotonic", return_value=100.0):
+            first = gate.throttle()
+            second = gate.throttle()
+        self.assertEqual(first, 60)
+        self.assertEqual(second, 60)
+        self.assertEqual(gate.throttle_level, 1)
+
+    def test_recovery_round_refetches_only_failed_symbols(self) -> None:
+        instruments = [
+            Instrument(symbol="000001", market="SZ", list_date=None, delist_date=None),
+            Instrument(symbol="000002", market="SZ", list_date=None, delist_date=None),
+        ]
+
+        class RecoveringSource:
+            def __init__(self) -> None:
+                self.calls: dict[str, int] = {}
+
+            def fetch(self, instrument: Instrument) -> OnlineResult:
+                symbol = instrument.provider_symbol
+                self.calls[symbol] = self.calls.get(symbol, 0) + 1
+                if symbol == "000002.SZ" and self.calls[symbol] == 1:
+                    raise RuntimeError("HTTP 456")
+                return OnlineResult(instrument.symbol, instrument.market, None, {}, {})
+
+        source = RecoveringSource()
+        responses, errors = fetch_universe(source, instruments, workers=2, recovery_rounds=1)
+        self.assertEqual(set(responses), {"000001.SZ", "000002.SZ"})
+        self.assertEqual(errors, {})
+        self.assertEqual(source.calls["000001.SZ"], 1)
+        self.assertEqual(source.calls["000002.SZ"], 2)
+
     def test_maps_sina_market_symbols(self) -> None:
         self.assertEqual(sina_symbol("600519", "SH"), "sh600519")
         self.assertEqual(sina_symbol("002155", "SZ"), "sz002155")

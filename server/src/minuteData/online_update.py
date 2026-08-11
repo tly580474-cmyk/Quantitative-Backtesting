@@ -6,6 +6,7 @@ import math
 import os
 import random
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -40,6 +41,59 @@ _progress_started_at: str | None = None
 
 class DependencyNotReadyError(RuntimeError):
     """A required upstream dataset is still being produced and may be retried."""
+
+
+class ProviderThrottledError(RuntimeError):
+    """The online provider temporarily rejected requests due to throttling."""
+
+
+class AdaptiveRequestGate:
+    """Coordinate request pacing and provider cooldown across all worker threads."""
+
+    def __init__(
+        self,
+        requests_per_second: float = 6.0,
+        base_cooldown: float = 60.0,
+        max_cooldown: float = 300.0,
+    ) -> None:
+        self.interval = 1.0 / max(0.1, requests_per_second)
+        self.base_cooldown = max(0.0, base_cooldown)
+        self.max_cooldown = max(self.base_cooldown, max_cooldown)
+        self.lock = threading.Lock()
+        self.next_request_at = 0.0
+        self.cooldown_until = 0.0
+        self.throttle_level = 0
+        self.successes_since_throttle = 0
+
+    def wait(self) -> None:
+        while True:
+            with self.lock:
+                now = time.monotonic()
+                ready_at = max(self.next_request_at, self.cooldown_until)
+                if ready_at <= now:
+                    self.next_request_at = now + self.interval
+                    return
+                delay = ready_at - now
+            time.sleep(delay)
+
+    def throttle(self, retry_after: float | None = None) -> float:
+        with self.lock:
+            now = time.monotonic()
+            if self.cooldown_until > now:
+                return self.cooldown_until - now
+            calculated = self.base_cooldown * (2 ** self.throttle_level)
+            duration = min(self.max_cooldown, max(calculated, retry_after or 0.0))
+            self.cooldown_until = now + duration
+            self.throttle_level = min(self.throttle_level + 1, 16)
+            self.successes_since_throttle = 0
+            return duration
+
+    def succeeded(self) -> None:
+        with self.lock:
+            self.successes_since_throttle += 1
+            if self.successes_since_throttle >= 250 and self.throttle_level > 0:
+                self.throttle_level -= 1
+                self.successes_since_throttle = 0
 
 
 def write_progress(
@@ -102,6 +156,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--retries", type=int, default=int(os.getenv("MINUTE_ONLINE_RETRIES", "3")))
     parser.add_argument("--datalen", type=int, default=int(os.getenv("MINUTE_ONLINE_DATALEN", "1023")))
     parser.add_argument(
+        "--requests-per-second",
+        type=float,
+        default=float(os.getenv("MINUTE_ONLINE_REQUESTS_PER_SECOND", "6")),
+    )
+    parser.add_argument(
+        "--throttle-cooldown-seconds",
+        type=float,
+        default=float(os.getenv("MINUTE_ONLINE_THROTTLE_COOLDOWN_SECONDS", "60")),
+    )
+    parser.add_argument(
+        "--throttle-max-cooldown-seconds",
+        type=float,
+        default=float(os.getenv("MINUTE_ONLINE_THROTTLE_MAX_COOLDOWN_SECONDS", "300")),
+    )
+    parser.add_argument(
+        "--recovery-rounds",
+        type=int,
+        default=int(os.getenv("MINUTE_ONLINE_RECOVERY_ROUNDS", "2")),
+    )
+    parser.add_argument(
+        "--recovery-delay-seconds",
+        type=float,
+        default=float(os.getenv("MINUTE_ONLINE_RECOVERY_DELAY_SECONDS", "30")),
+    )
+    parser.add_argument(
         "--min-coverage",
         type=float,
         default=float(os.getenv("MINUTE_ONLINE_MIN_COVERAGE", "0.995")),
@@ -120,7 +199,12 @@ def main() -> int:
     output_root = Path(args.output_root).resolve()
     manifest = json.loads((output_root / "manifest.json").read_text(encoding="utf-8"))
     manifest_last_date = max(str(item["date"]) for item in manifest["files"])
-    source = SinaSource(max(1, args.retries), max(241, min(1023, args.datalen)))
+    request_gate = AdaptiveRequestGate(
+        requests_per_second=max(0.1, args.requests_per_second),
+        base_cooldown=max(0.0, args.throttle_cooldown_seconds),
+        max_cooldown=max(0.0, args.throttle_max_cooldown_seconds),
+    )
+    source = SinaSource(max(1, args.retries), max(241, min(1023, args.datalen)), request_gate)
     source_dates = source.market_dates()
     finalized = latest_finalized_date()
     available_dates = [item for item in source_dates if item <= finalized]
@@ -207,6 +291,8 @@ def main() -> int:
         "pendingDates": pending_dates,
         "symbols": len(target_symbols),
         "workers": max(1, args.workers),
+        "requestsPerSecond": max(0.1, args.requests_per_second),
+        "recoveryRounds": max(0, args.recovery_rounds),
         "minCoverage": args.min_coverage,
     }
     if args.dry_run:
@@ -219,6 +305,8 @@ def main() -> int:
         source,
         [instrument_by_symbol[item] for item in target_symbols],
         max(1, args.workers),
+        max(0, args.recovery_rounds),
+        max(0.0, args.recovery_delay_seconds),
     )
     published = []
     write_progress("running", "publishing", completed=len(responses), total=len(target_symbols), failed=len(request_errors), message="抓取完成，正在校验并原子发布 Parquet")
@@ -248,9 +336,15 @@ def main() -> int:
 
 
 class SinaSource:
-    def __init__(self, retries: int = 3, datalen: int = 1023) -> None:
+    def __init__(
+        self,
+        retries: int = 3,
+        datalen: int = 1023,
+        request_gate: AdaptiveRequestGate | None = None,
+    ) -> None:
         self.retries = retries
         self.datalen = datalen
+        self.request_gate = request_gate or AdaptiveRequestGate()
 
     def market_dates(self) -> list[str]:
         errors = []
@@ -285,6 +379,7 @@ class SinaSource:
         last_error: Exception | None = None
         for attempt in range(self.retries):
             try:
+                self.request_gate.wait()
                 response = requests.get(
                     SINA_URL,
                     params=params,
@@ -294,17 +389,33 @@ class SinaSource:
                     },
                     timeout=(5, 20),
                 )
+                if response.status_code in (429, 456):
+                    retry_after = parse_retry_after(response.headers.get("Retry-After"))
+                    cooldown = self.request_gate.throttle(retry_after)
+                    raise ProviderThrottledError(
+                        f"HTTP {response.status_code}; shared cooldown {cooldown:.1f}s",
+                    )
                 response.raise_for_status()
                 payload = response.json()
                 status_code = (((payload.get("result") or {}).get("status") or {}).get("code"))
                 if status_code not in (0, None):
                     raise RuntimeError(f"在线源返回 status.code={status_code}")
+                self.request_gate.succeeded()
                 return payload
             except Exception as error:
                 last_error = error
-                if attempt + 1 < self.retries:
+                if attempt + 1 < self.retries and not isinstance(error, ProviderThrottledError):
                     time.sleep(min(4.0, 0.5 * (2 ** attempt)) + random.random() * 0.2)
         raise RuntimeError(f"在线分钟请求失败：{last_error}")
+
+
+def parse_retry_after(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        return None
 
 
 def sina_symbol(symbol: str, market: str) -> str:
@@ -354,31 +465,57 @@ def fetch_universe(
     source: SinaSource,
     instruments: list[Instrument],
     workers: int,
+    recovery_rounds: int = 0,
+    recovery_delay_seconds: float = 0.0,
 ) -> tuple[dict[str, OnlineResult], dict[str, str]]:
     responses: dict[str, OnlineResult] = {}
     errors: dict[str, str] = {}
     started = time.monotonic()
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(source.fetch, item): item for item in instruments}
-        for completed, future in enumerate(as_completed(futures), start=1):
-            instrument = futures[future]
-            try:
-                responses[instrument.provider_symbol] = future.result()
-            except Exception as error:
-                errors[instrument.provider_symbol] = str(error)
-            if completed % 250 == 0 or completed == len(instruments):
-                write_progress(
-                    "running", "fetching-online", completed=completed - len(errors),
-                    total=len(instruments), failed=len(errors),
-                    message="正在并发抓取全市场分钟行情",
-                )
-                print(json.dumps({
-                    "status": "fetching-online",
-                    "completedSymbols": completed,
-                    "totalSymbols": len(instruments),
-                    "requestErrors": len(errors),
-                    "elapsedSeconds": round(time.monotonic() - started, 1),
-                }, ensure_ascii=False), flush=True)
+    instrument_by_symbol = {item.provider_symbol: item for item in instruments}
+    pending = list(instruments)
+    total_rounds = 1 + max(0, recovery_rounds)
+    for round_index in range(total_rounds):
+        if not pending:
+            break
+        if round_index > 0 and recovery_delay_seconds > 0:
+            print(json.dumps({
+                "status": "waiting-recovery",
+                "recoveryRound": round_index,
+                "remainingSymbols": len(pending),
+                "delaySeconds": recovery_delay_seconds,
+            }, ensure_ascii=False), flush=True)
+            time.sleep(recovery_delay_seconds)
+        errors = {}
+        round_errors: dict[str, str] = {}
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(source.fetch, item): item for item in pending}
+            for completed, future in enumerate(as_completed(futures), start=1):
+                instrument = futures[future]
+                symbol = instrument.provider_symbol
+                try:
+                    responses[symbol] = future.result()
+                    errors.pop(symbol, None)
+                except Exception as error:
+                    round_errors[symbol] = str(error)
+                if completed % 250 == 0 or completed == len(pending):
+                    unresolved = len(round_errors)
+                    write_progress(
+                        "running", "fetching-online", completed=len(responses),
+                        total=len(instruments), failed=unresolved,
+                        message="正在并发抓取全市场分钟行情",
+                    )
+                    print(json.dumps({
+                        "status": "fetching-online",
+                        "recoveryRound": round_index,
+                        "completedSymbols": completed,
+                        "roundSymbols": len(pending),
+                        "totalSymbols": len(instruments),
+                        "successfulSymbols": len(responses),
+                        "requestErrors": unresolved,
+                        "elapsedSeconds": round(time.monotonic() - started, 1),
+                    }, ensure_ascii=False), flush=True)
+        errors = round_errors
+        pending = [instrument_by_symbol[symbol] for symbol in errors]
     return responses, errors
 
 
