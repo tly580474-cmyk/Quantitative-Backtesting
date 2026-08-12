@@ -12,6 +12,10 @@
 [![DuckDB](https://img.shields.io/badge/DuckDB-FFF000?logo=duckdb&logoColor=black)](https://duckdb.org)
 [![Ant Design](https://img.shields.io/badge/Ant_Design-6-1677FF?logo=ant-design&logoColor=white)](https://ant.design)
 
+<div align="center">
+  <video src="./Intro.mp4" width="860" controls muted loop></video>
+</div>
+
 </div>
 
 > ⚠️ **风险提示**：本项目用于研究和学习，**不构成投资建议**。公开行情接口可能受网络状态、上游限流或接口调整影响。
