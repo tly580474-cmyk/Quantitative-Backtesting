@@ -13,6 +13,7 @@ import {
   DownloadOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
+  GlobalOutlined,
   HddOutlined,
   KeyOutlined,
   LockOutlined,
@@ -36,14 +37,16 @@ import {
   getDataUpdateProgress,
   getDatabaseBackupExport,
   getMetricsHistory,
+  getPublicAccessStatus,
   restartBackend,
   startDatabaseBackupExport,
   downloadDatabaseBackupExport,
   updateAdminConfig,
+  updatePublicAccess,
   verifyAdminToken,
   waitForBackendRecovery,
 } from './api';
-import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressItem, DiagnosticCheck, HealthLevel, MetricSample } from './types';
+import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressItem, DiagnosticCheck, HealthLevel, MetricSample, PublicAccessStatus } from './types';
 
 type Section = 'overview' | 'diagnostics' | 'configuration';
 
@@ -205,6 +208,9 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
   const [notice, setNotice] = useState('');
   const [configSearch, setConfigSearch] = useState('');
   const [restartStatus, setRestartStatus] = useState<BackendRestartStatus | null>(null);
+  const [publicAccess, setPublicAccess] = useState<PublicAccessStatus | null>(null);
+  const [publicAccessUpdating, setPublicAccessUpdating] = useState(false);
+  const [publicAccessPending, setPublicAccessPending] = useState<boolean | null>(null);
   const [restartDialogOpen, setRestartDialogOpen] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const prevOverallRef = useRef<HealthLevel | null>(null);
@@ -227,14 +233,16 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
     setLoading(true);
     setError('');
     try {
-      const [nextOverview, nextConfig, nextRestartStatus] = await Promise.all([
+      const [nextOverview, nextConfig, nextRestartStatus, nextPublicAccess] = await Promise.all([
         getAdminOverview(token),
         getAdminConfig(token),
         getBackendRestartStatus(token),
+        getPublicAccessStatus(token),
       ]);
       setOverview(nextOverview);
       setConfig(nextConfig);
       setRestartStatus(nextRestartStatus);
+      setPublicAccess(nextPublicAccess);
       setLastRefresh(new Date());
       prevOverallRef.current = nextOverview.overall;
     } catch (refreshError) {
@@ -380,6 +388,25 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
     }
   };
 
+  const applyPublicAccess = async () => {
+    if (publicAccessPending === null || publicAccessUpdating) return;
+    const enabled = publicAccessPending;
+    setPublicAccessPending(null);
+    setPublicAccessUpdating(true);
+    setError('');
+    try {
+      const next = await updatePublicAccess(token, enabled);
+      setPublicAccess(next);
+      setNotice(enabled
+        ? '公网访问已开启，SSH 隧道与 frpc 正在后台运行。'
+        : '公网访问已关闭，隧道任务已停止并禁用。');
+    } catch (accessError) {
+      setError(accessError instanceof Error ? accessError.message : '公网访问配置更新失败');
+    } finally {
+      setPublicAccessUpdating(false);
+    }
+  };
+
   return (
     <div className="admin-shell">
       <aside className={`admin-sidebar ${sidebarOpen ? 'is-open' : ''}`}>
@@ -475,6 +502,9 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
           ) : (
             <ConfigurationSection
               items={config}
+              publicAccess={publicAccess}
+              publicAccessUpdating={publicAccessUpdating}
+              onTogglePublicAccess={(enabled) => setPublicAccessPending(enabled)}
               fundFlowProgress={dataUpdates.find((item) => item.key === 'fund_flow') ?? null}
               onEdit={setEditing}
               search={configSearch}
@@ -503,6 +533,13 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
           onConfirm={() => void performRestart()}
         />
       )}
+      {publicAccessPending !== null && (
+        <PublicAccessDialog
+          enabled={publicAccessPending}
+          onCancel={() => setPublicAccessPending(null)}
+          onConfirm={() => void applyPublicAccess()}
+        />
+      )}
     </div>
   );
 }
@@ -521,6 +558,34 @@ function RestartDialog({ pid, onCancel, onConfirm }: { pid: number; onCancel: ()
         <div className="dialog-actions">
           <button type="button" className="secondary-button" onClick={onCancel}>取消</button>
           <button type="button" className="danger-button" autoFocus onClick={onConfirm}><PoweroffOutlined />确认重启</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PublicAccessDialog({ enabled, onCancel, onConfirm }: {
+  enabled: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onCancel();
+    }}>
+      <section className="config-dialog restart-dialog" role="alertdialog" aria-modal="true" aria-labelledby="public-access-dialog-title">
+        <div className="restart-dialog-icon"><GlobalOutlined /></div>
+        <span className="eyebrow">Public access</span>
+        <h2 id="public-access-dialog-title">{enabled ? '确认开启公网访问？' : '确认关闭公网访问？'}</h2>
+        <p>{enabled
+          ? '系统将启用并启动 SSH 隧道和 frpc，stock.clical.xin 会重新对互联网开放。'
+          : '系统将停止并禁用 SSH 隧道和 frpc，所有公网用户会立即断开；本地访问不受影响。'}</p>
+        <div className="restart-impact"><WarningOutlined /> 此操作会立即改变公网可达性，请确认当前业务状态允许切换。</div>
+        <div className="dialog-actions">
+          <button className="secondary-button" type="button" onClick={onCancel}>取消</button>
+          <button className={enabled ? 'primary-button' : 'danger-button'} type="button" onClick={onConfirm}>
+            {enabled ? '确认开启' : '确认关闭'}
+          </button>
         </div>
       </section>
     </div>
@@ -938,12 +1003,18 @@ function DiagnosticsSection({ checks }: { checks: DiagnosticCheck[] }) {
 
 function ConfigurationSection({
   items,
+  publicAccess,
+  publicAccessUpdating,
+  onTogglePublicAccess,
   fundFlowProgress,
   onEdit,
   search,
   onSearchChange,
 }: {
   items: AdminConfigItem[];
+  publicAccess: PublicAccessStatus | null;
+  publicAccessUpdating: boolean;
+  onTogglePublicAccess: (enabled: boolean) => void;
   fundFlowProgress: DataUpdateProgressItem | null;
   onEdit: (item: AdminConfigItem) => void;
   search: string;
@@ -975,6 +1046,11 @@ function ConfigurationSection({
       <InlineMessage level="warning">
         管理台不会返回密钥明文。修改会写入 server/.env，但已创建的数据库连接、AI Provider 和调度器需要重启后端才能完全生效。
       </InlineMessage>
+      <PublicAccessCard
+        status={publicAccess}
+        updating={publicAccessUpdating}
+        onToggle={onTogglePublicAccess}
+      />
       {categories.map((category) => {
         const categoryItems = items.filter((item) => item.category === category && matchesSearch(item));
         if (categoryItems.length === 0) return null;
@@ -1009,6 +1085,50 @@ function ConfigurationSection({
         );
       })}
     </>
+  );
+}
+
+function PublicAccessCard({ status, updating, onToggle }: {
+  status: PublicAccessStatus | null;
+  updating: boolean;
+  onToggle: (enabled: boolean) => void;
+}) {
+  const enabled = status?.enabled === true;
+  const healthy = enabled && status?.running === true;
+  const label = !status ? '读取中' : !status.available ? '不可用' : healthy ? '已开放' : enabled ? '通道异常' : '已关闭';
+  const level: HealthLevel = healthy ? 'healthy' : enabled ? 'warning' : status?.available ? 'disabled' : 'critical';
+  return (
+    <Panel title="公网访问" subtitle="控制 stock.clical.xin 是否允许从互联网访问" icon={<GlobalOutlined />}>
+      <article className={`public-access-card status-surface-${level}`} aria-live="polite">
+        <div className="public-access-copy">
+          <div className="public-access-title">
+            <strong>{status?.domain ?? 'https://stock.clical.xin'}</strong>
+            <span className={`status-badge level-${level}`}>{label}</span>
+          </div>
+          <p>{status?.message ?? (enabled
+            ? '公网入口已启用；本地网站、SSH 隧道和 frpc 必须同时保持运行。'
+            : '关闭后公网会立即失去访问能力，本地网站与管理后台不受影响。')}</p>
+          <div className="public-access-tasks">
+            {(status?.tasks ?? []).map((task) => (
+              <span key={task.name} className={task.running ? 'is-running' : ''}>
+                {task.name} · {task.running ? '运行中' : task.enabled ? task.state : '已禁用'}
+              </span>
+            ))}
+          </div>
+        </div>
+        <button
+          type="button"
+          className={enabled ? 'danger-button' : 'secondary-button'}
+          role="switch"
+          aria-checked={enabled}
+          disabled={!status?.available || updating}
+          onClick={() => onToggle(!enabled)}
+        >
+          <PoweroffOutlined spin={updating} />
+          {updating ? '处理中' : enabled ? '关闭公网访问' : '开启公网访问'}
+        </button>
+      </article>
+    </Panel>
   );
 }
 

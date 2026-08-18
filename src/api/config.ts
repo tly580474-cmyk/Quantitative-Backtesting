@@ -24,5 +24,10 @@ if (requestedDataSource === 'indexeddb' && !allowIndexedDbMigration) {
 export const DATA_SOURCE: 'indexeddb' | 'api' = requestedDataSource;
 export const INDEXEDDB_MIGRATION_MODE = DATA_SOURCE === 'indexeddb';
 
+const isLocalBrowser =
+  typeof window !== 'undefined'
+  && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+const configuredApiBaseUrl = import.meta.env.VITE_API_URL?.trim();
+
 export const API_BASE_URL: string =
-  import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+  isLocalBrowser ? configuredApiBaseUrl || 'http://127.0.0.1:3001' : '';

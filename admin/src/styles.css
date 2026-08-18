@@ -296,6 +296,16 @@ button:focus-visible, input:focus-visible {
 .config-value span { display: block; color: #d8e0eb; font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
 .config-value small { display: block; margin-top: 5px; color: var(--faint); }
 
+.public-access-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px; border: 1px solid var(--border); border-radius: 12px; }
+.public-access-copy { min-width: 0; flex: 1; }
+.public-access-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.public-access-title strong { color: var(--text); font-size: 15px; }
+.public-access-copy p { margin: 8px 0 12px; color: var(--muted); line-height: 1.6; }
+.public-access-tasks { display: flex; flex-wrap: wrap; gap: 8px; }
+.public-access-tasks span { padding: 4px 8px; color: var(--faint); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; }
+.public-access-tasks span.is-running { color: var(--healthy); border-color: rgba(65, 211, 154, .35); }
+.public-access-card > button { flex: 0 0 auto; min-width: 150px; }
+
 .inline-message { min-height: 48px; padding: 11px 14px; border: 1px solid currentColor; border-radius: 9px; display: flex; align-items: center; gap: 10px; font-size: 13px; line-height: 1.5; }
 .inline-message > span:nth-child(2) { flex: 1; }
 .inline-message .icon-button { min-height: 32px; width: 32px; border: 0; background: transparent; color: currentColor; }
@@ -388,6 +398,8 @@ button:focus-visible, input:focus-visible {
   .config-row > .secondary-button { margin-left: 50px; width: calc(100% - 50px); }
   .fund-flow-summary-head { align-items: stretch; flex-direction: column; }
   .fund-flow-facts { grid-template-columns: 1fr; }
+  .public-access-card { align-items: stretch; flex-direction: column; }
+  .public-access-card > button { width: 100%; }
   .login-card { padding: 26px 22px; }
 }
 

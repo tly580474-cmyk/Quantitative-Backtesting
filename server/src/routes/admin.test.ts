@@ -127,4 +127,38 @@ describe('admin routes', () => {
     expect(requestRestart).toHaveBeenCalledOnce();
     await app.close();
   });
+
+  it('reads and toggles public access only for authenticated admins', async () => {
+    process.env.ADMIN_API_TOKEN = 'test-admin-token';
+    const setEnabled = vi.fn(async (enabled: boolean) => ({
+      available: true,
+      enabled,
+      running: enabled,
+      domain: 'https://stock.clical.xin',
+      message: null,
+      tasks: [],
+    }));
+    const app = Fastify();
+    registerAdminRoutes(app, {
+      pool: {} as Pool,
+      dbOnline: false,
+      config: loadConfig(),
+      envFilePath: '.env',
+      publicAccess: {
+        status: async () => ({ available: true, enabled: true, running: true, domain: 'https://stock.clical.xin', message: null, tasks: [] }),
+        setEnabled,
+      },
+    });
+    expect((await app.inject({ method: 'GET', url: '/api/admin/public-access' })).statusCode).toBe(401);
+    const updated = await app.inject({
+      method: 'PUT',
+      url: '/api/admin/public-access',
+      headers: { authorization: 'Bearer test-admin-token' },
+      payload: { enabled: false },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().enabled).toBe(false);
+    expect(setEnabled).toHaveBeenCalledWith(false);
+    await app.close();
+  });
 });

@@ -213,3 +213,18 @@ export interface BackendRestartResult {
   accepted: boolean;
   requestedAt: string;
 }
+
+export interface PublicAccessStatus {
+  available: boolean;
+  enabled: boolean;
+  running: boolean;
+  domain: string;
+  message: string | null;
+  tasks: Array<{
+    name: string;
+    found: boolean;
+    enabled: boolean;
+    running: boolean;
+    state: string;
+  }>;
+}

@@ -8,11 +8,19 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5558,
     strictPort: true,
+    allowedHosts: ['stock.clical.xin'],
+    proxy: {
+      '/api': 'http://127.0.0.1:3001',
+    },
   },
   preview: {
     host: '127.0.0.1',
     port: 5558,
     strictPort: true,
+    allowedHosts: ['stock.clical.xin'],
+    proxy: {
+      '/api': 'http://127.0.0.1:3001',
+    },
   },
   resolve: {
     alias: {

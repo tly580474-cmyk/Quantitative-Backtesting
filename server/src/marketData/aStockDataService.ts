@@ -512,33 +512,56 @@ export async function fetchMarketIndexQuotes(): Promise<StockQuote[]> {
   // 1. 批量拉取腾讯支持的指数（A 股 + 港股 + 美股）
   const tencentQuotes: StockQuote[] = [];
   if (tencentIndices.length > 0) {
-    const text = await fetchText(
-      `${TENCENT_QUOTE_URL}${tencentIndices.map((item) => item.prefixed).join(',')}`,
-      'gbk',
-    );
-    for (const item of tencentIndices) {
-      const pattern = new RegExp(`v_${item.prefixed}="([\\s\\S]*?)";`);
-      const values = text.match(pattern)?.[1]?.split('~') ?? [];
-      // 国际指数字段数可能少于 A 股，放宽到 35（确保有 price/change/high/low）
-      if (values.length < 35 || !values[1]) continue;
-      tencentQuotes.push(parseTencentQuote(values, {
-        code: item.code,
-        name: item.name,
-        market: item.market,
-        type: 'index' as const,
-        industry: '大盘指数',
-        listDate: null,
-        source: ['腾讯财经'],
-      }));
+    try {
+      const text = await fetchText(
+        `${TENCENT_QUOTE_URL}${tencentIndices.map((item) => item.prefixed).join(',')}`,
+        'gbk',
+      );
+      for (const item of tencentIndices) {
+        const pattern = new RegExp(`v_${item.prefixed}="([\\s\\S]*?)";`);
+        const values = text.match(pattern)?.[1]?.split('~') ?? [];
+        // 国际指数字段数可能少于 A 股，放宽到 35（确保有 price/change/high/low）
+        if (values.length < 35 || !values[1]) continue;
+        tencentQuotes.push(parseTencentQuote(values, {
+          code: item.code,
+          name: item.name,
+          market: item.market,
+          type: 'index' as const,
+          industry: '大盘指数',
+          listDate: null,
+          source: ['腾讯财经'],
+        }));
+      }
+    } catch {
+      // 公网行情源不可用时继续使用本地日线，不让整个市场总览请求挂起。
     }
   }
 
-  // 2. 逐个拉取东方财富指数（日经/KOSPI）
-  const eastmoneyQuotes = await Promise.all(
-    eastmoneyIndices.map((item) => fetchEastmoneyIndexQuote(item)),
+  // 2. 补齐腾讯未返回的指数，并从本地数据读取日经/KOSPI。
+  // 避免把会串行重试的东方财富实时请求放进 15 秒一次的总览轮询。
+  const resolvedCodes = new Set(tencentQuotes.map((item) => item.code));
+  const localFallbacks = await Promise.all(
+    [...tencentIndices.filter((item) => !resolvedCodes.has(item.code)), ...eastmoneyIndices]
+      .map(async (item) => {
+        const local = await getLatestDatasetCandlesBySymbol(item.code, 'index', 2).catch(() => null);
+        if (!local?.data.length) return null;
+        return buildIndexQuoteFromKlines(
+          item,
+          local.data.map((bar) => ({
+            date: bar.time,
+            open: Number(bar.open),
+            close: Number(bar.close),
+            high: Number(bar.high),
+            low: Number(bar.low),
+            volume: Number(bar.volume ?? 0),
+            amount: bar.turnover == null ? undefined : Number(bar.turnover) * 100_000_000,
+          })),
+          ['本地指数数据'],
+        );
+      }),
   );
 
-  return [...tencentQuotes, ...eastmoneyQuotes.filter((q): q is StockQuote => q !== null)];
+  return [...tencentQuotes, ...localFallbacks.filter((q): q is StockQuote => q !== null)];
 }
 
 /** 通过东方财富 API 获取单个国际指数行情 */

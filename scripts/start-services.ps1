@@ -13,7 +13,7 @@ $logRoot = Join-Path $root 'logs'
 
 # Match the dev launcher defaults so frontend talks to the local backend.
 $env:VITE_DATA_SOURCE = 'api'
-$env:VITE_API_URL = 'http://127.0.0.1:3001'
+$env:VITE_API_URL = ''
 
 New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 

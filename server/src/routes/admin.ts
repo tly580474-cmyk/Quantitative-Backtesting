@@ -15,8 +15,9 @@ import {
   resolveDatabaseBackupDownload,
   startDatabaseBackupExport,
 } from '../admin/databaseBackupExport.js';
+import { publicAccessControl, type PublicAccessStatus } from '../admin/publicAccess.js';
 
-interface AdminRouteOptions {
+export interface AdminRouteOptions {
   pool: Pool;
   dbOnline: boolean;
   config: EnvConfig;
@@ -24,6 +25,10 @@ interface AdminRouteOptions {
   restart?: {
     available: boolean;
     request: () => void;
+  };
+  publicAccess?: {
+    status: () => Promise<PublicAccessStatus>;
+    setEnabled: (enabled: boolean) => Promise<PublicAccessStatus>;
   };
 }
 
@@ -34,9 +39,12 @@ const updateConfigSchema = z.object({
   ),
 });
 
+const publicAccessSchema = z.object({ enabled: z.boolean() });
+
 export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOptions): void {
   const overviewCacheTtl = Number.parseInt(options.config.ADMIN_OVERVIEW_CACHE_TTL_MS, 10);
   const overviewCache = createOverviewCache(Number.isFinite(overviewCacheTtl) ? overviewCacheTtl : 10_000);
+  const publicAccess = options.publicAccess ?? publicAccessControl;
 
   app.get('/api/admin/auth/status', async () => ({
     enabled: options.config.ADMIN_API_TOKEN.trim().length > 0,
@@ -151,6 +159,34 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       ? null
       : '当前后端不是由项目监督进程启动，请通过项目启动脚本重新启动后再使用快捷重启。',
   }));
+
+  app.get('/api/admin/public-access', { preHandler: authorize }, async (_request, reply) => {
+    try {
+      return reply.send(await publicAccess.status());
+    } catch (error) {
+      return reply.status(503).send({
+        error: 'PUBLIC_ACCESS_STATUS_FAILED',
+        message: error instanceof Error ? error.message : '无法读取公网访问状态',
+      });
+    }
+  });
+
+  app.put('/api/admin/public-access', { preHandler: authorize }, async (request, reply) => {
+    const parsed = publicAccessSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'INVALID_PUBLIC_ACCESS_SETTING', message: '公网访问配置无效' });
+    }
+    try {
+      const status = await publicAccess.setEnabled(parsed.data.enabled);
+      request.log.warn({ enabled: parsed.data.enabled }, 'Admin changed public access');
+      return reply.send(status);
+    } catch (error) {
+      return reply.status(503).send({
+        error: 'PUBLIC_ACCESS_UPDATE_FAILED',
+        message: error instanceof Error ? error.message : '公网访问配置更新失败',
+      });
+    }
+  });
 
   app.post('/api/admin/restart', { preHandler: authorize }, async (request, reply) => {
     if (!options.restart?.available) {

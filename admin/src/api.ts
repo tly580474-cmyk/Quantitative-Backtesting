@@ -1,4 +1,4 @@
-import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartResult, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressResponse, MetricsHistoryResponse } from './types';
+import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartResult, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressResponse, MetricsHistoryResponse, PublicAccessStatus } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3001';
 
@@ -98,6 +98,18 @@ export async function restartBackend(token: string): Promise<BackendRestartResul
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: '{}',
+  }, token);
+}
+
+export async function getPublicAccessStatus(token: string): Promise<PublicAccessStatus> {
+  return request('/api/admin/public-access', {}, token);
+}
+
+export async function updatePublicAccess(token: string, enabled: boolean): Promise<PublicAccessStatus> {
+  return request('/api/admin/public-access', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
   }, token);
 }
 
