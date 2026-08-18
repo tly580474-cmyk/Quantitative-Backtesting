@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route, useLocation, useNavigate, useParams } from '
 import { Checkbox, ConfigProvider, App as AntApp, Button, DatePicker, Dropdown, Modal, Popover, Segmented, Space, Tag, theme as antdTheme } from 'antd';
 import type { MenuProps } from 'antd';
 import {
+  AimOutlined,
   AreaChartOutlined,
   BarChartOutlined,
   ControlOutlined,
@@ -73,6 +74,8 @@ const AutomatedFactorMiningPage = lazy(
   () => import('./features/factorResearch/AutomatedFactorMiningPage'));
 const FactorStrategyPage = lazy(() => import('./features/factorResearch/FactorStrategyPage'));
 const PaperTradingPage = lazy(() => import('./features/paperTrading/PaperTradingPage'));
+const MarketSenseTrainingPage = lazy(
+  () => import('./features/marketSenseTraining/MarketSenseTrainingPage'));
 const StockSelectionPage = lazy(() => import('./features/stockSelection/StockSelectionPage'));
 const AgentRunner = lazy(() => import('./features/agent/AgentRunner'));
 const AgentReportHistory = lazy(() => import('./features/agent/AgentReportHistory'));
@@ -171,6 +174,7 @@ const NAV_ITEMS: MenuProps['items'] = [
     label: '回测实验',
     children: [
       { key: '/backtest', icon: <ExperimentOutlined />, label: '策略回测' },
+      { key: '/market-sense-training', icon: <AimOutlined />, label: '盘感训练' },
       { key: '/paper-trading', icon: <SwapOutlined />, label: '模拟交易' },
     ],
   },
@@ -190,6 +194,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/analysis': '行情分析',
   '/data': '数据管理',
   '/backtest': '策略回测',
+  '/market-sense-training': '盘感训练',
   '/paper-trading': '模拟交易',
   '/results': '回测结果',
   '/factors': '因子研究',
@@ -923,7 +928,10 @@ function AppContent() {
             </>
           ) : undefined}
           center={
-            <Suspense key={colorMode} fallback={<PageSkeleton />}>
+            <Suspense
+              key={location.pathname === '/market-sense-training' ? 'market-sense-training' : colorMode}
+              fallback={<PageSkeleton />}
+            >
               <Routes>
                 <Route path="/" element={<MarketDataRoute />} />
                 <Route path="/analysis" element={<MarketAnalysisRoute />} />
@@ -933,6 +941,7 @@ function AppContent() {
                 <Route path="/watchlist" element={<WatchlistRoute />} />
                 <Route path="/stock-selection" element={<StockSelectionPage />} />
                 <Route path="/backtest" element={<BacktestRunner />} />
+                <Route path="/market-sense-training" element={<MarketSenseTrainingPage />} />
                 <Route path="/paper-trading" element={<PaperTradingPage />} />
                 <Route path="/results" element={<BacktestResultsPage />} />
                 <Route path="/factors" element={<FactorResearchPage />} />
