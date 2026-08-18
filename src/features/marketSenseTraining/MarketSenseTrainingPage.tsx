@@ -22,6 +22,7 @@ import { apiFetch } from '@/api/client';
 import type { KlinePoint } from '@/features/marketData/types';
 import { useDarkMode } from '@/theme';
 import TrainingChart, {
+  type TrainingChartSnapshot,
   type TrainingDrawingMode,
   type TrainingIndicator,
 } from './TrainingChart';
@@ -37,25 +38,20 @@ import {
   TRAINING_INITIAL_CASH,
   type TrainingPortfolio,
 } from './engine';
+import {
+  eligibleDecisionIndices,
+  reconstructQfqFromPreviousClose,
+  toTrainingCandidate,
+  type TrainingCandidate,
+} from './universe';
 
 const INITIAL_VISIBLE_BARS = 80;
 const TARGET_FUTURE_BARS = 120;
 const MIN_FUTURE_BARS = 50;
+const TRAINING_CANDIDATE_CONCURRENCY = 4;
+const TRAINING_POOL_CACHE_TTL_MS = 10 * 60 * 1000;
 
-const TRAINING_POOL = [
-  { code: '600519', name: '贵州茅台', market: '沪市' },
-  { code: '000858', name: '五粮液', market: '深市' },
-  { code: '300750', name: '宁德时代', market: '创业板' },
-  { code: '600036', name: '招商银行', market: '沪市' },
-  { code: '601318', name: '中国平安', market: '沪市' },
-  { code: '600900', name: '长江电力', market: '沪市' },
-  { code: '000333', name: '美的集团', market: '深市' },
-  { code: '002594', name: '比亚迪', market: '深市' },
-  { code: '688981', name: '中芯国际', market: '科创板' },
-  { code: '601899', name: '紫金矿业', market: '沪市' },
-  { code: '000001', name: '平安银行', market: '深市' },
-  { code: '601012', name: '隆基绿能', market: '沪市' },
-] as const;
+let trainingPoolCache: { expiresAt: number; items: TrainingCandidate[] } | null = null;
 
 interface KlineResponse {
   items: KlinePoint[];
@@ -66,6 +62,11 @@ interface TrainingInstrument {
   code: string;
   name: string;
   market: string;
+}
+
+interface InstrumentListResponse {
+  items: import('@/features/marketData/types').Instrument[];
+  total: number;
 }
 
 type Phase = 'idle' | 'loading' | 'active' | 'finished' | 'error';
@@ -108,6 +109,17 @@ function pct(value: number) {
   return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
 
+function chartNumber(value: number | null | undefined, digits = 2) {
+  return value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits);
+}
+
+function compactVolume(value: number) {
+  if (!Number.isFinite(value)) return '—';
+  if (Math.abs(value) >= 100_000_000) return `${(value / 100_000_000).toFixed(2)}亿`;
+  if (Math.abs(value) >= 10_000) return `${(value / 10_000).toFixed(2)}万`;
+  return Math.round(value).toLocaleString('zh-CN');
+}
+
 function shuffle<T>(items: readonly T[]): T[] {
   const next = [...items];
   for (let index = next.length - 1; index > 0; index -= 1) {
@@ -125,6 +137,69 @@ function cleanBars(items: KlinePoint[]): KlinePoint[] {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+async function loadTrainingPool(): Promise<TrainingCandidate[]> {
+  if (trainingPoolCache && trainingPoolCache.expiresAt > Date.now()) {
+    return trainingPoolCache.items;
+  }
+  const fetchPage = (market: 'SH' | 'SZ', offset: number, limit: number) => apiFetch<InstrumentListResponse>(
+    `/api/instruments?market=${market}&type=stock&status=active&excludeDelisted=true&excludeSt=true&offset=${offset}&limit=${limit}`,
+  );
+  const [shSummary, szSummary] = await Promise.all([
+    fetchPage('SH', 0, 1),
+    fetchPage('SZ', 0, 1),
+  ]);
+  const totals = { SH: shSummary.total, SZ: szSummary.total } as const;
+  const grandTotal = totals.SH + totals.SZ;
+  if (grandTotal === 0) return [];
+
+  const loadCircularSample = async (market: 'SH' | 'SZ', sampleSize: number) => {
+    const total = totals[market];
+    if (total === 0 || sampleSize === 0) return [];
+    const size = Math.min(total, sampleSize);
+    const offset = Math.floor(Math.random() * total);
+    const firstSize = Math.min(size, total - offset);
+    const first = await fetchPage(market, offset, firstSize);
+    const remaining = size - first.items.length;
+    if (remaining <= 0) return first.items;
+    const wrapped = await fetchPage(market, 0, remaining);
+    return [...first.items, ...wrapped.items];
+  };
+
+  const targetSampleSize = Math.min(300, grandTotal);
+  const shSampleSize = Math.min(totals.SH, Math.round(targetSampleSize * totals.SH / grandTotal));
+  const szSampleSize = Math.min(totals.SZ, targetSampleSize - shSampleSize);
+  const instruments = (await Promise.all([
+    loadCircularSample('SH', shSampleSize),
+    loadCircularSample('SZ', szSampleSize),
+  ])).flat();
+  const candidates = instruments
+    .filter((item) => (item.recordCount ?? 0) >= INITIAL_VISIBLE_BARS + MIN_FUTURE_BARS)
+    .map(toTrainingCandidate)
+    .filter((item): item is TrainingCandidate => item !== null);
+  trainingPoolCache = { expiresAt: Date.now() + TRAINING_POOL_CACHE_TTL_MS, items: candidates };
+  return candidates;
+}
+
+function trainingHistoryStartDate(): string {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() - 10);
+  return date.toISOString().slice(0, 10);
+}
+
+async function loadCandidateSession(candidate: TrainingCandidate): Promise<KlinePoint[] | null> {
+  const response = await apiFetch<KlineResponse>(
+    `/api/market-data/stocks/${candidate.code}/kline?period=day&adjustmentMode=none&fullHistory=true&startDate=${trainingHistoryStartDate()}`,
+  );
+  const bars = reconstructQfqFromPreviousClose(cleanBars(response.items ?? []));
+  const decisionIndices = eligibleDecisionIndices(bars, INITIAL_VISIBLE_BARS, MIN_FUTURE_BARS);
+  if (decisionIndices.length === 0) return null;
+  const start = decisionIndices[Math.floor(Math.random() * decisionIndices.length)];
+  return bars.slice(
+    start - INITIAL_VISIBLE_BARS + 1,
+    Math.min(bars.length, start + TARGET_FUTURE_BARS + 1),
+  );
+}
+
 export default function MarketSenseTrainingPage() {
   const { message } = AntApp.useApp();
   const isDark = useDarkMode();
@@ -140,11 +215,21 @@ export default function MarketSenseTrainingPage() {
   const [drawingMode, setDrawingMode] = useState<TrainingDrawingMode>(initialCache?.drawingMode ?? 'none');
   const [drawings, setDrawings] = useState<TrainingDrawing[]>(initialCache?.drawings ?? []);
   const [draftPoint, setDraftPoint] = useState<TrainingDrawingPoint | null>(initialCache?.draftPoint ?? null);
+  const [chartSnapshot, setChartSnapshot] = useState<TrainingChartSnapshot | null>(null);
 
   const currentBar = sessionBars[cursor];
-  const visibleBars = phase === 'finished'
-    ? sessionBars
-    : sessionBars.slice(0, cursor + 1);
+  const previousBar = cursor > 0 ? sessionBars[cursor - 1] : undefined;
+  const currentChangePercent = currentBar && previousBar?.close
+    ? (currentBar.close - previousBar.close) / previousBar.close * 100
+    : 0;
+  const displayedBar = chartSnapshot?.bar ?? currentBar;
+  const changePercent = chartSnapshot?.changePercent ?? currentChangePercent;
+  const changeTone = changePercent > 0 ? 'is-up' : changePercent < 0 ? 'is-down' : 'is-flat';
+  const changeText = `${changePercent > 0 ? '+' : ''}${chartNumber(changePercent)}%`;
+  const visibleBars = useMemo(
+    () => phase === 'finished' ? sessionBars : sessionBars.slice(0, cursor + 1),
+    [cursor, phase, sessionBars],
+  );
   const equity = currentBar ? portfolioEquity(portfolio, currentBar.close) : TRAINING_INITIAL_CASH;
   const unrealizedPnl = currentBar
     ? (currentBar.close - portfolio.averageCost) * portfolio.quantity
@@ -159,6 +244,10 @@ export default function MarketSenseTrainingPage() {
       : null,
     [currentBar, phase, portfolio],
   );
+  const trainingStartBar = sessionBars[INITIAL_VISIBLE_BARS - 1];
+  const stockPeriodReturnPct = trainingStartBar && currentBar && trainingStartBar.close > 0
+    ? (currentBar.close / trainingStartBar.close - 1) * 100
+    : 0;
 
   useEffect(() => {
     if (phase !== 'active' && phase !== 'finished') return;
@@ -186,34 +275,41 @@ export default function MarketSenseTrainingPage() {
     setDrawingMode('none');
     setDrawings([]);
     setDraftPoint(null);
-    for (const candidate of shuffle(TRAINING_POOL)) {
-      try {
-        const response = await apiFetch<KlineResponse>(
-          `/api/market-data/stocks/${candidate.code}/kline?period=day&adjustmentMode=qfq&localFirst=true`,
-        );
-        const bars = cleanBars(response.items ?? []);
-        if (bars.length < INITIAL_VISIBLE_BARS + MIN_FUTURE_BARS) continue;
-        const maxStart = bars.length - MIN_FUTURE_BARS - 1;
-        const earliestStart = INITIAL_VISIBLE_BARS - 1;
-        const start = earliestStart + Math.floor(
-          Math.random() * Math.max(1, maxStart - earliestStart + 1),
-        );
-        const sliceStart = start - INITIAL_VISIBLE_BARS + 1;
-        const sliceEnd = Math.min(bars.length, start + TARGET_FUTURE_BARS + 1);
-        const nextBars = bars.slice(sliceStart, sliceEnd);
+    setChartSnapshot(null);
+    let trainingPool: TrainingCandidate[];
+    try {
+      trainingPool = shuffle(await loadTrainingPool());
+    } catch {
+      setError('无法读取本地 A 股股票池，请确认数据库与证券目录服务可用。');
+      setPhase('error');
+      return;
+    }
+    for (let offset = 0; offset < trainingPool.length; offset += TRAINING_CANDIDATE_CONCURRENCY) {
+      const batch = trainingPool.slice(offset, offset + TRAINING_CANDIDATE_CONCURRENCY);
+      const results = await Promise.all(batch.map(async (candidate) => {
+        try {
+          return { candidate, bars: await loadCandidateSession(candidate) };
+        } catch {
+          return { candidate, bars: null };
+        }
+      }));
+      const eligible = results.filter(
+        (result): result is { candidate: TrainingCandidate; bars: KlinePoint[] } => result.bars !== null,
+      );
+      if (eligible.length > 0) {
+        const selected = eligible[Math.floor(Math.random() * eligible.length)];
+        const nextBars = selected.bars;
         const initialPortfolio = recordEquity(
           createTrainingPortfolio(),
           nextBars[INITIAL_VISIBLE_BARS - 1],
         );
-        setInstrument(candidate);
+        setInstrument(selected.candidate);
         setSessionBars(nextBars);
         setCursor(INITIAL_VISIBLE_BARS - 1);
         setPortfolio(initialPortfolio);
         setLots(1);
         setPhase('active');
         return;
-      } catch {
-        // Try another instrument so one unavailable data source does not block training.
       }
     }
     setError('没有找到足够长度的本地日线数据，请先在数据中心同步历史行情。');
@@ -349,7 +445,38 @@ export default function MarketSenseTrainingPage() {
           <div className="market-sense-chart-meta">
             <div>
               <span>{phase === 'finished' ? instrument?.market : 'A 股随机样本'}</span>
-              <strong>{phase === 'finished' ? currentBar?.date : `第 ${completedSteps + 1} 个决策点`}</strong>
+              <div className="market-sense-meta-primary">
+                <strong>{phase === 'finished'
+                  ? displayedBar?.date
+                  : chartSnapshot && chartSnapshot.index < visibleBars.length - 1
+                    ? `第 ${chartSnapshot.index + 1} 根 K 线`
+                    : `第 ${completedSteps + 1} 个决策点`}</strong>
+                <span className={`market-sense-change ${changeTone}`}>涨跌幅 {changeText}</span>
+              </div>
+              {displayedBar && <div className="market-sense-hover-stats" aria-label="十字光标行情与指标数据">
+                <span>开 <b>{chartNumber(displayedBar.open)}</b></span>
+                <span>高 <b>{chartNumber(displayedBar.high)}</b></span>
+                <span>低 <b>{chartNumber(displayedBar.low)}</b></span>
+                <span>收 <b>{chartNumber(displayedBar.close)}</b></span>
+                <span>量 <b>{compactVolume(displayedBar.volume)}</b></span>
+                {chartSnapshot && indicators.includes('ma') && <>
+                  <span className="ma5">MA5 <b>{chartNumber(chartSnapshot.indicator.ma5)}</b></span>
+                  <span className="ma10">MA10 <b>{chartNumber(chartSnapshot.indicator.ma10)}</b></span>
+                  <span className="ma20">MA20 <b>{chartNumber(chartSnapshot.indicator.ma20)}</b></span>
+                </>}
+                {chartSnapshot && indicators.includes('boll') && <>
+                  <span className="boll">BOLL上 <b>{chartNumber(chartSnapshot.indicator.bollUpper)}</b></span>
+                  <span className="boll-mid">中 <b>{chartNumber(chartSnapshot.indicator.bollMiddle)}</b></span>
+                  <span className="boll">下 <b>{chartNumber(chartSnapshot.indicator.bollLower)}</b></span>
+                </>}
+                {chartSnapshot && indicators.includes('rsi') &&
+                  <span className="rsi">RSI14 <b>{chartNumber(chartSnapshot.indicator.rsi14)}</b></span>}
+                {chartSnapshot && indicators.includes('macd') && <>
+                  <span className="dif">DIF <b>{chartNumber(chartSnapshot.indicator.macdDif, 3)}</b></span>
+                  <span className="dea">DEA <b>{chartNumber(chartSnapshot.indicator.macdDea, 3)}</b></span>
+                  <span className="macd">MACD <b>{chartNumber(chartSnapshot.indicator.macdHistogram, 3)}</b></span>
+                </>}
+              </div>}
             </div>
             <div className="market-sense-legend"><span className="up">红涨</span><span className="down">绿跌</span><span>前复权日 K</span></div>
           </div>
@@ -427,6 +554,7 @@ export default function MarketSenseTrainingPage() {
           drawingMode={drawingMode}
           drawings={drawings}
           onChartPoint={handleChartPoint}
+          onCrosshairChange={setChartSnapshot}
         />
       </main>
 
@@ -437,6 +565,12 @@ export default function MarketSenseTrainingPage() {
             <span>训练完成</span>
             <strong className={summary.totalReturnPct >= 0 ? 'is-profit' : 'is-loss'}>{pct(summary.totalReturnPct)}</strong>
             <small>最终权益 ¥{money(summary.finalEquity)}</small>
+            <div className="market-sense-benchmark-return" aria-label={`个股同期涨跌幅 ${pct(stockPeriodReturnPct)}`}>
+              <span>个股同期涨跌幅</span>
+              <strong className={stockPeriodReturnPct >= 0 ? 'is-profit' : 'is-loss'}>
+                {pct(stockPeriodReturnPct)}
+              </strong>
+            </div>
           </div>
           <div className="market-sense-result-grid">
             <div><span>最大回撤</span><strong>{summary.maxDrawdownPct.toFixed(2)}%</strong></div>

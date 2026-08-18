@@ -1022,6 +1022,7 @@ export async function fetchStockKlineFromDb(
 export async function fetchStockFullHistoryFromDb(
   input: string,
   adjustmentMode: HistoryAdjustmentMode = 'qfq',
+  range?: { startDate?: string; endDate?: string },
 ): Promise<DatabaseKlineResult> {
   const security = resolveSecurity(input);
   const assetType = inferType(security.code, security.market);
@@ -1058,10 +1059,16 @@ export async function fetchStockFullHistoryFromDb(
     return { items: [], adjustmentMode: effectiveRequestedMode };
   }
 
-  const history = await getHistoryDailyBars(instrument.instrumentKey, { limit: 20_000 });
-  if (history.total === 0) return { items: [], adjustmentMode: effectiveRequestedMode };
+  const historyRows = range?.startDate || range?.endDate
+    ? await getHistoryDailyBarsInRange(
+        instrument.instrumentKey,
+        range.startDate ?? '1990-01-01',
+        range.endDate ?? new Date().toISOString().slice(0, 10),
+      )
+    : (await getHistoryDailyBars(instrument.instrumentKey, { limit: 20_000 })).data;
+  if (historyRows.length === 0) return { items: [], adjustmentMode: effectiveRequestedMode };
 
-  let bars = history.data;
+  let bars = historyRows;
   let effectiveAdjustmentMode = effectiveRequestedMode;
   if (effectiveRequestedMode !== 'none') {
     const adjustment = await getPublishedHistoryAdjustment(
@@ -1071,11 +1078,11 @@ export async function fetchStockFullHistoryFromDb(
     );
     if (adjustment?.factors.length) {
       bars = applyHistoryAdjustment(
-        history.data,
+        historyRows,
         adjustment.factors,
         adjustment.overrides,
         effectiveRequestedMode,
-      ) as typeof history.data;
+      ) as typeof historyRows;
     } else {
       effectiveAdjustmentMode = 'none';
     }
@@ -1089,6 +1096,7 @@ export async function fetchStockFullHistoryFromDb(
       close: Number(bar.close),
       high: Number(bar.high),
       low: Number(bar.low),
+      previousClose: bar.previousClose == null ? undefined : Number(bar.previousClose),
       volume: Number(bar.volume ?? 0),
       amount: bar.amount == null ? undefined : Number(bar.amount),
       turnoverRatePct: bar.turnoverRatePct == null

@@ -576,6 +576,8 @@ export function registerMarketDataRoutes(
       period: z.enum(['intraday', 'day', 'week', 'year']).default('day'),
       adjustmentMode: z.enum(['none', 'qfq', 'hfq']).default('qfq'),
       tradeDate: z.string().date().optional(),
+      startDate: z.string().date().optional(),
+      endDate: z.string().date().optional(),
       fullHistory: z.enum(['true', 'false'])
         .transform((value) => value === 'true')
         .default(false),
@@ -609,6 +611,7 @@ export function registerMarketDataRoutes(
           const database = await fetchStockFullHistoryFromDb(
             req.params.code,
             requestedAdjustmentMode,
+            { startDate: query.data.startDate, endDate: query.data.endDate },
           );
           effectiveAdjustmentMode = database.adjustmentMode;
           if (database.items.length === 0) {

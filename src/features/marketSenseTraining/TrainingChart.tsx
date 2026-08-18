@@ -5,7 +5,7 @@ import {
 } from 'lightweight-charts';
 import type { KlinePoint } from '@/features/marketData/types';
 import type { TrainingTrade } from './engine';
-import { calculateTrainingIndicators } from './indicators';
+import { calculateTrainingIndicators, type IndicatorValue } from './indicators';
 import {
   TrainingDrawingPrimitive,
   type TrainingDrawing,
@@ -14,6 +14,13 @@ import {
 
 export type TrainingIndicator = 'ma' | 'boll' | 'rsi' | 'macd';
 export type TrainingDrawingMode = 'none' | 'horizontal' | 'trend';
+
+export interface TrainingChartSnapshot {
+  index: number;
+  bar: KlinePoint;
+  indicator: IndicatorValue;
+  changePercent: number | null;
+}
 
 interface TrainingChartProps {
   data: KlinePoint[];
@@ -24,6 +31,7 @@ interface TrainingChartProps {
   drawingMode: TrainingDrawingMode;
   drawings: TrainingDrawing[];
   onChartPoint: (point: TrainingDrawingPoint) => void;
+  onCrosshairChange: (snapshot: TrainingChartSnapshot) => void;
 }
 
 function timeText(value: Time): string {
@@ -34,6 +42,7 @@ function timeText(value: Time): string {
 
 export default function TrainingChart({
   data, trades, revealTrades = false, theme, indicators, drawingMode, drawings, onChartPoint,
+  onCrosshairChange,
 }: TrainingChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -77,6 +86,19 @@ export default function TrainingChart({
     })));
 
     const computed = calculateTrainingIndicators(data);
+    const snapshots = data.map((bar, index): TrainingChartSnapshot => {
+      const previousClose = bar.previousClose ?? data[index - 1]?.close;
+      const suppliedChange = bar.changePct;
+      const changePercent = Number.isFinite(suppliedChange)
+        ? suppliedChange!
+        : previousClose && Number.isFinite(previousClose)
+          ? (bar.close - previousClose) / previousClose * 100
+          : null;
+      return { index, bar, indicator: computed[index], changePercent };
+    });
+    const snapshotByDate = new Map(snapshots.map((snapshot) => [snapshot.bar.date, snapshot]));
+    const latestSnapshot = snapshots[snapshots.length - 1];
+    onCrosshairChange(latestSnapshot);
     const addMainLine = (
       key: 'ma5' | 'ma10' | 'ma20' | 'bollUpper' | 'bollMiddle' | 'bollLower',
       color: string,
@@ -172,6 +194,16 @@ export default function TrainingChart({
       });
     }
 
+    let selectedDate = latestSnapshot.bar.date;
+    const handleCrosshairMove = (param: Parameters<typeof chart.subscribeCrosshairMove>[0] extends (value: infer T) => void ? T : never) => {
+      const date = param.time == null || !param.point ? null : timeText(param.time);
+      const snapshot = date ? snapshotByDate.get(date) : latestSnapshot;
+      if (!snapshot || snapshot.bar.date === selectedDate) return;
+      selectedDate = snapshot.bar.date;
+      onCrosshairChange(snapshot);
+    };
+    chart.subscribeCrosshairMove(handleCrosshairMove);
+
     chart.timeScale().fitContent();
     const panes = chart.panes();
     panes[volumePane]?.setHeight(78);
@@ -180,8 +212,12 @@ export default function TrainingChart({
       chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
     });
     observer.observe(container);
-    return () => { observer.disconnect(); chart.remove(); };
-  }, [data, drawingMode, drawings, indicators, onChartPoint, revealTrades, theme, trades]);
+    return () => {
+      observer.disconnect();
+      chart.unsubscribeCrosshairMove(handleCrosshairMove);
+      chart.remove();
+    };
+  }, [data, drawingMode, drawings, indicators, onChartPoint, onCrosshairChange, revealTrades, theme, trades]);
 
   return <div
     ref={containerRef}

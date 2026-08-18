@@ -9,6 +9,7 @@ export interface Instrument {
   status: string;
   startDate?: string;
   endDate?: string;
+  recordCount?: number;
   qualityStatus?: string;
   createdAt: string;
   updatedAt: string;
