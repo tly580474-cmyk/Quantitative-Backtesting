@@ -5,6 +5,7 @@ import {
   Button,
   Checkbox,
   Empty,
+  Grid,
   Input,
   List,
   Modal,
@@ -84,6 +85,8 @@ interface IndustryCount {
 }
 
 export default function DataLibrary({ onOpen }: DataLibraryProps) {
+  const screens = Grid.useBreakpoint();
+  const isCompactPagination = !screens.sm;
   const { message } = App.useApp();
   const [datasets, setDatasets] = useState<MarketDataset[]>([]);
   const activeType = useDataLibraryViewStore((state) => state.activeType);
@@ -694,19 +697,26 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
               </div>
             ))}
           </div>
-          <Pagination
-            className="data-library-stock-pagination"
-            current={stockPage}
-            pageSize={stockPageSize}
-            total={stockTotal}
-            showSizeChanger
-            pageSizeOptions={[20, 50, 100]}
-            showTotal={(total) => `共 ${total.toLocaleString()} 只证券`}
-            onChange={(page, pageSize) => {
-              setStockPageSize(pageSize);
-              setStockPage(pageSize !== stockPageSize ? 1 : page);
-            }}
-          />
+          <div className="data-library-stock-pagination">
+            {isCompactPagination && (
+              <Text type="secondary">共 {stockTotal.toLocaleString()} 只证券</Text>
+            )}
+            <Pagination
+              current={stockPage}
+              pageSize={stockPageSize}
+              total={stockTotal}
+              responsive
+              showLessItems
+              simple={isCompactPagination}
+              showSizeChanger={!isCompactPagination}
+              pageSizeOptions={[20, 50, 100]}
+              showTotal={isCompactPagination ? undefined : (total) => `共 ${total.toLocaleString()} 只证券`}
+              onChange={(page, pageSize) => {
+                setStockPageSize(pageSize);
+                setStockPage(pageSize !== stockPageSize ? 1 : page);
+              }}
+            />
+          </div>
         </>
       )}
     </>

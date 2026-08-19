@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react';
-import { Button, Layout, Menu, Tooltip, Typography } from 'antd';
+import { Button, Drawer, Layout, Menu, Tooltip, Typography } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   ArrowLeftOutlined,
+  CloseOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MoonOutlined,
@@ -48,6 +49,12 @@ export default function AppLayout({
   onToggleColorMode,
 }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const handleNavigate = (key: string) => {
+    onNavigate(key);
+    setMobileNavOpen(false);
+  };
 
   return (
     <Layout className="app-shell">
@@ -81,7 +88,7 @@ export default function AppLayout({
           selectedKeys={[activeKey]}
           items={navigationItems}
           inlineCollapsed={collapsed}
-          onClick={({ key }) => onNavigate(key)}
+          onClick={({ key }) => handleNavigate(key)}
         />
         <div className="app-nav-footer">
           <Tooltip title={collapsed ? '展开导航' : '收起导航'} placement="right">
@@ -109,6 +116,14 @@ export default function AppLayout({
       </Sider>
       <Layout className="app-main-shell">
         <Header className="app-header">
+          <Button
+            className="app-mobile-nav-trigger"
+            type="text"
+            icon={<MenuUnfoldOutlined />}
+            aria-label="打开主导航"
+            aria-expanded={mobileNavOpen}
+            onClick={() => setMobileNavOpen(true)}
+          />
           {!hidePageIdentity && (
             <div className="app-page-identity">
               <Text type="secondary">当前工作区</Text>
@@ -156,6 +171,52 @@ export default function AppLayout({
           </Content>
         </Layout>
       </Layout>
+      <Drawer
+        className="app-mobile-nav-drawer"
+        placement="left"
+        width={304}
+        open={mobileNavOpen}
+        closable={false}
+        onClose={() => setMobileNavOpen(false)}
+        styles={{ body: { padding: 0 } }}
+      >
+        <nav className="app-mobile-nav" aria-label="主导航">
+          <div className="app-mobile-nav-brand">
+            <BrandLogo className="app-brand-mark" />
+            <div className="app-brand-copy">
+              <Text strong>量化回测平台</Text>
+              <Text type="secondary">Research Workbench</Text>
+            </div>
+            <Button
+              type="text"
+              icon={<CloseOutlined />}
+              aria-label="关闭主导航"
+              onClick={() => setMobileNavOpen(false)}
+            />
+          </div>
+          {navigationContext && (
+            <div className="app-nav-context">
+              {navigationContext}
+            </div>
+          )}
+          <Menu
+            className="app-nav-menu"
+            mode="inline"
+            selectedKeys={[activeKey]}
+            items={navigationItems}
+            onClick={({ key }) => handleNavigate(key)}
+          />
+          <div className="app-mobile-nav-footer">
+            <Button
+              block
+              icon={colorMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+              onClick={onToggleColorMode}
+            >
+              {colorMode === 'dark' ? '切换为亮色模式' : '切换为暗色模式'}
+            </Button>
+          </div>
+        </nav>
+      </Drawer>
     </Layout>
   );
 }

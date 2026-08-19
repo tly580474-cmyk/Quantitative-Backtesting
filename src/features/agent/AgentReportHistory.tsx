@@ -106,10 +106,10 @@ export default function AgentReportHistory() {
       render: (_, record) => (
         <Space size="small">
           <Tooltip title="新窗口查看">
-            <Button size="small" icon={<EyeOutlined />} onClick={() => handleView(record.runId)} />
+            <Button aria-label="查看报告" size="small" icon={<EyeOutlined />} onClick={() => handleView(record.runId)} />
           </Tooltip>
           <Tooltip title="下载 HTML">
-            <Button size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(record.runId, record.title)} />
+            <Button aria-label="下载 HTML 报告" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(record.runId, record.title)} />
           </Tooltip>
         </Space>
       ),
@@ -117,8 +117,8 @@ export default function AgentReportHistory() {
   ];
 
   return (
-    <div style={{ padding: 24, height: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="agent-history-page">
+      <div className="agent-history-header">
         <Title level={4} style={{ margin: 0 }}>报告历史</Title>
         <Button icon={<ReloadOutlined />} onClick={fetchReports} loading={loading}>刷新</Button>
       </div>
@@ -129,6 +129,7 @@ export default function AgentReportHistory() {
           rowKey="runId"
           loading={loading}
           pagination={{ pageSize: 20, showSizeChanger: false }}
+          scroll={{ x: 900 }}
           locale={{ emptyText: <Empty description="暂无报告" /> }}
           size="middle"
         />

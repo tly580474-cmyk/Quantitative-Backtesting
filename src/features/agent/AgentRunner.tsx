@@ -803,6 +803,7 @@ export default function AgentRunner() {
       >
           <div style={{ padding: 12, borderBottom: `1px solid ${t.borderSubtle}` }}>
             <Button
+              aria-label="新建对话"
               type="primary"
               icon={<PlusOutlined />}
               block

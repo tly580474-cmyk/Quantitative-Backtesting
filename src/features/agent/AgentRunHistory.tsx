@@ -163,25 +163,25 @@ export default function AgentRunHistory() {
       render: (_, record) => (
         <Space size="small">
           <Tooltip title="查看详情">
-            <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.id)} />
+            <Button aria-label="查看运行详情" size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.id)} />
           </Tooltip>
           {(record.status === 'completed' || record.status === 'failed' || record.status === 'canceled') && (
             <Tooltip title="继续对话">
-              <Button size="small" type="primary" ghost icon={<MessageOutlined />} onClick={() => handleContinue(record)} />
+              <Button aria-label="继续对话" size="small" type="primary" ghost icon={<MessageOutlined />} onClick={() => handleContinue(record)} />
             </Tooltip>
           )}
           <Tooltip title="使用此 Prompt 重新发起">
-            <Button size="small" icon={<RedoOutlined />} onClick={() => handleRerun(record)} />
+            <Button aria-label="重新发起" size="small" icon={<RedoOutlined />} onClick={() => handleRerun(record)} />
           </Tooltip>
           {record.status === 'running' && (
             <Tooltip title="取消运行">
-              <Button size="small" danger icon={<StopOutlined />} onClick={() => handleCancel(record.id)} />
+              <Button aria-label="取消运行" size="small" danger icon={<StopOutlined />} onClick={() => handleCancel(record.id)} />
             </Tooltip>
           )}
           {record.status !== 'running' && (
             <Popconfirm title="确定删除此运行记录？" onConfirm={() => handleDelete(record.id)} okText="删除" cancelText="取消">
               <Tooltip title="删除">
-                <Button size="small" danger icon={<DeleteOutlined />} />
+                <Button aria-label="删除运行记录" size="small" danger icon={<DeleteOutlined />} />
               </Tooltip>
             </Popconfirm>
           )}
@@ -191,8 +191,8 @@ export default function AgentRunHistory() {
   ];
 
   return (
-    <div style={{ padding: 24, height: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="agent-history-page">
+      <div className="agent-history-header">
         <Title level={4} style={{ margin: 0 }}>运行历史</Title>
         <Space>
           <Select
@@ -218,6 +218,7 @@ export default function AgentRunHistory() {
           rowKey="id"
           loading={loading}
           pagination={{ pageSize: 20, showSizeChanger: false }}
+          scroll={{ x: 1200 }}
           locale={{ emptyText: <Empty description="暂无运行记录" /> }}
           size="middle"
         />
