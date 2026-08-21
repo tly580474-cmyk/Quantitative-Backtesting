@@ -66,7 +66,7 @@ cd server && npm run factor:composite -- --factors momentum_20,reversal_5 --star
 # Admin diagnostics
 cd server && npm run admin:diagnostics
 
-# Reference data (Python: index constituents, dividends, SW industry)
+# Reference data (Python: index constituents, dividends, financial reports, SW industry)
 cd server && npm run reference:status       # Reference data status overview
 cd server && npm run index:update           # Update index daily bars
 cd server && npm run index:backfill         # Full backfill index history
@@ -75,14 +75,23 @@ cd server && npm run index:constituents:dry-run  # Dry-run constituents update
 cd server && npm run index:test             # Run reference data Python tests
 cd server && npm run dividend:update        # Update dividend events (batch)
 cd server && npm run dividend:probe         # Probe single symbol dividend
+cd server && npm run financial:backfill     # Rotate through uncovered/stale financial reports
+cd server && npm run financial:probe        # Probe one symbol through the configured provider
 cd server && npm run sw-industry:update     # Update SW (申万) industry data
 cd server && npm run sw-industry:dry-run    # Dry-run SW industry update
+
+# Individual stock fund flow (Tinyshare history + AKShare/East Money daily)
+cd server && npm run fund-flow:backfill     # Resumable history backfill from 2010
+cd server && npm run fund-flow:update       # Update the latest completed trading day
+cd server && npm run fund-flow:test
+cd server && npm run fund-flow:schedule:register  # Register Windows scheduled task
 
 # Minute data (Python: TDX import + online update)
 cd server && npm run minute:prepare         # Prepare minute data pipeline
 cd server && npm run minute:update          # Update minute data
 cd server && npm run minute:tdx:import      # Import minute data from TDX
 cd server && npm run minute:online:update   # Online minute data update
+cd server && npm run minute:online:health   # Probe online provider health across a sample
 cd server && npm run minute:schedule:register  # Register Windows scheduled task
 cd server && npm run minute:test            # Run minute data Python tests
 
@@ -114,18 +123,19 @@ Start both frontend and backend together: double-click `start.bat` (Windows) or 
 
 ### Admin Console (operations UI at `admin/`)
 - Separate React + Vite app (dev server at localhost:5559, own `vite.config.ts` and `tsconfig.json`)
-- Bearer token auth (`ADMIN_API_TOKEN`), three sections: overview, diagnostics, configuration
+- Bearer token auth (`ADMIN_API_TOKEN`), with overview, diagnostics, configuration, backup,
+  restart, public-access controls, and five-source data-update progress
 - 15 editable config items grouped by access/database/ai/market/runtime categories
 - Calls backend `/api/admin/*` endpoints
 
 ### Backend (`server/`)
 - **Fastify 5** + TypeScript 7, run with tsx (bodyLimit 100MB, CORS localhost-only)
-- **Drizzle ORM** + MySQL2 for server-side persistence (24 SQL migrations)
+- **Drizzle ORM** + MySQL2 for server-side persistence (42 SQL migrations)
 - **DuckDB** (`@duckdb/node-api`) as embedded OLAP engine for factor research and snapshot queries
 - **OpenAI SDK** for AI strategy generation and stock research agent
 - **Zod 4** for config validation, route schemas, and drizzle-zod
-- **Python toolchain** for reference data (index constituents/dividends/SW industry) and minute data (TDX import/online update)
-- Market data from 腾讯财经, 东方财富, and 巨潮资讯
+- **Python toolchain** for reference data, financial reports, stock fund flow, and minute data
+- Market/reference data from 腾讯财经, 新浪财经, 东方财富, Tinyshare/Tushare, and 巨潮资讯
 
 ## Project Structure
 
@@ -149,6 +159,9 @@ src/
     dataLibrary/     Dataset management UI (save, open, delete, export from IndexedDB)
     marketData/      Watchlist, real-time quotes, K-line, 7-layer data, research reports, AI agent,
                      chip profile, hot sectors, stock selection score, data quality/sync modals
+    agent/           Persistent SSE agent runs, confirmations, event stream, report/history views
+    marketSenseTraining/ Date-range chart-reading exercises with generated stock samples
+    paperTrading/    Paper account, orders, positions, fills, and performance UI
     factorResearch/  Factor research UI: catalog, single/composite runs, IC/ICIR/layer reports,
                      automated mining panel, snapshot freshness
   stores/            Zustand stores (candle, chart, indicator, backtest, strategy,
@@ -166,7 +179,8 @@ admin/               Independent admin console (React + Vite, port 5559)
 server/src/
   app.ts             Fastify server entry point, route registration, scheduler startup, graceful shutdown
   config.ts          Zod-validated env config (DB, AI, market data, minute data, factor miner, admin)
-  admin/             Admin API: diagnostics, env config editor, overview TTL cache, metrics history
+  admin/             Admin API: diagnostics, config, backups, restart/public access, metrics history,
+                      and data-update progress aggregation
   marketData/
     providers/       Data source adapters (Tencent, primary, registry) — plugin pattern
     normalization/   Symbol mapping, candle normalization, adjustment (v1 + v2 history)
@@ -179,12 +193,13 @@ server/src/
                              fundamental, announcements, news
     hotSectorService.ts, marketTechnicalScreen.ts, marketBreadth
     *.py             Python helper scripts (akshare market snapshot, turnover rate)
-  routes/            Fastify route modules (admin, aiStrategies, dataQuality, datasets, export,
-                     factorResearch, instruments, marketData, results, strategyConfigs, syncJobs,
-                     visualStrategies)
-  services/          AI stock research agent, data service (Drizzle CRUD)
+  routes/            Fastify route modules (admin, agent, aiStrategies, dataQuality, datasets, export,
+                     factorResearch, instruments, marketData, paperTrading, results, strategyConfigs,
+                     syncJobs, visualStrategies)
+  services/          Agent orchestration, market opinion delivery, and data service (Drizzle CRUD)
+    agent/            Persistent runs, event protocol, output parsing/validation, prompt building
     strategyGeneration/ OpenAI + mock providers, prompt templates, schema
-  db/                MySQL/Drizzle schema (~706 lines, 24 migrations), connection pool, migrate CLI
+  db/                MySQL/Drizzle schema and 42 migrations, connection pool, migrate CLI
   research/          Phase 5.5: snapshot builder, DuckDB query service, manifest/freshness/verifier,
                      CLI tools + data governance (coverage matrix, health gate, reconciliation),
                      artifact lifecycle/prune, Parquet compaction, materialized artifact health
@@ -193,7 +208,8 @@ server/src/
   factorResearch/    Phase 6: factor definitions (AST), compiler, evaluator, single/composite runner,
                      repository, CLI + candidates (state machine) + mining (scheduler + Python worker)
                      + materialization (offline complex factor computation)
-  referenceData/     Python: index constituents/dividends/SW industry reference data maintenance
+  referenceData/     Python: index/dividend/financial/SW industry reference data maintenance
+  fundFlow/          Python: Tinyshare historical + AKShare/East Money daily stock fund flow
   minuteData/        Python: minute data lake (TDX import, online update, prepare pipeline)
   validation/        Shared error codes and API error helpers
 ```
@@ -287,7 +303,17 @@ Maintains reference datasets that enrich research:
 - **Index Constituents** (`index_constituents_update.py`): snapshot + wayback + derive modes
 - **Index Daily Bars** (`index_update.py`): incremental + full backfill
 - **Dividend Events** (`dividend_update.py`): batch update with workers, retry, refresh; `dividend_current_update.py` for current snapshot
+- **Financial Reports** (`financial_update.py`): versioned income/balance/cash-flow reports and
+  derived ROE, using Tushare for configured single-symbol probes and Sina as the token-free rotating source
 - **SW (申万) Industry** (`sw_industry_update.py`): industry definitions, memberships, daily bars
+
+### Stock Fund Flow (`server/src/fundFlow/`, Python)
+- **Historical Backfill** (`update.py backfill`): resumable Tinyshare `moneyflow` ingestion with
+  per-date coverage/status in `fund_flow_sync_dates`
+- **Daily Update** (`update.py daily`): AKShare/East Money ranking ingestion; amounts are normalized
+  from 万元 to 元 and written idempotently to `stock_fund_flows`
+- Historical and daily providers use different methodologies, so preserve `source_key` and
+  `source_version` rather than treating them as interchangeable observations
 
 ### Minute Data Lake (`server/src/minuteData/`, Python)
 - **Prepare** (`prepare.py`): pipeline preparation (zip → parquet conversion)
@@ -355,7 +381,7 @@ Indicators follow `IndicatorDefinition` from `src/models/IndicatorTypes.ts`:
 
 **Frontend (Dexie/IndexedDB)**: Schema version 4 with tables: `marketDatasets`, `candles` (composite key `[datasetId+time]`), `strategyConfigs`, `backtestResults`, `equityPoints` (composite key `[resultId+time]`), `visualStrategies`, `strategyVersions` (composite key `[strategyId+version]`), `strategyDrafts`.
 
-**Backend (Drizzle/MySQL)**: Schema in `server/src/db/schema.ts` (~706 lines). **24 SQL migrations** in `db/migrations/` run automatically at server startup.
+**Backend (Drizzle/MySQL)**: Schema in `server/src/db/schema.ts`. **42 SQL migrations** in `db/migrations/` run automatically at server startup.
 
 Core tables: `market_datasets`, `candles`, `strategy_configs`, `backtest_results`, `equity_points`, `visual_strategies`, `strategy_versions`, `strategy_drafts`.
 
@@ -365,7 +391,10 @@ Phase 5.5 v2 history storage tables: `daily_bars_v2`, `daily_stock_metrics`, `ad
 
 Phase 6 factor tables: `factor_definitions`, `factor_versions`, `factor_runs`, `factor_reports`, `factor_mining_tasks` (with `worker_pid`/`archived_at`/`deleted_at`), `factor_candidates` (state machine fields), `factor_mining_schedules` (managed via `factorResearch/repositories/factorRepository.ts`).
 
-Reference data tables: `index_constituent_snapshots`, `index_constituent_members`, `dividend_events`, `reference_data_backfill_items`, `sw_industry_definitions`, `sw_industry_memberships`, `sw_industry_daily_bars`.
+Reference/operations tables include `financial_reports`, `index_constituent_snapshots`,
+`index_constituent_members`, `dividend_events`, `reference_data_backfill_items`,
+`sw_industry_definitions`, `sw_industry_memberships`, `sw_industry_daily_bars`,
+`stock_fund_flows`, `fund_flow_sync_dates`, and `market_data_collector_runs`.
 
 ### Environment Configuration
 
@@ -379,6 +408,9 @@ Reference data tables: `index_constituent_snapshots`, `index_constituent_members
 - **Database**: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` (MySQL connection)
 - **AI Strategy**: `AI_STRATEGY_ENABLED` (true/false), `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_TIMEOUT_MS`
 - **Market Data**: `MARKET_DATA_ENABLED`, `MARKET_DATA_PROVIDER`, `MARKET_DATA_API_KEY`, `MARKET_DATA_BASE_URL`, `MARKET_DATA_SYNC_TIME`, `MARKET_DATA_INTRADAY_INTERVAL_MINUTES`, `MARKET_INDEX_AUTO_UPDATE_ENABLED`, `MARKET_CN_INDEX_UPDATE_TIME`, `MARKET_US_INDEX_UPDATE_TIME`
+- **Scheduled Data Updates**: `INSTRUMENT_SYNC_ENABLED`, `INSTRUMENT_SYNC_TIME`,
+  `FINANCIAL_DATA_ENABLED`, `FINANCIAL_DATA_UPDATE_TIME`, `FINANCIAL_DATA_LOOKBACK_DAYS`,
+  `FUND_FLOW_UPDATE_TIME`, `FUND_FLOW_RETRY_TIME`, `SCHEDULE_SKIP_NON_TRADING_PERIODS`
 - **History Store**: `HISTORY_STORE_READ_MODE` (legacy/prefer-v2/v2), `HISTORY_STORE_DUAL_WRITE` (true/false)
 - **Research**: `RESEARCH_SNAPSHOT_ROOT`, `RESEARCH_QUERY_MAX_ROWS`
 - **Minute Data**: `MINUTE_DATA_ZIP_ROOT`, `MINUTE_DATA_ROOT`, `MINUTE_QUERY_MAX_ROWS`
