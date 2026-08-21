@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Input, Button, Typography, Tag, App, InputNumber, Select, Switch, Tooltip, Spin, Empty,
+  Input, Button, Typography, Tag, App, InputNumber, Select, Tooltip, Spin, Empty,
 } from 'antd';
 import {
   StopOutlined,
@@ -133,7 +133,6 @@ export default function AgentRunner() {
   const [prompt, setPrompt] = useState('');
   const [maxTurns, setMaxTurns] = useState(0);
   const [templateStyle, setTemplateStyle] = useState<string>('classic-blue');
-  const [generateReport, setGenerateReport] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -279,9 +278,9 @@ export default function AgentRunner() {
         ?? ((state.status === 'completed' || state.status === 'failed' || state.status === 'canceled') ? runId : null);
       const isContinue = !!parentRunId;
       if (parentRunId) {
-        result = await continueAgentRun(parentRunId, submittedPrompt, maxTurns, undefined, templateStyle, generateReport);
+        result = await continueAgentRun(parentRunId, submittedPrompt, maxTurns, undefined, templateStyle);
       } else {
-        result = await createAgentRun(submittedPrompt, maxTurns, undefined, templateStyle, generateReport);
+        result = await createAgentRun(submittedPrompt, maxTurns, undefined, templateStyle);
       }
       setRunId(result.runId);
       if (!isContinue) {
@@ -304,7 +303,7 @@ export default function AgentRunner() {
     } finally {
       setLoading(false);
     }
-  }, [maxTurns, templateStyle, generateReport, connect, message, continueFromRunId, state.events, state.status, runId]);
+  }, [maxTurns, templateStyle, connect, message, continueFromRunId, state.events, state.status, runId]);
 
   const handleStart = useCallback(() => submitMessage(prompt), [prompt, submitMessage]);
   const handleConfirmation = useCallback((response: string) => {
@@ -591,9 +590,9 @@ export default function AgentRunner() {
                 {maxTurns === 0 && (
                   <Text type="secondary" style={{ fontSize: 11, color: '#10b981' }}>不限制</Text>
                 )}
+                <Text type="secondary" style={{ fontSize: 12 }}>报告生成：</Text>
+                <Tag color="blue" style={{ margin: 0 }}>智能体自动判断</Tag>
                 <Text type="secondary" style={{ fontSize: 12 }}>报告风格：</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>生成 HTML 报告：</Text>
-                <Switch size="small" checked={generateReport} onChange={setGenerateReport} disabled={isRunning} />
                 <Select
                   size="small"
                   value={templateStyle}
@@ -758,7 +757,7 @@ export default function AgentRunner() {
               <div style={{ textAlign: 'center', marginTop: 10, color: t.textSecondary, fontSize: 11 }}>
                 {compactLayout
                   ? 'Ctrl + Enter 发送 · 回形针中可调整设置'
-                  : '按 Ctrl + Enter 发送 · 点击左侧附件图标配置轮次与报告风格 · 0=不限轮次'}
+                  : '按 Ctrl + Enter 发送 · 智能体按任务自动判断是否生成报告 · 0=不限轮次'}
               </div>
             )}
           </div>

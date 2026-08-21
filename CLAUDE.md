@@ -159,7 +159,8 @@ src/
     dataLibrary/     Dataset management UI (save, open, delete, export from IndexedDB)
     marketData/      Watchlist, real-time quotes, K-line, 7-layer data, research reports, AI agent,
                      chip profile, hot sectors, stock selection score, data quality/sync modals
-    agent/           Persistent SSE agent runs, confirmations, event stream, report/history views
+    agent/           Persistent SSE agent runs, confirmations, event stream, automatic report decisions,
+                     report/history views
     marketSenseTraining/ Date-range chart-reading exercises with generated stock samples
     paperTrading/    Paper account, orders, positions, fills, and performance UI
     factorResearch/  Factor research UI: catalog, single/composite runs, IC/ICIR/layer reports,
@@ -239,6 +240,12 @@ server/src/
 - AI services use the OpenAI Chat Completions spec — works with OpenAI, DeepSeek, or any compatible endpoint
 - Config is loaded via `dotenv` + Zod schema at startup (`server/src/config.ts`)
 - **Graceful shutdown**: stops sync/index/mining schedulers, closes app/db/pool
+
+### Agent Report Policy
+- Report generation is decided by the agent for each turn; the frontend does not expose a force-on/force-off boolean toggle.
+- The model returns an internal final `agent-report` control block. Explicit report requests and substantial research/audit tasks should generate a report; simple Q&A, confirmations, clarifications, and status checks should not.
+- `reportStyle` is only a presentation preference when a report is generated. Missing or invalid report decisions default to no report, and control blocks must never be exposed in public assistant text.
+- Keep this policy provider-independent when adding or replacing agent runtimes (including a future Codex Harness provider).
 
 ### Admin Console (`server/src/admin/` + `admin/`)
 - **Auth**: Bearer token via `timingSafeEqual` against `ADMIN_API_TOKEN`; returns 503 if token unset

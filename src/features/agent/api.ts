@@ -38,10 +38,10 @@ export function normalizeAgentEvent(event: AgentEventRecord): AgentEvent | null 
 }
 
 export async function createAgentRun(
-  prompt: string, maxTurns?: number, timeoutMinutes?: number, templateStyle?: string, generateReport = false,
+  prompt: string, maxTurns?: number, timeoutMinutes?: number, templateStyle?: string,
 ): Promise<{ runId: string; conversationId: string; status: string }> {
   return apiFetch('/api/agent/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, maxTurns, timeoutMinutes, templateStyle, generateReport }) });
+    body: JSON.stringify({ prompt, maxTurns, timeoutMinutes, templateStyle, reportMode: 'auto' }) });
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {
@@ -52,10 +52,10 @@ export async function deleteAgentRun(runId: string): Promise<void> {
 }
 export async function continueAgentRun(
   parentRunId: string, prompt: string, maxTurns?: number, timeoutMinutes?: number,
-  templateStyle?: string, generateReport = false,
+  templateStyle?: string,
 ): Promise<{ runId: string; conversationId: string; status: string; parentRunId: string }> {
   return apiFetch(`/api/agent/runs/${parentRunId}/continue`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, maxTurns, timeoutMinutes, templateStyle, generateReport }) });
+    body: JSON.stringify({ prompt, maxTurns, timeoutMinutes, templateStyle, reportMode: 'auto' }) });
 }
 
 export async function listAgentConversations(limit = 30, cursor?: string) {

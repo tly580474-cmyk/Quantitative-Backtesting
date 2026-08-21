@@ -108,7 +108,10 @@ export function registerAgentRoutes(
     maxTurns: z.number().int().min(0).max(200).default(defaultMaxTurns),
     timeoutMinutes: z.number().int().min(1).max(360).default(defaultTimeoutMinutes),
     templateStyle: z.enum(['classic-blue', 'dark-pro', 'minimal-white', 'dashboard']).default('classic-blue'),
-    generateReport: z.boolean().default(false),
+    reportMode: z.literal('auto').default('auto'),
+    // Kept temporarily so an older frontend does not fail validation. The agent now decides
+    // from the task itself; this legacy switch no longer forces or suppresses a report.
+    generateReport: z.boolean().optional(),
   });
 
   app.addHook('preHandler', async (request, reply) => {
@@ -133,7 +136,6 @@ export function registerAgentRoutes(
     void orchestrator.start({
       runId, prompt: body.prompt, maxTurns: body.maxTurns, timeoutMs: body.timeoutMinutes * 60_000,
       templateStyle: body.templateStyle, resumeSessionId: parent?.sessionId ?? undefined,
-      generateReport: body.generateReport,
     }).catch(error => console.error(`[Agent] start failed for ${runId}:`, error));
     return { runId, conversationId, turnIndex, status: 'pending' as const, parentRunId: parent?.id ?? null };
   };

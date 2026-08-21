@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from 'child_process';
-import { mkdir, readFile, stat, writeFile } from 'fs/promises';
+import { mkdir, writeFile } from 'fs/promises';
 import { resolve } from 'path';
 import type { Pool } from 'mysql2/promise';
 import { buildPrompt, type TemplateStyle } from './promptBuilder.js';
-import { parseStreamLine, extractReportInfo, extractSessionId, type ParsedEvent } from './outputParser.js';
+import { parseStreamLine, extractReportDecision, extractSessionId, type ParsedEvent } from './outputParser.js';
 import { sanitizePublicContent, type TerminalPayload, type TerminalStatus } from './eventProtocol.js';
 import { AgentRepository } from './agentRepository.js';
 import { validateAgentReport } from './reportValidator.js';
@@ -23,7 +23,6 @@ export interface StartParams {
   timeoutMs: number;
   templateStyle?: string;
   resumeSessionId?: string;
-  generateReport?: boolean;
 }
 
 interface ActiveRun {
@@ -35,7 +34,7 @@ interface ActiveRun {
   toolStartedAt: Map<string, number>;
   toolNames: Map<string, string>;
   accepting: boolean;
-  requireReport: boolean;
+  shouldGenerateReport: boolean | null;
   finalContent: string;
   lastEventType?: ParsedEvent['type'];
   lastEventContent?: string;
@@ -77,7 +76,7 @@ export class AgentOrchestrator {
     const active: ActiveRun = {
       process: null, seq: 0, finalized: false, outputQueue: Promise.resolve(),
       toolStartedAt: new Map(), toolNames: new Map(), accepting: true,
-      requireReport: Boolean(params.generateReport), finalContent: '',
+      shouldGenerateReport: null, finalContent: '',
     };
     this.activeRuns.set(params.runId, active);
 
@@ -91,7 +90,7 @@ export class AgentOrchestrator {
 
       const prompt = buildPrompt(
         params.prompt, this.config.wslProjectPath, params.templateStyle as TemplateStyle,
-        Boolean(params.resumeSessionId), Boolean(params.generateReport),
+        Boolean(params.resumeSessionId),
       );
       const args = [
         '--print', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
@@ -126,6 +125,8 @@ export class AgentOrchestrator {
       let stdoutBuffer = '';
       let sessionCaptured = false;
       const consumeLine = async (line: string) => {
+        const reportDecision = extractReportDecision(line);
+        if (reportDecision) active.shouldGenerateReport = reportDecision.generate;
         if (!sessionCaptured) {
           const sessionId = extractSessionId(line);
           if (sessionId) {
@@ -223,11 +224,10 @@ export class AgentOrchestrator {
     let targetStatus = status;
     let targetErrorCode = errorCode;
     let targetErrorMessage = errorMessage;
-    if (status === 'completed' && active.requireReport) {
-      let reportSaved = await this.tryExtractReport(runId, repo);
-      if (!reportSaved && active.finalContent) {
-        reportSaved = await this.createStaticReport(runId, active.finalContent, repo);
-      }
+    if (status === 'completed' && active.shouldGenerateReport === true) {
+      const reportSaved = active.finalContent
+        ? await this.createStaticReport(runId, active.finalContent, repo)
+        : false;
       if (!reportSaved) {
         targetStatus = 'failed';
         targetErrorCode = 'REPORT_INVALID_OR_MISSING';
@@ -253,25 +253,6 @@ export class AgentOrchestrator {
     active.finalized = true;
     this.activeRuns.delete(runId);
     return true;
-  }
-
-  private async tryExtractReport(runId: string, repo: AgentRepository): Promise<boolean> {
-    try {
-      const reportPath = resolve(this.config.reportRoot, 'reports', `${runId}.html`);
-      const stats = await stat(reportPath);
-      const html = await readFile(reportPath, 'utf8');
-      const validation = validateAgentReport(html, stats.size);
-      if (!validation.valid) {
-        console.warn(`[Agent] Rejected report ${runId}: ${validation.reason}`);
-        return false;
-      }
-      const { title, summary } = extractReportInfo(html);
-      await repo.saveReport(runId, title, reportPath, stats.size, summary, 0);
-      return true;
-    } catch {
-      // A normal chat turn is allowed to complete without a report.
-      return false;
-    }
   }
 
   private async createStaticReport(runId: string, content: string, repo: AgentRepository): Promise<boolean> {

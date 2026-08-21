@@ -23,6 +23,34 @@ function now(): string {
 interface ConfirmationOption { label: string; value: string; description?: string; }
 interface ConfirmationQuestion { id: string; question: string; options: ConfirmationOption[]; allowCustom: boolean; }
 
+export interface ReportDecision { generate: boolean; reason: string; }
+
+function extractReportDirective(content: string): { answer: string; decision: ReportDecision | null } {
+  const match = content.match(/```agent-report\s*([\s\S]*?)```/i);
+  if (!match) return { answer: content, decision: null };
+  const answer = content.replace(match[0], '').trim();
+  try {
+    const raw = JSON.parse(match[1]) as Record<string, unknown>;
+    if (typeof raw.generate !== 'boolean') return { answer, decision: null };
+    return {
+      answer,
+      decision: {
+        generate: raw.generate,
+        reason: sanitizePublicContent(raw.reason, '').slice(0, 120),
+      },
+    };
+  } catch {
+    return { answer, decision: null };
+  }
+}
+
+function stripControlBlocks(content: string): string {
+  return content
+    .replace(/```agent-report\s*[\s\S]*?```/gi, '')
+    .replace(/```agent-confirmation\s*[\s\S]*?```/gi, '')
+    .trim();
+}
+
 function cleanConfirmation(value: unknown): { questions: ConfirmationQuestion[] } | null {
   if (!value || typeof value !== 'object' || !Array.isArray((value as { questions?: unknown }).questions)) return null;
   const questions = (value as { questions: unknown[] }).questions.slice(0, 4).flatMap((raw, index) => {
@@ -73,6 +101,17 @@ export function extractSessionId(line: string): string | null {
   }
 }
 
+/** Extract the model's per-turn report decision without publishing its control marker. */
+export function extractReportDecision(line: string): ReportDecision | null {
+  try {
+    const obj = JSON.parse(line.trim());
+    if (obj?.type !== 'result' || typeof obj.result !== 'string') return null;
+    return extractReportDirective(obj.result).decision;
+  } catch {
+    return null;
+  }
+}
+
 function parseBlocks(blocks: StreamBlock[]): ParsedEvent[] {
   const events: ParsedEvent[] = [];
   for (const block of blocks) {
@@ -83,7 +122,7 @@ function parseBlocks(blocks: StreamBlock[]): ParsedEvent[] {
     }
 
     if (block.type === 'text') {
-      const publicContent = sanitizePublicContent(block.text);
+      const publicContent = sanitizePublicContent(stripControlBlocks(block.text ?? ''));
       if (publicContent) events.push({ type: 'progress', publicContent, timestamp: now() });
       continue;
     }
@@ -166,7 +205,8 @@ export function parseStreamLine(line: string): ParsedEvent[] {
       }];
     }
     const rawResult = typeof obj.result === 'string' ? obj.result : '';
-    const extracted = extractConfirmation(rawResult);
+    const report = extractReportDirective(rawResult);
+    const extracted = extractConfirmation(report.answer);
     const publicContent = sanitizePublicContent(
       extracted.answer,
       extracted.confirmation ? '需要你确认以下事项后继续。' : '',

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parseStreamLine } from './outputParser.js';
+import { extractReportDecision, parseStreamLine } from './outputParser.js';
 import { sanitizePublicContent } from './eventProtocol.js';
 
 describe('agent public event protocol', () => {
@@ -64,6 +64,44 @@ describe('agent public event protocol', () => {
     expect(events[0].publicContent).toBe('请确认实施口径。');
     expect(JSON.parse(events[1].publicContent).questions[0]).toMatchObject({ id: 'scope', question: '选择实施范围' });
     expect(JSON.stringify(events)).not.toContain('agent-confirmation');
+  });
+
+  it('extracts an automatic report decision and keeps its control marker private', () => {
+    const line = JSON.stringify({
+      type: 'result', subtype: 'success', result: `已完成多因子回测，结论如下。
+
+\`\`\`agent-report
+{"generate":true,"reason":"包含完整回测方法与结果，需要留档"}
+\`\`\``,
+    });
+    expect(extractReportDecision(line)).toEqual({
+      generate: true, reason: '包含完整回测方法与结果，需要留档',
+    });
+    const events = parseStreamLine(line);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'assistant_final', publicContent: '已完成多因子回测，结论如下。' });
+    expect(JSON.stringify(events)).not.toContain('agent-report');
+  });
+
+  it('defaults to no report when the model omits or malforms its decision', () => {
+    expect(extractReportDecision(JSON.stringify({ type: 'result', result: '普通回答' }))).toBeNull();
+    expect(extractReportDecision(JSON.stringify({
+      type: 'result', result: '普通回答\n```agent-report\n{"generate":"yes"}\n```',
+    }))).toBeNull();
+  });
+
+  it('removes report and confirmation control blocks from intermediate text', () => {
+    const events = parseStreamLine(JSON.stringify({
+      type: 'assistant', message: { content: [{ type: 'text', text: `正文
+\`\`\`agent-confirmation
+{"questions":[]}
+\`\`\`
+\`\`\`agent-report
+{"generate":false,"reason":"简单问答"}
+\`\`\`` }] },
+    }));
+    expect(events).toHaveLength(1);
+    expect(events[0].publicContent).toBe('正文');
   });
 
   it('redacts common secrets and host paths', () => {
