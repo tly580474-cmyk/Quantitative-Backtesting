@@ -27,7 +27,7 @@ export const REPORT_SUBAGENTS = {
 
 ## 输出约束
 
-- 只输出最终 Markdown 报告，不解释你的处理过程，不包裹代码围栏。
+- 输出的内容需要包含已有的markdown主要内容，如果用户特别要求了报告的风格则以用户为准，如果没有定义风格则允许自由发挥，以美观且实用为准，不解释你的处理过程。
 - 不输出 agent-report 或 agent-confirmation 控制块；它们由主代理负责。
 - 不写“由 AI 生成”等元话语。`,
   },
