@@ -8,6 +8,7 @@ import { sanitizePublicContent, type TerminalPayload, type TerminalStatus } from
 import { AgentRepository } from './agentRepository.js';
 import { validateAgentReport } from './reportValidator.js';
 import { renderStaticAgentReport } from './reportRenderer.js';
+import { serializeReportSubagents } from './reportSubagent.js';
 
 export interface OrchestratorConfig {
   wslProjectPath: string;
@@ -38,6 +39,7 @@ interface ActiveRun {
   finalContent: string;
   lastEventType?: ParsedEvent['type'];
   lastEventContent?: string;
+  templateStyle: TemplateStyle;
 }
 
 type EventListener = (event: ParsedEvent, seq: number) => void;
@@ -73,10 +75,11 @@ export class AgentOrchestrator {
       throw new Error(message);
     }
     if (this.activeRuns.has(params.runId)) throw new Error('运行已启动');
+    const templateStyle = params.templateStyle as TemplateStyle ?? 'classic-blue';
     const active: ActiveRun = {
       process: null, seq: 0, finalized: false, outputQueue: Promise.resolve(),
       toolStartedAt: new Map(), toolNames: new Map(), accepting: true,
-      shouldGenerateReport: null, finalContent: '',
+      shouldGenerateReport: null, finalContent: '', templateStyle,
     };
     this.activeRuns.set(params.runId, active);
 
@@ -89,11 +92,12 @@ export class AgentOrchestrator {
       await mkdir(reportDir, { recursive: true });
 
       const prompt = buildPrompt(
-        params.prompt, this.config.wslProjectPath, params.templateStyle as TemplateStyle,
+        params.prompt, this.config.wslProjectPath, templateStyle,
         Boolean(params.resumeSessionId),
       );
       const args = [
         '--print', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+        '--agents', serializeReportSubagents(),
         '--dangerously-skip-permissions',
         ...(params.maxTurns > 0 ? ['--max-turns', String(params.maxTurns)] : []),
         ...(params.resumeSessionId ? ['--resume', params.resumeSessionId] : []),
@@ -226,7 +230,7 @@ export class AgentOrchestrator {
     let targetErrorMessage = errorMessage;
     if (status === 'completed' && active.shouldGenerateReport === true) {
       const reportSaved = active.finalContent
-        ? await this.createStaticReport(runId, active.finalContent, repo)
+        ? await this.createStaticReport(runId, active.finalContent, repo, active.templateStyle)
         : false;
       if (!reportSaved) {
         targetStatus = 'failed';
@@ -255,9 +259,14 @@ export class AgentOrchestrator {
     return true;
   }
 
-  private async createStaticReport(runId: string, content: string, repo: AgentRepository): Promise<boolean> {
+  private async createStaticReport(
+    runId: string,
+    content: string,
+    repo: AgentRepository,
+    templateStyle: TemplateStyle,
+  ): Promise<boolean> {
     try {
-      const rendered = renderStaticAgentReport(content);
+      const rendered = renderStaticAgentReport(content, templateStyle);
       const bytes = Buffer.byteLength(rendered.html);
       const validation = validateAgentReport(rendered.html, bytes);
       if (!validation.valid) return false;

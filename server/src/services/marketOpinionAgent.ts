@@ -355,7 +355,7 @@ function summarizeSuccess(report: MarketOpinionReport): MarketOpinionAgentStatus
 
 /**
  * 检查 API 响应是否包含非空内容，如果为空则抛出包含详细信息的错误，
- * 便于诊断 DeepSeek API 响应格式问题。
+ * 便于诊断  API 响应格式问题。
  */
 function assertNonEmptyContent(
   choices: readonly { message?: { content?: string | null; refusal?: string | null }; finish_reason?: string | null }[],

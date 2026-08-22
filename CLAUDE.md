@@ -245,6 +245,8 @@ server/src/
 - Report generation is decided by the agent for each turn; the frontend does not expose a force-on/force-off boolean toggle.
 - The model returns an internal final `agent-report` control block. Explicit report requests and substantial research/audit tasks should generate a report; simple Q&A, confirmations, clarifications, and status checks should not.
 - `reportStyle` is only a presentation preference when a report is generated. Missing or invalid report decisions default to no report, and control blocks must never be exposed in public assistant text.
+- When a report is warranted, the primary Claude Code agent delegates presentation to the runtime-defined `report-designer` subagent. Its detailed template lives in `reportSubagent.ts`, outside the primary prompt context; the primary agent passes only verified findings and uses the returned Markdown as the report body.
+- `reportRenderer.ts` converts that Markdown into self-contained semantic HTML (headings, tables, lists, callouts, responsive/print styles) with no scripts, remote resources, model-supplied navigation, or raw HTML execution.
 - Keep this policy provider-independent when adding or replacing agent runtimes (including a future Codex Harness provider).
 
 ### Admin Console (`server/src/admin/` + `admin/`)

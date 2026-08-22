@@ -7,7 +7,10 @@ export function validateAgentReport(html: string, bytes: number): ReportValidati
   if (!/^\s*<!doctype html>/i.test(html) || !/<html\b/i.test(html) || !/<title>[^<]+<\/title>/i.test(html)) {
     return { valid: false, reason: '报告 HTML 结构不完整' };
   }
-  if (/<(?:script|iframe|object|embed|form|base|meta|link)\b/i.test(html)) {
+  const withoutSafeMetadata = html
+    .replace(/<meta\s+charset=["']?utf-8["']?\s*\/?>/gi, '')
+    .replace(/<meta\s+name=["']viewport["']\s+content=["']width=device-width,\s*initial-scale=1["']\s*\/?>/gi, '');
+  if (/<(?:script|iframe|object|embed|form|base|meta|link)\b/i.test(withoutSafeMetadata)) {
     return { valid: false, reason: '报告包含主动内容' };
   }
   if (/\son\w+\s*=|(?:href|src)\s*=\s*["']\s*(?:javascript:|https?:|\/\/)/i.test(html)) {
