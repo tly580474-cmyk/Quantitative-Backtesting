@@ -1,5 +1,8 @@
 import { ApiError, apiFetch } from '@/api/client';
-import type { AgentRun, AgentReport, AgentEvent, AgentConversationTurn, AgentEventType } from './types';
+import type {
+  AgentRun, AgentReport, AgentEvent, AgentConversationTurn, AgentEventType,
+  AgentProviderHealth, AgentProviderId,
+} from './types';
 
 interface AgentEventRecord {
   runId?: string;
@@ -14,6 +17,7 @@ interface AgentEventRecord {
   seq?: number;
   timestamp?: string;
   createdAt?: string;
+  approval?: AgentEvent['approval'];
 }
 
 const LEGACY_TYPES: Record<string, AgentEventType | undefined> = {
@@ -34,14 +38,16 @@ export function normalizeAgentEvent(event: AgentEventRecord): AgentEvent | null 
     terminal: event.terminal,
     seq: event.seq,
     timestamp: event.timestamp ?? event.createdAt,
+    approval: event.approval,
   };
 }
 
 export async function createAgentRun(
   prompt: string, maxTurns?: number, timeoutMinutes?: number, templateStyle?: string,
+  provider?: AgentProviderId,
 ): Promise<{ runId: string; conversationId: string; status: string }> {
   return apiFetch('/api/agent/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, maxTurns, timeoutMinutes, templateStyle, reportMode: 'auto' }) });
+    body: JSON.stringify({ prompt, maxTurns, timeoutMinutes, templateStyle, reportMode: 'auto', provider }) });
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {
@@ -56,6 +62,19 @@ export async function continueAgentRun(
 ): Promise<{ runId: string; conversationId: string; status: string; parentRunId: string }> {
   return apiFetch(`/api/agent/runs/${parentRunId}/continue`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt, maxTurns, timeoutMinutes, templateStyle, reportMode: 'auto' }) });
+}
+
+export async function decideAgentApproval(approvalId: string, decision: 'approved' | 'denied'): Promise<void> {
+  await apiFetch(`/api/agent/approvals/${approvalId}/decision`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }),
+  });
+}
+
+export async function getAgentProviders(): Promise<{
+  defaultProvider: AgentProviderId;
+  providers: AgentProviderHealth[];
+}> {
+  return apiFetch('/api/agent/providers');
 }
 
 export async function listAgentConversations(limit = 30, cursor?: string) {

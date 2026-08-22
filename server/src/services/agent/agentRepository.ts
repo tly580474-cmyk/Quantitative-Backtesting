@@ -1,5 +1,6 @@
 import type { Pool, ResultSetHeader } from 'mysql2/promise';
 import type { PublicAgentEvent, TerminalPayload, TerminalStatus } from './eventProtocol.js';
+import type { AgentProviderId } from './providers/types.js';
 
 export type RunStatus = 'pending' | 'starting' | 'running' | TerminalStatus;
 
@@ -11,6 +12,7 @@ export interface AgentRunRecord {
   templateStyle: string;
   timeoutMs: number;
   pid: number | null;
+  provider: AgentProviderId;
   sessionId: string | null;
   parentRunId: string | null;
   conversationId: string;
@@ -35,6 +37,7 @@ export interface AgentEventRecord {
   toolUseId: string | null;
   durationMs: number | null;
   terminal: TerminalPayload | null;
+  approval: PublicAgentEvent['approval'] | null;
   protocolVersion: number;
   toolInput: string | null;
   toolResult: string | null;
@@ -46,11 +49,19 @@ export interface AgentReportRecord {
   summary: string | null; tags: unknown; chartsCount: number; createdAt: string;
 }
 
+export type AgentApprovalStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'canceled';
+export interface AgentApprovalRecord {
+  id: string; runId: string; provider: AgentProviderId; threadId: string; turnId: string; itemId: string;
+  requestType: 'command' | 'file_change' | 'network' | 'permissions'; summary: string;
+  status: AgentApprovalStatus; expiresAt: string; decisionAt: string | null; createdAt: string; updatedAt: string;
+}
+
 function toCamelRow<T>(row: Record<string, unknown>): T {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(row)) {
-    const camel = key === 'terminal_json' ? 'terminal' : key.replace(/_([a-z])/g, (_, char) => char.toUpperCase());
-    out[camel] = key === 'terminal_json' && typeof value === 'string' ? JSON.parse(value) : value;
+    const camel = key === 'terminal_json' ? 'terminal' : key === 'approval_json' ? 'approval'
+      : key.replace(/_([a-z])/g, (_, char) => char.toUpperCase());
+    out[camel] = (key === 'terminal_json' || key === 'approval_json') && typeof value === 'string' ? JSON.parse(value) : value;
   }
   return out as T;
 }
@@ -61,15 +72,15 @@ export class AgentRepository {
   async createRun(
     runId: string, prompt: string, maxTurns: number, timeoutMs: number,
     templateStyle = 'classic-blue', parentRunId?: string,
-    conversationId = runId, turnIndex = 0,
+    conversationId = runId, turnIndex = 0, provider: AgentProviderId = 'claude',
   ): Promise<void> {
     await this.pool.execute(
       `INSERT INTO agent_runs
        (id, prompt, status, max_turns, timeout_ms, template_style, parent_run_id,
-        conversation_id, turn_index, protocol_version, created_at)
-       VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, 2, ?)`,
+        conversation_id, turn_index, provider, protocol_version, created_at)
+       VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, 2, ?)`,
       [runId, prompt, maxTurns, timeoutMs, templateStyle, parentRunId ?? null,
-        conversationId, turnIndex, new Date().toISOString()],
+        conversationId, turnIndex, provider, new Date().toISOString()],
     );
   }
 
@@ -108,6 +119,10 @@ export class AgentRepository {
   }
 
   async reconcileOrphanedRuns(): Promise<number> {
+    await this.pool.execute(
+      "UPDATE agent_approvals SET status = 'canceled', decision_at = ?, updated_at = ? WHERE status = 'pending'",
+      [new Date().toISOString(), new Date().toISOString()],
+    );
     const [rows] = await this.pool.execute("SELECT id FROM agent_runs WHERE status IN ('starting', 'running')");
     const orphaned = rows as Array<{ id: string }>;
     for (const { id } of orphaned) {
@@ -124,7 +139,51 @@ export class AgentRepository {
     return orphaned.length;
   }
 
+  async createApproval(input: Omit<AgentApprovalRecord, 'status' | 'decisionAt' | 'createdAt' | 'updatedAt'>): Promise<AgentApprovalRecord> {
+    const now = new Date().toISOString();
+    await this.pool.execute(
+      `INSERT INTO agent_approvals
+       (id, run_id, provider, thread_id, turn_id, item_id, request_type, summary, status, expires_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+      [input.id, input.runId, input.provider, input.threadId, input.turnId, input.itemId,
+        input.requestType, input.summary, input.expiresAt, now, now],
+    );
+    return { ...input, status: 'pending', decisionAt: null, createdAt: now, updatedAt: now };
+  }
+
+  async getApproval(id: string): Promise<AgentApprovalRecord | null> {
+    const [rows] = await this.pool.execute('SELECT * FROM agent_approvals WHERE id = ?', [id]);
+    const row = (rows as Record<string, unknown>[])[0];
+    return row ? toCamelRow<AgentApprovalRecord>(row) : null;
+  }
+
+  async listPendingApprovals(runId?: string): Promise<AgentApprovalRecord[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM agent_approvals WHERE status = 'pending' ${runId ? 'AND run_id = ?' : ''} ORDER BY created_at ASC`,
+      runId ? [runId] : [],
+    );
+    return (rows as Record<string, unknown>[]).map(row => toCamelRow<AgentApprovalRecord>(row));
+  }
+
+  async decideApproval(id: string, status: Exclude<AgentApprovalStatus, 'pending'>): Promise<AgentApprovalRecord | null> {
+    const now = new Date().toISOString();
+    await this.pool.execute(
+      `UPDATE agent_approvals SET status = ?, decision_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'`,
+      [status, now, now, id],
+    );
+    return this.getApproval(id);
+  }
+
+  async cancelPendingApprovals(runId: string): Promise<void> {
+    const now = new Date().toISOString();
+    await this.pool.execute(
+      "UPDATE agent_approvals SET status = 'canceled', decision_at = ?, updated_at = ? WHERE run_id = ? AND status = 'pending'",
+      [now, now, runId],
+    );
+  }
+
   async deleteRun(runId: string): Promise<void> {
+    await this.pool.execute('DELETE FROM agent_approvals WHERE run_id = ?', [runId]);
     await this.pool.execute('DELETE FROM agent_events WHERE run_id = ?', [runId]);
     await this.pool.execute('DELETE FROM agent_reports WHERE run_id = ?', [runId]);
     await this.pool.execute('DELETE FROM agent_runs WHERE id = ?', [runId]);
@@ -186,11 +245,12 @@ export class AgentRepository {
   async addPublicEvent(runId: string, seq: number, event: PublicAgentEvent): Promise<void> {
     await this.pool.execute(
       `INSERT INTO agent_events
-       (run_id, seq, event_type, content, tool_name, tool_use_id, duration_ms, terminal_json,
+       (run_id, seq, event_type, content, tool_name, tool_use_id, duration_ms, terminal_json, approval_json,
         protocol_version, tool_input, tool_result, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 2, NULL, NULL, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 2, NULL, NULL, ?)`,
       [runId, seq, event.type, event.publicContent, event.toolName ?? null, event.toolUseId ?? null,
-        event.durationMs ?? null, event.terminal ? JSON.stringify(event.terminal) : null, event.timestamp],
+        event.durationMs ?? null, event.terminal ? JSON.stringify(event.terminal) : null,
+        event.approval ? JSON.stringify(event.approval) : null, event.timestamp],
     );
   }
 

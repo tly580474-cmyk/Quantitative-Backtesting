@@ -20,4 +20,25 @@ describe('agent prompt report policy', () => {
     expect(prompt).toContain('深色专业界面');
     expect(prompt).toContain('同一对话的后续消息');
   });
+
+  it('keeps the Codex prompt free of Claude-only tools while preserving report control blocks', () => {
+    const prompt = buildPrompt('分析策略', 'D:/workspace', 'classic-blue', false, 'codex', {
+      marketDataCliPath: 'D:/project/server/scripts/agentMarketData.mjs',
+      externalDataSkillEnabled: true,
+      pythonPath: 'D:/codex/venv/Scripts/python.exe',
+      sandboxMode: 'workspace-write',
+      approvalsEnabled: false,
+      networkEnabled: true,
+    });
+    expect(prompt).toContain('可以在当前项目工作区内自主读取、创建、修改、执行和删除文件');
+    expect(prompt).toContain('必须先查询项目现有数据入口');
+    expect(prompt).toContain('agentMarketData.mjs');
+    expect(prompt).toContain('a-stock-data');
+    expect(prompt).toContain('workspace-write');
+    expect(prompt).toContain('不要为常规只读取数请求人工确认');
+    expect(prompt).toContain('不要逐步请求人工确认');
+    expect(prompt).toContain('```agent-report');
+    expect(prompt).not.toContain('report-designer');
+    expect(prompt).not.toContain('Claude Code');
+  });
 });

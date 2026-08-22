@@ -28,6 +28,13 @@ export interface PublicAgentEvent {
   durationMs?: number;
   terminal?: TerminalPayload;
   sessionId?: string;
+  approval?: {
+    id: string;
+    requestType: 'command' | 'file_change' | 'network' | 'permissions';
+    status: 'pending' | 'approved' | 'denied' | 'expired' | 'canceled';
+    expiresAt: string;
+    summary: string;
+  };
 }
 
 const MAX_PUBLIC_CONTENT = 12_000;

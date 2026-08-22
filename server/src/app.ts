@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import { resolve } from 'node:path';
 import { loadConfig } from './config.js';
 import { createPool, checkConnection, closePool } from './db/connection.js';
 import { initDb, closeDb } from './db/index.js';
@@ -291,19 +292,6 @@ async function main(): Promise<void> {
       minuteDataRoot: config.MINUTE_DATA_ROOT,
     });
   }
-  registerAdminRoutes(app, {
-    pool,
-    dbOnline,
-    config,
-    envFilePath: new URL('../.env', import.meta.url),
-    restart: {
-      available: process.env.QUANT_BACKEND_SUPERVISED === 'true',
-      request: () => {
-        requestedExitCode = 75;
-        process.kill(process.pid, 'SIGTERM');
-      },
-    },
-  });
   registerFactorResearchRoutes(app, dbOnline, {
     snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
     artifactRoot: config.FACTOR_RESEARCH_ROOT,
@@ -337,6 +325,29 @@ async function main(): Promise<void> {
       claudePath: config.AGENT_CLAUDE_PATH,
       reportRoot: config.AGENT_REPORT_ROOT,
       maxConcurrent: Math.max(1, parseInt(config.AGENT_MAX_CONCURRENT, 10) || 1),
+      defaultProvider: config.AGENT_PROVIDER,
+      codex: {
+        enabled: config.AGENT_CODEX_ENABLED === 'true',
+        codexPath: config.AGENT_CODEX_PATH,
+        workingDirectory: config.AGENT_CODEX_WORKING_DIRECTORY
+          ? resolve(config.AGENT_CODEX_WORKING_DIRECTORY)
+          : '',
+        codexHome: config.AGENT_CODEX_HOME ? resolve(config.AGENT_CODEX_HOME) : '',
+        apiKey: config.AGENT_CODEX_API_KEY,
+        modelProvider: config.AGENT_CODEX_MODEL_PROVIDER || undefined,
+        baseUrl: config.AGENT_CODEX_BASE_URL || undefined,
+        modelCatalogPath: config.AGENT_CODEX_MODEL_CATALOG ? resolve(config.AGENT_CODEX_MODEL_CATALOG) : undefined,
+        model: config.AGENT_CODEX_MODEL || undefined,
+        approvalsEnabled: config.AGENT_CODEX_APPROVALS_ENABLED === 'true',
+        approvalTimeoutMs: Math.max(10, parseInt(config.AGENT_CODEX_APPROVAL_TIMEOUT_SECONDS, 10) || 300) * 1000,
+        toolsEnabled: config.AGENT_CODEX_TOOLS_ENABLED === 'true',
+        sandboxMode: config.AGENT_CODEX_SANDBOX_MODE,
+        windowsSandbox: config.AGENT_CODEX_WINDOWS_SANDBOX,
+        networkEnabled: config.AGENT_CODEX_NETWORK_ENABLED === 'true',
+        marketDataCliPath: config.AGENT_CODEX_MARKET_DATA_CLI ? resolve(config.AGENT_CODEX_MARKET_DATA_CLI) : undefined,
+        externalDataSkillEnabled: config.AGENT_CODEX_EXTERNAL_DATA_SKILL_ENABLED === 'true',
+        pythonPath: config.AGENT_CODEX_PYTHON_PATH ? resolve(config.AGENT_CODEX_PYTHON_PATH) : undefined,
+      },
     });
     const reconciledAgentRuns = await agentOrchestrator.initialize();
     if (reconciledAgentRuns > 0) {
@@ -360,6 +371,20 @@ async function main(): Promise<void> {
     });
     if (!agentEnabled) console.log('[Agent] System disabled (AGENT_ENABLED=false)');
   }
+  registerAdminRoutes(app, {
+    pool,
+    dbOnline,
+    config,
+    envFilePath: new URL('../.env', import.meta.url),
+    agent: { enabled: agentEnabled, orchestrator: agentOrchestrator },
+    restart: {
+      available: process.env.QUANT_BACKEND_SUPERVISED === 'true',
+      request: () => {
+        requestedExitCode = 75;
+        process.kill(process.pid, 'SIGTERM');
+      },
+    },
+  });
   // Graceful shutdown
   const shutdown = async () => {
     console.log('[Server] Shutting down...');

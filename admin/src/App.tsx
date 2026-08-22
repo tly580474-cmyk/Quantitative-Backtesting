@@ -21,6 +21,7 @@ import {
   MenuOutlined,
   PoweroffOutlined,
   ReloadOutlined,
+  RobotOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
   SettingOutlined,
@@ -33,6 +34,7 @@ import {
   getAdminHealth,
   getAdminOverview,
   getAdminStatus,
+  getAgentOperations,
   getBackendRestartStatus,
   getDataUpdateProgress,
   getDatabaseBackupExport,
@@ -46,10 +48,10 @@ import {
   verifyAdminToken,
   waitForBackendRecovery,
 } from './api';
-import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressItem, DiagnosticCheck, HealthLevel, MetricSample, PublicAccessStatus } from './types';
+import type { AdminConfigItem, AdminHealth, AdminOverview, AgentOperations, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressItem, DiagnosticCheck, HealthLevel, MetricSample, PublicAccessStatus } from './types';
 import { sanitizeSecretReplacement } from './secretInput';
 
-type Section = 'overview' | 'diagnostics' | 'configuration';
+type Section = 'overview' | 'agents' | 'diagnostics' | 'configuration';
 
 const TOKEN_STORAGE_KEY = 'quant-admin-token';
 const CATEGORY_LABELS: Record<AdminConfigItem['category'], string> = {
@@ -204,6 +206,7 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
   const [section, setSection] = useState<Section>('overview');
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [config, setConfig] = useState<AdminConfigItem[]>([]);
+  const [agentOperations, setAgentOperations] = useState<AgentOperations | null>(null);
   const [metrics, setMetrics] = useState<MetricSample[]>([]);
   const [dataUpdates, setDataUpdates] = useState<DataUpdateProgressItem[]>([]);
   const [backupExport, setBackupExport] = useState<DatabaseBackupExportStatus | null>(null);
@@ -241,16 +244,18 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
     setLoading(true);
     setError('');
     try {
-      const [nextOverview, nextConfig, nextRestartStatus, nextPublicAccess] = await Promise.all([
+      const [nextOverview, nextConfig, nextRestartStatus, nextPublicAccess, nextAgentOperations] = await Promise.all([
         getAdminOverview(token),
         getAdminConfig(token),
         getBackendRestartStatus(token),
         getPublicAccessStatus(token),
+        getAgentOperations(token),
       ]);
       setOverview(nextOverview);
       setConfig(nextConfig);
       setRestartStatus(nextRestartStatus);
       setPublicAccess(nextPublicAccess);
+      setAgentOperations(nextAgentOperations);
       setLastRefresh(new Date());
       prevOverallRef.current = nextOverview.overall;
     } catch (refreshError) {
@@ -432,6 +437,10 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
           <NavButton active={section === 'overview'} icon={<DashboardOutlined />} onClick={() => navigate('overview')}>
             运行总览
           </NavButton>
+          <NavButton active={section === 'agents'} icon={<RobotOutlined />} onClick={() => navigate('agents')}>
+            Agent 运维
+            {agentOperations && agentOperations.pendingApprovals > 0 && <span className="nav-count">{agentOperations.pendingApprovals}</span>}
+          </NavButton>
           <NavButton active={section === 'diagnostics'} icon={<AlertOutlined />} onClick={() => navigate('diagnostics')}>
             问题诊断
             {overview && overview.counts.critical + overview.counts.warning > 0 && (
@@ -457,7 +466,7 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
           </button>
           <div>
             <span className="eyebrow">Operations Console</span>
-            <h1>{section === 'overview' ? '运行总览' : section === 'diagnostics' ? '问题诊断' : '配置与密钥'}</h1>
+            <h1>{section === 'overview' ? '运行总览' : section === 'agents' ? 'Agent 运维' : section === 'diagnostics' ? '问题诊断' : '配置与密钥'}</h1>
           </div>
           <div className="header-actions">
             <div className="refresh-meta">
@@ -505,6 +514,8 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
               onDownloadBackup={() => void downloadBackupExport()}
               onRefreshMetrics={() => void refreshMetrics()}
             />
+          ) : section === 'agents' ? (
+            agentOperations && <AgentOperationsSection operations={agentOperations} />
           ) : section === 'diagnostics' ? (
             overview && <DiagnosticsSection checks={overview.checks} />
           ) : (
@@ -570,6 +581,42 @@ function RestartDialog({ pid, onCancel, onConfirm }: { pid: number; onCancel: ()
       </section>
     </div>
   );
+}
+
+function AgentOperationsSection({ operations }: { operations: AgentOperations }) {
+  const codexProvider = operations.providers.find(provider => provider.id === 'codex');
+  const status: HealthLevel = !operations.enabled ? 'disabled'
+    : codexProvider?.available ? 'healthy' : 'warning';
+  return <>
+    <section className={`system-banner status-surface-${status}`}>
+      <div className="banner-status-icon"><RobotOutlined /></div>
+      <div className="banner-copy">
+        <span className="eyebrow">Codex Harness</span>
+        <h2>{operations.enabled ? (codexProvider?.available ? '项目 Agent 服务可用' : 'Agent 已启用，Codex 尚不可用') : 'Agent 系统当前关闭'}</h2>
+        <p>默认 Provider：{operations.defaultProvider} · 活跃 {operations.runtime.active}/{operations.runtime.capacity} · 待审批 {operations.pendingApprovals}</p>
+      </div>
+      <StatusBadge level={status} />
+    </section>
+    <div className="metric-grid">
+      <MetricCard icon={<RobotOutlined />} label="Codex CLI" value={operations.codex.version ?? '不可用'} detail={operations.codex.model ?? '未指定模型'} level={operations.codex.version ? 'healthy' : 'warning'} />
+      <MetricCard icon={<CloudServerOutlined />} label="API Provider" value={operations.codex.modelProvider} detail={operations.codex.apiKeyConfigured ? '项目 Key 已配置' : '项目 Key 未配置'} level={operations.codex.apiKeyConfigured ? 'healthy' : 'critical'} />
+      <MetricCard icon={<SafetyCertificateOutlined />} label="工作区自治" value={operations.codex.sandboxMode} detail={`Windows ${operations.codex.windowsSandbox} · 审批 ${operations.codex.approvalsEnabled ? '逐步开启' : '无需逐步审批'} · 网络 ${operations.codex.networkEnabled ? '开放' : '关闭'}`} level={operations.codex.isolatedHome && operations.codex.sandboxMode === 'workspace-write' && !operations.codex.approvalsEnabled ? 'healthy' : 'warning'} />
+      <MetricCard icon={<DatabaseOutlined />} label="行情数据入口" value={operations.codex.marketDataCliConfigured ? '本地优先' : '未配置'} detail={`外部补缺 ${operations.codex.externalDataSkillEnabled ? '已启用' : '已关闭'} · 隔离 Python ${operations.codex.isolatedPythonConfigured ? '可用' : '未配置'}`} level={operations.codex.marketDataCliConfigured && operations.codex.isolatedPythonConfigured ? 'healthy' : 'warning'} />
+      <MetricCard icon={<BarChartOutlined />} label="持久化事件" value={String(operations.persistence?.events ?? 0)} detail={`${operations.persistence?.conversations ?? 0} 个对话`} level="healthy" />
+    </div>
+    <Panel title="Provider 状态" subtitle="能力、可用性与运行容量" icon={<CloudServerOutlined />}>
+      {operations.providers.length ? operations.providers.map(provider => <div className="resource-row" key={provider.id}>
+        <div><strong>{provider.id}</strong><span>{provider.reason ?? Object.entries(provider.capabilities).filter(([, enabled]) => enabled).map(([name]) => name).join(' · ')}</span></div>
+        <StatusBadge level={provider.available ? 'healthy' : provider.enabled ? 'warning' : 'disabled'} compact />
+      </div>) : <EmptyState icon={<RobotOutlined />} title="Provider 未启动" description="启用 Agent 并重启后端后可查看实时 Provider 状态。" />}
+    </Panel>
+    <Panel title="近期失败" subtitle="仅展示脱敏错误分类，不包含提示词、推理或密钥" icon={<AlertOutlined />}>
+      {operations.recentFailures.length ? operations.recentFailures.map(failure => <div className="resource-row" key={failure.runId}>
+        <div><strong>{failure.provider} · {failure.category} · {failure.errorCode}</strong><span>{failure.message}{failure.finishedAt ? ` · ${new Date(failure.finishedAt).toLocaleString('zh-CN', { hour12: false })}` : ''}</span></div>
+        <StatusBadge level="critical" compact />
+      </div>) : <EmptyState icon={<CheckCircleOutlined />} title="没有近期失败" description="最近 50 次运行中未发现失败任务。" />}
+    </Panel>
+  </>;
 }
 
 function PublicAccessDialog({ enabled, onCancel, onConfirm }: {

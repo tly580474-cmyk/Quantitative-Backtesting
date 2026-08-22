@@ -58,6 +58,18 @@ describe('AgentEventList', () => {
     expect(screen.getByRole('status')).toHaveTextContent('正在分析任务');
   });
 
+  it('renders a persistent operation approval and submits only its public id', () => {
+    const onApproval = vi.fn();
+    render(<AgentEventList runId="run-approval" userPrompt="" onApproval={onApproval} events={[{
+      type: 'confirmation_required', content: '运行只读检查命令', runId: 'run-approval', seq: 4,
+      approval: { id: '72d6bc2b-c3e9-4c01-88b6-6c04610df31e', requestType: 'command', status: 'pending',
+        expiresAt: '2026-08-22T09:00:00.000Z', summary: '运行只读检查命令' },
+    }]} />);
+    fireEvent.click(screen.getByRole('button', { name: '批准一次' }));
+    expect(onApproval).toHaveBeenCalledWith('72d6bc2b-c3e9-4c01-88b6-6c04610df31e', 'approved');
+    expect(screen.queryByText(/JSON-RPC/i)).not.toBeInTheDocument();
+  });
+
   it('shows a live analysis footer while running and removes it after completion', () => {
     const events = [
       { type: 'user' as const, content: '长任务', timestamp: '2026-08-10T00:00:00.000Z' },

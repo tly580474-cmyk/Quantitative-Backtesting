@@ -27,6 +27,7 @@
     "research:artifacts:prune": "tsx src/research/artifactLifecycleCli.ts",
     "parquet:compact": "tsx src/research/parquetCompactCli.ts",
     "admin:diagnostics": "tsx src/admin/diagnosticsCli.ts",
+    "agent:codex:probe": "tsx scripts/codexProbe.ts",
     "opinion:mail:send": "tsx src/services/marketOpinionPushCli.ts",
     "factor:materializations:archive": "tsx src/research/materializedArtifactArchiveCli.ts",
     "snapshot:schedule:register": "powershell -NoProfile -ExecutionPolicy Bypass -File src/research/register-research-task.ps1",

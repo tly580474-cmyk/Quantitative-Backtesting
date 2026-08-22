@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react';
-import { CheckCircleOutlined, CodeOutlined, DownOutlined, LoadingOutlined, RightOutlined, UserOutlined, WarningOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, CloseCircleOutlined, CodeOutlined, DownOutlined, LoadingOutlined, RightOutlined, SafetyCertificateOutlined, UserOutlined, WarningOutlined } from '@ant-design/icons';
+import { Button } from 'antd';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAgentTheme } from '@/theme';
@@ -91,11 +92,12 @@ function groupTurns(events: AgentEvent[]): Turn[] {
 }
 
 export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runId, isStreaming = false,
-  onConfirm, confirmationDisabled = false }: {
+  onConfirm, confirmationDisabled = false, onApproval, approvalDisabled = false }: {
   events: AgentEvent[]; userPrompt: string; reportUrl?: string | null;
   reportMeta?: { title: string; summary: string } | null; runId?: string | null; isStreaming?: boolean;
   autoCollapseIntermediates?: boolean;
   onConfirm?: (response: string) => void; confirmationDisabled?: boolean;
+  onApproval?: (approvalId: string, decision: 'approved' | 'denied') => void; approvalDisabled?: boolean;
 }) {
   const theme = useAgentTheme();
   const [clock, setClock] = useState(() => Date.now());
@@ -132,10 +134,14 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
       const errors = turn.events.filter(event =>
         (event.type === 'error' && !event.toolUseId)
         || (event.type === 'terminal' && event.terminal?.status !== 'completed'));
-      const confirmations = turn.events.filter(event => event.type === 'confirmation_required');
+      const confirmations = turn.events.filter(event => event.type === 'confirmation_required' && !event.approval);
+      const approvals = [...turn.events.reduce((map, event) => {
+        if (event.type === 'confirmation_required' && event.approval) map.set(event.approval.id, event);
+        return map;
+      }, new Map<string, AgentEvent>()).values()];
       const confirmationAnswered = turns.slice(index + 1).some(later => later.type === 'user');
       const completedWithoutFinal = turn.events.some(event => event.type === 'terminal' && event.terminal?.status === 'completed') && final.length === 0;
-      if (!process.length && !final.length && !errors.length && !confirmations.length) return null;
+      if (!process.length && !final.length && !errors.length && !confirmations.length && !approvals.length) return null;
       const first = turn.events.find(event => event.timestamp)?.timestamp;
       const last = [...turn.events].reverse().find(event => event.timestamp)?.timestamp;
       const duration = calcDuration(first, current ? new Date(clock).toISOString() : last);
@@ -165,6 +171,8 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
           {confirmations.map((event, eventIndex) => <AgentConfirmationCard key={`${event.seq ?? eventIndex}`}
             content={event.content} onSubmit={onConfirm} disabled={confirmationDisabled}
             answered={confirmationAnswered} />)}
+          {approvals.map(event => <ApprovalCard key={event.approval!.id} event={event}
+            disabled={approvalDisabled} onDecision={onApproval} />)}
           {completedWithoutFinal && <div role="status" style={{ color: theme.textSecondary, fontSize: 13 }}>本轮已结束，但未生成最终回答。</div>}
         </div>
       </div>;
@@ -182,4 +190,29 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
       <AgentReportView reportUrl={reportUrl} reportMeta={reportMeta} runId={runId} embedded />
     </div>}
   </div>;
+}
+
+function ApprovalCard({ event, disabled, onDecision }: {
+  event: AgentEvent; disabled: boolean;
+  onDecision?: (approvalId: string, decision: 'approved' | 'denied') => void;
+}) {
+  const theme = useAgentTheme();
+  const approval = event.approval!;
+  const pending = approval.status === 'pending';
+  const labels = { command: '命令执行', file_change: '文件修改', network: '网络访问', permissions: '权限升级' };
+  return <section aria-label="Codex 操作审批" style={{ marginTop: 16, padding: '18px 20px', borderRadius: 13,
+    border: `1px solid ${theme.border}`, background: theme.bgCard }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9, color: theme.text, fontWeight: 600 }}>
+      {pending ? <SafetyCertificateOutlined style={{ color: '#f59e0b' }} />
+        : approval.status === 'approved' ? <CheckCircleOutlined style={{ color: '#10b981' }} />
+          : <CloseCircleOutlined style={{ color: '#ef4444' }} />}
+      <span>{pending ? `等待批准：${labels[approval.requestType]}` : `审批结果：${approval.status}`}</span>
+    </div>
+    <p style={{ color: theme.textSecondary, whiteSpace: 'pre-wrap', lineHeight: 1.65 }}>{approval.summary}</p>
+    <small style={{ color: theme.textSecondary }}>到期时间：{new Date(approval.expiresAt).toLocaleString('zh-CN', { hour12: false })}</small>
+    {pending && <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+      <Button danger disabled={disabled} onClick={() => onDecision?.(approval.id, 'denied')}>拒绝</Button>
+      <Button type="primary" disabled={disabled} onClick={() => onDecision?.(approval.id, 'approved')}>批准一次</Button>
+    </div>}
+  </section>;
 }

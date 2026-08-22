@@ -150,6 +150,91 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     restartScope: 'ai',
   },
   {
+    key: 'AGENT_ENABLED', label: 'Agent 系统开关', category: 'ai',
+    description: '启用项目内 Agent API；不会改变全局 Codex 登录状态。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', inputType: 'boolean', defaultValue: 'false',
+  },
+  {
+    key: 'AGENT_PROVIDER', label: '默认 Agent Provider', category: 'ai',
+    description: '默认使用 claude 或 codex；已有对话始终保持原 Provider。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', defaultValue: 'claude',
+  },
+  {
+    key: 'AGENT_CODEX_ENABLED', label: 'Codex Provider 开关', category: 'ai',
+    description: '仅控制本项目 Codex Harness。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', inputType: 'boolean', defaultValue: 'false',
+  },
+  {
+    key: 'AGENT_CODEX_API_KEY', label: 'Codex 项目 API Key', category: 'ai',
+    description: '仅注入隔离的 Codex App Server 子进程，不读取全局登录凭据。', secret: true, editable: true,
+    restartRequired: true, restartScope: 'ai',
+  },
+  {
+    key: 'AGENT_CODEX_MODEL', label: 'Codex 模型', category: 'ai',
+    description: '项目 Harness 使用的模型标识。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai',
+  },
+  {
+    key: 'AGENT_CODEX_MODEL_PROVIDER', label: 'Codex API Provider', category: 'ai',
+    description: '自定义 Provider ID；与 API 地址配套配置。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai',
+  },
+  {
+    key: 'AGENT_CODEX_BASE_URL', label: 'Codex API 地址', category: 'ai',
+    description: '项目专用 API 基址，不影响其他 AI 功能。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai',
+  },
+  {
+    key: 'AGENT_CODEX_HOME', label: 'Codex 隔离状态目录', category: 'ai',
+    description: '必须指向项目专用目录，避免使用全局 Codex 登录状态。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai',
+  },
+  {
+    key: 'AGENT_CODEX_WORKING_DIRECTORY', label: 'Codex 工作目录', category: 'ai',
+    description: '限制 Harness 的项目工作区。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai',
+  },
+  {
+    key: 'AGENT_CODEX_APPROVALS_ENABLED', label: 'Codex 人工审批', category: 'ai',
+    description: '命令、文件修改和网络升级请求需经界面批准。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', inputType: 'boolean', defaultValue: 'true',
+  },
+  {
+    key: 'AGENT_CODEX_TOOLS_ENABLED', label: 'Codex 工具调用', category: 'ai',
+    description: '允许隔离工作区内的工具调用；越权操作仍受审批策略约束。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', inputType: 'boolean', defaultValue: 'true',
+  },
+  {
+    key: 'AGENT_CODEX_SANDBOX_MODE', label: 'Codex 沙箱模式', category: 'ai',
+    description: 'workspace-write 允许 Codex 在项目工作区内自主读写和执行；不会授予工作区外写权限。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', defaultValue: 'read-only',
+  },
+  {
+    key: 'AGENT_CODEX_WINDOWS_SANDBOX', label: 'Codex Windows 沙箱', category: 'ai',
+    description: 'unelevated 使用无需管理员初始化的受限令牌沙箱；已完成官方 elevated setup 后可切换。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', defaultValue: 'unelevated',
+  },
+  {
+    key: 'AGENT_CODEX_NETWORK_ENABLED', label: 'Codex 工作区网络', category: 'ai',
+    description: '允许 workspace-write 沙箱中的命令访问本机接口和外部数据源。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', inputType: 'boolean', defaultValue: 'false',
+  },
+  {
+    key: 'AGENT_CODEX_MARKET_DATA_CLI', label: 'Codex 行情只读入口', category: 'ai',
+    description: '项目内只读行情 CLI 的绝对路径，只调用本机后端 GET 接口。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai',
+  },
+  {
+    key: 'AGENT_CODEX_EXTERNAL_DATA_SKILL_ENABLED', label: 'A股外部补缺技能', category: 'ai',
+    description: '本地接口缺失或过期时，允许 a-stock-data 在工作区网络边界内自主补缺。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', inputType: 'boolean', defaultValue: 'false',
+  },
+  {
+    key: 'AGENT_CODEX_PYTHON_PATH', label: 'Codex 隔离 Python', category: 'ai',
+    description: 'a-stock-data 专属虚拟环境 Python，不使用全局 Python 包环境。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai',
+  },
+  {
     key: 'MARKET_OPINION_MORNING_TIME',
     label: '观点早报推送时间',
     category: 'ai',
@@ -585,6 +670,17 @@ function validateEnvValue(key: string, value: string): void {
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
     } catch {
       throw new Error('OPENAI_BASE_URL 必须是有效的 HTTP 或 HTTPS 地址');
+    }
+  }
+  if (key === 'AGENT_PROVIDER' && !['claude', 'codex'].includes(value)) {
+    throw new Error('AGENT_PROVIDER 只能是 claude 或 codex');
+  }
+  if (key === 'AGENT_CODEX_BASE_URL' && value) {
+    try {
+      const url = new URL(value);
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+    } catch {
+      throw new Error('AGENT_CODEX_BASE_URL 必须是有效的 HTTP 或 HTTPS 地址');
     }
   }
 }

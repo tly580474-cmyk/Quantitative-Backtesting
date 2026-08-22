@@ -29,6 +29,7 @@ tech_factors_dailyk.html
 
 # 运行时产物
 .codex-runtime/
+.codex-agent-home/
 server/evaluation/
 server/data/multi-asset-artifacts/
 server/data/agent-reports/

@@ -1,9 +1,9 @@
-# Codex Harness 三阶段接入计划
+# Codex Harness 分阶段接入与第二阶段加固计划
 
-> 状态：待实施  
+> 状态：阶段零、第一阶段及第二阶段核心链路已完成（2026-08-22）；当前暂停第三阶段，Codex 按 Claude Code 式工作区自治运行，本地行情优先并允许外部补缺
 > 编制日期：2026-08-21  
 > 适用范围：后端 Agent 编排器、Agent API/SSE、智能体前端、运行配置与运维文档  
-> 总体策略：短期先跑通，保留现有 Claude 链路；中期完成双 Provider 产品化；长期再建设安全、工具和平台能力。
+> 总体策略：先用阶段零验证关键技术假设；短期跑通最小但闭环的 Codex Provider，并保留现有 Claude 链路；中期完成双 Provider 产品化；长期再建设安全、工具和平台能力。
 
 > 实施前置项（2026-08-21）：已取消前端“生成 HTML 报告”硬开关，改为每轮由智能体输出 `agent-report` 自动决策；Codex Provider 必须复用这一公共语义，不得重新引入 Provider 专用的强制报告布尔值。
 
@@ -37,9 +37,10 @@ Codex 官方现已提供 TypeScript SDK、App Server、MCP Server 和 `codex exe
 
 ### 3.1 接入顺序
 
-1. 短期使用 `@openai/codex-sdk`，验证启动、续接、结果返回和取消。
-2. 中期评估并接入 `codex app-server` 的 stdio JSON-RPC，补齐细粒度流式事件与审批。
-3. 长期将量化业务能力封装为 MCP/受控工具，并根据需要引入多智能体编排。
+1. 阶段零使用 `@openai/codex-sdk` 做隔离探针，验证启动、续接、流式、取消、工作目录、凭据隔离和报告决策；阶段零不改产品 UI 和业务数据库。
+2. 短期在阶段零结论支持的前提下接入 TypeScript SDK；如果 SDK 无法满足可验证的取消或隔离要求，短期直接改用本地 stdio App Server，不为维持原技术选型而降低终态与安全要求。
+3. 中期完善 `codex app-server` 的细粒度事件、双向审批、恢复和产品化能力。
+4. 长期将量化业务能力封装为 MCP/受控工具，并根据需要引入多智能体编排。
 
 ### 3.2 兼容策略
 
@@ -55,17 +56,66 @@ Codex 官方现已提供 TypeScript SDK、App Server、MCP Server 和 `codex exe
 - 只允许服务端调用 SDK，不把认证信息发送到浏览器；
 - 不向 Codex 子进程传递数据库、SMTP、管理后台或行情供应商密钥；
 - 默认工作目录限定为项目目录；
+- Codex 使用独立且可持久化的身份/状态目录，不与后端服务账号的普通用户目录混用；
+- 项目 Harness 只使用项目专用 `AGENT_CODEX_API_KEY`，不得读取、复制、修改或回退使用全局 Codex 的 `auth.json` 与登录状态；
+- Windows 服务端路径与 WSL 路径分别配置，不把 WSL 路径直接传给 Windows 原生 SDK；
 - 新能力通过功能开关关闭和回退；
 - 短期不开放公网远程 App Server、不接实盘交易、不自动执行不可恢复操作。
 
 完整权限模型、审批策略、MCP 隔离和审计放在中长期重点设计。
 
-## 4. 第一阶段：短期——先让 Codex 跑起来
+## 4. 阶段零：关键能力与隔离探针
 
-> 建议周期：2～4 个开发日  
+> 建议周期：0.5～1 个开发日
+> 阶段目标：在不修改产品 UI 和业务数据库的前提下，证明第一阶段依赖的 SDK 能力和运行边界成立。
+
+### 4.1 必验项目
+
+使用最小服务端脚本完成以下验证，并记录 Codex、SDK、Node.js 和操作系统版本：
+
+1. 在 Windows Node.js 服务进程中启动一个新 thread，取得最终回答和 thread ID；
+2. 进程退出并重新启动后，使用持久化状态目录恢复同一 thread 并连续运行至少 3 轮；
+3. 验证流式事件或最小可信进度信号，不伪造工具步骤；
+4. 在运行中发起取消，证明模型请求、SDK/子进程和项目运行记录能收敛到唯一 `canceled` 终态；
+5. 验证超时采用与取消相同的资源回收路径，并能区分 `TIMEOUT` 与用户取消；
+6. 使用环境哨兵证明 Codex 子进程无法读取数据库、SMTP、管理后台和行情供应商密钥；
+7. 验证 Codex 工作目录只能落在配置的 Windows 工作区及显式可写目录中；
+8. 验证最终回答中的 `agent-report` 控制块可以被提取、隐藏并驱动现有静态报告渲染；
+9. 验证 Codex 未登录、状态目录损坏、工作目录无效时，探针能输出稳定的失败分类。
+
+### 4.2 技术选型门禁
+
+- 上述项目全部通过：第一阶段采用 `@openai/codex-sdk`；
+- SDK 无法提供可验证的取消，或无法控制子进程环境：第一阶段改用本地 stdio `codex app-server`；
+- 两种方式均无法满足凭据隔离和唯一终态：暂停产品接入，不以关闭测试或放宽安全边界绕过门禁；
+- 探针代码保留为真实环境 smoke test，不进入普通离线单元测试。
+
+### 4.3 阶段零产物
+
+```text
+server/scripts/codexProbe.ts
+server/src/services/agent/providers/codexAgentProvider.ts
+server/src/services/agent/providers/codexAgentProvider.test.ts
+docs/agent-codex-runtime.md
+```
+
+### 4.4 实施结果（2026-08-22）
+
+- 本机 `codex-cli 0.147.0` 的 stdio App Server 能力探针通过，第一阶段按门禁选择 App Server 路线；
+- 早期能力探针曾借用本机全局登录验证新 thread、跨进程三轮续接、最终回答、`agent-report` 和真实 `turn/interrupt`；该方式仅作为技术可行性记录，不再作为项目认证方案或最终验收依据；
+- 项目实现已切换为项目专用 API key：直连 OpenAI 时通过 `account/login/start`/`account/read` 强制确认认证类型；自定义 Responses Provider 使用 Codex 官方 `model_providers`/`env_key` 机制；两种方式均不会回退全局登录；
+- 使用短期 OpenRouter API key 与独立 `CODEX_HOME` 完成真实 smoke test：同一 thread 跨三个独立进程连续三轮完成，`agent-report` 解析通过，`turn/interrupt` 取消收敛为 `interrupted`；
+- Ox Alpha 仅用于免费纯对话 smoke test；因其不接受 Codex 的 freeform/custom 补丁工具，测试模型目录显式关闭 Shell、补丁和 Web Search，不把该结果记作完整工具兼容性验收；
+- 子进程环境白名单测试证明数据库、SMTP、OpenAI API 和行情供应商密钥不会被继承；
+- 工作目录使用 Windows 原生独立目录；研究任务已改为 `read-only` 沙箱，代码修改需显式切换；
+- Codex 保持默认关闭，现有 Claude 默认 Provider 与普通业务启动条件不变。
+
+## 5. 第一阶段：短期——让 Codex 形成产品闭环
+
+> 建议周期：5～8 个开发日（单人，阶段零通过后）
 > 阶段目标：从现有智能体页面发起一次 Codex 任务，看到最终回答，能够续接和取消；Claude 链路不受影响。
 
-### 4.1 范围
+### 5.1 范围
 
 #### A. 建立最薄 Provider 边界
 
@@ -74,6 +124,7 @@ Codex 官方现已提供 TypeScript SDK、App Server、MCP Server 和 `codex exe
 ```ts
 interface AgentProvider {
   readonly id: 'claude' | 'codex';
+  readonly capabilities: AgentProviderCapabilities;
   start(params: ProviderStartParams, sink: AgentEventSink): Promise<ProviderRun>;
   cancel(runId: string): Promise<boolean>;
   shutdown(): Promise<void>;
@@ -83,22 +134,33 @@ interface AgentProvider {
 实现：
 
 - `ClaudeAgentProvider`：包装当前 `spawn + stream-json` 行为；
-- `CodexAgentProvider`：使用 `@openai/codex-sdk` 启动或恢复 thread；
+- `CodexAgentProvider`：使用阶段零选定的 SDK 或本地 stdio App Server 启动、恢复和中断 thread/turn；
 - `AgentOrchestrator`：只负责并发、状态机、持久化和事件发布，不再直接拼 Claude 命令。
+- `ProviderRun` 必须包含项目 `runId`、Provider thread ID、可取消句柄和完成 Promise；Provider 事件不得直接写数据库。
+- Provider 负责释放自身 client、thread/turn 句柄和子进程；Orchestrator 负责保证状态迁移和唯一终态。
 
 短期允许 Claude Provider 只做轻量包装，避免一次性大改。
 
-#### B. 接入 Codex SDK
+#### B. 接入阶段零选定的 Codex Runtime
 
-- 在 `server` 安装 `@openai/codex-sdk`；
-- 在服务端创建 Codex client；
+- SDK 路线在 `server` 安装 `@openai/codex-sdk` 并创建 Codex client；App Server 路线则固定 CLI 版本并创建本地 stdio client；
 - 启动新 thread 并保存 thread ID；
 - 对已有 thread 调用 resume/continue；
 - 将最终回答映射为 `assistant_final`；
 - 将成功、失败、取消映射为现有 `terminal`；
 - SDK 暂时无法稳定提供的细粒度事件统一映射为少量 `progress`，不在 MVP 阶段模拟虚假工具步骤。
+- 用户取消和超时必须调用阶段零已验证的同一底层中断机制；只有底层资源回收完成或进入明确的强制终止分支后才发布终态。
 
-#### C. 最小配置
+#### C. Provider 中立的提示词与报告语义
+
+- 将公共安全边界、续接说明、确认语义和 `agent-report` 规则从 Claude 专用提示词中拆出；
+- Claude Provider 可以继续注入 `Task/report-designer` 子代理说明，但 Codex Provider 不得引用不存在的 Claude 工具或子代理；
+- Codex 第一阶段在 `generate=true` 时直接输出经核实的 Markdown 报告正文，不依赖 Skills、插件或多智能体；
+- 两个 Provider 的最终回答统一经过公共控制块解析器：提取并隐藏 `agent-report`/`agent-confirmation`，再发布 `assistant_final`；
+- `agent-report.generate=true` 必须复用现有 `renderStaticAgentReport`、`validateAgentReport` 和 `saveReport` 链路；缺失或非法报告继续进入 `REPORT_INVALID_OR_MISSING`；
+- 报告判断必须按轮次独立计算，不能从上一轮继承，也不能重新引入 Provider 专用报告布尔值。
+
+#### D. 最小配置
 
 建议新增：
 
@@ -107,6 +169,11 @@ AGENT_PROVIDER=claude
 AGENT_CODEX_ENABLED=false
 AGENT_CODEX_MODEL=
 AGENT_CODEX_WORKING_DIRECTORY=
+AGENT_CODEX_HOME=
+AGENT_CODEX_API_KEY=
+AGENT_CODEX_MODEL_PROVIDER=
+AGENT_CODEX_BASE_URL=
+AGENT_CODEX_MODEL_CATALOG=
 AGENT_CODEX_TIMEOUT_MINUTES=60
 ```
 
@@ -116,26 +183,41 @@ AGENT_CODEX_TIMEOUT_MINUTES=60
 - `AGENT_CODEX_ENABLED=false` 时不初始化 Codex；
 - 模型为空时使用本机 Codex 配置的默认值，不在代码中写死“最新模型”；
 - Codex 初始化失败时后端仍可启动，并在 Agent 健康状态中显示不可用原因。
+- `AGENT_CODEX_WORKING_DIRECTORY` 使用 Windows 原生绝对路径；不得复用 `AGENT_WSL_PROJECT_PATH`；
+- `AGENT_CODEX_HOME` 指向项目专用、可持久化且权限受限的目录，用于 API 认证状态与 thread 恢复；不得指向全局 Codex 配置目录；
+- `AGENT_CODEX_API_KEY` 必须使用项目专用密钥；直连 OpenAI 时显式执行 API key 登录并校验认证类型；自定义 Responses Provider 使用专用 `env_key` 并过滤工具子进程密钥环境；不允许读取或回退使用全局 Codex 登录；
+- Provider 子进程使用显式环境白名单；若 SDK 不允许可靠控制环境，按阶段零门禁切换到 App Server；
+- 配置解析时校验工作区和状态目录，不允许把用户主目录、磁盘根目录或项目父目录作为可写工作区。
 
-#### D. API 与前端最小改动
+#### E. API、能力发现与前端最小改动
 
 - Agent 创建请求增加可选 `provider`；
+- 新增只读的 Provider 能力/健康接口，至少返回 `id`、`enabled`、`available`、`reason` 和 MVP 能力；前端不得只根据构建时环境变量猜测可用性；
 - 历史记录显示 `Claude` 或 `Codex` 标签；
 - 配置未开启时不显示 Codex 选项；
 - 运行界面继续复用现有 SSE、取消按钮和最终回答区域；
 - 不在短期重做审批卡片和工具详情。
 
-#### E. 数据兼容
+#### F. Provider 与对话不变量
 
-优先复用现有 `session_id` 字段保存 Provider 会话 ID，并为运行记录增加 `provider` 字段；如果现有字段语义无法安全复用，再增加可空的 `provider_thread_id`。
+- 新对话使用请求中的 Provider；未提供时使用 `AGENT_PROVIDER`；
+- 同一对话的后续轮次必须继承父运行的 Provider，不重新读取系统默认值；
+- 后续请求显式提交不同 Provider 时返回 `409 PROVIDER_MISMATCH`；
+- 第一阶段切换 Provider 必须创建新对话，不允许把 Claude session ID 交给 Codex 或把 Codex thread ID 交给 Claude；
+- Provider 不可用时不得静默切换已有对话的 Provider；回退只适用于创建新对话时的显式选择或运维配置。
+
+#### G. 数据兼容
+
+第一阶段复用现有 `session_id` 字段保存当前运行所属 Provider 的原生会话 ID，并为运行记录增加非空 `provider` 字段。`session_id` 的解释必须始终与同一行的 `provider` 绑定；若阶段零发现 Codex thread ID 超出现有长度或需要额外定位信息，再增加可空的 `provider_thread_id`/元数据字段，不做截断。
 
 数据库迁移必须满足：
 
 - 旧记录自动视为 `claude`；
 - 不修改历史事件内容；
 - 回滚应用版本后旧 Claude 路径仍能读取记录。
+- 建议迁移使用 `provider VARCHAR(16) NOT NULL DEFAULT 'claude'`，并为 `conversation_id + provider` 增加一致性检查测试；应用层仍需执行 Provider 继承校验。
 
-### 4.2 预计修改文件
+### 5.2 预计修改文件
 
 ```text
 server/package.json
@@ -147,14 +229,21 @@ server/src/services/agent/providers/types.ts
 server/src/services/agent/providers/claudeAgentProvider.ts
 server/src/services/agent/providers/codexAgentProvider.ts
 server/src/services/agent/agentRepository.ts
+server/src/services/agent/promptBuilder.ts
+server/src/services/agent/outputParser.ts
 server/src/db/schema.ts
 server/src/db/migrations/<next>_agent_provider.sql
 src/features/agent/types.ts
 src/features/agent/api.ts
 src/features/agent/AgentRunner.tsx
+server/src/routes/agent.test.ts
+server/src/services/agent/providers/agentProvider.contract.test.ts
+server/src/services/agent/outputParser.test.ts
+server/src/services/agent/promptBuilder.test.ts
+src/features/agent/api.test.ts
 ```
 
-### 4.3 短期非目标
+### 5.3 短期非目标
 
 - 不接入远程 WebSocket App Server；
 - 不实现完整命令/文件/网络审批；
@@ -164,27 +253,54 @@ src/features/agent/AgentRunner.tsx
 - 不删除 Claude CLI、解析器或相关配置；
 - 不追求 Claude 与 Codex 中间事件完全一致。
 
-### 4.4 验收标准
+### 5.4 验收标准
 
-- [ ] 后端在 Codex 未安装或未登录时仍能正常启动，Claude 功能不受影响。
-- [ ] 开启 Codex 后，可从现有页面完成一次普通问答。
-- [ ] 同一 Codex thread 可连续完成至少 3 轮对话。
-- [ ] 页面刷新后可加载 Codex 历史，并继续原 thread。
-- [ ] 用户取消后，运行进入唯一的 `canceled` 终态。
-- [ ] 超时和 SDK 异常进入 `failed`，前端显示可理解原因。
-- [ ] Claude 与 Codex 各完成至少一条真实端到端冒烟测试。
-- [ ] 前端构建、后端类型检查和 Agent 专项测试通过。
+- [x] 后端在 Codex 未安装或未登录时仍能正常启动，Claude 功能不受影响。
+- [ ] 使用项目专用 API key 开启 Codex 后，可从现有页面发起普通问答并复用现有 SSE/最终回答区域。
+- [x] 使用项目专用 API key 时，同一 Codex thread 可连续完成至少 3 轮对话。
+- [ ] 使用项目专用 API key 时，页面刷新后可加载 Codex 历史，并继续原 thread。
+- [x] 服务进程重启后，使用项目专用状态目录继续原 Codex thread。
+- [x] 同一对话不能切换 Provider，冲突请求返回 `PROVIDER_MISMATCH`，且不会调用错误 Provider。
+- [x] 使用项目专用 API key 时，底层取消收敛为 `interrupted`，Orchestrator 合同测试映射为唯一 `canceled` 终态。
+- [x] 超时和 App Server/Provider 异常进入 `failed`，前端显示可理解原因。
+- [x] Codex 子进程无法读取后端数据库、SMTP、管理后台和行情供应商密钥。
+- [x] Codex 的 `agent-report` 控制块不显示在 UI 中，公共解析和真实 `generate=false` 探针通过；`generate=true` 复用已有报告渲染合同测试。
+- [x] Provider 健康接口能区分禁用、运行时不可用、工作目录无效和可用状态，并保留最近启动错误原因。
+- [x] Claude 既有链路回归测试通过，并完成项目专用 API key 隔离路径的 Codex 真实环境 smoke test。
+- [x] 前端构建、后端类型检查和 Agent 专项测试通过。
 
-### 4.5 短期完成定义
+### 5.5 短期完成定义
 
 用户可以在页面选择 Codex，发送任务、收到回答、继续追问、刷新恢复和取消运行；出现问题时切回 Claude 只需修改配置或选择 Provider，不需要回滚数据库。
 
-## 5. 第二阶段：中期——产品化与可靠运行
+## 6. 第二阶段：中期——产品化与可靠运行
 
 > 建议周期：1～3 周  
 > 阶段目标：把 Codex 从“能运行的实验 Provider”提升为稳定的双 Provider 产品能力，重点补齐事件、审批、测试、可观测性和基础安全。
 
-### 5.1 App Server 事件接入
+### 6.0 当前优先级与第三阶段冻结边界（2026-08-22）
+
+第三阶段暂不启动。本轮只在第二阶段内补齐运行必需边界，不建设 MCP Server、动态工具协议、
+多智能体、角色权限体系或交易能力：
+
+- [x] 使用项目根目录 `workspace-write`，工作区内允许自主读写、命令和测试；
+- [x] Windows 显式使用 `unelevated` 受限令牌沙箱，避免 `workspace-write` 在未初始化时退化为只读；
+- [x] 常规步骤使用 `approvalPolicy=never`，不逐步请求人工审批；审批基础设施保留为可选开关；
+- [x] workspace-write 沙箱开放网络，支持本机行情入口和 a-stock-data 外部 HTTP/TCP 补缺；
+- [x] 增加只读的本机行情 CLI，复用现有后端 GET 接口，不向 Codex 传递数据库或行情密钥；
+- [x] 数据访问顺序固定为“项目本地接口 → 明确判定缺失/过期 → a-stock-data 外部补缺”；
+- [x] a-stock-data 与其 Python 依赖安装到项目专属 `AGENT_CODEX_HOME`，不修改全局 Codex；
+- [x] 管理台展示沙箱模式、本地行情入口、外部补缺技能和隔离 Python 状态；
+- [x] 完成 Ox Alpha 对本地行情 CLI 和工作区文件修改的正式 Harness 端到端实测；两条运行均产生真实 command 事件并以 exitCode 0 完成。
+- [ ] 完成仅在本地明确缺失时触发的 a-stock-data 外部补缺 Harness 实测。
+
+这里的行情 CLI 是第二阶段的最小安全适配器，不是第三阶段的通用量化工具平台。它只做参数校验、
+回环地址限制和现有 GET API 转发；结构化 MCP、细粒度域名授权与数据库只读账号仍保留在第三阶段。
+
+### 6.1 App Server 事件接入
+
+> 2026-08-22 已开始正式落地：stdio JSON-RPC、主要事件映射及审批 server request
+> 路由已进入实现；继续以生成 Schema 和协议 fixture 作为升级门禁。
 
 - 采用本地 stdio 连接 `codex app-server`；
 - 实现 JSON-RPC client、initialize、thread/start、turn/start、turn/interrupt；
@@ -202,7 +318,7 @@ src/features/agent/AgentRunner.tsx
 
 - Provider 原始事件只进入受限诊断日志，前端和数据库继续保存脱敏后的公共事件。
 
-### 5.2 Provider 能力模型
+### 6.2 Provider 能力模型
 
 增加能力声明，避免用大量 `provider ===` 分支：
 
@@ -219,7 +335,10 @@ interface AgentProviderCapabilities {
 
 前端根据能力决定是否展示审批、工具详情、模型和沙箱选择。
 
-### 5.3 基础安全与审批
+### 6.3 基础安全与审批
+
+> 已落地审批表、业务审批 ID、内存请求关联、查询/决策 API、SSE 重放、前端审批卡片，
+> 并实现超时、取消及服务重启 fail-closed。MCP 审批仍留在后续受控工具阶段。
 
 - 默认使用只读或 workspace-write 沙箱，不使用 full-access 作为普通默认值；
 - 对命令执行、文件修改和网络访问实现确认流程；
@@ -229,7 +348,17 @@ interface AgentProviderCapabilities {
 - 将 Agent 工作目录与报告输出目录显式列入允许范围；
 - 保留现有公共内容脱敏、长度限制与报告静态校验。
 
-### 5.4 可靠性
+审批不是普通的单向 `confirmation_required` 文本事件。App Server 发出的 server request 必须保持关联并由客户端返回 JSON-RPC 决策，因此增加以下公共协议：
+
+- 持久化 approval 记录，至少包含 `approvalId`、`runId`、`provider`、`threadId`、`turnId`、`itemId`、请求类型、脱敏摘要、状态、过期时间和最终决策；
+- 状态机为 `pending -> approved | denied | expired | canceled`，终态不可逆；
+- 新增审批查询与响应 API，响应操作必须幂等并校验当前用户、运行和待审批状态；
+- `confirmation_required` 仅用于前端展示，必须携带公共 `approvalId`，不得把 App Server JSON-RPC request ID 暴露给浏览器；
+- 内存中保存 `approvalId -> App Server connection/request` 关联；服务或 App Server 重启导致原请求不可恢复时，持久化记录转为 `canceled/expired`，相关运行进入明确终态，不伪造批准；
+- SSE 重连从数据库恢复待审批卡片，审批结果事件可去重重放；
+- 命令、文件、网络和 MCP 审批分别展示对应风险信息，不把网络授权误显示为普通命令确认。
+
+### 6.4 可靠性
 
 - App Server 进程崩溃检测与按上限重启；
 - 服务重启后回收孤立运行，并恢复可恢复 thread；
@@ -239,7 +368,10 @@ interface AgentProviderCapabilities {
 - 记录首 token 时间、总耗时、工具次数、失败分类和取消原因；
 - 不记录内部推理全文、认证令牌或未经清洗的命令输出。
 
-### 5.5 产品能力
+### 6.5 产品能力
+
+> 管理台已增加 Agent 运维页，并将项目 Codex 开关、模型、隔离目录、API Provider、
+> 工具与审批配置纳入受保护配置界面；项目 Key 只显示配置状态，不回填明文。
 
 - 管理台增加 Provider 健康、版本、并发和最近失败；
 - 对话级选择 Provider，新对话默认继承系统配置；
@@ -247,7 +379,7 @@ interface AgentProviderCapabilities {
 - 展示模型、沙箱和 Provider，但不向普通用户暴露底层命令参数；
 - 报告继续采用项目现有静态渲染与校验，不直接执行模型生成的脚本。
 
-### 5.6 测试
+### 6.6 测试
 
 - Provider 合同测试，同一套用例运行在 Claude/Codex fake provider 上；
 - App Server JSON-RPC fixture 与协议升级测试；
@@ -255,27 +387,30 @@ interface AgentProviderCapabilities {
 - SSE 重连、历史重放和事件去重测试；
 - 两个 Provider 的真实环境 smoke test，但不要求在普通单元测试中联网；
 - 前端 Provider 切换和审批卡片 UI 测试。
+- 审批重复提交、过期、服务重启、App Server 断连和跨运行串单测试。
 
-### 5.7 中期验收标准
+### 6.7 中期验收标准
 
-- [ ] Codex 工具开始/完成、文本和终态可以实时展示。
-- [ ] 命令和文件修改审批可在现有页面完成。
-- [ ] 服务或 App Server 异常不会产生永久 `running` 记录。
+- [x] Codex 工具开始/完成、文本和终态可以实时展示。
+- [x] 命令和文件修改审批可在现有页面完成。
+- [x] 待审批状态可在页面刷新后恢复；重复决策不会重复执行操作。
+- [x] 服务或 App Server 在待审批期间重启时，不会自动批准或留下永久等待记录。
+- [x] 服务或 App Server 异常不会产生永久 `running` 记录。
 - [ ] 两个 Provider 均通过统一合同测试和连续 20 轮稳定性测试。
-- [ ] 管理台可以区分认证、协议、模型、超时和执行错误。
-- [ ] Codex 默认权限不高于完成任务所需范围。
+- [x] 管理台可以区分认证、协议、模型、超时和执行错误。
+- [x] Codex 默认权限不高于完成任务所需范围。
 - [ ] 版本升级时 Schema 漂移能被 CI 检测。
 
-### 5.8 中期完成定义
+### 6.8 中期完成定义
 
 Codex 可以作为正式功能开启，拥有可靠的流式体验、审批、恢复、监控和测试；Claude 与 Codex 共用产品协议，但各自保留独立实现和故障边界。
 
-## 6. 第三阶段：长期——量化智能体平台化
+## 7. 第三阶段：长期——量化智能体平台化
 
 > 建议周期：1～3 个月，按业务价值拆分迭代  
 > 阶段目标：从“通用代码智能体接入”升级为有明确权限、工具协议、审计和评测的量化研究智能体平台。
 
-### 6.1 受控量化工具层
+### 7.1 受控量化工具层
 
 优先把以下能力封装为 MCP Server 或项目内部结构化工具：
 
@@ -296,7 +431,7 @@ Codex 可以作为正式功能开启，拥有可靠的流式体验、审批、�
 - Agent 不直接读取 `.env`，也不持有数据库管理员凭据；
 - 工具返回业务摘要和资源引用，不返回无限量原始数据。
 
-### 6.2 权限与隔离体系
+### 7.2 权限与隔离体系
 
 - 区分只读研究、代码修改、数据维护和模拟交易四类角色；
 - 每个工具定义风险等级、审批要求和允许环境；
@@ -306,7 +441,7 @@ Codex 可以作为正式功能开启，拥有可靠的流式体验、审批、�
 - 高风险文件修改必须提供 diff 并经确认；
 - 实盘交易继续作为非目标，除非未来单独立项和审计。
 
-### 6.3 多智能体与任务编排
+### 7.3 多智能体与任务编排
 
 在单 Agent 和工具体系稳定后，再考虑：
 
@@ -319,7 +454,7 @@ Codex 可以作为正式功能开启，拥有可靠的流式体验、审批、�
 
 若 Codex 只是更大工作流中的代码专家，可按官方建议将 Codex MCP Server 交给 Agents SDK 编排；不要在项目内重复实现一套无边界的递归 Agent 系统。
 
-### 6.4 审计、成本与治理
+### 7.4 审计、成本与治理
 
 - 记录谁在何时请求了什么任务、使用了哪些工具和产生了哪些变更；
 - 保留结构化工具输入、结果摘要、审批与产物指纹；
@@ -328,7 +463,7 @@ Codex 可以作为正式功能开启，拥有可靠的流式体验、审批、�
 - 支持按 Provider、模型、任务类别和版本回放评测；
 - 建立数据泄露、提示词注入、越权工具和错误投资结论专项测试。
 
-### 6.5 评测体系
+### 7.5 评测体系
 
 建立量化项目专用离线评测集：
 
@@ -343,7 +478,7 @@ Codex 可以作为正式功能开启，拥有可靠的流式体验、审批、�
 
 模型或 Harness 升级必须先通过回归评测，再逐步放量。
 
-### 6.6 长期验收标准
+### 7.6 长期验收标准
 
 - [ ] Agent 的主要量化操作通过结构化工具完成，而不是任意 Shell/SQL。
 - [ ] 所有写操作均有身份、审批、参数、结果和产物审计。
@@ -352,15 +487,16 @@ Codex 可以作为正式功能开启，拥有可靠的流式体验、审批、�
 - [ ] 单个 Agent 或工具故障不会影响主站和数据管线。
 - [ ] 多智能体只在可量化收益明确时启用，并有预算与递归深度限制。
 
-### 6.7 长期完成定义
+### 7.7 长期完成定义
 
 Codex 不再只是嵌入页面的通用聊天执行器，而是量化研究平台中的受控代码与分析专家；业务数据、工具、权限、审计和评测由本项目掌控，模型与 Harness 可以替换或升级。
 
-## 7. 阶段门禁与推进规则
+## 8. 阶段门禁与推进规则
 
 | 阶段 | 进入条件 | 退出条件 | 回退方式 |
 | --- | --- | --- | --- |
-| 短期 | Codex CLI/SDK 可安装并完成登录 | 真实三轮对话、恢复、取消通过 | 关闭 `AGENT_CODEX_ENABLED`，继续使用 Claude |
+| 阶段零 | Codex SDK 可安装，具备受控测试账号和隔离目录 | 启动、三轮恢复、取消、环境隔离、路径和报告决策探针全部通过，并确定 SDK 或 App Server 路线 | 不进入产品接入，现有系统不受影响 |
+| 短期 | 阶段零通过，Provider/报告/数据契约已确定 | 真实三轮对话、进程重启恢复、取消、Provider 不变量、报告和凭据隔离通过 | 关闭 `AGENT_CODEX_ENABLED`，继续使用 Claude |
 | 中期 | 短期 MVP 稳定，公共事件协议不需大改 | 流式、审批、恢复、监控和合同测试通过 | Provider 级熔断并回退 Claude |
 | 长期 | 工具需求和权限边界已明确 | 工具、审计、评测和治理门禁通过 | 禁用对应 MCP/写工具，不影响普通 Agent |
 
@@ -372,19 +508,21 @@ Codex 不再只是嵌入页面的通用聊天执行器，而是量化研究平�
 4. 每阶段结束后更新本计划、`CLAUDE.md`、系统设计和运维手册。
 5. 下一阶段开始前，用真实运行数据复核上一阶段的主要假设。
 
-## 8. 建议实施顺序
+## 9. 建议实施顺序
 
-短期首个迭代按以下顺序执行：
+按以下顺序执行：
 
-1. 新增配置和 Codex SDK 依赖；
-2. 写 Codex 本地连通性/登录探针；
-3. 建立 Provider 接口和 Codex Provider；
-4. 让 Orchestrator 支持选择 Provider；
-5. 持久化 Provider 与 thread ID；
-6. 接通现有 API/SSE；
-7. 前端增加 Provider 选择和标签；
-8. 补单元测试与 fake provider 集成测试；
-9. 完成 Claude/Codex 双链路真实冒烟；
-10. 更新 `CLAUDE.md` 和 Agent 运维文档。
+1. 完成阶段零 SDK 探针、取消验证、环境哨兵、路径验证和报告决策验证；
+2. 根据门禁确定第一阶段使用 SDK 或本地 stdio App Server；
+3. 新增配置、专用状态目录和 Codex 运行依赖；
+4. 拆分 Provider 中立提示词、控制块解析和报告决策；
+5. 建立 Provider 接口、合同测试和 Codex Provider；
+6. 让 Orchestrator 支持选择 Provider，并统一取消、超时、终态和资源回收；
+7. 持久化 Provider 与 thread ID，落实对话 Provider 不变量；
+8. 接通现有 API/SSE，并增加 Provider 能力/健康接口；
+9. 前端增加 Provider 选择、可用状态和历史标签；
+10. 补单元测试、fake provider 集成测试、凭据隔离测试和报告决策测试；
+11. 完成 Claude/Codex 双链路真实冒烟及服务重启恢复测试；
+12. 更新 `CLAUDE.md`、系统设计和 Agent 运维文档。
 
 短期不应先做 App Server WebSocket、MCP、多智能体、复杂审批 UI 或完整安全重构；这些工作不能阻塞第一条 Codex 端到端链路。

@@ -1,4 +1,4 @@
-import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartResult, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressResponse, MetricsHistoryResponse, PublicAccessStatus } from './types';
+import type { AdminConfigItem, AdminHealth, AdminOverview, AgentOperations, BackendRestartResult, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressResponse, MetricsHistoryResponse, PublicAccessStatus } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3001';
 
@@ -30,6 +30,10 @@ export async function getAdminOverview(token: string): Promise<AdminOverview> {
 
 export async function getAdminHealth(token: string): Promise<AdminHealth> {
   return request('/api/admin/health', {}, token);
+}
+
+export async function getAgentOperations(token: string): Promise<AgentOperations> {
+  return request('/api/admin/agent', {}, token);
 }
 
 export async function getMetricsHistory(token: string, since?: string): Promise<MetricsHistoryResponse> {

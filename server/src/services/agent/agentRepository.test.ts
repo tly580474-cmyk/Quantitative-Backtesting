@@ -3,6 +3,15 @@ import type { Pool } from 'mysql2/promise';
 import { AgentRepository } from './agentRepository.js';
 
 describe('AgentRepository state machine', () => {
+  it('persists the selected provider with each run', async () => {
+    const execute = vi.fn().mockResolvedValue([{ affectedRows: 1 }]);
+    const repo = new AgentRepository({ execute } as unknown as Pool);
+    await repo.createRun('run-codex', 'test', 5, 60_000, 'classic-blue', undefined, 'run-codex', 0, 'codex');
+    const [sql, values] = execute.mock.calls[0];
+    expect(sql).toContain('provider');
+    expect(values).toContain('codex');
+  });
+
   it('guards transitions with the expected source states', async () => {
     const execute = vi.fn().mockResolvedValue([{ affectedRows: 1 }]);
     const repo = new AgentRepository({ execute } as unknown as Pool);

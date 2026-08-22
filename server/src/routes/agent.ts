@@ -8,6 +8,7 @@ import { AgentRepository, type AgentEventRecord, type AgentRunRecord } from '../
 import type { AgentOrchestrator } from '../services/agent/agentOrchestrator.js';
 import { isPublicAgentEventType, sanitizePublicContent, type PublicAgentEvent } from '../services/agent/eventProtocol.js';
 import type { EnvConfig } from '../config.js';
+import type { AgentProviderId } from '../services/agent/providers/types.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'canceled']);
 
@@ -37,6 +38,7 @@ function publicEvent(record: AgentEventRecord, lastLegacyTextSeq = -1): (PublicA
       ...(record.toolUseId ? { toolUseId: record.toolUseId } : {}),
       ...(record.durationMs != null ? { durationMs: record.durationMs } : {}),
       ...(record.terminal ? { terminal: record.terminal } : {}),
+      ...(record.approval ? { approval: record.approval } : {}),
     };
   }
   // v1 compatibility adapter. Raw thoughts and raw tool payloads remain hidden.
@@ -103,15 +105,17 @@ export function registerAgentRoutes(
   const { orchestrator, enabled, config } = deps;
   const defaultMaxTurns = Number.parseInt(config.AGENT_DEFAULT_MAX_TURNS, 10) || 50;
   const defaultTimeoutMinutes = Number.parseInt(config.AGENT_TIMEOUT_MINUTES, 10) || 60;
+  const defaultCodexTimeoutMinutes = Number.parseInt(config.AGENT_CODEX_TIMEOUT_MINUTES, 10) || 60;
   const messageSchema = z.object({
     prompt: z.string().trim().min(1).max(100_000),
     maxTurns: z.number().int().min(0).max(200).default(defaultMaxTurns),
-    timeoutMinutes: z.number().int().min(1).max(360).default(defaultTimeoutMinutes),
+    timeoutMinutes: z.number().int().min(1).max(360).optional(),
     templateStyle: z.enum(['classic-blue', 'dark-pro', 'minimal-white', 'dashboard']).default('classic-blue'),
     reportMode: z.literal('auto').default('auto'),
     // Kept temporarily so an older frontend does not fail validation. The agent now decides
     // from the task itself; this legacy switch no longer forces or suppresses a report.
     generateReport: z.boolean().optional(),
+    provider: z.enum(['claude', 'codex']).optional(),
   });
 
   app.addHook('preHandler', async (request, reply) => {
@@ -130,12 +134,16 @@ export function registerAgentRoutes(
     const runId = crypto.randomUUID();
     const conversationId = parent?.conversationId ?? runId;
     const turnIndex = parent ? parent.turnIndex + 1 : 0;
-    await repo.createRun(runId, body.prompt, body.maxTurns, body.timeoutMinutes * 60_000,
-      body.templateStyle, parent?.id, conversationId, turnIndex);
+    const provider: AgentProviderId = parent?.provider ?? body.provider ?? orchestrator.getDefaultProvider();
+    const timeoutMinutes = body.timeoutMinutes
+      ?? (provider === 'codex' ? defaultCodexTimeoutMinutes : defaultTimeoutMinutes);
+    await repo.createRun(runId, body.prompt, body.maxTurns, timeoutMinutes * 60_000,
+      body.templateStyle, parent?.id, conversationId, turnIndex, provider);
     if (parent?.sessionId) await repo.updateSessionId(runId, parent.sessionId);
     void orchestrator.start({
-      runId, prompt: body.prompt, maxTurns: body.maxTurns, timeoutMs: body.timeoutMinutes * 60_000,
+      runId, prompt: body.prompt, maxTurns: body.maxTurns, timeoutMs: timeoutMinutes * 60_000,
       templateStyle: body.templateStyle, resumeSessionId: parent?.sessionId ?? undefined,
+      provider,
     }).catch(error => console.error(`[Agent] start failed for ${runId}:`, error));
     return { runId, conversationId, turnIndex, status: 'pending' as const, parentRunId: parent?.id ?? null };
   };
@@ -154,7 +162,11 @@ export function registerAgentRoutes(
     if (!parent) return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '对话不存在'));
     if (!TERMINAL.has(parent.status)) return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '上一轮尚未结束'));
     if (!parent.sessionId) return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '对话会话不可恢复'));
-    return reply.code(201).send(await startRun(messageSchema.parse(request.body), parent));
+    const body = messageSchema.parse(request.body);
+    if (body.provider && body.provider !== parent.provider) {
+      return reply.code(409).send(apiError(ErrorCodes.PROVIDER_MISMATCH, '同一对话不能切换 Provider，请新建对话'));
+    }
+    return reply.code(201).send(await startRun(body, parent));
   });
 
   // Legacy continuation endpoint delegates to the same conversation model.
@@ -166,7 +178,11 @@ export function registerAgentRoutes(
     if (!TERMINAL.has(parent.status) || !parent.sessionId) {
       return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '当前运行不可继续'));
     }
-    return reply.code(201).send(await startRun(messageSchema.parse(request.body), parent));
+    const body = messageSchema.parse(request.body);
+    if (body.provider && body.provider !== parent.provider) {
+      return reply.code(409).send(apiError(ErrorCodes.PROVIDER_MISMATCH, '同一对话不能切换 Provider，请新建对话'));
+    }
+    return reply.code(201).send(await startRun(body, parent));
   });
 
   app.get('/api/agent/runs/:runId/stream', async (request, reply) => {
@@ -241,8 +257,36 @@ export function registerAgentRoutes(
   app.get('/api/agent/metrics', async (_request, reply) => {
     return reply.send({
       runtime: enabled ? orchestrator.getRuntimeStats() : { active: 0, capacity: 0 },
+      providers: enabled ? orchestrator.getProviderHealth() : [],
+      defaultProvider: enabled ? orchestrator.getDefaultProvider() : 'claude',
       persistence: await new AgentRepository(deps.pool).getMetrics(),
       observedAt: new Date().toISOString(),
+    });
+  });
+
+  app.get('/api/agent/approvals', async (request, reply) => {
+    if (!ensureAvailable(reply)) return;
+    const { runId } = request.query as { runId?: string };
+    return reply.send({ approvals: await orchestrator.listPendingApprovals(runId) });
+  });
+
+  app.post('/api/agent/approvals/:approvalId/decision', async (request, reply) => {
+    if (!ensureAvailable(reply)) return;
+    const { approvalId } = z.object({ approvalId: z.string().uuid() }).parse(request.params);
+    const { decision } = z.object({ decision: z.enum(['approved', 'denied']) }).parse(request.body);
+    const approval = await orchestrator.decideApproval(approvalId, decision);
+    if (!approval) return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '审批请求不存在'));
+    if (approval.status !== decision) {
+      return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, `审批已处于 ${approval.status} 状态`));
+    }
+    return reply.send({ approval });
+  });
+
+  app.get('/api/agent/providers', async (_request, reply) => {
+    if (!ensureAvailable(reply)) return;
+    return reply.send({
+      defaultProvider: orchestrator.getDefaultProvider(),
+      providers: orchestrator.getProviderHealth(),
     });
   });
 

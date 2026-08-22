@@ -142,6 +142,31 @@ export interface AdminConfigItem {
   maskedValue: string | null;
 }
 
+export interface AgentOperations {
+  enabled: boolean;
+  defaultProvider: 'claude' | 'codex';
+  runtime: { active: number; capacity: number };
+  providers: Array<{
+    id: 'claude' | 'codex'; enabled: boolean; available: boolean; reason: string | null;
+    capabilities: Record<string, boolean>;
+  }>;
+  codex: {
+    enabled: boolean; version: string | null; model: string | null; modelProvider: string;
+    baseUrlConfigured: boolean; apiKeyConfigured: boolean; isolatedHome: boolean;
+    approvalsEnabled: boolean; toolsEnabled: boolean;
+    sandboxMode: 'read-only' | 'workspace-write'; windowsSandbox: 'elevated' | 'unelevated'; networkEnabled: boolean;
+    marketDataCliConfigured: boolean;
+    externalDataSkillEnabled: boolean; isolatedPythonConfigured: boolean;
+  };
+  persistence: { statuses: Record<string, number>; events: number; eventBytes: number; conversations: number } | null;
+  pendingApprovals: number;
+  recentFailures: Array<{
+    runId: string; provider: 'claude' | 'codex'; errorCode: string; category: string;
+    message: string; finishedAt: string | null;
+  }>;
+  observedAt: string;
+}
+
 /** 轻量健康快照（/api/admin/health），是 AdminOverview 的子集 */
 export interface AdminHealth {
   generatedAt: string;

@@ -16,6 +16,10 @@ import {
   startDatabaseBackupExport,
 } from '../admin/databaseBackupExport.js';
 import { publicAccessControl, type PublicAccessStatus } from '../admin/publicAccess.js';
+import { spawn } from 'node:child_process';
+import type { AgentOrchestrator } from '../services/agent/agentOrchestrator.js';
+import { AgentRepository } from '../services/agent/agentRepository.js';
+import { sanitizePublicContent } from '../services/agent/eventProtocol.js';
 
 export interface AdminRouteOptions {
   pool: Pool;
@@ -30,6 +34,7 @@ export interface AdminRouteOptions {
     status: () => Promise<PublicAccessStatus>;
     setEnabled: (enabled: boolean) => Promise<PublicAccessStatus>;
   };
+  agent?: { enabled: boolean; orchestrator: AgentOrchestrator | null };
 }
 
 const updateConfigSchema = z.object({
@@ -171,6 +176,50 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
   });
 
+  app.get('/api/admin/agent', { preHandler: authorize }, async (_request, reply) => {
+    const enabled = options.agent?.enabled === true;
+    const orchestrator = options.agent?.orchestrator ?? null;
+    const repo = new AgentRepository(options.pool);
+    const [metrics, recentRuns, pendingApprovals, codexVersion] = await Promise.all([
+      options.dbOnline ? repo.getMetrics() : Promise.resolve(null),
+      options.dbOnline ? repo.listRuns(50) : Promise.resolve([]),
+      options.dbOnline ? repo.listPendingApprovals() : Promise.resolve([]),
+      readCommandVersion(options.config.AGENT_CODEX_PATH),
+    ]);
+    const failures = recentRuns.filter(run => run.status === 'failed').slice(0, 10).map(run => ({
+      runId: run.id, provider: run.provider, errorCode: run.errorCode ?? 'UNKNOWN',
+      category: classifyAgentFailure(run.errorCode, run.errorMessage),
+      message: sanitizePublicContent(run.errorMessage, '未提供错误信息').slice(0, 240),
+      finishedAt: run.finishedAt,
+    }));
+    return reply.send({
+      enabled,
+      defaultProvider: orchestrator?.getDefaultProvider() ?? options.config.AGENT_PROVIDER,
+      runtime: orchestrator?.getRuntimeStats() ?? { active: 0, capacity: Number(options.config.AGENT_MAX_CONCURRENT) || 1 },
+      providers: orchestrator?.getProviderHealth() ?? [],
+      codex: {
+        enabled: options.config.AGENT_CODEX_ENABLED === 'true', version: codexVersion,
+        model: options.config.AGENT_CODEX_MODEL || null,
+        modelProvider: options.config.AGENT_CODEX_MODEL_PROVIDER || 'openai',
+        baseUrlConfigured: Boolean(options.config.AGENT_CODEX_BASE_URL),
+        apiKeyConfigured: Boolean(options.config.AGENT_CODEX_API_KEY),
+        isolatedHome: Boolean(options.config.AGENT_CODEX_HOME),
+        approvalsEnabled: options.config.AGENT_CODEX_APPROVALS_ENABLED === 'true',
+        toolsEnabled: options.config.AGENT_CODEX_TOOLS_ENABLED === 'true',
+        sandboxMode: options.config.AGENT_CODEX_SANDBOX_MODE,
+        windowsSandbox: options.config.AGENT_CODEX_WINDOWS_SANDBOX,
+        networkEnabled: options.config.AGENT_CODEX_NETWORK_ENABLED === 'true',
+        marketDataCliConfigured: Boolean(options.config.AGENT_CODEX_MARKET_DATA_CLI),
+        externalDataSkillEnabled: options.config.AGENT_CODEX_EXTERNAL_DATA_SKILL_ENABLED === 'true',
+        isolatedPythonConfigured: Boolean(options.config.AGENT_CODEX_PYTHON_PATH),
+      },
+      persistence: metrics,
+      pendingApprovals: pendingApprovals.length,
+      recentFailures: failures,
+      observedAt: new Date().toISOString(),
+    });
+  });
+
   app.put('/api/admin/public-access', { preHandler: authorize }, async (request, reply) => {
     const parsed = publicAccessSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
@@ -243,6 +292,33 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       }
     },
   );
+}
+
+function classifyAgentFailure(code: string | null, message: string | null): string {
+  const value = `${code ?? ''} ${message ?? ''}`.toLowerCase();
+  if (/auth|401|403|api.?key/.test(value)) return 'auth';
+  if (/timeout|timed out/.test(value)) return 'timeout';
+  if (/protocol|json-rpc|schema/.test(value)) return 'protocol';
+  if (/model|404/.test(value)) return 'model';
+  if (/cancel|interrupt/.test(value)) return 'canceled';
+  if (/spawn|app_server_exit|startup/.test(value)) return 'runtime';
+  return 'execution';
+}
+
+async function readCommandVersion(commandPath: string): Promise<string | null> {
+  if (!commandPath.trim()) return null;
+  return new Promise(resolveVersion => {
+    const executable = process.platform === 'win32' && commandPath === 'codex' ? 'codex.cmd' : commandPath;
+    const isCmd = process.platform === 'win32' && /\.cmd$/i.test(executable);
+    const child = spawn(isCmd ? process.env.ComSpec ?? 'cmd.exe' : executable,
+      isCmd ? ['/d', '/s', '/c', executable, '--version'] : ['--version'],
+      { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    let output = '';
+    const timer = setTimeout(() => { child.kill(); resolveVersion(null); }, 3_000);
+    child.stdout?.on('data', chunk => { output += String(chunk).slice(0, 200); });
+    child.once('error', () => { clearTimeout(timer); resolveVersion(null); });
+    child.once('close', code => { clearTimeout(timer); resolveVersion(code === 0 ? output.trim().slice(0, 120) || null : null); });
+  });
 }
 
 function parseBearerToken(value: string | undefined): string | null {

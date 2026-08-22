@@ -1101,6 +1101,7 @@ export const agentRuns = mysqlTable('agent_runs', {
   templateStyle: varchar('template_style', { length: 24 }).notNull().default('classic-blue'),
   timeoutMs: bigint('timeout_ms', { mode: 'number' }).notNull().default(1800000),
   pid: int('pid'),
+  provider: varchar('provider', { length: 16 }).notNull().default('claude'),
   sessionId: varchar('session_id', { length: 128 }),
   parentRunId: varchar('parent_run_id', { length: 36 }),
   conversationId: varchar('conversation_id', { length: 36 }).notNull(),
@@ -1129,6 +1130,7 @@ export const agentEvents = mysqlTable('agent_events', {
   toolUseId: varchar('tool_use_id', { length: 128 }),
   durationMs: bigint('duration_ms', { mode: 'number' }),
   terminal: json('terminal_json'),
+  approval: json('approval_json'),
   protocolVersion: int('protocol_version').notNull().default(1),
   toolInput: text('tool_input'),
   toolResult: text('tool_result'),
@@ -1149,4 +1151,23 @@ export const agentReports = mysqlTable('agent_reports', {
   createdAt: varchar('created_at', { length: 24 }).notNull(),
 }, (table) => ({
   createdIdx: index('idx_arep_created').on(table.createdAt),
+}));
+
+export const agentApprovals = mysqlTable('agent_approvals', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  runId: varchar('run_id', { length: 36 }).notNull(),
+  provider: varchar('provider', { length: 20 }).notNull(),
+  threadId: varchar('thread_id', { length: 255 }).notNull(),
+  turnId: varchar('turn_id', { length: 255 }).notNull(),
+  itemId: varchar('item_id', { length: 255 }).notNull(),
+  requestType: varchar('request_type', { length: 32 }).notNull(),
+  summary: text('summary').notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('pending'),
+  expiresAt: datetime('expires_at', { mode: 'string', fsp: 3 }).notNull(),
+  decisionAt: datetime('decision_at', { mode: 'string', fsp: 3 }),
+  createdAt: datetime('created_at', { mode: 'string', fsp: 3 }).notNull(),
+  updatedAt: datetime('updated_at', { mode: 'string', fsp: 3 }).notNull(),
+}, (table) => ({
+  runStatusIdx: index('idx_agent_approvals_run_status').on(table.runId, table.status),
+  expiryIdx: index('idx_agent_approvals_expiry').on(table.status, table.expiresAt),
 }));

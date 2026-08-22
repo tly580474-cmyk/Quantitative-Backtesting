@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { extractReportDecision, parseStreamLine } from './outputParser.js';
+import { extractReportDecision, extractReportDirective, parseStreamLine } from './outputParser.js';
 import { sanitizePublicContent } from './eventProtocol.js';
 
 describe('agent public event protocol', () => {
@@ -88,6 +88,11 @@ describe('agent public event protocol', () => {
     expect(extractReportDecision(JSON.stringify({
       type: 'result', result: '普通回答\n```agent-report\n{"generate":"yes"}\n```',
     }))).toBeNull();
+  });
+
+  it('parses a provider-neutral final response for Codex', () => {
+    expect(extractReportDirective(`Codex 正文\n\n\`\`\`agent-report\n{"generate":false,"reason":"普通问答"}\n\`\`\``))
+      .toEqual({ answer: 'Codex 正文', decision: { generate: false, reason: '普通问答' } });
   });
 
   it('removes report and confirmation control blocks from intermediate text', () => {

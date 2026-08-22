@@ -2,6 +2,19 @@ export type AgentEventType =
   | 'progress' | 'tool_started' | 'tool_finished' | 'assistant_text' | 'assistant_final'
   | 'confirmation_required' | 'error' | 'terminal' | 'user';
 
+export type AgentProviderId = 'claude' | 'codex';
+
+export interface AgentProviderHealth {
+  id: AgentProviderId;
+  enabled: boolean;
+  available: boolean;
+  reason: string | null;
+  capabilities: {
+    streaming: boolean; resume: boolean; cancel: boolean; approvals: boolean;
+    sandbox: boolean; skills: boolean; mcp: boolean;
+  };
+}
+
 export interface AgentEvent {
   type: AgentEventType;
   content: string;
@@ -12,6 +25,11 @@ export interface AgentEvent {
   terminal?: { status: 'completed' | 'failed' | 'canceled'; exitCode: number | null; errorCode?: string };
   seq?: number;
   timestamp?: string;
+  approval?: {
+    id: string; requestType: 'command' | 'file_change' | 'network' | 'permissions';
+    status: 'pending' | 'approved' | 'denied' | 'expired' | 'canceled';
+    expiresAt: string; summary: string;
+  };
 }
 
 export interface AgentRun {
@@ -21,6 +39,7 @@ export interface AgentRun {
   maxTurns: number;
   timeoutMs: number;
   pid: number | null;
+  provider: AgentProviderId;
   sessionId: string | null;
   parentRunId: string | null;
   conversationId: string;

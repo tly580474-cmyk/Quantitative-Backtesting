@@ -25,7 +25,7 @@ interface ConfirmationQuestion { id: string; question: string; options: Confirma
 
 export interface ReportDecision { generate: boolean; reason: string; }
 
-function extractReportDirective(content: string): { answer: string; decision: ReportDecision | null } {
+export function extractReportDirective(content: string): { answer: string; decision: ReportDecision | null } {
   const match = content.match(/```agent-report\s*([\s\S]*?)```/i);
   if (!match) return { answer: content, decision: null };
   const answer = content.replace(match[0], '').trim();

@@ -8,6 +8,8 @@ describe('renderStaticAgentReport', () => {
     expect(report.html).not.toContain('<script>');
     expect(report.html).toContain('&lt;script&gt;');
     expect(report.html).toContain('<meta name="viewport"');
+    expect(report.html).not.toContain('安全静态版本');
+    expect(report.html).not.toContain('STATIC REPORT');
     expect(validateAgentReport(report.html, Buffer.byteLength(report.html))).toEqual({ valid: true });
   });
 

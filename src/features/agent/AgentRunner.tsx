@@ -13,9 +13,12 @@ import {
 } from '@ant-design/icons';
 import { AgentEventList, calcDuration } from './AgentEventList';
 import { useAgentStream } from './useAgentStream';
-import { createAgentRun, cancelAgentRun, listAgentConversations, deleteAgentRun, continueAgentRun, getAgentConversation } from './api';
+import {
+  createAgentRun, cancelAgentRun, listAgentConversations, deleteAgentRun,
+  continueAgentRun, getAgentConversation, getAgentProviders, decideAgentApproval,
+} from './api';
 import { useAgentTheme } from '@/theme';
-import type { AgentRun, AgentEvent, AgentConversationTurn } from './types';
+import type { AgentRun, AgentEvent, AgentConversationTurn, AgentProviderHealth, AgentProviderId } from './types';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -133,6 +136,8 @@ export default function AgentRunner() {
   const [prompt, setPrompt] = useState('');
   const [maxTurns, setMaxTurns] = useState(0);
   const [templateStyle, setTemplateStyle] = useState<string>('classic-blue');
+  const [provider, setProvider] = useState<AgentProviderId>('claude');
+  const [providers, setProviders] = useState<AgentProviderHealth[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -162,12 +167,27 @@ export default function AgentRunner() {
     return () => media.removeEventListener('change', syncLayout);
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    getAgentProviders().then(result => {
+      if (!active) return;
+      setProviders(result.providers);
+      const preferred = result.providers.find(item => item.id === result.defaultProvider && item.available)
+        ?? result.providers.find(item => item.available);
+      if (preferred) setProvider(preferred.id);
+    }).catch(() => {
+      if (active) setProviders([]);
+    });
+    return () => { active = false; };
+  }, []);
+
   const loadConversation = useCallback(async (id: string, selectedRunId?: string) => {
     const result = await getAgentConversation(id);
     const selectedTurn = result.turns[result.turns.length - 1];
     if (!selectedTurn) throw new Error('对话内容为空');
 
     setRunId(selectedRunId ?? selectedTurn.run.id);
+    setProvider(selectedTurn.run.provider ?? 'claude');
     setCurrentPrompt('');
     setCurrentRunStartTime(result.turns[0]?.run.createdAt ?? selectedTurn.run.createdAt);
     const selectedId = selectedRunId ?? selectedTurn.run.id;
@@ -280,7 +300,7 @@ export default function AgentRunner() {
       if (parentRunId) {
         result = await continueAgentRun(parentRunId, submittedPrompt, maxTurns, undefined, templateStyle);
       } else {
-        result = await createAgentRun(submittedPrompt, maxTurns, undefined, templateStyle);
+        result = await createAgentRun(submittedPrompt, maxTurns, undefined, templateStyle, provider);
       }
       setRunId(result.runId);
       if (!isContinue) {
@@ -303,12 +323,20 @@ export default function AgentRunner() {
     } finally {
       setLoading(false);
     }
-  }, [maxTurns, templateStyle, connect, message, continueFromRunId, state.events, state.status, runId]);
+  }, [maxTurns, templateStyle, provider, connect, message, continueFromRunId, state.events, state.status, runId]);
 
   const handleStart = useCallback(() => submitMessage(prompt), [prompt, submitMessage]);
   const handleConfirmation = useCallback((response: string) => {
     void submitMessage(response);
   }, [submitMessage]);
+  const handleApproval = useCallback(async (approvalId: string, decision: 'approved' | 'denied') => {
+    try {
+      await decideAgentApproval(approvalId, decision);
+      message.success(decision === 'approved' ? '已批准本次操作' : '已拒绝本次操作');
+    } catch (error) {
+      message.error(`审批失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [message]);
 
   const handleCancel = useCallback(async () => {
     if (!runId) return;
@@ -346,6 +374,7 @@ export default function AgentRunner() {
   const handleContinueRun = useCallback(async (parentRun: AgentRun) => {
     try {
       if (runId !== parentRun.id) await loadConversation(parentRun.id);
+      setProvider(parentRun.provider ?? 'claude');
       setContinueFromRunId(parentRun.id);
       setPrompt('');
       inputRef.current?.focus();
@@ -366,6 +395,12 @@ export default function AgentRunner() {
   const isRunning = state.status === 'running' || state.status === 'connecting';
   const isFinalized = state.status === 'completed' || state.status === 'failed' || state.status === 'canceled';
   const hasActiveRun = !!runId;
+  const providerOptions = useMemo(() => providers.filter(item => item.enabled).map(item => ({
+    value: item.id,
+    label: item.id === 'codex' ? 'Codex' : 'Claude',
+    disabled: !item.available,
+    title: item.reason ?? undefined,
+  })), [providers]);
 
   // 外层滚动容器：流式输出时自动跟随到底部；用户手动上滚则暂停跟随
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -512,6 +547,8 @@ export default function AgentRunner() {
               autoCollapseIntermediates={isFinalized}
               onConfirm={handleConfirmation}
               confirmationDisabled={loading || isRunning}
+              onApproval={(id, decision) => void handleApproval(id, decision)}
+              approvalDisabled={loading}
             />
           </div>
         </div>
@@ -576,6 +613,19 @@ export default function AgentRunner() {
                   flexWrap: 'wrap',
                 }}
               >
+                {providerOptions.length > 0 && (
+                  <>
+                    <Text type="secondary" style={{ fontSize: 12 }}>Provider：</Text>
+                    <Select
+                      size="small"
+                      value={provider}
+                      onChange={(value: AgentProviderId) => setProvider(value)}
+                      options={providerOptions}
+                      style={{ width: 110 }}
+                      disabled={isRunning || Boolean(continueFromRunId)}
+                    />
+                  </>
+                )}
                 <Text type="secondary" style={{ fontSize: 12 }}>最大轮次：</Text>
                 <InputNumber
                   size="small"
@@ -891,6 +941,9 @@ export default function AgentRunner() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                             <Tag color={statusColor[run.status]} style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>
                               {statusText[run.status] ?? run.status}
+                            </Tag>
+                            <Tag color={run.provider === 'codex' ? 'geekblue' : 'purple'} style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>
+                              {run.provider === 'codex' ? 'Codex' : 'Claude'}
                             </Tag>
                             <Text type="secondary" style={{ fontSize: 11 }}>
                               {formatRelativeTime(run.createdAt)}
