@@ -133,7 +133,7 @@ npm run admin:preview
 当前可修改项包括：
 
 - MySQL 地址、端口、用户名、密码和数据库；
-- AI 功能开关、API Key、Base URL 和模型；
+- AI 功能开关、API Key、Base URL 和模型列表；模型使用英文分号分隔，第一项为默认模型，业务前端的模型选择器只显示该列表；
 - 行情数据源 API Key；
 - Tushare Token；
 - 证券主表自动更新开关与更新时间；

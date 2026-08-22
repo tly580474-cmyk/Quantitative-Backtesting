@@ -169,8 +169,8 @@ DB_NAME=quant_backtest
 
 AI_STRATEGY_ENABLED=true
 OPENAI_API_KEY=your-api-key
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=deepseek-v4-flash
+OPENAI_BASE_URL=https://your-provider.example/v1
+OPENAI_MODEL=model-1;model-2;model-3   # 英文分号分隔，第一项为默认模型
 
 PORT=3001
 ```

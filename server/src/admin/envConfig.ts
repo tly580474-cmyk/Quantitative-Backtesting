@@ -1,6 +1,7 @@
 import { copyFile, readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getAiModelListValidationError } from '../services/aiModelList.js';
 
 export interface AdminConfigDefinition {
   key: string;
@@ -118,9 +119,9 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
   },
   {
     key: 'OPENAI_MODEL',
-    label: '大模型名称',
+    label: '大模型列表',
     category: 'ai',
-    description: '策略生成和研究解读使用的模型。',
+    description: '模型之间使用英文分号分隔，例如：模型1;模型2;模型3。第一项作为默认模型。',
     secret: false,
     editable: true,
     restartRequired: true,
@@ -533,6 +534,10 @@ function validateEnvValue(key: string, value: string): void {
   }
   if (['DB_HOST', 'DB_USER', 'DB_NAME', 'OPENAI_MODEL'].includes(key) && !value.trim()) {
     throw new Error(`${key} 不能为空`);
+  }
+  if (key === 'OPENAI_MODEL') {
+    const modelError = getAiModelListValidationError(value);
+    if (modelError) throw new Error(modelError);
   }
   if (key === 'DB_PORT') {
     const port = Number(value);

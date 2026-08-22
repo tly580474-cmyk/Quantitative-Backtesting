@@ -73,6 +73,7 @@ interface FactorResearchRouteConfig {
     apiKey: string;
     baseURL: string;
     model: string;
+    availableModels: string[];
     timeoutMs: number;
   };
 }
@@ -86,6 +87,9 @@ const factorRunBodySchema = z.object({
   markets: z.array(z.string().trim().min(1).max(16)).max(8).optional(),
   symbols: z.array(z.string().trim().min(1).max(20)).max(500).optional(),
   minDailyAmount: z.number().min(0).optional(),
+});
+const factorInterpretationBodySchema = z.object({
+  model: z.string().trim().min(1).max(200).optional(),
 });
 
 const compositeRunBodySchema = z.object({
@@ -613,12 +617,22 @@ export function registerFactorResearchRoutes(
     reply.send(await getResearchSnapshotFreshness(config.pool, config.snapshotRoot))
   ));
 
-  app.post<{ Params: { id: string } }>('/api/factor-runs/:id/interpret', async (req, reply) => {
+  app.post<{ Params: { id: string }; Body: z.infer<typeof factorInterpretationBodySchema> }>(
+    '/api/factor-runs/:id/interpret',
+    async (req, reply) => {
     if (!config.ai.enabled) {
       return reply.status(503).send({ error: 'AI_NOT_ENABLED', message: 'AI 解读功能未启用' });
     }
     if (!config.ai.configured) {
       return reply.status(503).send({ error: 'AI_NOT_CONFIGURED', message: '请先配置大模型密钥' });
+    }
+    const body = factorInterpretationBodySchema.safeParse(req.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({ error: 'INVALID_AI_MODEL', message: '模型参数无效' });
+    }
+    const selectedModel = body.data.model ?? config.ai.model;
+    if (!config.ai.availableModels.includes(selectedModel)) {
+      return reply.status(400).send({ error: 'INVALID_AI_MODEL', message: '请求的模型不在后台配置列表中' });
     }
     try {
       const [detail, dailySeries] = await Promise.all([
@@ -634,7 +648,7 @@ export function registerFactorResearchRoutes(
       const result = await interpretFactorReport({
         apiKey: config.ai.apiKey,
         baseURL: config.ai.baseURL,
-        model: config.ai.model,
+        model: selectedModel,
         timeoutMs: config.ai.timeoutMs,
       }, {
         run: {

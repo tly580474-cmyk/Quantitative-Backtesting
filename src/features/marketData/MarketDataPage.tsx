@@ -1056,8 +1056,15 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   }, [isResearchView, message]);
   useEffect(() => {
     if (!isResearchView) return;
-    if (marketDataCache.agentStatus) return;
-    void apiFetch<AgentStatus>('/api/market-data/research-agent/status').then((s) => { marketDataCache.agentStatus = s; setAgentStatus(s); if (!marketDataCache.agentModel) setAgentModel(s.currentModel); }).catch(() => undefined);
+    void apiFetch<AgentStatus>('/api/market-data/research-agent/status').then((s) => {
+      marketDataCache.agentStatus = s;
+      setAgentStatus(s);
+      setAgentModel((current) => {
+        const next = current && s.availableModels.includes(current) ? current : s.currentModel;
+        marketDataCache.agentModel = next;
+        return next;
+      });
+    }).catch(() => undefined);
   }, [isResearchView]);
   useEffect(() => {
     if (isResearchView) return undefined;

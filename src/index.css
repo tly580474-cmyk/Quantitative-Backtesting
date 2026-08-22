@@ -4246,6 +4246,31 @@ body {
   }
 }
 
+.factor-agent-head > .factor-agent-actions {
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 768px) {
+  .factor-agent-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .factor-agent-head > .factor-agent-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .factor-agent-actions .ant-select {
+    flex: 1 1 180px;
+  }
+}
+
 @media (max-width: 374px) {
   .app-header {
     padding: 4px 6px;

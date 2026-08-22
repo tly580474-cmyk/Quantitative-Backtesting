@@ -176,6 +176,9 @@ async function fetchChinaIndexCandles(
   startDate: string,
   endDate: string,
 ) {
+  if (symbol === '932000') {
+    return fetchCsindexPerformanceCandles(symbol, startDate, endDate);
+  }
   const providerRows = await provider.fetchDailyCandles({
     symbols: [symbol],
     startDate,
@@ -228,6 +231,87 @@ interface EastmoneyIndexQuote {
   f168?: number;
   f169?: number;
   f170?: number;
+}
+
+interface CsindexPerformanceRow {
+  tradeDate?: string;
+  indexCode?: string;
+  open?: number;
+  high?: number;
+  low?: number;
+  close?: number;
+  change?: number;
+  changePct?: number;
+  tradingVol?: number;
+  tradingValue?: number;
+  consNumber?: number;
+}
+
+export function parseCsindexPerformanceRows(rows: CsindexPerformanceRow[], symbol: string) {
+  return rows.flatMap((row) => {
+    const date = String(row.tradeDate ?? '');
+    const values = [
+      row.open,
+      row.high,
+      row.low,
+      row.close,
+      row.tradingVol,
+      row.tradingValue,
+    ];
+    if (
+      row.indexCode !== symbol
+      || !/^\d{8}$/.test(date)
+      || values.some((value) => typeof value !== 'number' || !Number.isFinite(value))
+    ) {
+      return [];
+    }
+    return [{
+      time: `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`,
+      symbol,
+      open: row.open!,
+      high: row.high!,
+      low: row.low!,
+      close: row.close!,
+      // 中证指数官网成交量单位为股；现有指数 Candle 成交量约定为手。
+      volume: row.tradingVol! / 100,
+      // 中证指数官网成交额单位已经是亿元。
+      turnover: row.tradingValue!,
+      change: row.change,
+      changePercent: row.changePct,
+      constituentCount: row.consNumber,
+    }];
+  }).sort((a, b) => a.time.localeCompare(b.time));
+}
+
+async function fetchCsindexPerformanceCandles(
+  symbol: string,
+  startDate: string,
+  endDate: string,
+) {
+  const params = new URLSearchParams({
+    indexCode: symbol,
+    startDate: startDate.replaceAll('-', ''),
+    endDate: endDate.replaceAll('-', ''),
+  });
+  const payload = await fetchJsonWithRetry<{
+    code?: string | number;
+    msg?: string;
+    data?: CsindexPerformanceRow[];
+  }>(
+    `https://www.csindex.com.cn/csindex-home/perf/index-perf?${params.toString()}`,
+    {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
+        Referer: 'https://www.csindex.com.cn/',
+        Accept: 'application/json',
+      },
+    },
+    '中证指数官网历史行情',
+  );
+  if (String(payload.code) !== '200') {
+    throw new Error(`中证指数官网返回异常：${payload.msg || `code=${payload.code}`}`);
+  }
+  return parseCsindexPerformanceRows(payload.data ?? [], symbol);
 }
 
 export function parseEastmoneyLatestIndexCandle(
@@ -379,7 +463,9 @@ async function appendDatasetCandles(
       count: Number(count ?? dataset.count),
       checksum,
       sourceFileName: CN_INDEX_SYMBOLS.has(dataset.symbol)
-        ? 'tencent+eastmoney:reconciled'
+        ? dataset.symbol === '932000'
+          ? 'csindex:index-perf'
+          : 'tencent+eastmoney:reconciled'
         : dataset.sourceFileName,
       updatedAt: new Date().toISOString(),
     })

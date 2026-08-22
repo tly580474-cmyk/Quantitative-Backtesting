@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { loadConfig } from '../config.js';
+import { parseAiModelList } from './aiModelList.js';
 import { checkConnection, closePool, createPool } from '../db/connection.js';
 import { closeDb, initDb } from '../db/index.js';
 import { EmailSender } from './emailSender.js';
@@ -10,6 +11,7 @@ const kinds = ['morning', 'midday', 'close'] as const;
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  const defaultAiModel = parseAiModelList(config.OPENAI_MODEL)[0];
   const requested = process.argv.find((arg) => arg.startsWith('--kind='))?.slice('--kind='.length) ?? 'morning';
   if (!kinds.includes(requested as MarketOpinionDigestKind)) {
     throw new Error('--kind 仅支持 morning、midday 或 close');
@@ -44,11 +46,11 @@ async function main(): Promise<void> {
       agent: new MarketOpinionAgent(
         config.OPENAI_API_KEY,
         config.OPENAI_BASE_URL,
-        config.OPENAI_MODEL,
+        defaultAiModel,
         parseInt(config.OPENAI_TIMEOUT_MS, 10),
       ),
       email,
-      model: config.OPENAI_MODEL,
+      model: defaultAiModel,
     });
     const result = await service.send(kind, new Date(), {
       subjectPrefix: simulation ? '【模拟推送】' : correction ? '【更正版】' : undefined,

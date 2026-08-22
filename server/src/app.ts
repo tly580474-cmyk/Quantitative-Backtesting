@@ -49,6 +49,7 @@ import {
   startMiningWorker,
 } from './factorResearch/mining/miningWorker.js';
 import { getDuckDBRuntimeStats } from './research/duckdbRuntime.js';
+import { parseAiModelList } from './services/aiModelList.js';
 
 async function main(): Promise<void> {
   let requestedExitCode = 0;
@@ -67,25 +68,22 @@ async function main(): Promise<void> {
   // ── AI Provider ─────────────────────────────────────────────
   const aiEnabled = config.AI_STRATEGY_ENABLED === 'true';
   const aiConfigured = aiEnabled && config.OPENAI_API_KEY.length > 0;
+  const availableAiModels = parseAiModelList(config.OPENAI_MODEL);
+  const defaultAiModel = availableAiModels[0];
 
   let provider: StrategyGenerationProvider;
   if (aiConfigured) {
     provider = new OpenAIStrategyGenerationProvider(
       config.OPENAI_API_KEY,
       config.OPENAI_BASE_URL,
-      config.OPENAI_MODEL,
+      defaultAiModel,
       parseInt(config.OPENAI_TIMEOUT_MS, 10),
     );
-    console.log(`[AI] Provider configured (baseURL: ${config.OPENAI_BASE_URL}, model: ${config.OPENAI_MODEL})`);
+    console.log(`[AI] Provider configured (baseURL: ${config.OPENAI_BASE_URL}, default model: ${defaultAiModel}, available: ${availableAiModels.length})`);
   } else {
     provider = new MockStrategyGenerationProvider();
     console.log('[AI] Using mock provider (no API key configured)');
   }
-  const availableAiModels = [...new Set([
-    config.OPENAI_MODEL,
-    'deepseek-v4-flash',
-    'deepseek-v4-pro',
-  ])];
   const opinionPushTimes = {
     morning: config.MARKET_OPINION_MORNING_TIME,
     midday: config.MARKET_OPINION_MIDDAY_TIME,
@@ -108,11 +106,11 @@ async function main(): Promise<void> {
     agent: new MarketOpinionAgent(
       aiConfigured ? config.OPENAI_API_KEY : '',
       config.OPENAI_BASE_URL,
-      config.OPENAI_MODEL,
+      defaultAiModel,
       parseInt(config.OPENAI_TIMEOUT_MS, 10),
     ),
     email: opinionEmailSender,
-    model: config.OPENAI_MODEL,
+    model: defaultAiModel,
   });
 
   // ── MySQL Connection ────────────────────────────────────────
@@ -159,7 +157,7 @@ async function main(): Promise<void> {
     provider,
     aiEnabled,
     aiConfigured,
-    config.OPENAI_MODEL,
+    defaultAiModel,
     availableAiModels,
   );
 
@@ -261,7 +259,7 @@ async function main(): Promise<void> {
   registerMarketDataRoutes(app, dbOnline, {
     apiKey: aiConfigured ? config.OPENAI_API_KEY : '',
     baseURL: config.OPENAI_BASE_URL,
-    model: config.OPENAI_MODEL,
+    model: defaultAiModel,
     timeoutMs: parseInt(config.OPENAI_TIMEOUT_MS, 10),
     availableModels: availableAiModels,
   }, {
@@ -320,7 +318,8 @@ async function main(): Promise<void> {
       configured: aiConfigured,
       apiKey: aiConfigured ? config.OPENAI_API_KEY : '',
       baseURL: config.OPENAI_BASE_URL,
-      model: config.OPENAI_MODEL,
+      model: defaultAiModel,
+      availableModels: availableAiModels,
       timeoutMs: parseInt(config.OPENAI_TIMEOUT_MS, 10),
     },
   });

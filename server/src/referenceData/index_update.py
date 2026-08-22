@@ -34,7 +34,12 @@ TARGETS = {
         IndexDefinition("000300", "沪深300", "sh000300"),
         IndexDefinition("000905", "中证500", "sh000905"),
         IndexDefinition("000852", "中证1000", "sh000852"),
-        IndexDefinition("932000", "中证2000", "csi932000"),
+        IndexDefinition(
+            "932000",
+            "中证2000",
+            "932000",
+            "csindex:index-perf",
+        ),
         IndexDefinition("000688", "科创50", "sh000688"),
         IndexDefinition("000680", "科创综指", "sh000680"),
         IndexDefinition(

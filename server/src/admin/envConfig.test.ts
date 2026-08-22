@@ -78,6 +78,18 @@ describe('admin env config', () => {
     await expect(updateEnvFile(join(root, '.env'), {
       RESEARCH_SNAPSHOT_UPDATE_TIME: '25:00',
     })).rejects.toThrow('HH:mm');
+    await expect(updateEnvFile(join(root, '.env'), {
+      OPENAI_MODEL: 'model-1;;model-2',
+    })).rejects.toThrow('空模型项');
+  });
+
+  it('accepts a semicolon-delimited model list', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'admin-env-'));
+    roots.push(root);
+    const path = join(root, '.env');
+    await writeFile(path, 'OPENAI_MODEL=old-model\n', 'utf8');
+    await updateEnvFile(path, { OPENAI_MODEL: 'model-1;provider/model-2;model-3' });
+    expect(await readFile(path, 'utf8')).toContain('OPENAI_MODEL="model-1;provider/model-2;model-3"');
   });
 
   it('exposes schedule values as editable time fields', () => {

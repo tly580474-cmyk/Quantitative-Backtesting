@@ -97,7 +97,7 @@ cd server && npm run minute:test            # Run minute data Python tests
 
 # Market Opinion Push (邮件推送系统)
 cd server && npx tsx src/services/marketOpinionPushCli.ts --kind=morning    # 手动触发早报推送
-cd server && npx tsx src/services/marketOpinionPushCli.ts --kind=morning --simulation  # 模拟推送（不发送邮件）
+cd server && npx tsx src/services/marketOpinionPushCli.ts --kind=morning --simulation  # 实际发送带“【模拟推送】”前缀的测试邮件
 cd server && npx tsx src/services/marketOpinionPushCli.ts --kind=morning --correction  # 更正推送
 # --kind 支持: morning(早报), midday(午报), close(盘后总结)
 ```
@@ -309,7 +309,11 @@ Located in `server/src/factorResearch/`:
 ### Reference Data (`server/src/referenceData/`, Python)
 Maintains reference datasets that enrich research:
 - **Index Constituents** (`index_constituents_update.py`): snapshot + wayback + derive modes
-- **Index Daily Bars** (`index_update.py`): incremental + full backfill
+- **Index Daily Bars** (`index_update.py`): incremental + full backfill. CSI 2000
+  (`932000`) must use the official CSI `index-perf` history endpoint because Tencent's
+  `sh932000` kline response contains no daily rows; keep its volume normalized from
+  shares to lots and turnover in CNY 100m. The TypeScript dataset scheduler follows
+  the same source rule.
 - **Dividend Events** (`dividend_update.py`): batch update with workers, retry, refresh; `dividend_current_update.py` for current snapshot
 - **Financial Reports** (`financial_update.py`): versioned income/balance/cash-flow reports and
   derived ROE, using Tushare for configured single-symbol probes and Sina as the token-free rotating source
@@ -414,7 +418,7 @@ Reference/operations tables include `financial_reports`, `index_constituent_snap
 
 **Backend** (`server/.env`):
 - **Database**: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` (MySQL connection)
-- **AI Strategy**: `AI_STRATEGY_ENABLED` (true/false), `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_TIMEOUT_MS`
+- **AI Strategy**: `AI_STRATEGY_ENABLED` (true/false), `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` (semicolon-delimited ordered list; first item is default), `OPENAI_TIMEOUT_MS`. All model selectors must use the server-provided `availableModels` list without provider-specific hardcoded entries; factor-report interpretation accepts a selected configured model.
 - **Market Data**: `MARKET_DATA_ENABLED`, `MARKET_DATA_PROVIDER`, `MARKET_DATA_API_KEY`, `MARKET_DATA_BASE_URL`, `MARKET_DATA_SYNC_TIME`, `MARKET_DATA_INTRADAY_INTERVAL_MINUTES`, `MARKET_INDEX_AUTO_UPDATE_ENABLED`, `MARKET_CN_INDEX_UPDATE_TIME`, `MARKET_US_INDEX_UPDATE_TIME`
 - **Scheduled Data Updates**: `INSTRUMENT_SYNC_ENABLED`, `INSTRUMENT_SYNC_TIME`,
   `FINANCIAL_DATA_ENABLED`, `FINANCIAL_DATA_UPDATE_TIME`, `FINANCIAL_DATA_LOOKBACK_DAYS`,

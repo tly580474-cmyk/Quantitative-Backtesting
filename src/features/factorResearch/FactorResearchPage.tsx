@@ -46,6 +46,7 @@ import {
   fetchFactorRunDailySeries,
   fetchFactorRunReport,
   fetchFactors,
+  fetchAiModelStatus,
   interpretFactorRunReport,
   retryFactorRun,
   fetchResearchSnapshotFreshness,
@@ -62,6 +63,7 @@ import {
   type FactorRunRequest,
   type FactorRunSummary,
   type FactorReportInterpretation,
+  type AiModelStatus,
   type LayerMetric,
   type ResearchSnapshotFreshness,
 } from './api';
@@ -179,6 +181,8 @@ export default function FactorResearchPage() {
   const [updatingSnapshot, setUpdatingSnapshot] = useState(false);
   const [interpretation, setInterpretation] = useState<FactorReportInterpretation | null>(null);
   const [interpreting, setInterpreting] = useState(false);
+  const [aiModelStatus, setAiModelStatus] = useState<AiModelStatus | null>(null);
+  const [interpretationModel, setInterpretationModel] = useState<string>();
   const [error, setError] = useState<string | null>(null);
   const [topPanePercent, setTopPanePercent] = useState(54);
   const splitPaneRef = useRef<HTMLElement | null>(null);
@@ -260,6 +264,14 @@ export default function FactorResearchPage() {
     void loadFactors();
     void loadRuns();
     void loadSnapshotFreshness();
+    void fetchAiModelStatus()
+      .then((status) => {
+        setAiModelStatus(status);
+        setInterpretationModel((current) => (
+          current && status.availableModels.includes(current) ? current : status.currentModel
+        ));
+      })
+      .catch(() => setAiModelStatus(null));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleUpdateSnapshot = async () => {
@@ -437,10 +449,14 @@ export default function FactorResearchPage() {
       message.warning('请先查看一个已完成报告');
       return;
     }
+    if (!interpretationModel) {
+      message.warning('后台尚未配置可用模型');
+      return;
+    }
     setInterpreting(true);
     setError(null);
     try {
-      const result = await interpretFactorRunReport(reportRunId);
+      const result = await interpretFactorRunReport(reportRunId, interpretationModel);
       setInterpretation(result);
       message.success('智能体解读已生成');
     } catch (err) {
@@ -825,7 +841,10 @@ export default function FactorResearchPage() {
                   runId={reportRunId}
                   interpretation={interpretation}
                   loading={interpreting}
-                  disabled={!reportRunId || (!report && !compositeReport)}
+                  disabled={!reportRunId || (!report && !compositeReport) || !aiModelStatus?.configured}
+                  model={interpretationModel}
+                  availableModels={aiModelStatus?.availableModels ?? []}
+                  onModelChange={setInterpretationModel}
                   onInterpret={() => { void handleInterpretReport(); }}
                 />
               </div>
@@ -862,12 +881,18 @@ function ReportInterpretationPanel({
   interpretation,
   loading,
   disabled,
+  model,
+  availableModels,
+  onModelChange,
   onInterpret,
 }: {
   runId: string | null;
   interpretation: FactorReportInterpretation | null;
   loading: boolean;
   disabled: boolean;
+  model: string | undefined;
+  availableModels: string[];
+  onModelChange: (model: string) => void;
   onInterpret: () => void;
 }) {
   return (
@@ -879,15 +904,27 @@ function ReportInterpretationPanel({
             {runId ? `当前报告：${runId.slice(0, 8)}` : '先在运行历史中查看一个完成报告'}
           </Text>
         </div>
-        <Button
-          type="primary"
-          icon={<LineChartOutlined />}
-          loading={loading}
-          disabled={disabled}
-          onClick={onInterpret}
-        >
-          智能解读报告
-        </Button>
+        <div className="factor-agent-actions">
+          <Text id="factor-interpret-model-label" type="secondary">模型</Text>
+          <Select
+            aria-labelledby="factor-interpret-model-label"
+            value={model}
+            onChange={onModelChange}
+            options={availableModels.map((item) => ({ label: item, value: item }))}
+            placeholder="选择模型"
+            disabled={loading || availableModels.length === 0}
+            style={{ minWidth: 180 }}
+          />
+          <Button
+            type="primary"
+            icon={<LineChartOutlined />}
+            loading={loading}
+            disabled={disabled || !model}
+            onClick={onInterpret}
+          >
+            智能解读报告
+          </Button>
+        </div>
       </div>
       {interpretation ? (
         <div className="factor-agent-result markdown-preview">

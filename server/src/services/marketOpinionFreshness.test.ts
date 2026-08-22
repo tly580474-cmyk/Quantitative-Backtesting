@@ -94,6 +94,31 @@ describe('market opinion freshness gate', () => {
     }, NOW)).not.toThrow();
   });
 
+  it('accepts the latest completed trading-day snapshot while the market is closed on weekends', () => {
+    expect(() => assertFreshMarketOpinionInputs({
+      news: snapshot().items,
+      newsSnapshot: snapshot(),
+      context: context({
+        session: '2026-07-19 closed',
+        marketPhase: 'closed',
+        referenceTradeDate: '2026-07-17',
+        dataTradeDate: '2026-07-17',
+        indices: [{
+          code: '932000', updatedAt: '2026-07-17T07:10:00.000Z', quoteTradeDate: '2026-07-17',
+        }],
+        sentiment: {
+          updatedAt: '2026-07-17T07:10:00.000Z', snapshotTradeDate: '2026-07-17',
+        },
+        capitalFlow: {
+          updatedAt: '2026-07-17T07:10:00.000Z', tradeDate: '2026-07-17', stale: true,
+        },
+        hotSectors: {
+          snapshotTime: '2026-07-17T07:10:00.000Z', dataTradeDate: '2026-07-17', stale: true,
+        },
+      }),
+    }, NOW)).not.toThrow();
+  });
+
   it('propagates refresh errors and never builds a context from old news', async () => {
     const buildContext = vi.fn(async () => context());
     const loadRecentNews = vi.fn(async () => snapshot().items);

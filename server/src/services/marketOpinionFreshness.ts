@@ -47,23 +47,31 @@ export function assertFreshMarketOpinionInputs(
   const unavailable = Array.isArray(inputs.context.unavailable) ? inputs.context.unavailable : [];
   if (unavailable.length) failures.push(`行情上下文缺失：${unavailable.join('、')}`);
   checkTimestamp('行情快照', inputs.context.capturedAt, marketMaxAgeMs, now, failures);
-  const preOpen = inputs.context.marketPhase === 'pre_open' || inputs.context.session.endsWith(' pre_open');
+  const referenceSession = inputs.context.marketPhase === 'pre_open'
+    || inputs.context.marketPhase === 'closed'
+    || inputs.context.session.endsWith(' pre_open')
+    || inputs.context.session.endsWith(' closed');
   const referenceTradeDate = inputs.context.referenceTradeDate ?? inputs.context.dataTradeDate;
 
   const indices = records(inputs.context.indices);
   if (!indices.length) failures.push('指数行情为空');
   for (const item of indices) {
-    checkTimestamp(`指数行情 ${String(item.code ?? item.name ?? '')}`.trim(), item.updatedAt, marketMaxAgeMs, now, failures);
+    const previousClose = referenceSession && matchesTradeDate(item.quoteTradeDate, referenceTradeDate);
+    if (!previousClose) {
+      checkTimestamp(`指数行情 ${String(item.code ?? item.name ?? '')}`.trim(), item.updatedAt, marketMaxAgeMs, now, failures);
+    }
   }
 
   const sentiment = record(inputs.context.sentiment);
   if (!sentiment) failures.push('市场情绪为空');
-  else checkTimestamp('市场情绪', sentiment.updatedAt, marketMaxAgeMs, now, failures);
+  else if (!(referenceSession && matchesTradeDate(sentiment.snapshotTradeDate, referenceTradeDate))) {
+    checkTimestamp('市场情绪', sentiment.updatedAt, marketMaxAgeMs, now, failures);
+  }
 
   const capitalFlow = record(inputs.context.capitalFlow);
   if (!capitalFlow) failures.push('全市场主力资金为空');
   else {
-    const previousClose = preOpen && matchesTradeDate(capitalFlow.tradeDate, referenceTradeDate);
+    const previousClose = referenceSession && matchesTradeDate(capitalFlow.tradeDate, referenceTradeDate);
     if (capitalFlow.stale === true && !previousClose) failures.push(`全市场主力资金使用了陈旧缓存${reasonSuffix(capitalFlow.fallbackReason)}`);
     if (!previousClose) checkTimestamp('全市场主力资金', capitalFlow.updatedAt, marketMaxAgeMs, now, failures);
   }
@@ -71,7 +79,7 @@ export function assertFreshMarketOpinionInputs(
   const hotSectors = record(inputs.context.hotSectors);
   if (!hotSectors) failures.push('热点板块为空');
   else {
-    const previousClose = preOpen && matchesTradeDate(hotSectors.dataTradeDate, referenceTradeDate);
+    const previousClose = referenceSession && matchesTradeDate(hotSectors.dataTradeDate, referenceTradeDate);
     if (hotSectors.stale === true && !previousClose) failures.push(`热点板块使用了陈旧缓存${reasonSuffix(hotSectors.fallbackReason)}`);
     if (!previousClose) checkTimestamp('热点板块', hotSectors.snapshotTime, marketMaxAgeMs, now, failures);
   }

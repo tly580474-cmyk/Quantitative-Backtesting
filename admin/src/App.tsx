@@ -86,6 +86,12 @@ function validateConfigValue(
   if (['DB_HOST', 'DB_USER', 'DB_NAME', 'OPENAI_MODEL'].includes(key) && !value.trim()) {
     return `${key} 不能为空`;
   }
+  if (key === 'OPENAI_MODEL') {
+    const models = value.split(';').map((item) => item.trim());
+    if (models.some((item) => !item)) return '模型之间使用英文分号分隔，不能包含空模型项';
+    if (models.length > 20) return '最多配置 20 个模型';
+    if (new Set(models).size !== models.length) return '模型列表不能包含重复项';
+  }
   if (key === 'DB_PORT') {
     const port = Number(value);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {

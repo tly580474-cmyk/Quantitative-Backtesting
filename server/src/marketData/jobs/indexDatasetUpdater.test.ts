@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   amountYuanToYi,
+  parseCsindexPerformanceRows,
   parseEastmoneyLatestIndexCandle,
   resolveIndexTargetDate,
 } from './indexDatasetUpdater.js';
@@ -34,6 +35,49 @@ describe('parseEastmoneyLatestIndexCandle', () => {
       turnover: 6863.3387787384,
       turnoverRatePct: 4.24,
     }));
+  });
+});
+
+describe('parseCsindexPerformanceRows', () => {
+  it('maps official CSI 2000 history into the index candle contract', () => {
+    expect(parseCsindexPerformanceRows([{
+      tradeDate: '20260722',
+      indexCode: '932000',
+      open: 2798.53,
+      high: 2843.75,
+      low: 2766.96,
+      close: 2786.28,
+      change: -35.54,
+      changePct: -1.26,
+      tradingVol: 26_942_665_857,
+      tradingValue: 3660.04,
+      consNumber: 2000,
+    }], '932000')).toEqual([{
+      time: '2026-07-22',
+      symbol: '932000',
+      open: 2798.53,
+      high: 2843.75,
+      low: 2766.96,
+      close: 2786.28,
+      volume: 269_426_658.57,
+      turnover: 3660.04,
+      change: -35.54,
+      changePercent: -1.26,
+      constituentCount: 2000,
+    }]);
+  });
+
+  it('drops malformed or mismatched official rows', () => {
+    expect(parseCsindexPerformanceRows([{
+      tradeDate: '20260722',
+      indexCode: '000905',
+      open: 1,
+      high: 1,
+      low: 1,
+      close: 1,
+      tradingVol: 1,
+      tradingValue: 1,
+    }], '932000')).toEqual([]);
   });
 });
 

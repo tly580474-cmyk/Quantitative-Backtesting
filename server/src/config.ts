@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isValidAiModelList } from './services/aiModelList.js';
 
 const envSchema = z.object({
   // Database
@@ -12,7 +13,9 @@ const envSchema = z.object({
   AI_STRATEGY_ENABLED: z.enum(['true', 'false']).default('false'),
   OPENAI_API_KEY: z.string().default(''),
   OPENAI_BASE_URL: z.string().default('https://api.openai.com/v1'),
-  OPENAI_MODEL: z.string().default('deepseek-v4-flash'),
+  OPENAI_MODEL: z.string().default('deepseek-v4-flash').refine(isValidAiModelList, {
+    message: 'OPENAI_MODEL 必须是以英文分号分隔的非空、无重复模型列表',
+  }),
   OPENAI_TIMEOUT_MS: z.string().default('60000'),
 
   // Market Data

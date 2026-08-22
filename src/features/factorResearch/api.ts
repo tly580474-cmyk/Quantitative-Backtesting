@@ -276,6 +276,13 @@ export interface FactorReportInterpretation {
   interpretation: string;
 }
 
+export interface AiModelStatus {
+  enabled: boolean;
+  configured: boolean;
+  currentModel: string;
+  availableModels: string[];
+}
+
 export interface ResearchSnapshotFreshness {
   status: 'current' | 'stale' | 'inconsistent' | 'unavailable';
   snapshot: {
@@ -356,10 +363,14 @@ export function fetchFactorRunDailySeries(runId: string, page = 1, pageSize = 10
   );
 }
 
-export function interpretFactorRunReport(runId: string) {
+export function fetchAiModelStatus() {
+  return apiFetch<AiModelStatus>('/api/ai/status');
+}
+
+export function interpretFactorRunReport(runId: string, model: string) {
   return apiFetch<FactorReportInterpretation>(`/api/factor-runs/${runId}/interpret`, {
     method: 'POST',
-    body: JSON.stringify({}),
+    body: JSON.stringify({ model }),
     timeoutMs: 120000,
   });
 }

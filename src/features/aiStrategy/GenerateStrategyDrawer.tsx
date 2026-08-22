@@ -77,7 +77,7 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
   const { message, modal } = App.useApp();
   const [mode, setMode] = useState<GenerationMode>('generate');
   const [prompt, setPrompt] = useState('');
-  const [model, setModel] = useState<string>('deepseek-v4-flash');
+  const [model, setModel] = useState<string>('');
   const [aiStatus, setAiStatus] = useState<AIStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -115,7 +115,7 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
   };
 
   const handleGenerate = async () => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim() || (aiStatus?.configured && !model)) return;
     setGenerating(true);
     setGenError(null);
     setResult(null);
@@ -340,7 +340,7 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
           icon={mode === 'refine' ? <EditOutlined /> : <BulbOutlined />}
           loading={generating}
           onClick={handleGenerate}
-          disabled={statusLoading || !aiStatus || !prompt.trim() || (mode === 'refine' && !currentDocument)}
+          disabled={statusLoading || !aiStatus || !prompt.trim() || (aiStatus.configured && !model) || (mode === 'refine' && !currentDocument)}
         >
           {mode === 'refine' ? '生成修改草稿' : '生成策略'}
         </Button>

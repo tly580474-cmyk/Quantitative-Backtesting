@@ -19,6 +19,10 @@ class IndexUpdateTest(unittest.TestCase):
         self.assertEqual(TARGETS["000985"].provider_symbol, "000985")
         self.assertEqual(TARGETS["000985"].source_file_name, "csindex:index-perf")
 
+    def test_csi_2000_uses_official_history_source(self) -> None:
+        self.assertEqual(TARGETS["932000"].provider_symbol, "932000")
+        self.assertEqual(TARGETS["932000"].source_file_name, "csindex:index-perf")
+
     def test_index_amount_contract_uses_yi(self) -> None:
         result = amount_yuan_to_yi(pd.Series([686_333_877_873.84]))
         self.assertAlmostEqual(result.iloc[0], 6_863.3387787384)
