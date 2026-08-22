@@ -70,6 +70,7 @@ async function main(): Promise<void> {
   const aiConfigured = aiEnabled && config.OPENAI_API_KEY.length > 0;
   const availableAiModels = parseAiModelList(config.OPENAI_MODEL);
   const defaultAiModel = availableAiModels[0];
+  const opinionAiModel = config.MARKET_OPINION_MODEL.trim() || defaultAiModel;
 
   let provider: StrategyGenerationProvider;
   if (aiConfigured) {
@@ -106,11 +107,11 @@ async function main(): Promise<void> {
     agent: new MarketOpinionAgent(
       aiConfigured ? config.OPENAI_API_KEY : '',
       config.OPENAI_BASE_URL,
-      defaultAiModel,
+      opinionAiModel,
       parseInt(config.OPENAI_TIMEOUT_MS, 10),
     ),
     email: opinionEmailSender,
-    model: defaultAiModel,
+    model: opinionAiModel,
   });
 
   // ── MySQL Connection ────────────────────────────────────────

@@ -235,7 +235,7 @@ server/src/
   - [`marketOpinionPushService.ts`](file:///d:/github_public_repo/量化回测/server/src/services/marketOpinionPushService.ts): 推送服务编排：数据准备(120s超时) → AI生成(90s超时) → 邮件发送(45s超时)
   - [`marketOpinionAgent.ts`](file:///d:/github_public_repo/量化回测/server/src/services/marketOpinionAgent.ts): AI智能体，调用 OpenAI/DeepSeek API 生成报告，含新闻筛选、缓存、提示词构建
   - [`marketOpinionPushCli.ts`](file:///d:/github_public_repo/量化回测/server/src/services/marketOpinionPushCli.ts): CLI 手动触发工具（支持 --simulation 模拟 / --correction 更正）
-  - 配置项（`server/.env`）: `MARKET_OPINION_PUSH_ENABLED`, `MARKET_OPINION_{MORNING,MIDDAY,CLOSE}_TIME`, `SMTP_*`, `MAIL_*`
+  - 配置项（`server/.env`）: `MARKET_OPINION_PUSH_ENABLED`, `MARKET_OPINION_MODEL`（邮件专用，留空则使用首个 `OPENAI_MODEL`）, `MARKET_OPINION_{MORNING,MIDDAY,CLOSE}_TIME`, `SMTP_*`, `MAIL_*`
   - 运行记录存储在 MySQL `market_data_collector_runs` 表，jobType=`market_opinion_push`
 - AI services use the OpenAI Chat Completions spec — works with OpenAI, DeepSeek, or any compatible endpoint
 - Config is loaded via `dotenv` + Zod schema at startup (`server/src/config.ts`)

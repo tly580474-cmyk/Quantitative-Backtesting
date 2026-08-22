@@ -12,6 +12,7 @@ const kinds = ['morning', 'midday', 'close'] as const;
 async function main(): Promise<void> {
   const config = loadConfig();
   const defaultAiModel = parseAiModelList(config.OPENAI_MODEL)[0];
+  const opinionAiModel = config.MARKET_OPINION_MODEL.trim() || defaultAiModel;
   const requested = process.argv.find((arg) => arg.startsWith('--kind='))?.slice('--kind='.length) ?? 'morning';
   if (!kinds.includes(requested as MarketOpinionDigestKind)) {
     throw new Error('--kind 仅支持 morning、midday 或 close');
@@ -46,11 +47,11 @@ async function main(): Promise<void> {
       agent: new MarketOpinionAgent(
         config.OPENAI_API_KEY,
         config.OPENAI_BASE_URL,
-        defaultAiModel,
+        opinionAiModel,
         parseInt(config.OPENAI_TIMEOUT_MS, 10),
       ),
       email,
-      model: defaultAiModel,
+      model: opinionAiModel,
     });
     const result = await service.send(kind, new Date(), {
       subjectPrefix: simulation ? '【模拟推送】' : correction ? '【更正版】' : undefined,
@@ -59,6 +60,7 @@ async function main(): Promise<void> {
       sent: true,
       simulation,
       correction,
+      model: opinionAiModel,
       kind: result.kind,
       generatedAt: result.generatedAt,
       newsCount: result.newsCount,

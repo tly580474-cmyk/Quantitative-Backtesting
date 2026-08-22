@@ -140,6 +140,16 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     defaultValue: 'false',
   },
   {
+    key: 'MARKET_OPINION_MODEL',
+    label: '市场观点邮件模型',
+    category: 'ai',
+    description: '仅用于早报、午报和盘后总结；留空时使用大模型列表的第一项。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'ai',
+  },
+  {
     key: 'MARKET_OPINION_MORNING_TIME',
     label: '观点早报推送时间',
     category: 'ai',

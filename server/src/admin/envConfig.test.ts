@@ -165,6 +165,19 @@ describe('admin env config', () => {
     }
   });
 
+  it('exposes a dedicated non-secret model for market opinion emails', () => {
+    const item = listAdminConfig({
+      MARKET_OPINION_MODEL: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+    }).find((entry) => entry.key === 'MARKET_OPINION_MODEL');
+    expect(item).toMatchObject({
+      editable: true,
+      secret: false,
+      configured: true,
+      maskedValue: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+      restartRequired: true,
+    });
+  });
+
   it('exposes the non-trading-period policy as an enabled boolean option by default', () => {
     const item = listAdminConfig({}).find(
       (entry) => entry.key === 'SCHEDULE_SKIP_NON_TRADING_PERIODS',

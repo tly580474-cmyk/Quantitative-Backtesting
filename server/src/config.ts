@@ -47,6 +47,7 @@ const envSchema = z.object({
   MARKET_NEWS_REFRESH_INTERVAL_MINUTES: z.string().regex(/^\d+$/).default('3'),
   MARKET_NEWS_RETENTION_DAYS: z.string().regex(/^\d+$/).default('3'),
   MARKET_OPINION_PUSH_ENABLED: z.enum(['true', 'false']).default('false'),
+  MARKET_OPINION_MODEL: z.string().default(''),
   MARKET_OPINION_MORNING_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('09:00'),
   MARKET_OPINION_MIDDAY_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('12:00'),
   MARKET_OPINION_CLOSE_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('16:00'),
