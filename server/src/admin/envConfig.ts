@@ -93,6 +93,8 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     editable: true,
     restartRequired: true,
     restartScope: 'ai',
+    inputType: 'boolean',
+    defaultValue: 'false',
   },
   {
     key: 'OPENAI_API_KEY',
@@ -133,6 +135,8 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     editable: true,
     restartRequired: true,
     restartScope: 'ai',
+    inputType: 'boolean',
+    defaultValue: 'false',
   },
   {
     key: 'MARKET_OPINION_MORNING_TIME',
@@ -445,6 +449,9 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
 const editableKeys = new Set(
   ADMIN_CONFIG_DEFINITIONS.filter((item) => item.editable).map((item) => item.key),
 );
+const booleanKeys = new Set(
+  ADMIN_CONFIG_DEFINITIONS.filter((item) => item.inputType === 'boolean').map((item) => item.key),
+);
 
 export function maskConfigValue(value: string, secret: boolean): string | null {
   if (!value) return null;
@@ -533,10 +540,7 @@ function validateEnvValue(key: string, value: string): void {
       throw new Error('DB_PORT 必须是 1 到 65535 的整数');
     }
   }
-  if (
-    ['AI_STRATEGY_ENABLED', 'SCHEDULE_SKIP_NON_TRADING_PERIODS', 'FINANCIAL_DATA_ENABLED'].includes(key)
-    && !['true', 'false'].includes(value)
-  ) {
+  if (booleanKeys.has(key) && !['true', 'false'].includes(value)) {
     throw new Error(`${key} 只能是 true 或 false`);
   }
   if (key === 'FINANCIAL_DATA_LOOKBACK_DAYS') {

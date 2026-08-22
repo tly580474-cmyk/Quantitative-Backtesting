@@ -20,16 +20,21 @@
   --critical: #f43f5e;
   --disabled: #94a3b8;
   --focus: #fbbf24;
+  --bg-elevated: var(--surface-raised);
+  --text-primary: var(--text);
+  --border-subtle: var(--border);
+  --accent-primary: var(--primary);
+  --status-critical: var(--critical);
   --sidebar-width: 244px;
 }
 
 * { box-sizing: border-box; }
 html { min-width: 320px; background: var(--bg); }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
-button:focus-visible, input:focus-visible {
+button:focus-visible, input:focus-visible, select:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
   outline-offset: 2px;
 }
@@ -518,6 +523,13 @@ button:focus-visible, input:focus-visible {
 }
 .config-dialog input:focus, .config-dialog select:focus {
   border-color: var(--accent-primary);
+}
+.config-dialog select {
+  color-scheme: dark;
+}
+.config-dialog select option {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
 }
 
 @media (max-width: 1100px) {

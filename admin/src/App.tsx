@@ -47,6 +47,7 @@ import {
   waitForBackendRecovery,
 } from './api';
 import type { AdminConfigItem, AdminHealth, AdminOverview, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressItem, DiagnosticCheck, HealthLevel, MetricSample, PublicAccessStatus } from './types';
+import { sanitizeSecretReplacement } from './secretInput';
 
 type Section = 'overview' | 'diagnostics' | 'configuration';
 
@@ -74,7 +75,11 @@ const FUND_FLOW_CONFIG_KEYS = new Set([
 ]);
 
 /** 前端实时校验，与 server/src/admin/envConfig.ts validateEnvValue 规则一致（见 §4.3） */
-function validateConfigValue(key: string, value: string): string | null {
+function validateConfigValue(
+  key: string,
+  value: string,
+  inputType?: AdminConfigItem['inputType'],
+): string | null {
   if (key.endsWith('_TIME') && !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
     return `${key} 必须使用 HH:mm 格式，例如 18:30`;
   }
@@ -87,10 +92,7 @@ function validateConfigValue(key: string, value: string): string | null {
       return 'DB_PORT 必须是 1 到 65535 的整数';
     }
   }
-  if (
-    ['AI_STRATEGY_ENABLED', 'SCHEDULE_SKIP_NON_TRADING_PERIODS', 'FINANCIAL_DATA_ENABLED'].includes(key)
-    && !['true', 'false'].includes(value)
-  ) {
+  if (inputType === 'boolean' && !['true', 'false'].includes(value)) {
     return `${key} 只能是 true 或 false`;
   }
   if (key === 'DUCKDB_MAX_CONCURRENT') {
@@ -1246,14 +1248,25 @@ function ConfigDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showSecret, setShowSecret] = useState(false);
+  const [secretInputReady, setSecretInputReady] = useState(!item.secret);
   // §4.3 实时校验
   const validationError = useMemo(
-    () => (value ? validateConfigValue(item.key, value) : null),
-    [item.key, value],
+    () => (value ? validateConfigValue(item.key, value, item.inputType) : null),
+    [item.inputType, item.key, value],
   );
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!value.trim()) {
+      setError(item.secret ? '请输入新的密钥；系统不会读取或回填现有密钥' : '请输入新的配置值');
+      return;
+    }
+    if (item.secret && sanitizeSecretReplacement(value, token).blocked) {
+      setValue('');
+      setShowSecret(false);
+      setError('已阻止浏览器误填管理台访问令牌，请手动输入此配置对应的新密钥');
+      return;
+    }
     if (validationError) return;
     setSaving(true);
     setError('');
@@ -1280,7 +1293,7 @@ function ConfigDialog({
           </div>
           <button className="icon-button" aria-label="关闭" onClick={onClose}><CloseOutlined /></button>
         </div>
-        <form onSubmit={submit}>
+        <form onSubmit={submit} autoComplete="off">
           <label htmlFor="config-value">
             {item.inputType === 'boolean' ? '选择状态' : (item.secret ? '输入新密钥' : '输入新值')}
           </label>
@@ -1293,18 +1306,45 @@ function ConfigDialog({
                 onChange={(event) => setValue(event.target.value)}
                 className={validationError ? 'input-error' : ''}
               >
-                <option value="true">开启 — 跳过非交易时段</option>
-                <option value="false">关闭 — 每天按计划触发</option>
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
               </select>
             ) : (
               <input
                 id="config-value"
-                autoFocus
+                name={`replacement-${item.key.toLowerCase()}`}
+                autoFocus={!item.secret}
+                readOnly={item.secret && !secretInputReady}
                 type={item.secret && !showSecret ? 'password' : (item.inputType ?? 'text')}
                 value={value}
-                onChange={(event) => setValue(event.target.value)}
+                onChange={(event) => {
+                  const next = item.secret
+                    ? sanitizeSecretReplacement(event.target.value, token)
+                    : { value: event.target.value, blocked: false };
+                  if (next.blocked) {
+                    setValue('');
+                    setShowSecret(false);
+                    setError('已清除浏览器误填的管理台访问令牌，请手动输入此配置对应的新密钥');
+                    return;
+                  }
+                  setError('');
+                  setValue(next.value);
+                }}
+                onFocus={(event) => {
+                  setSecretInputReady(true);
+                  if (item.secret && event.currentTarget.value === token) {
+                    event.currentTarget.value = '';
+                    setValue('');
+                    setShowSecret(false);
+                    setError('已清除浏览器误填的管理台访问令牌，请手动输入此配置对应的新密钥');
+                  }
+                }}
+                onPointerDown={() => setSecretInputReady(true)}
                 placeholder={item.secret ? '不会显示现有密钥' : item.maskedValue ?? ''}
-                autoComplete="off"
+                autoComplete={item.secret ? 'new-password' : 'off'}
+                data-1p-ignore={item.secret ? 'true' : undefined}
+                data-lpignore={item.secret ? 'true' : undefined}
+                data-form-type={item.secret ? 'other' : undefined}
                 className={validationError ? 'input-error' : ''}
               />
             )}
@@ -1327,7 +1367,7 @@ function ConfigDialog({
           {error && <InlineMessage level="critical">{error}</InlineMessage>}
           <div className="dialog-actions">
             <button type="button" className="secondary-button" onClick={onClose}>取消</button>
-            <button type="submit" className="primary-button" disabled={saving || (!!validationError) || (!item.secret && !value.trim())}>
+            <button type="submit" className="primary-button" disabled={saving || !!validationError || !value.trim() || (item.secret && sanitizeSecretReplacement(value, token).blocked)}>
               {saving ? '正在保存…' : '保存配置'}
             </button>
           </div>
@@ -1364,14 +1404,18 @@ function LoginScreen({
             管理 API 当前未启用。请在 server/.env 中设置 ADMIN_API_TOKEN，重启后端后再访问。
           </InlineMessage>
         ) : (
-          <form className="login-form" onSubmit={onSubmit}>
+          <form className="login-form" onSubmit={onSubmit} autoComplete="off">
             <label htmlFor="admin-token">管理台访问令牌</label>
             <input
               id="admin-token"
+              name="quant-admin-access-token"
               type="password"
               value={token}
               onChange={(event) => onTokenChange(event.target.value)}
-              autoComplete="current-password"
+              autoComplete="off"
+              data-1p-ignore="true"
+              data-lpignore="true"
+              data-form-type="other"
               placeholder="输入 ADMIN_API_TOKEN"
               autoFocus
             />

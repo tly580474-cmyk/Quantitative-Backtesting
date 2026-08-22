@@ -27,6 +27,19 @@ describe('admin env config', () => {
     expect(JSON.stringify(item)).not.toContain('sk-secret-value');
   });
 
+  it('never serializes either the admin token or provider key in config output', () => {
+    const adminToken = 'admin-console-secret-value';
+    const providerKey = 'provider-secret-value';
+    const serialized = JSON.stringify(listAdminConfig({
+      ADMIN_API_TOKEN: adminToken,
+      OPENAI_API_KEY: providerKey,
+    }));
+
+    expect(serialized).not.toContain(adminToken);
+    expect(serialized).not.toContain(providerKey);
+    expect(serialized).toContain('••••alue');
+  });
+
   it('updates allowlisted values while preserving comments', async () => {
     const root = await mkdtemp(join(tmpdir(), 'admin-env-'));
     roots.push(root);
@@ -126,6 +139,18 @@ describe('admin env config', () => {
       maskedValue: 'true',
       restartRequired: true,
     });
+  });
+
+  it('exposes every AI switch as a boolean option instead of free text', () => {
+    const items = listAdminConfig({});
+    for (const key of ['AI_STRATEGY_ENABLED', 'MARKET_OPINION_PUSH_ENABLED']) {
+      expect(items.find((item) => item.key === key)).toMatchObject({
+        editable: true,
+        inputType: 'boolean',
+        configured: true,
+        maskedValue: 'false',
+      });
+    }
   });
 
   it('exposes the non-trading-period policy as an enabled boolean option by default', () => {

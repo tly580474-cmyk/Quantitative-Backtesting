@@ -250,7 +250,8 @@ server/src/
 ### Admin Console (`server/src/admin/` + `admin/`)
 - **Auth**: Bearer token via `timingSafeEqual` against `ADMIN_API_TOKEN`; returns 503 if token unset
 - **Diagnostics** (`diagnostics.ts`): `collectAdminOverview` (full: DB/storage/tasks/governance/config) + `collectAdminHealth` (lightweight, for high-frequency polling); severity levels `healthy/warning/critical/disabled`
-- **Env Config** (`envConfig.ts`): 15 editable config definitions across 5 categories (access/database/ai/market/runtime); `listAdminConfig` masks secrets; `updateEnvFile` atomically writes `server/.env` with validation (port, concurrency 1-8, capacity format)
+- **Env Config** (`envConfig.ts`): editable definitions across 5 categories (access/database/ai/market/runtime); boolean definitions use typed on/off controls rather than free-text values, `listAdminConfig` never returns secret plaintext, secret replacement inputs must remain empty and resist credential-manager autofill, and `updateEnvFile` atomically writes `server/.env` with validation (port, concurrency 1-8, capacity format)
+- **Public Access** (`publicAccess.ts` + `publicAccess.ps1`): persists the administrator's desired state under `server/data/admin/`; backend startup re-disables the SSH tunnel and frpc tasks whenever the last choice was off
 - **Overview Cache** (`overviewCache.ts`): TTL cache (default 10s), degrades to stale frame on error
 - **Metrics History** (`metricsHistory.ts`): samples rss/heap/DB latency/DuckDB active+queued/disk/task failures
 

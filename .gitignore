@@ -32,6 +32,7 @@ tech_factors_dailyk.html
 server/evaluation/
 server/data/multi-asset-artifacts/
 server/data/agent-reports/
+server/data/admin/
 server/data/local-research.duckdb
 # 生成产物目录（含大体积 CSV，勿提交，避免超过 GitHub 100MB 限制）
 server/out/

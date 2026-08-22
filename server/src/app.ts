@@ -17,6 +17,7 @@ import { registerSyncJobRoutes } from './routes/syncJobs.js';
 import { registerDataQualityRoutes } from './routes/dataQuality.js';
 import { registerFactorResearchRoutes } from './routes/factorResearch.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { publicAccessControl } from './admin/publicAccess.js';
 import { registerPaperTradingRoutes } from './routes/paperTrading.js';
 import { registerAgentRoutes } from './routes/agent.js';
 import { AgentOrchestrator } from './services/agent/agentOrchestrator.js';
@@ -52,6 +53,12 @@ import { getDuckDBRuntimeStats } from './research/duckdbRuntime.js';
 async function main(): Promise<void> {
   let requestedExitCode = 0;
   const config = loadConfig();
+  try {
+    const publicAccess = await publicAccessControl.reconcile();
+    console.log(`[PublicAccess] Startup state: ${publicAccess.enabled ? 'enabled' : 'disabled'}`);
+  } catch (error) {
+    console.warn('[PublicAccess] Unable to reconcile startup state:', error);
+  }
   configureHistoryStorePolicy({
     readMode: config.HISTORY_STORE_READ_MODE,
     dualWrite: config.HISTORY_STORE_DUAL_WRITE === 'true',
