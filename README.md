@@ -59,10 +59,12 @@
 - 深度分析报告，Markdown 渲染
 
 ### 🧠 智能体系统
-- 基于 **Claude Code**（WSL Ubuntu）的 AI 研究助手
+- 支持 **Claude Code**（WSL Ubuntu）与 **Codex App Server**（Windows）双 Provider，可按新对话选择
 - 输入问题后自动执行多步研究，并按任务复杂度与用户要求判断是否生成结构化 HTML 报告
-- 实时 SSE 流式展示安全执行摘要、工具调用与输出，Markdown 渲染
-- 对话历史管理、删除任务、继续对话（`--resume` 恢复上下文）
+- 实时 SSE 展示执行进度、工具调用与输出，支持事件持久化、刷新恢复和取消运行
+- 对话历史管理、删除任务和继续对话；同一对话固定沿用创建时的 Provider
+- Codex 在项目工作区内自主运行命令、修改文件和执行测试，常规操作不逐步请求人工审批
+- 行情查询遵循“项目本地接口优先，明确缺失后再由 a-stock-data 补缺”的顺序
 - 四套可配置报告模板：经典金融蓝 / 暗色专业 / 极简白 / 数据面板
 
 ### 🎯 策略研究
@@ -106,7 +108,9 @@ Fastify 5 Server (localhost:3001)
 ├── DuckDB  —  OLAP 研究快照查询引擎
 ├── OpenAI SDK  —  AI 策略生成 + 智能交易
 ├── Agent Orchestrator
-│   ├── WSL Claude Code  —  研究执行
+│   ├── WSL Claude Code  —  Claude Provider
+│   ├── Codex stdio App Server  —  Codex Provider、续接、取消与工具事件
+│   ├── 项目行情 CLI  —  本机只读数据入口，本地数据优先
 │   ├── SSE 实时流推送  —  事件持久化与断点续传
 │   └── HTML 报告生成
 └── Scheduler  —  数据同步、因子挖掘、市场推送
@@ -179,15 +183,36 @@ PORT=3001
 
 ```dotenv
 AGENT_ENABLED=true
+AGENT_PROVIDER=claude          # claude / codex；仅作为新对话默认值
+
+# Claude Code Provider（WSL）
 AGENT_WSL_PROJECT_PATH=/mnt/d/github_public_repo/量化回测
 AGENT_CLAUDE_PATH=claude
+
+# Codex Provider（Windows 原生，按需开启）
+AGENT_CODEX_ENABLED=true
+AGENT_CODEX_PATH=codex
+AGENT_CODEX_MODEL=
+AGENT_CODEX_WORKING_DIRECTORY=D:/github_public_repo/量化回测
+AGENT_CODEX_HOME=C:/Users/<you>/AppData/Local/QuantBacktest/codex-home
+AGENT_CODEX_API_KEY=your-project-specific-key
+AGENT_CODEX_APPROVALS_ENABLED=false
+AGENT_CODEX_TOOLS_ENABLED=true
+AGENT_CODEX_SANDBOX_MODE=workspace-write
+AGENT_CODEX_WINDOWS_SANDBOX=unelevated
+AGENT_CODEX_NETWORK_ENABLED=true
+AGENT_CODEX_MARKET_DATA_CLI=D:/github_public_repo/量化回测/server/scripts/agentMarketData.mjs
+AGENT_CODEX_EXTERNAL_DATA_SKILL_ENABLED=true
+AGENT_CODEX_PYTHON_PATH=C:/Users/<you>/AppData/Local/QuantBacktest/codex-home/a-stock-data-venv/Scripts/python.exe
+
 AGENT_DEFAULT_MAX_TURNS=0     # 0=不限制
 AGENT_TIMEOUT_MINUTES=30
+AGENT_CODEX_TIMEOUT_MINUTES=60
 AGENT_MAX_CONCURRENT=1
 AGENT_REPORT_ROOT=data/agent-reports
 ```
 
-> 智能体访问地址：`http://localhost:5558/#/agent`，需在 WSL Ubuntu 中安装 `claude` CLI。
+> 智能体访问地址：`http://localhost:5558/#/agent`。Claude Provider 需要在 WSL Ubuntu 中安装 `claude`；Codex Provider 使用 Windows 原生 `codex` CLI。Codex Harness 使用独立 `AGENT_CODEX_HOME` 和项目 API Key，不读取或修改全局 Codex 登录状态。OpenRouter 等自定义 Responses Provider 的配置见 [Codex 运行手册](./docs/agent-codex-runtime.md)。
 
 ### 市场数据自动同步
 
@@ -223,9 +248,12 @@ SCHEDULE_SKIP_NON_TRADING_PERIODS=true
 ### 智能体研究
 
 1. 打开智能体页面（`/agent`）
-2. 输入研究问题（如"调查 长鑫科技 近期影响新闻"）
-3. 实时观察思考过程与工具调用
-4. 对于明确要求报告或值得留档的复杂研究，查看自动生成的 HTML 研究报告
+2. 新建对话时选择 Claude 或 Codex Provider
+3. 输入研究问题（如“调查某家公司近期重要公告与行情变化”）
+4. 实时观察执行进度与工具调用
+5. 对于明确要求报告或值得留档的复杂研究，查看自动生成的 HTML 研究报告
+
+Codex 查询行情时先使用项目只读入口；只有项目接口返回空、缺少必要字段或数据已过期时，才使用项目隔离目录中的 `a-stock-data` 技能补缺。外部结果不会自动回写项目数据库或数据湖。
 
 ---
 
@@ -240,6 +268,11 @@ npm test                 # 测试
 # 后端
 cd server && npm run dev        # 开发服务器 (3001)
 cd server && npm run typecheck  # 类型检查
+cd server && npm run agent:codex:probe  # Codex 连通性与续接探针
+
+# Codex 项目行情入口
+node server/scripts/agentMarketData.mjs catalog
+node server/scripts/agentMarketData.mjs quote 600519
 
 # 数据底座
 cd server && npm run snapshot:freshness   # 研究快照新鲜度
@@ -287,6 +320,7 @@ server/src/                   # 后端服务
 ├── routes/                   # Fastify API 路由
 ├── services/
 │   ├── agent/                # 智能体编排器、仓储、提示词
+│   │   └── providers/        # Claude / Codex Provider
 │   └── strategyGeneration/   # AI 策略生成
 ├── factorResearch/           # 因子引擎、候选工作流、挖掘
 ├── research/                 # 研究快照、DuckDB 查询
@@ -311,6 +345,7 @@ server/src/                   # 后端服务
 | **后端** | Fastify 5, TypeScript 7 |
 | **数据库** | MySQL 8 (Drizzle ORM), DuckDB (OLAP) |
 | **AI** | OpenAI SDK (DeepSeek / OpenAI), Claude Code |
+| **智能体运行时** | Claude Code, Codex CLI / stdio App Server |
 | **数据处理** | Python (参考数据/分钟数据), SheetJS (Excel) |
 | **验证** | Zod 4, Vitest |
 
@@ -323,7 +358,10 @@ server/src/                   # 后端服务
 | 市场数据 404 | 3001 端口运行旧后端，重新运行 `start.bat` |
 | 行情加载失败 | 点击「刷新行情」，检查后端是否运行 |
 | 智能交易不可用 | 检查 `AI_STRATEGY_ENABLED=true` 和 API Key |
-| 智能体不可用 | 检查 `AGENT_ENABLED=true`，WSL 中 `claude` 已安装并登录 |
+| Claude 智能体不可用 | 检查 `AGENT_ENABLED=true`，WSL 中 `claude` 已安装并登录 |
+| Codex 智能体不可用 | 检查 `AGENT_CODEX_ENABLED`、项目 API Key、独立 `AGENT_CODEX_HOME`、Windows 工作目录和管理台 Provider 状态 |
+| Codex 只能读取、不能修改文件 | 确认 `AGENT_CODEX_SANDBOX_MODE=workspace-write` 且 Windows 配置为 `AGENT_CODEX_WINDOWS_SANDBOX=unelevated` 或已初始化的 `elevated` |
+| Codex 没有调用工具 | 检查模型目录的 `shell_type` 是否为 `shell_command`，以及 `AGENT_CODEX_TOOLS_ENABLED=true` |
 | 智能体报告为空 | 报告为自动判断；若已明确要求报告，查看 `[Agent]` 日志并检查最终 `agent-report` 决策 |
 | 机构研报为空 | 点击卡片右上角「刷新」，东财有频率控制 |
 
@@ -333,6 +371,8 @@ server/src/                   # 后端服务
 
 - [项目总览与完整业务流程](./doc/PROJECT_OVERVIEW.md)
 - [运维管理台指南](./doc/ADMIN_CONSOLE_GUIDE.md)
+- [Codex Agent 运行与隔离配置](./docs/agent-codex-runtime.md)
+- [Codex Harness 分阶段接入计划](./plan/CODEX_HARNESS_INTEGRATION_PLAN.md)
 - 开发计划：[Phase 1](./doc/PHASE1_PLAN.md) · [Phase 2](./doc/PHASE2_PLAN.md) · [Phase 3](./doc/PHASE3_PLAN.md) · [Phase 3.5](./doc/PHASE3_5_PLAN.md) · [Phase 4](./doc/PHASE4_PLAN.md) · [Phase 5](./doc/PHASE5_PLAN.md) · [Phase 5.5](./doc/PHASE5_5_PLAN.md) · [Phase 6](./doc/PHASE6_PLAN.md)
 
 ---
@@ -344,4 +384,7 @@ server/src/                   # 后端服务
 - 自选股、评分、筛选条件保存在浏览器 Local Storage
 - AI 请求将公开行情、K 线、研报元数据发送到配置的模型服务
 - API Key 仅由后端读取，不发送到浏览器
+- Codex Harness 使用项目专用状态目录和 API Key，不复用全局 Codex/ChatGPT 登录
+- Codex 的写权限限制在配置的项目工作区；常规命令、测试和只读行情查询无需逐步审批
+- 外部行情技能仅在项目数据明确缺失时补缺，不自动写回权威数据源
 - 暂不模拟停牌、涨跌停成交限制、融资融券和实盘交易
