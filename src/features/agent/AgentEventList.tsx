@@ -67,16 +67,33 @@ function ProcessEvent({ event }: { event: AgentEvent }) {
   if (event.type === 'progress') return <div style={{ color: theme.textSecondary, fontSize: 13, lineHeight: 1.7, margin: '6px 0' }}>
     <ReactMarkdown remarkPlugins={[remarkGfm]}>{event.content}</ReactMarkdown>
   </div>;
-  if (event.type === 'tool_started' || event.type === 'tool_finished') {
+  if (event.type === 'tool_started' || event.type === 'tool_finished' || (event.type === 'error' && event.toolUseId)) {
     const finished = event.type === 'tool_finished';
-    return <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', color: theme.textSecondary, fontSize: 12 }}>
-      {finished ? <CheckCircleOutlined style={{ color: '#10b981' }} /> : <CodeOutlined style={{ color: '#1a73e8' }} />}
-      <span>{finished ? '工具执行完成' : '正在使用工具'}</span>
-      {event.toolName && <code style={{ padding: '2px 7px', borderRadius: 5, background: theme.codeBg }}>{event.toolName}</code>}
-      {event.durationMs != null && <span style={{ opacity: .65 }}>{event.durationMs}ms</span>}
+    const failed = event.type === 'error';
+    const detail = failed ? compactToolFailureDetail(event.content) : '';
+    return <div style={{ padding: '7px 0', color: theme.textSecondary, fontSize: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {failed ? <CloseCircleOutlined style={{ color: theme.errorText }} />
+          : finished ? <CheckCircleOutlined style={{ color: '#10b981' }} />
+            : <CodeOutlined style={{ color: '#1a73e8' }} />}
+        <span>{failed ? '工具执行失败' : finished ? '工具执行完成' : '正在使用工具'}</span>
+        {event.toolName && <code style={{ padding: '2px 7px', borderRadius: 5, background: theme.codeBg }}>{event.toolName}</code>}
+        {event.durationMs != null && <span style={{ opacity: .65 }}>{event.durationMs}ms</span>}
+      </div>
+      {detail && <div style={{ margin: '6px 0 0 24px', color: theme.errorText, lineHeight: 1.6,
+        whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{detail}</div>}
     </div>;
   }
   return null;
+}
+
+function compactToolFailureDetail(content: string): string {
+  const raw = content.replace(/^.{0,80}?执行失败[：:]?\s*/s, '').trim();
+  if (raw.length <= 360) return raw;
+  const meaningfulLine = raw.split('\n').map(line => line.trim()).reverse().find(line =>
+    /(?:error|exception|failed|failure|denied|refused|timeout|timed out|not found|必须|失败|错误|异常|不可用|拒绝|超时)/i.test(line),
+  );
+  return meaningfulLine ?? `…${raw.slice(-360)}`;
 }
 
 function ErrorBlock({ event }: { event: AgentEvent }) {
@@ -135,7 +152,8 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
     {turns.map((turn, index) => {
       if (turn.type === 'user') return <UserBubble key={`u-${index}`} text={turn.events[0].content} attachments={turn.events[0].attachments} />;
       const current = isStreaming && index === turns.length - 1;
-      const process = turn.events.filter(event => ['progress', 'tool_started', 'tool_finished'].includes(event.type));
+      const process = turn.events.filter(event => ['progress', 'tool_started', 'tool_finished'].includes(event.type)
+        || (event.type === 'error' && Boolean(event.toolUseId)));
       const final = turn.events.filter(event => event.type === 'assistant_final' || event.type === 'assistant_text');
       const finalContents = new Set(final.map(event => event.content.trim()).filter(Boolean));
       const visibleProcess = process.slice(-200).map(event => (
@@ -143,8 +161,9 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
           ? { ...event, content: '正在整理最终回答' }
           : event
       ));
-      const errors = turn.events.filter(event => event.type === 'error'
+      const errors = turn.events.filter(event => (event.type === 'error' && !event.toolUseId)
         || (event.type === 'terminal' && event.terminal?.status !== 'completed'));
+      const toolFailureCount = process.filter(event => event.type === 'error' && event.toolUseId).length;
       const confirmations = turn.events.filter(event => event.type === 'confirmation_required' && !event.approval);
       const approvals = [...turn.events.reduce((map, event) => {
         if (event.type === 'confirmation_required' && event.approval) map.set(event.approval.id, event);
@@ -164,7 +183,7 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
         <AssistantAvatar />
         <div style={{ flex: 1, minWidth: 0 }}>
           {process.length > 0 && <Fold instanceKey={key} openWhileRunning={current}
-            label={`已处理${duration ? ` ${duration}` : ''} · ${process.length}步`}>
+            label={`已处理${duration ? ` ${duration}` : ''} · ${process.length}步${toolFailureCount ? ` · ${toolFailureCount}个工具失败` : ''}`}>
             {process.length > visibleProcess.length && <div style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 8 }}>
               较早的 {process.length - visibleProcess.length} 个步骤已省略，可按事件分页接口查询。
             </div>}

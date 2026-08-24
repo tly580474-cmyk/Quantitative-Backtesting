@@ -26,13 +26,18 @@ describe('AgentEventList', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('运行超时（TIMEOUT）');
   });
 
-  it('shows tool failures and run-level failures without omitting error details', () => {
+  it('folds tool failures into process history while keeping run-level failures visible', () => {
     render(<AgentEventList runId="run-tool-error" userPrompt="" events={[
-      { type: 'error', content: '工具执行失败', toolUseId: 'tool-1' },
+      { type: 'error', content: `command 执行失败：${'成功输出'.repeat(100)}\n股票代码必须是 6 位数字`,
+        toolName: 'command', toolUseId: 'tool-1' },
       { type: 'error', content: '智能体进程异常' },
     ]} />);
-    expect(screen.getByText('工具执行失败')).toBeVisible();
     expect(screen.getByText('智能体进程异常')).toBeVisible();
+    expect(screen.queryByText('工具执行失败')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /1步 · 1个工具失败/ }));
+    expect(screen.getByText('工具执行失败')).toBeVisible();
+    expect(screen.getByText('股票代码必须是 6 位数字')).toBeVisible();
+    expect(screen.queryByText(/成功输出成功输出成功输出/)).not.toBeInTheDocument();
   });
 
   it('offers an explicit retry only for the retryable failed run', () => {

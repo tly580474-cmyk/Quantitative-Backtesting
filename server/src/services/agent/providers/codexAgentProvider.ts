@@ -208,9 +208,23 @@ export function codexToolErrorContent(item: Record<string, any>): string {
   ];
   for (const candidate of candidates) {
     const content = sanitizePublicContent(candidate);
-    if (content) return content;
+    if (content) return compactToolFailure(content);
   }
   return '';
+}
+
+function compactToolFailure(content: string): string {
+  const maxLength = 800;
+  if (content.length <= maxLength) return content;
+  const meaningfulLine = content.split('\n').map(line => line.trim()).reverse().find(line =>
+    /(?:error|exception|failed|failure|denied|refused|timeout|timed out|not found|必须|失败|错误|异常|不可用|拒绝|超时)/i.test(line),
+  );
+  if (meaningfulLine) {
+    return meaningfulLine
+      .replace(/^['"]?(?:message|error)['"]?\s*:\s*/i, '')
+      .replace(/^['"]|['"],?$/g, '');
+  }
+  return `…（仅显示末尾）\n${content.slice(-maxLength)}`;
 }
 
 export class CodexAgentProvider implements AgentProvider {

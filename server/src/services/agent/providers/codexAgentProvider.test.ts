@@ -62,6 +62,13 @@ describe('CodexAgentProvider safety boundary', () => {
     })).toBe('读取 [已隐藏] 失败，[已隐藏]');
   });
 
+  it('extracts the actual failure from a long mixed command output', () => {
+    expect(codexToolErrorContent({
+      type: 'commandExecution', status: 'failed',
+      aggregatedOutput: `${JSON.stringify({ ok: true, data: 'x'.repeat(1_000) })}\n股票代码必须是 6 位数字`,
+    })).toBe('股票代码必须是 6 位数字');
+  });
+
   it('uses the official localImage input for image attachments only', () => {
     const base = {
       id: 'a', name: 'chart.png', mediaType: 'image/png', size: 10,
