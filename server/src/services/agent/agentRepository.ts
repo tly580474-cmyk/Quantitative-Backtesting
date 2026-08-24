@@ -3,6 +3,7 @@ import type { PublicAgentEvent, TerminalPayload, TerminalStatus } from './eventP
 import type { AgentProviderId } from './providers/types.js';
 
 export type RunStatus = 'pending' | 'starting' | 'running' | TerminalStatus;
+export type ProviderRuntime = 'native' | 'legacy';
 
 export interface AgentRunRecord {
   id: string;
@@ -13,6 +14,7 @@ export interface AgentRunRecord {
   timeoutMs: number;
   pid: number | null;
   provider: AgentProviderId;
+  providerRuntime: ProviderRuntime;
   sessionId: string | null;
   parentRunId: string | null;
   conversationId: string;
@@ -73,14 +75,15 @@ export class AgentRepository {
     runId: string, prompt: string, maxTurns: number, timeoutMs: number,
     templateStyle = 'classic-blue', parentRunId?: string,
     conversationId = runId, turnIndex = 0, provider: AgentProviderId = 'claude',
+    providerRuntime: ProviderRuntime = 'native',
   ): Promise<void> {
     await this.pool.execute(
       `INSERT INTO agent_runs
        (id, prompt, status, max_turns, timeout_ms, template_style, parent_run_id,
-        conversation_id, turn_index, provider, protocol_version, created_at)
-       VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, 2, ?)`,
+        conversation_id, turn_index, provider, provider_runtime, protocol_version, created_at)
+       VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, 2, ?)`,
       [runId, prompt, maxTurns, timeoutMs, templateStyle, parentRunId ?? null,
-        conversationId, turnIndex, provider, new Date().toISOString()],
+        conversationId, turnIndex, provider, providerRuntime, new Date().toISOString()],
     );
   }
 

@@ -330,13 +330,12 @@ async function main(): Promise<void> {
   const attachmentRoot = resolve(projectRoot, config.AGENT_ATTACHMENT_ROOT);
   let agentOrchestrator: AgentOrchestrator | null = null;
   if (agentEnabled && dbOnline) {
-    const agentProjectPath = config.AGENT_WSL_PROJECT_PATH.replace(/\/+$/, '');
-    const agentWorkspacePath = agentProjectPath.endsWith('/tmp_output')
-      ? agentProjectPath
-      : `${agentProjectPath}/tmp_output`;
     agentOrchestrator = new AgentOrchestrator(pool, {
-      wslProjectPath: agentWorkspacePath,
+      claudeWorkingDirectory: config.AGENT_CLAUDE_WORKING_DIRECTORY
+        ? resolve(config.AGENT_CLAUDE_WORKING_DIRECTORY)
+        : '',
       claudePath: config.AGENT_CLAUDE_PATH,
+      claudeGitBashPath: config.AGENT_CLAUDE_GIT_BASH_PATH || undefined,
       reportRoot: config.AGENT_REPORT_ROOT,
       maxConcurrent: Math.max(1, parseInt(config.AGENT_MAX_CONCURRENT, 10) || 1),
       defaultProvider: config.AGENT_PROVIDER,

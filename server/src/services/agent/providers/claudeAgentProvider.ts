@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { delimiter, isAbsolute, join } from 'node:path';
 import {
   extractReportDecision,
   extractSessionId,
@@ -18,17 +20,38 @@ import type {
 } from './types.js';
 
 export interface ClaudeAgentProviderConfig {
-  wslProjectPath: string;
+  workingDirectory: string;
   claudePath: string;
+  gitBashPath?: string;
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
+function canResolveCommand(command: string): boolean {
+  if (!command) return false;
+  if (isAbsolute(command) || /[\\/]/.test(command)) return existsSync(command);
+  const suffixes = process.platform === 'win32' ? ['', '.exe', '.cmd', '.bat'] : [''];
+  return (process.env.PATH ?? '').split(delimiter).some(directory =>
+    suffixes.some(suffix => existsSync(join(directory, `${command}${suffix}`))),
+  );
 }
 
-function windowsPathToWsl(value: string): string {
-  const normalized = value.replace(/\\/g, '/');
-  return normalized.replace(/^([A-Za-z]):\//, (_, drive: string) => `/mnt/${drive.toLowerCase()}/`);
+export function buildClaudeEnvironment(
+  source: NodeJS.ProcessEnv,
+  gitBashPath?: string,
+): NodeJS.ProcessEnv {
+  return {
+    SystemRoot: source.SystemRoot,
+    WINDIR: source.WINDIR,
+    PATH: source.PATH,
+    PATHEXT: source.PATHEXT,
+    TEMP: source.TEMP,
+    TMP: source.TMP,
+    USERPROFILE: source.USERPROFILE,
+    HOMEDRIVE: source.HOMEDRIVE,
+    HOMEPATH: source.HOMEPATH,
+    APPDATA: source.APPDATA,
+    LOCALAPPDATA: source.LOCALAPPDATA,
+    ...(gitBashPath ? { CLAUDE_CODE_GIT_BASH_PATH: gitBashPath } : {}),
+  };
 }
 
 export class ClaudeAgentProvider implements AgentProvider {
@@ -47,11 +70,19 @@ export class ClaudeAgentProvider implements AgentProvider {
   constructor(private config: ClaudeAgentProviderConfig) {}
 
   health(): AgentProviderHealth {
+    let reason: string | null = null;
+    if (process.platform !== 'win32') reason = 'Claude Provider 需要 Windows 原生运行环境';
+    else if (!isAbsolute(this.config.workingDirectory) || !existsSync(this.config.workingDirectory)) {
+      reason = 'Claude 工作目录无效';
+    } else if (!canResolveCommand(this.config.claudePath)) reason = 'Claude 可执行文件不可用';
+    else if (this.config.gitBashPath && (!isAbsolute(this.config.gitBashPath) || !existsSync(this.config.gitBashPath))) {
+      reason = 'Claude Git Bash 路径无效';
+    }
     return {
       id: this.id,
       enabled: true,
-      available: Boolean(this.config.claudePath && this.config.wslProjectPath),
-      reason: this.config.claudePath && this.config.wslProjectPath ? null : 'Claude 路径或工作目录未配置',
+      available: reason == null,
+      reason,
       capabilities: this.capabilities,
     };
   }
@@ -63,17 +94,11 @@ export class ClaudeAgentProvider implements AgentProvider {
       ...(params.maxTurns > 0 ? ['--max-turns', String(params.maxTurns)] : []),
       ...(params.resumeSessionId ? ['--resume', params.resumeSessionId] : []),
     ];
-    const command = `mkdir -p ${shellQuote(this.config.wslProjectPath)} && cd ${shellQuote(this.config.wslProjectPath)} && exec ${shellQuote(this.config.claudePath)} ${args.map(shellQuote).join(' ')}`;
-    const child = spawn('wsl', ['bash', '-lc', command], {
+    const child = spawn(this.config.claudePath, args, {
+      cwd: this.config.workingDirectory,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
-      env: {
-        SystemRoot: process.env.SystemRoot,
-        WINDIR: process.env.WINDIR,
-        PATH: process.env.PATH,
-        TEMP: process.env.TEMP,
-        TMP: process.env.TMP,
-      },
+      env: buildClaudeEnvironment(process.env, this.config.gitBashPath),
     });
     this.children.add(child);
 
@@ -135,7 +160,7 @@ export class ClaudeAgentProvider implements AgentProvider {
     });
     const imagePaths = (params.attachments ?? [])
       .filter(attachment => attachment.kind === 'image')
-      .map(attachment => `- ${JSON.stringify(attachment.name)}: ${windowsPathToWsl(attachment.absolutePath)}`);
+      .map(attachment => `- ${JSON.stringify(attachment.name)}: ${attachment.absolutePath}`);
     const prompt = imagePaths.length
       ? `${params.prompt}\n\n## Claude 图片附件路径\n使用 Read 工具查看以下工作区内图片：\n${imagePaths.join('\n')}`
       : params.prompt;

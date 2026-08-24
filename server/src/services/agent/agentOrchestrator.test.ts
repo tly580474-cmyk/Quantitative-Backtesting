@@ -57,7 +57,7 @@ function harness() {
   tempRoots.push(root);
   const provider = new FakeProvider();
   const orchestrator = new AgentOrchestrator({ execute } as unknown as Pool, {
-    wslProjectPath: '/workspace', claudePath: 'claude', reportRoot: root,
+    claudeWorkingDirectory: process.cwd(), claudePath: process.execPath, reportRoot: root,
     maxConcurrent: 1, defaultProvider: 'codex',
   }, [provider]);
   return { orchestrator, provider, terminalPayloads };

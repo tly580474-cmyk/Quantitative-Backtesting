@@ -177,6 +177,7 @@ export default function AgentRunner() {
   const [pendingConversationDeletes, setPendingConversationDeletes] = useState<Set<string>>(new Set());
   const [runId, setRunId] = useState<string | null>(null);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [currentConversationReadOnly, setCurrentConversationReadOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -226,9 +227,12 @@ export default function AgentRunner() {
     const result = await getAgentConversation(id);
     const selectedTurn = result.turns[result.turns.length - 1];
     if (!selectedTurn) throw new Error('对话内容为空');
+    const readOnly = selectedTurn.run.provider === 'claude' && selectedTurn.run.providerRuntime === 'legacy';
 
     setRunId(selectedRunId ?? selectedTurn.run.id);
     setCurrentConversationId(selectedTurn.run.conversationId);
+    setCurrentConversationReadOnly(readOnly);
+    if (readOnly) setContinueFromRunId(null);
     setProvider(selectedTurn.run.provider ?? 'claude');
     setCurrentPrompt('');
     setCurrentRunStartTime(result.turns[0]?.run.createdAt ?? selectedTurn.run.createdAt);
@@ -309,10 +313,10 @@ export default function AgentRunner() {
 
   // 高1: 运行结束后自动进入续接模式，允许在同一界面直接继续对话
   useEffect(() => {
-    if ((state.status === 'completed' || state.status === 'failed') && runId) {
+    if ((state.status === 'completed' || state.status === 'failed') && runId && !currentConversationReadOnly) {
       setContinueFromRunId(runId);
     }
-  }, [state.status, runId]);
+  }, [state.status, runId, currentConversationReadOnly]);
 
   const conversationRuns = historyRuns;
   const conversationTitle = useCallback((run: AgentRun) => run.rootPrompt ?? run.prompt, []);
@@ -364,10 +368,10 @@ export default function AgentRunner() {
   const handleAttachmentDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setAttachmentDragActive(false);
-    if (state.status === 'running' || state.status === 'connecting' || loading) return;
+    if (state.status === 'running' || state.status === 'connecting' || loading || currentConversationReadOnly) return;
     const files = Array.from(event.dataTransfer.files);
     if (files.length) handleAttachmentFiles(files);
-  }, [handleAttachmentFiles, loading, state.status]);
+  }, [currentConversationReadOnly, handleAttachmentFiles, loading, state.status]);
 
   const handleRemoveAttachment = useCallback((localId: string) => {
     const selected = attachmentDrafts.find(item => item.localId === localId);
@@ -384,6 +388,10 @@ export default function AgentRunner() {
   }, [attachmentDrafts]);
 
   const submitMessage = useCallback(async (value: string) => {
+    if (currentConversationReadOnly) {
+      message.info('历史 Claude 对话仅供查看，请新建对话');
+      return;
+    }
     if (attachmentDrafts.some(item => item.status === 'uploading')) {
       message.warning('附件仍在处理中，请稍候');
       return;
@@ -412,6 +420,7 @@ export default function AgentRunner() {
       }
       setRunId(result.runId);
       setCurrentConversationId(result.conversationId);
+      setCurrentConversationReadOnly(false);
       if (!isContinue) {
         setCurrentPrompt('');
         setCurrentRunStartTime(new Date().toISOString());
@@ -434,7 +443,8 @@ export default function AgentRunner() {
     } finally {
       setLoading(false);
     }
-  }, [attachmentDrafts, provider, connect, message, continueFromRunId, state.events, state.status, runId]);
+  }, [attachmentDrafts, provider, connect, message, continueFromRunId, state.events, state.status, runId,
+    currentConversationReadOnly]);
 
   const handleStart = useCallback(() => submitMessage(prompt), [prompt, submitMessage]);
   const handleConfirmation = useCallback((response: string) => {
@@ -464,6 +474,7 @@ export default function AgentRunner() {
     clearUnboundAttachments();
     setRunId(null);
     setCurrentConversationId(null);
+    setCurrentConversationReadOnly(false);
     setPrompt('');
     setCurrentPrompt('');
     setCurrentRunStartTime(null);
@@ -525,7 +536,7 @@ export default function AgentRunner() {
   }, []);
 
   const handleRetry = useCallback(async (failedRunId: string) => {
-    if (retrying) return;
+    if (retrying || currentConversationReadOnly) return;
     setRetrying(true);
     try {
       const result = await retryAgentRun(failedRunId);
@@ -541,9 +552,13 @@ export default function AgentRunner() {
     } finally {
       setRetrying(false);
     }
-  }, [connect, message, retrying, state.events]);
+  }, [connect, currentConversationReadOnly, message, retrying, state.events]);
 
   const handleContinueRun = useCallback(async (parentRun: AgentRun) => {
+    if (parentRun.provider === 'claude' && parentRun.providerRuntime === 'legacy') {
+      message.info('历史 Claude 对话仅供查看，请新建对话');
+      return;
+    }
     try {
       if (runId !== parentRun.id) await loadConversation(parentRun.id);
       setProvider(parentRun.provider ?? 'claude');
@@ -569,7 +584,7 @@ export default function AgentRunner() {
   const attachmentsFailed = attachmentDrafts.some(item => item.status === 'error');
   const hasReadyAttachment = attachmentDrafts.some(item => item.status === 'ready');
   const canSubmit = !isRunning && !loading && !attachmentsUploading && !attachmentsFailed
-    && (prompt.trim().length > 0 || hasReadyAttachment);
+    && !currentConversationReadOnly && (prompt.trim().length > 0 || hasReadyAttachment);
   const isFinalized = state.status === 'completed' || state.status === 'failed' || state.status === 'canceled';
   const hasActiveRun = !!runId;
   const providerOptions = useMemo(() => providers.filter(item => item.enabled).map(item => ({
@@ -726,7 +741,7 @@ export default function AgentRunner() {
               confirmationDisabled={loading || isRunning}
               onApproval={(id, decision) => void handleApproval(id, decision)}
               approvalDisabled={loading}
-              retryableRunId={state.status === 'failed' ? runId : null}
+              retryableRunId={state.status === 'failed' && !currentConversationReadOnly ? runId : null}
               onRetry={handleRetry}
               retrying={retrying}
             />
@@ -780,12 +795,13 @@ export default function AgentRunner() {
           <div
             style={{ maxWidth: 768, margin: '0 auto', pointerEvents: 'auto' }}
             onDragEnter={event => {
-              if (!isRunning && !loading && event.dataTransfer.types.includes('Files')) setAttachmentDragActive(true);
+              if (!isRunning && !loading && !currentConversationReadOnly
+                && event.dataTransfer.types.includes('Files')) setAttachmentDragActive(true);
             }}
             onDragOver={event => {
               if (!event.dataTransfer.types.includes('Files')) return;
               event.preventDefault();
-              event.dataTransfer.dropEffect = isRunning || loading ? 'none' : 'copy';
+              event.dataTransfer.dropEffect = isRunning || loading || currentConversationReadOnly ? 'none' : 'copy';
             }}
             onDragLeave={event => {
               if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setAttachmentDragActive(false);
@@ -914,12 +930,15 @@ export default function AgentRunner() {
                   type="button"
                   aria-label="添加附件"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={isRunning || loading || attachmentDrafts.length >= attachmentConfig.maxFiles}
+                  disabled={isRunning || loading || currentConversationReadOnly
+                    || attachmentDrafts.length >= attachmentConfig.maxFiles}
                   style={{
                     width: 44, height: 44, padding: 0, border: 0, borderRadius: '50%',
                     background: 'transparent', color: t.textSecondary,
-                    cursor: isRunning || loading || attachmentDrafts.length >= attachmentConfig.maxFiles ? 'not-allowed' : 'pointer',
-                    opacity: isRunning || loading || attachmentDrafts.length >= attachmentConfig.maxFiles ? .45 : 1,
+                    cursor: isRunning || loading || currentConversationReadOnly
+                      || attachmentDrafts.length >= attachmentConfig.maxFiles ? 'not-allowed' : 'pointer',
+                    opacity: isRunning || loading || currentConversationReadOnly
+                      || attachmentDrafts.length >= attachmentConfig.maxFiles ? .45 : 1,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                   }}
                   onMouseEnter={event => { if (!event.currentTarget.disabled) event.currentTarget.style.background = t.bgHover; }}
@@ -966,16 +985,18 @@ export default function AgentRunner() {
                 placeholder={
                   isRunning
                     ? 'Agent 运行中…'
+                    : currentConversationReadOnly
+                    ? '该历史 Claude 对话仅供查看，请新建对话…'
                     : continueFromRunId
                     ? '输入继续指令，万行智研将接着上次对话工作…'
                     : '向万行智研提问，或描述你的策略研究需求…'
                 }
                 autoSize={{ minRows: 1, maxRows: 8 }}
-                disabled={isRunning}
+                disabled={isRunning || currentConversationReadOnly}
                 onPressEnter={(e) => {
                   if (e.ctrlKey || e.metaKey) {
                     e.preventDefault();
-                    if (!isRunning) handleStart();
+                    if (!isRunning && !currentConversationReadOnly) handleStart();
                   }
                 }}
                 style={{
@@ -1056,7 +1077,9 @@ export default function AgentRunner() {
 
             {!showSettings && !isRunning && (
               <div style={{ textAlign: 'center', marginTop: 10, color: t.textSecondary, fontSize: 11 }}>
-                {compactLayout
+                {currentConversationReadOnly
+                  ? '历史 Claude 对话仅供查看，请新建对话继续研究'
+                  : compactLayout
                   ? 'Ctrl + Enter 发送 · 可拖入或 Ctrl+V 添加附件'
                   : '按 Ctrl + Enter 发送 · 拖入文件或 Ctrl+V 可添加附件'}
               </div>
@@ -1189,19 +1212,29 @@ export default function AgentRunner() {
                             if (runId !== run.id) e.currentTarget.style.background = 'transparent';
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                            <Tag color={statusColor[run.status]} style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>
-                              {statusText[run.status] ?? run.status}
-                            </Tag>
-                            <Tag color={run.provider === 'codex' ? 'geekblue' : 'purple'} style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>
-                              {run.provider === 'codex' ? 'Codex' : 'Claude'}
-                            </Tag>
-                            <Text type="secondary" style={{ fontSize: 11 }}>
-                              {formatRelativeTime(run.createdAt)}
-                            </Text>
-                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 5 }}>
+                            <div style={{
+                              flex: 1, minWidth: 0, display: 'flex', alignItems: 'center',
+                              flexWrap: 'wrap', columnGap: 6, rowGap: 4,
+                            }}>
+                              <Tag color={statusColor[run.status]} style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>
+                                {statusText[run.status] ?? run.status}
+                              </Tag>
+                              <Tag color={run.provider === 'codex' ? 'geekblue' : 'purple'} style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>
+                                {run.provider === 'codex' ? 'Codex' : 'Claude'}
+                              </Tag>
+                              {run.provider === 'claude' && run.providerRuntime === 'legacy' && (
+                                <Tag style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>历史只读</Tag>
+                              )}
+                              <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                {formatRelativeTime(run.createdAt)}
+                              </Text>
+                            </div>
+                            <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
                               {(run.status === 'completed' || run.status === 'failed' || run.status === 'canceled') && (
-                                <Tooltip title="继续对话">
+                                <Tooltip title={run.provider === 'claude' && run.providerRuntime === 'legacy'
+                                  ? '历史 Claude 对话仅供查看'
+                                  : '继续对话'}>
                                   <Button
                                     aria-label="继续此对话"
                                     size="small"
@@ -1211,6 +1244,7 @@ export default function AgentRunner() {
                                       e.stopPropagation();
                                       void handleContinueRun(run);
                                     }}
+                                    disabled={run.provider === 'claude' && run.providerRuntime === 'legacy'}
                                     style={{ width: 22, height: 22, minWidth: 22, color: t.textOnBlue }}
                                   />
                                 </Tooltip>

@@ -86,8 +86,9 @@ const envSchema = z.object({
   // Agent System
   AGENT_ENABLED: z.enum(['true', 'false']).default('false'),
   AGENT_PROVIDER: z.enum(['claude', 'codex']).default('claude'),
-  AGENT_WSL_PROJECT_PATH: z.string().default(''),
+  AGENT_CLAUDE_WORKING_DIRECTORY: z.string().default(''),
   AGENT_CLAUDE_PATH: z.string().default('claude'),
+  AGENT_CLAUDE_GIT_BASH_PATH: z.string().default(''),
   AGENT_CODEX_ENABLED: z.enum(['true', 'false']).default('false'),
   AGENT_CODEX_PATH: z.string().default('codex'),
   AGENT_CODEX_MODEL: z.string().default(''),

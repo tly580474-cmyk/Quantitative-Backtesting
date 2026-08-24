@@ -13,8 +13,9 @@ import type { AgentProvider, AgentProviderHealth, AgentProviderId, ProviderAttac
 import type { AgentApprovalRecord } from './agentRepository.js';
 
 export interface OrchestratorConfig {
-  wslProjectPath: string;
+  claudeWorkingDirectory: string;
   claudePath: string;
+  claudeGitBashPath?: string;
   reportRoot: string;
   maxConcurrent: number;
   defaultProvider?: AgentProviderId;
@@ -86,7 +87,11 @@ export class AgentOrchestrator {
   constructor(private pool: Pool, private config: OrchestratorConfig, providers?: AgentProvider[]) {
     this.defaultProvider = config.defaultProvider ?? 'claude';
     const configuredProviders = providers ?? [
-      new ClaudeAgentProvider({ wslProjectPath: config.wslProjectPath, claudePath: config.claudePath }),
+      new ClaudeAgentProvider({
+        workingDirectory: config.claudeWorkingDirectory,
+        claudePath: config.claudePath,
+        gitBashPath: config.claudeGitBashPath,
+      }),
       new CodexAgentProvider(config.codex ?? {
         enabled: false, codexPath: 'codex', workingDirectory: '', codexHome: '', apiKey: '', model: '',
       }),
@@ -130,7 +135,7 @@ export class AgentOrchestrator {
       await mkdir(resolve(this.config.reportRoot, 'reports'), { recursive: true });
       const workingDirectory = providerId === 'codex'
         ? this.config.codex?.workingDirectory ?? ''
-        : this.config.wslProjectPath;
+        : this.config.claudeWorkingDirectory;
       const prompt = buildPrompt(
         params.prompt, workingDirectory, templateStyle, Boolean(params.resumeSessionId), providerId,
         providerId === 'codex' ? {

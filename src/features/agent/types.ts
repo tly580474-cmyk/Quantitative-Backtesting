@@ -55,6 +55,7 @@ export interface AgentRun {
   timeoutMs: number;
   pid: number | null;
   provider: AgentProviderId;
+  providerRuntime: 'native' | 'legacy';
   sessionId: string | null;
   parentRunId: string | null;
   conversationId: string;

@@ -72,6 +72,30 @@ describe('agent route boundary', () => {
     await app.close();
   });
 
+  it('keeps historical Claude conversations readable but rejects continuation', async () => {
+    const app = Fastify();
+    const legacyRun = {
+      id: 'run-legacy', prompt: '历史研究', status: 'completed', max_turns: 0, template_style: 'classic-blue',
+      timeout_ms: 60_000, pid: null, provider: 'claude', provider_runtime: 'legacy', session_id: 'old-session',
+      parent_run_id: null, conversation_id: 'run-legacy', turn_index: 0, protocol_version: 2, exit_code: 0,
+      error_message: null, error_code: null, created_at: new Date().toISOString(), started_at: null, finished_at: null,
+    };
+    const pool = {
+      execute: async (sql: string) => sql.includes('SELECT * FROM agent_runs WHERE id') ? [[legacyRun]] : [[]],
+    } as unknown as Pool;
+    registerAgentRoutes(app, true, {
+      pool, orchestrator: {} as AgentOrchestrator, reportRoot: '.', enabled: true, config: loadConfig(),
+    });
+
+    const response = await app.inject({
+      method: 'POST', url: '/api/agent/runs/run-legacy/continue', payload: { prompt: '继续' },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().message).toContain('仅供查看');
+    await app.close();
+  });
+
   it('ignores legacy turn and report-style fields and always starts without a turn limit', async () => {
     const app = Fastify();
     let insertParams: unknown[] = [];

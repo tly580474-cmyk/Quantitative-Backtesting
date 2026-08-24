@@ -160,6 +160,21 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     restartRequired: true, restartScope: 'ai', defaultValue: 'claude',
   },
   {
+    key: 'AGENT_CLAUDE_PATH', label: 'Claude 可执行文件', category: 'ai',
+    description: 'Windows 原生 Claude Code 可执行文件或命令名。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', defaultValue: 'claude',
+  },
+  {
+    key: 'AGENT_CLAUDE_WORKING_DIRECTORY', label: 'Claude 工作目录', category: 'ai',
+    description: 'Claude Code 可操作的 Windows 项目工作区。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai',
+  },
+  {
+    key: 'AGENT_CLAUDE_GIT_BASH_PATH', label: 'Claude Git Bash', category: 'ai',
+    description: 'Git for Windows 的 bash.exe 路径。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai',
+  },
+  {
     key: 'AGENT_CODEX_ENABLED', label: 'Codex Provider 开关', category: 'ai',
     description: '仅控制本项目 Codex Harness。', secret: false, editable: true,
     restartRequired: true, restartScope: 'ai', inputType: 'boolean', defaultValue: 'false',

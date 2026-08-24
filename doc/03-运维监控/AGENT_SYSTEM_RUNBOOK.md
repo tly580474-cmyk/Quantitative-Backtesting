@@ -3,7 +3,7 @@
 > 版本：v2
 > 更新日期：2026-08-10
 
-> 当前执行策略：默认工作目录为项目的 `tmp_output`，Claude Code 使用 `--dangerously-skip-permissions`。该参数允许工具免确认执行，但不会在操作系统层面阻止绝对路径或 `..` 越界；需要硬隔离时应使用容器、专用 WSL 用户或挂载命名空间。
+> 当前执行策略：Claude Code 直接运行在配置的 Windows 项目工作区，常规工具操作不逐步请求确认。需要执行不可信代码时，应使用独立容器或虚拟机。
 
 ## 1. 快速健康检查
 
@@ -31,7 +31,7 @@ HAVING COUNT(*) <> COUNT(DISTINCT seq);
 2. 通过受监督的管理端重启后端；不要直接终止单个 node 子进程。
 3. 确认 `/api/agent/metrics` 的 `runtime.active` 为 0。
 
-服务优雅关闭会把活动任务转为 canceled 并终止 WSL 包装进程树。非计划故障重启后，初始化流程会把遗留状态写为 `failed/SERVER_RESTART`。
+服务优雅关闭会把活动任务转为 canceled 并终止 Claude 子进程树。非计划故障重启后，初始化流程会把遗留状态写为 `failed/SERVER_RESTART`。
 
 ## 3. 诊断常见故障
 
@@ -52,14 +52,15 @@ HAVING COUNT(*) <> COUNT(DISTINCT seq);
 ### 无法继续对话
 
 - 最新 run 必须已终态且具有 `session_id`。
+- `provider_runtime=legacy` 的 Claude 历史会话仅供查看，必须新建对话。
 - 核对同一对话 `turn_index` 是否从 0 连续递增。
 - failed run 可以继续；缺失 session 时返回 409，不应创建伪续接。
 
 ### Agent 启动失败
 
 - 查看 run 的 `error_code`：`STARTUP_ERROR`、`SPAWN_ERROR`、`PROCESS_EXIT`、`TIMEOUT`。
-- 在 WSL 中确认配置的 Claude CLI 路径可执行。
-- 不要恢复 `--dangerously-skip-permissions`。
+- 确认 `AGENT_CLAUDE_PATH` 指向可执行的 Windows Claude Code，并运行 `claude auth status` 检查登录。
+- 确认 `AGENT_CLAUDE_WORKING_DIRECTORY` 与 `AGENT_CLAUDE_GIT_BASH_PATH` 都是有效的 Windows 绝对路径。
 - 若权限规则阻止合法数据查询，应增加受控数据命令，不要开放 `.env` 或把后端环境传给子进程。
 
 ### 报告未出现
@@ -74,11 +75,11 @@ HAVING COUNT(*) <> COUNT(DISTINCT seq);
 优先重启受监督后端，让 `shutdown()` 和启动恢复流程自动处理。只有确认后端已停止且某个 PID 属于目标 run 后，才手动终止：
 
 ```powershell
-Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'wsl.exe' } |
+Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('claude.exe', 'node.exe') } |
   Select-Object ProcessId, ParentProcessId, CommandLine
 ```
 
-不要按名称批量结束所有 WSL 或 node 进程。手工修复数据库前先备份；终态必须配套一条 terminal 事件，不能只改 status。
+不要按名称批量结束所有 Claude 或 node 进程；必须先核对命令行、父 PID 与目标 run。手工修复数据库前先备份；终态必须配套一条 terminal 事件，不能只改 status。
 
 ## 5. 备份与恢复
 

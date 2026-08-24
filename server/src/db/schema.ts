@@ -1102,6 +1102,7 @@ export const agentRuns = mysqlTable('agent_runs', {
   timeoutMs: bigint('timeout_ms', { mode: 'number' }).notNull().default(1800000),
   pid: int('pid'),
   provider: varchar('provider', { length: 16 }).notNull().default('claude'),
+  providerRuntime: varchar('provider_runtime', { length: 16 }).notNull().default('legacy'),
   sessionId: varchar('session_id', { length: 128 }),
   parentRunId: varchar('parent_run_id', { length: 36 }),
   conversationId: varchar('conversation_id', { length: 36 }).notNull(),

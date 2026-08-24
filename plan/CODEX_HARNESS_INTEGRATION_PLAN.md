@@ -9,9 +9,9 @@
 
 ## 1. 背景
 
-当前智能体系统已经具备运行记录、会话续接、SSE 事件、超时/取消、报告生成和前端历史展示，但执行层与 Claude CLI 强耦合：
+当前智能体系统已经具备运行记录、会话续接、SSE 事件、超时/取消、报告生成和前端历史展示；Claude 与 Codex 均通过 Windows 原生 Provider 接入：
 
-- `AgentOrchestrator` 直接启动 WSL 中的 Claude CLI；
+- `AgentOrchestrator` 直接启动 Windows 原生 Claude CLI；
 - `outputParser` 只理解 Claude `stream-json`；
 - 配置项使用 `AGENT_CLAUDE_PATH`；
 - 数据库和前端事件协议已相对通用，可以继续复用。
@@ -58,7 +58,7 @@ Codex 官方现已提供 TypeScript SDK、App Server、MCP Server 和 `codex exe
 - 默认工作目录限定为项目目录；
 - Codex 使用独立且可持久化的身份/状态目录，不与后端服务账号的普通用户目录混用；
 - 项目 Harness 只使用项目专用 `AGENT_CODEX_API_KEY`，不得读取、复制、修改或回退使用全局 Codex 的 `auth.json` 与登录状态；
-- Windows 服务端路径与 WSL 路径分别配置，不把 WSL 路径直接传给 Windows 原生 SDK；
+- 两个 Provider 分别配置 Windows 原生工作目录，不跨运行环境转换路径；
 - 新能力通过功能开关关闭和回退；
 - 短期不开放公网远程 App Server、不接实盘交易、不自动执行不可恢复操作。
 
@@ -183,7 +183,7 @@ AGENT_CODEX_TIMEOUT_MINUTES=60
 - `AGENT_CODEX_ENABLED=false` 时不初始化 Codex；
 - 模型为空时使用本机 Codex 配置的默认值，不在代码中写死“最新模型”；
 - Codex 初始化失败时后端仍可启动，并在 Agent 健康状态中显示不可用原因。
-- `AGENT_CODEX_WORKING_DIRECTORY` 使用 Windows 原生绝对路径；不得复用 `AGENT_WSL_PROJECT_PATH`；
+- `AGENT_CODEX_WORKING_DIRECTORY` 使用 Windows 原生绝对路径，并与 Claude 工作目录分别配置；
 - `AGENT_CODEX_HOME` 指向项目专用、可持久化且权限受限的目录，用于 API 认证状态与 thread 恢复；不得指向全局 Codex 配置目录；
 - `AGENT_CODEX_API_KEY` 必须使用项目专用密钥；直连 OpenAI 时显式执行 API key 登录并校验认证类型；自定义 Responses Provider 使用专用 `env_key` 并过滤工具子进程密钥环境；不允许读取或回退使用全局 Codex 登录；
 - Provider 子进程使用显式环境白名单；若 SDK 不允许可靠控制环境，按阶段零门禁切换到 App Server；

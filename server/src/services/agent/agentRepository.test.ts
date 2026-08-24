@@ -10,6 +10,7 @@ describe('AgentRepository state machine', () => {
     const [sql, values] = execute.mock.calls[0];
     expect(sql).toContain('provider');
     expect(values).toContain('codex');
+    expect(values).toContain('native');
   });
 
   it('guards transitions with the expected source states', async () => {

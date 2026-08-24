@@ -59,10 +59,10 @@
 - 深度分析报告，Markdown 渲染
 
 ### 🧠 智能体系统
-- 支持 **Claude Code**（WSL Ubuntu）与 **Codex App Server**（Windows）双 Provider，可按新对话选择
+- 支持 Windows 原生 **Claude Code** 与 **Codex App Server** 双 Provider，可按新对话选择
 - 输入问题后自动执行多步研究，并按任务复杂度与用户要求判断是否生成结构化 HTML 报告
 - 实时 SSE 展示执行进度、工具调用与输出，支持事件持久化、刷新恢复和取消运行
-- 对话历史管理、删除任务和继续对话；同一对话固定沿用创建时的 Provider
+- 对话历史管理、整段删除和会话续接；迁移前的 Claude 历史对话保留为只读，新对话固定沿用创建时的 Provider
 - 支持点击、拖拽或 Ctrl+V 添加图片、Word、Markdown、PDF、Excel、CSV 等附件；文档在本地转为 Markdown 后随对话提交，图片走 Provider 原生图片输入
 - 删除入口按整段对话清理全部轮次，并在右下角保留 5 秒撤销窗口；失败任务完整展示错误，由用户决定是否点击重试
 - Codex 在项目工作区内自主运行命令、修改文件和执行测试，常规操作不逐步请求人工审批
@@ -110,7 +110,7 @@ Fastify 5 Server (localhost:3001)
 ├── DuckDB  —  OLAP 研究快照查询引擎
 ├── OpenAI SDK  —  AI 策略生成 + 智能交易
 ├── Agent Orchestrator
-│   ├── WSL Claude Code  —  Claude Provider
+│   ├── Windows Claude Code  —  Claude Provider
 │   ├── Codex stdio App Server  —  Codex Provider、续接、取消与工具事件
 │   ├── 项目行情 CLI  —  本机只读数据入口，本地数据优先
 │   ├── SSE 实时流推送  —  事件持久化与断点续传
@@ -187,9 +187,10 @@ PORT=3001
 AGENT_ENABLED=true
 AGENT_PROVIDER=claude          # claude / codex；仅作为新对话默认值
 
-# Claude Code Provider（WSL）
-AGENT_WSL_PROJECT_PATH=/mnt/d/github_public_repo/量化回测
-AGENT_CLAUDE_PATH=claude
+# Claude Code Provider（Windows 原生）
+AGENT_CLAUDE_WORKING_DIRECTORY=D:/github_public_repo/量化回测
+AGENT_CLAUDE_PATH=C:/Users/<you>/.local/bin/claude.exe
+AGENT_CLAUDE_GIT_BASH_PATH=C:/Program Files/Git/bin/bash.exe
 
 # Codex Provider（Windows 原生，按需开启）
 AGENT_CODEX_ENABLED=true
@@ -217,7 +218,7 @@ AGENT_ATTACHMENT_MAX_FILES=8
 AGENT_ATTACHMENT_MAX_CONTEXT_CHARS=300000
 ```
 
-> 智能体访问地址：`http://localhost:5558/#/agent`。Claude Provider 需要在 WSL Ubuntu 中安装 `claude`；Codex Provider 使用 Windows 原生 `codex` CLI。Codex Harness 使用独立 `AGENT_CODEX_HOME` 和项目 API Key，不读取或修改全局 Codex 登录状态。OpenRouter 等自定义 Responses Provider 的配置见 [Codex 运行手册](./docs/agent-codex-runtime.md)。
+> 智能体访问地址：`http://localhost:5558/#/agent`。Claude Provider 直接启动 Windows 原生 `claude.exe`，并使用本机 Claude Code 登录状态；迁移前创建的 Claude 对话保留查看和删除能力，但不能继续或重试。Codex Provider 使用 Windows 原生 `codex` CLI，项目 Harness 使用独立 `AGENT_CODEX_HOME` 和项目 API Key，不读取或修改全局 Codex 登录状态。OpenRouter 等自定义 Responses Provider 的配置见 [Codex 运行手册](./docs/agent-codex-runtime.md)。
 
 附件原文件和转换结果保存在项目内的 `AGENT_ATTACHMENT_ROOT`。支持 `png/jpg/jpeg/gif/webp`、`doc/docx/docm/rtf/odt`、`md/markdown/txt`、`pdf`、`csv/xls/xlsx/xlsm/xlsb/ods` 以及 `ppt/pptx/odp`。文档转换使用本地 `@firecrawl/anydoc`，不会因解析而上传到外部服务；扫描件 PDF 暂不做 OCR，上传时会明确提示先生成可检索文本层。
 
@@ -368,7 +369,7 @@ server/src/                   # 后端服务
 | 市场数据 404 | 3001 端口运行旧后端，重新运行 `start.bat` |
 | 行情加载失败 | 点击「刷新行情」，检查后端是否运行 |
 | 智能交易不可用 | 检查 `AI_STRATEGY_ENABLED=true` 和 API Key |
-| Claude 智能体不可用 | 检查 `AGENT_ENABLED=true`，WSL 中 `claude` 已安装并登录 |
+| Claude 智能体不可用 | 检查 `AGENT_ENABLED=true`、`AGENT_CLAUDE_PATH`、Windows 工作目录、Git Bash 路径和 `claude auth status` |
 | Codex 智能体不可用 | 检查 `AGENT_CODEX_ENABLED`、项目 API Key、独立 `AGENT_CODEX_HOME`、Windows 工作目录和管理台 Provider 状态 |
 | Codex 只能读取、不能修改文件 | 确认 `AGENT_CODEX_SANDBOX_MODE=workspace-write` 且 Windows 配置为 `AGENT_CODEX_WINDOWS_SANDBOX=unelevated` 或已初始化的 `elevated` |
 | Codex 没有调用工具 | 检查模型目录的 `shell_type` 是否为 `shell_command`，以及 `AGENT_CODEX_TOOLS_ENABLED=true` |

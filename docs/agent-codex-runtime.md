@@ -123,7 +123,8 @@ npm run agent:codex:probe -- --cancel
   request ID 分离，审批超时、运行取消或服务重启均按拒绝/取消处理。
 - 管理台的 “Agent 运维” 页面展示 Provider 健康、CLI 版本、并发、隔离配置、待审批
   数和脱敏后的近期失败分类。配置与密钥页可以维护项目专用 Codex 配置。
-- 工作目录必须是存在的 Windows 绝对路径，不能填写 WSL 路径。
+- Claude 与 Codex 工作目录都必须是存在的 Windows 绝对路径。
 - 新对话可以选择 Provider；已有对话固定继承创建时的 Provider。
+- 原生化迁移前创建的 Claude 对话仅保留查看与删除能力，不能续接或重试。
 - `AGENT_CODEX_ENABLED=false` 可立即从产品入口隐藏 Codex，不需要回滚数据库。
 - 全局 Codex CLI 的登录、thread、模型配置和使用配额不会被项目 Harness 读取或修改。

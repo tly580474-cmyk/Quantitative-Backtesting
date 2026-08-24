@@ -14,7 +14,7 @@
 flowchart LR
   UI["AgentRunner"] --> API["Agent API（仅本机）"]
   API --> ORC["AgentOrchestrator"]
-  ORC --> CLI["WSL / Claude CLI"]
+  ORC --> CLI["Windows / Claude CLI"]
   CLI --> PARSER["stream-json 解析器"]
   PARSER --> SAFE["脱敏与公共事件协议"]
   SAFE --> DB[("agent_runs / events / reports")]
@@ -26,11 +26,11 @@ flowchart LR
 
 - `outputParser.ts`：一条 JSONL 输入转换为 0～N 个公共事件；启用 partial messages，将思考块开始事件实时替换为不含原文的通用分析进度；支持嵌套工具结果和错误变体。
 - `eventProtocol.ts`：公共类型、长度限制、凭据/连接串/绝对路径脱敏。
-- `agentOrchestrator.ts`：并发占位、进程树生命周期、事件串行落库、超时和唯一终态。默认在项目的 `tmp_output` 中启动 Claude Code，并按产品配置传入 `--dangerously-skip-permissions`。
+- `agentOrchestrator.ts`：并发占位、进程树生命周期、事件串行落库、超时和唯一终态。直接在配置的 Windows 项目工作区启动 Claude Code。
 - `agentRepository.ts`：条件状态迁移、唯一序号、对话与事件分页、重启恢复。
 - `routes/agent.ts`：本机访问边界、SSE 先订阅后重放、v1 历史适配、报告隔离响应。
 
-权限说明：`tmp_output` 是默认工作目录和提示词规定的操作边界，但 `--dangerously-skip-permissions` 本身不提供文件系统沙箱。当前 WSL 用户在操作系统层面可访问的其他路径，技术上仍可能被访问；需要硬隔离时应改用容器、专用 WSL 用户或挂载命名空间。
+权限说明：Claude Code 在项目工作区内免逐步审批运行；该模式本身不提供操作系统级文件沙箱。需要执行不可信代码时，应改用专用容器或虚拟机。
 
 ## 3. 公共事件协议
 
@@ -98,13 +98,12 @@ POST /api/agent/runs/:runId/cancel
 ## 7. 执行安全边界
 
 - Agent API 只接受 `127.0.0.1` 或 `::1` 请求；平台其他 API 是否监听局域网不改变此规则。
-- 已移除 `--dangerously-skip-permissions`。
-- WSL 子进程只继承启动所需的 Windows 基础变量，不继承后端数据库、管理、SMTP、模型或行情凭据。
+- Claude 子进程只继承启动所需的 Windows 基础变量和用户配置目录，不继承后端数据库、管理、SMTP、模型或行情凭据。
 - CLI 显式禁止读取项目 `.env`、打印进程环境和通过 Bash 访问这些路径。
 - Prompt 明确禁止读取/输出凭据和扩大任务范围。
 - Agent 不获得 MySQL 账户；研究优先使用已发布的 DuckDB/Parquet 快照和项目受控命令。若未来必须直连 MySQL，应另建只读账户并通过独立受控数据服务提供，不能把凭据放入 Agent 环境。
 
-WSL 不是 Windows 主机安全边界。当前防护来自最小环境变量、CLI 权限规则、项目范围约束和本机 API；如需执行不可信代码，应迁移到独立容器或虚拟机。
+当前防护来自最小环境变量、CLI 权限规则、项目范围约束和本机 API；如需执行不可信代码，应迁移到独立容器或虚拟机。
 
 ## 8. HTML 报告隔离
 
@@ -122,6 +121,6 @@ WSL 不是 Windows 主机安全边界。当前防护来自最小环境变量、C
 
 ## 10. 数据兼容与恢复
 
-迁移 `0039_agent_reliability_v2.sql` 回填旧父子链、保留旧列、增加对话索引、父 run 索引、事件唯一索引，以及 events/reports 到 runs 的级联外键。新 run/event 显式写 protocol 2；旧记录保持 protocol 1 并由适配器安全读取。
+迁移 `0039_agent_reliability_v2.sql` 回填旧父子链、保留旧列、增加对话索引、父 run 索引、事件唯一索引，以及 events/reports 到 runs 的级联外键。新 run/event 显式写 protocol 2；旧记录保持 protocol 1 并由适配器安全读取。迁移 `0043_agent_provider_runtime.sql` 将迁移前的 Claude 会话标记为历史只读；内容与报告继续保留，但 API 禁止续接和重试。
 
 上线前备份为 `server/data/backups/backup-20260810071008`，数据库转储 SHA-256：`cab83937eb309c2b96ddd818fc1d5909b832939cd0a68ae1d2fc00740c8d41e1`。

@@ -12,6 +12,7 @@ import type { AgentProviderId } from '../services/agent/providers/types.js';
 import { AGENT_ATTACHMENT_ACCEPT, AgentAttachmentError, AgentAttachmentService } from '../services/agent/attachmentService.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'canceled']);
+const isLegacyClaudeRun = (run: AgentRunRecord) => run.provider === 'claude' && run.providerRuntime === 'legacy';
 
 function isLoopback(request: FastifyRequest): boolean {
   const address = request.ip.replace(/^::ffff:/, '');
@@ -227,6 +228,9 @@ export function registerAgentRoutes(
     const turns = await repo.listConversationTurns(conversationId, 1);
     const parent = turns[0];
     if (!parent) return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '对话不存在'));
+    if (isLegacyClaudeRun(parent)) {
+      return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '历史 Claude 对话仅供查看，请新建对话继续'));
+    }
     if (!TERMINAL.has(parent.status)) return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '上一轮尚未结束'));
     if (!parent.sessionId) return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '对话会话不可恢复'));
     const body = messageSchema.parse(request.body);
@@ -247,6 +251,9 @@ export function registerAgentRoutes(
     const repo = new AgentRepository(deps.pool);
     const parent = await repo.getRun((request.params as { runId: string }).runId);
     if (!parent) return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '运行不存在'));
+    if (isLegacyClaudeRun(parent)) {
+      return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '历史 Claude 对话仅供查看，请新建对话继续'));
+    }
     if (!TERMINAL.has(parent.status) || !parent.sessionId) {
       return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '当前运行不可继续'));
     }
@@ -346,6 +353,9 @@ export function registerAgentRoutes(
     const repo = new AgentRepository(deps.pool);
     const parent = await repo.getRun((request.params as { runId: string }).runId);
     if (!parent) return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '运行不存在'));
+    if (isLegacyClaudeRun(parent)) {
+      return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '历史 Claude 对话不支持重试，请新建对话'));
+    }
     if (parent.status !== 'failed') {
       return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '只有失败任务可以重试'));
     }
