@@ -1,7 +1,58 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildCodexEnvironment, buildCodexTurnInput, codexToolErrorContent, CodexAgentProvider,
+  CodexFinalResponseTracker, resolveCodexCompletedTurn,
 } from './codexAgentProvider.js';
+
+describe('Codex final response tracking', () => {
+  it('accepts a non-empty answer from a tool-free turn', () => {
+    const tracker = new CodexFinalResponseTracker();
+    tracker.completeMessage('完整回答');
+    expect(tracker.finalMessage()).toBe('完整回答');
+  });
+
+  it('rejects an empty successful turn', () => {
+    const tracker = new CodexFinalResponseTracker();
+    expect(resolveCodexCompletedTurn(tracker)).toEqual({
+      finalMessage: null,
+      completion: {
+        status: 'failed', exitCode: 0, errorCode: 'MISSING_FINAL_RESPONSE',
+        errorMessage: '模型结束运行，但未生成完整的最终回答',
+      },
+    });
+  });
+
+  it('does not treat progress text before a tool as the final answer', () => {
+    const tracker = new CodexFinalResponseTracker();
+    tracker.completeMessage('我先查询本地行情接口。');
+    tracker.startTool('tool-1');
+    tracker.finishTool('tool-1');
+    expect(tracker.finalMessage()).toBeNull();
+  });
+
+  it('accepts only the answer emitted after the final tool completes', () => {
+    const tracker = new CodexFinalResponseTracker();
+    tracker.startTool('tool-1');
+    tracker.finishTool('tool-1');
+    tracker.completeMessage('这是核实后的最终结论。\n```agent-report\n{"generate":false,"reason":"普通回答"}\n```');
+    expect(resolveCodexCompletedTurn(tracker)).toMatchObject({
+      finalMessage: expect.stringContaining('这是核实后的最终结论。'),
+      completion: { status: 'completed', exitCode: 0 },
+    });
+  });
+
+  it('rejects control blocks without an answer body', () => {
+    const tracker = new CodexFinalResponseTracker();
+    tracker.completeMessage('```agent-report\n{"generate":false,"reason":"无正文"}\n```');
+    expect(tracker.finalMessage()).toBeNull();
+  });
+
+  it('ignores explicitly intermediate commentary messages', () => {
+    const tracker = new CodexFinalResponseTracker();
+    tracker.completeMessage('正在整理结果', 'commentary');
+    expect(tracker.finalMessage()).toBeNull();
+  });
+});
 
 describe('CodexAgentProvider safety boundary', () => {
   it('keeps useful tool failure details while redacting credentials and host paths', () => {

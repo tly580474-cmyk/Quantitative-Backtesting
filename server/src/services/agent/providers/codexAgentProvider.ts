@@ -114,6 +114,86 @@ function isToolItem(item: Record<string, any>): boolean {
   return ['commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall', 'webSearch'].includes(item.type);
 }
 
+function isIntermediateMessagePhase(phase: unknown): boolean {
+  return ['analysis', 'commentary'].includes(String(phase ?? '').toLowerCase());
+}
+
+/**
+ * A clean App Server exit is not sufficient evidence that the model answered.
+ * Only text emitted after the final tool completes may become the final answer.
+ */
+export class CodexFinalResponseTracker {
+  private candidate = '';
+  private deltaBuffer = '';
+  private pendingToolIds = new Set<string>();
+  private anonymousPendingTools = 0;
+
+  appendMessageDelta(delta: unknown, phase?: unknown): void {
+    if (isIntermediateMessagePhase(phase) || typeof delta !== 'string') return;
+    this.deltaBuffer += delta;
+    if (!this.hasPendingTools()) this.candidate = this.deltaBuffer;
+  }
+
+  completeMessage(text: unknown, phase?: unknown): void {
+    const content = typeof text === 'string' ? text : this.deltaBuffer;
+    this.deltaBuffer = '';
+    if (isIntermediateMessagePhase(phase) || this.hasPendingTools()) {
+      this.candidate = '';
+      return;
+    }
+    this.candidate = content.trim();
+  }
+
+  startTool(toolUseId?: unknown): void {
+    this.invalidateCandidate();
+    const id = this.normalizeToolUseId(toolUseId);
+    if (id) this.pendingToolIds.add(id);
+    else this.anonymousPendingTools += 1;
+  }
+
+  finishTool(toolUseId?: unknown): void {
+    this.invalidateCandidate();
+    const id = this.normalizeToolUseId(toolUseId);
+    if (id) this.pendingToolIds.delete(id);
+    else if (this.anonymousPendingTools > 0) this.anonymousPendingTools -= 1;
+  }
+
+  finalMessage(): string | null {
+    if (this.hasPendingTools()) return null;
+    const parsed = extractReportDirective(this.candidate);
+    return parsed.answer.trim() ? this.candidate : null;
+  }
+
+  private hasPendingTools(): boolean {
+    return this.pendingToolIds.size > 0 || this.anonymousPendingTools > 0;
+  }
+
+  private invalidateCandidate(): void {
+    this.candidate = '';
+    this.deltaBuffer = '';
+  }
+
+  private normalizeToolUseId(value: unknown): string {
+    return typeof value === 'string' ? value.slice(0, 128) : '';
+  }
+}
+
+export function resolveCodexCompletedTurn(finalResponse: CodexFinalResponseTracker): {
+  finalMessage: string | null;
+  completion: ProviderCompletion;
+} {
+  const finalMessage = finalResponse.finalMessage();
+  return finalMessage
+    ? { finalMessage, completion: { status: 'completed', exitCode: 0 } }
+    : {
+        finalMessage: null,
+        completion: {
+          status: 'failed', exitCode: 0, errorCode: 'MISSING_FINAL_RESPONSE',
+          errorMessage: '模型结束运行，但未生成完整的最终回答',
+        },
+      };
+}
+
 export function codexToolErrorContent(item: Record<string, any>): string {
   const candidates = [
     item.error?.message,
@@ -231,7 +311,7 @@ export class CodexAgentProvider implements AgentProvider {
     let requestId = 0;
     let threadId = params.resumeSessionId ?? '';
     let turnId = '';
-    let finalMessage = '';
+    const finalResponse = new CodexFinalResponseTracker();
     let settled = false;
     let resolveCompletion!: (value: ProviderCompletion) => void;
     const completion = new Promise<ProviderCompletion>(resolve => { resolveCompletion = resolve; });
@@ -281,6 +361,7 @@ export class CodexAgentProvider implements AgentProvider {
       if (message.method === 'item/started' && isToolItem(rpcParams.item ?? {})) {
         const item = rpcParams.item as Record<string, any>;
         const toolName = publicToolName(item);
+        finalResponse.startTool(item.id);
         await sink.event({
           type: 'tool_started', publicContent: `正在使用 ${toolName}`, timestamp: now(),
           toolName, toolUseId: String(item.id ?? '').slice(0, 128) || undefined,
@@ -288,15 +369,16 @@ export class CodexAgentProvider implements AgentProvider {
         return;
       }
       if (message.method === 'item/agentMessage/delta') {
-        finalMessage += typeof rpcParams.delta === 'string' ? rpcParams.delta : '';
+        finalResponse.appendMessageDelta(rpcParams.delta, rpcParams.phase ?? rpcParams.item?.phase);
         return;
       }
       if (message.method === 'item/completed') {
         const item = rpcParams.item as Record<string, any> | undefined;
         if (!item) return;
-        if (item.type === 'agentMessage' && typeof item.text === 'string') finalMessage = item.text;
+        if (item.type === 'agentMessage') finalResponse.completeMessage(item.text, item.phase);
         if (isToolItem(item)) {
           const toolName = publicToolName(item);
+          finalResponse.finishTool(item.id);
           const failed = ['failed', 'declined', 'error'].includes(String(item.status ?? '').toLowerCase());
           const errorDetail = failed ? codexToolErrorContent(item) : '';
           await sink.event({
@@ -319,10 +401,16 @@ export class CodexAgentProvider implements AgentProvider {
       if (message.method === 'turn/completed') {
         const status = String(rpcParams.turn?.status ?? 'failed');
         if (status === 'completed') {
+          const result = resolveCodexCompletedTurn(finalResponse);
+          const finalMessage = result.finalMessage;
+          if (!finalMessage) {
+            finish(result.completion);
+            return;
+          }
           const parsed = extractReportDirective(finalMessage);
           if (parsed.decision) await sink.reportDecision(parsed.decision.generate);
           if (parsed.answer) await sink.event({ type: 'assistant_final', publicContent: parsed.answer, timestamp: now() });
-          finish({ status: 'completed', exitCode: 0 });
+          finish(result.completion);
         } else if (status === 'interrupted') {
           finish({ status: 'interrupted', exitCode: null });
         } else {
