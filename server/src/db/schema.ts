@@ -1120,6 +1120,24 @@ export const agentRuns = mysqlTable('agent_runs', {
   parentRunIdx: index('idx_ar_parent_run').on(table.parentRunId),
 }));
 
+export const agentAttachments = mysqlTable('agent_attachments', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  runId: varchar('run_id', { length: 36 }),
+  originalName: varchar('original_name', { length: 255 }).notNull(),
+  mediaType: varchar('media_type', { length: 127 }).notNull(),
+  fileKind: varchar('file_kind', { length: 16 }).notNull(),
+  extension: varchar('extension', { length: 16 }).notNull(),
+  fileSize: bigint('file_size', { mode: 'number' }).notNull(),
+  sha256: varchar('sha256', { length: 64 }).notNull(),
+  storedPath: varchar('stored_path', { length: 512 }).notNull(),
+  extractedPath: varchar('extracted_path', { length: 512 }),
+  extractedChars: int('extracted_chars').notNull().default(0),
+  createdAt: varchar('created_at', { length: 24 }).notNull(),
+}, (table) => ({
+  runIdx: index('idx_agent_attachments_run').on(table.runId),
+  createdIdx: index('idx_agent_attachments_created').on(table.createdAt),
+}));
+
 export const agentEvents = mysqlTable('agent_events', {
   id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
   runId: varchar('run_id', { length: 36 }).notNull(),

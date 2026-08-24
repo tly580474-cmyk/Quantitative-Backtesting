@@ -7,7 +7,7 @@ import {
   StopOutlined,
   PlusOutlined, SettingOutlined, ReloadOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined,
-  SendOutlined,
+  SendOutlined, PaperClipOutlined, CloseOutlined, FileImageOutlined, FileTextOutlined,
   DeleteOutlined, MessageOutlined,
   DownOutlined, RightOutlined,
 } from '@ant-design/icons';
@@ -16,14 +16,30 @@ import { useAgentStream } from './useAgentStream';
 import {
   createAgentRun, cancelAgentRun, listAgentConversations, deleteAgentRun,
   continueAgentRun, getAgentConversation, getAgentProviders, decideAgentApproval,
+  uploadAgentAttachment, deleteAgentAttachment,
 } from './api';
 import { useAgentTheme } from '@/theme';
-import type { AgentRun, AgentEvent, AgentConversationTurn, AgentProviderHealth, AgentProviderId } from './types';
+import type {
+  AgentAttachment, AgentAttachmentConfig, AgentRun, AgentEvent, AgentConversationTurn, AgentProviderHealth, AgentProviderId,
+} from './types';
 
 const { TextArea } = Input;
 const { Text } = Typography;
 
 const PROMPT_PARAM = 'prompt';
+const DEFAULT_ATTACHMENT_CONFIG: AgentAttachmentConfig = {
+  maxFiles: 8, maxFileMb: 20,
+  accept: '.png,.jpg,.jpeg,.gif,.webp,.md,.markdown,.txt,.pdf,.doc,.docx,.docm,.rtf,.odt,.xls,.xlsx,.xlsm,.xlsb,.ods,.csv,.ppt,.pptx,.odp',
+};
+
+interface AttachmentDraft {
+  localId: string;
+  name: string;
+  size: number;
+  status: 'uploading' | 'ready' | 'error';
+  attachment?: AgentAttachment;
+  error?: string;
+}
 
 const statusColor: Record<string, string> = {
   idle: 'default',
@@ -65,6 +81,12 @@ function formatRelativeTime(iso?: string | null): string {
 function truncatePrompt(prompt: string, max = 40): string {
   const one = prompt.replace(/\s+/g, ' ').trim();
   return one.length > max ? one.slice(0, max) + '...' : one;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function formatChatDate(iso?: string | null): string {
@@ -116,12 +138,13 @@ function groupRunsByDate(runs: AgentRun[]): { group: DateGroup; runs: AgentRun[]
 }
 
 function conversationEvents(turns: AgentConversationTurn[]): AgentEvent[] {
-  return turns.flatMap(({ run, events }) => [
+  return turns.flatMap(({ run, events, attachments }) => [
     {
       type: 'user' as const,
       content: run.prompt,
       timestamp: run.createdAt,
       runId: run.id,
+      attachments: attachments ?? [],
     },
     ...events.map(event => ({ ...event, runId: event.runId ?? run.id })),
   ]);
@@ -136,6 +159,8 @@ export default function AgentRunner() {
   const [prompt, setPrompt] = useState('');
   const [provider, setProvider] = useState<AgentProviderId>('claude');
   const [providers, setProviders] = useState<AgentProviderHealth[]>([]);
+  const [attachmentConfig, setAttachmentConfig] = useState(DEFAULT_ATTACHMENT_CONFIG);
+  const [attachmentDrafts, setAttachmentDrafts] = useState<AttachmentDraft[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -153,6 +178,7 @@ export default function AgentRunner() {
   const { state, connect, disconnect, hydrate } = useAgentStream();
   const t = useAgentTheme();
   const inputRef = useRef<{ focus: () => void; resizableTextArea?: { textArea: HTMLTextAreaElement } } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 900px)');
@@ -170,6 +196,7 @@ export default function AgentRunner() {
     getAgentProviders().then(result => {
       if (!active) return;
       setProviders(result.providers);
+      setAttachmentConfig(result.attachments ?? DEFAULT_ATTACHMENT_CONFIG);
       const preferred = result.providers.find(item => item.id === result.defaultProvider && item.available)
         ?? result.providers.find(item => item.available);
       if (preferred) setProvider(preferred.id);
@@ -283,8 +310,58 @@ export default function AgentRunner() {
     });
   }, []);
 
+  const handleAttachmentFiles = useCallback((files: FileList | null) => {
+    if (!files?.length) return;
+    const available = Math.max(0, attachmentConfig.maxFiles - attachmentDrafts.length);
+    const selected = Array.from(files).slice(0, available);
+    if (files.length > available) message.warning(`每轮最多上传 ${attachmentConfig.maxFiles} 个附件`);
+    const drafts = selected.map(file => ({
+      localId: crypto.randomUUID(), name: file.name, size: file.size, status: 'uploading' as const, file,
+    }));
+    setAttachmentDrafts(current => [...current, ...drafts.map(({ file: _file, ...draft }) => draft)]);
+    for (const draft of drafts) {
+      if (draft.file.size > attachmentConfig.maxFileMb * 1024 * 1024) {
+        setAttachmentDrafts(current => current.map(item => item.localId === draft.localId
+          ? { ...item, status: 'error', error: `文件不能超过 ${attachmentConfig.maxFileMb} MB` } : item));
+        continue;
+      }
+      void uploadAgentAttachment(draft.file).then(attachment => {
+        setAttachmentDrafts(current => current.map(item => item.localId === draft.localId
+          ? { ...item, status: 'ready', attachment } : item));
+      }).catch(error => {
+        const reason = error instanceof Error ? error.message : '上传失败';
+        setAttachmentDrafts(current => current.map(item => item.localId === draft.localId
+          ? { ...item, status: 'error', error: reason } : item));
+      });
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [attachmentConfig, attachmentDrafts.length, message]);
+
+  const handleRemoveAttachment = useCallback((localId: string) => {
+    const selected = attachmentDrafts.find(item => item.localId === localId);
+    setAttachmentDrafts(current => current.filter(item => item.localId !== localId));
+    if (selected?.attachment?.id) {
+      void deleteAgentAttachment(selected.attachment.id).catch(() => undefined);
+    }
+  }, [attachmentDrafts]);
+
+  const clearUnboundAttachments = useCallback(() => {
+    const ids = attachmentDrafts.flatMap(item => item.attachment?.id ? [item.attachment.id] : []);
+    setAttachmentDrafts([]);
+    for (const id of ids) void deleteAgentAttachment(id).catch(() => undefined);
+  }, [attachmentDrafts]);
+
   const submitMessage = useCallback(async (value: string) => {
-    const submittedPrompt = value.trim();
+    if (attachmentDrafts.some(item => item.status === 'uploading')) {
+      message.warning('附件仍在处理中，请稍候');
+      return;
+    }
+    if (attachmentDrafts.some(item => item.status === 'error')) {
+      message.warning('请移除处理失败的附件后再发送');
+      return;
+    }
+    const readyAttachments = attachmentDrafts.flatMap(item => item.attachment ? [item.attachment] : []);
+    const submittedPrompt = value.trim() || (readyAttachments.length ? '请分析附件内容。' : '');
     if (submittedPrompt.length < 1) {
       message.warning('请输入内容');
       return;
@@ -295,10 +372,11 @@ export default function AgentRunner() {
       const parentRunId = continueFromRunId
         ?? ((state.status === 'completed' || state.status === 'failed' || state.status === 'canceled') ? runId : null);
       const isContinue = !!parentRunId;
+      const attachmentIds = readyAttachments.map(attachment => attachment.id);
       if (parentRunId) {
-        result = await continueAgentRun(parentRunId, submittedPrompt);
+        result = await continueAgentRun(parentRunId, submittedPrompt, attachmentIds);
       } else {
-        result = await createAgentRun(submittedPrompt, provider);
+        result = await createAgentRun(submittedPrompt, provider, attachmentIds);
       }
       setRunId(result.runId);
       if (!isContinue) {
@@ -310,18 +388,20 @@ export default function AgentRunner() {
         content: submittedPrompt,
         timestamp: new Date().toISOString(),
         runId: result.runId,
+        attachments: readyAttachments,
       };
       connect(result.runId, {
         initialEvents: isContinue ? [...state.events, userEvent] : [userEvent],
       });
       setPrompt('');
+      setAttachmentDrafts([]);
       setContinueFromRunId(null);
     } catch (err) {
       message.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
     }
-  }, [provider, connect, message, continueFromRunId, state.events, state.status, runId]);
+  }, [attachmentDrafts, provider, connect, message, continueFromRunId, state.events, state.status, runId]);
 
   const handleStart = useCallback(() => submitMessage(prompt), [prompt, submitMessage]);
   const handleConfirmation = useCallback((response: string) => {
@@ -348,13 +428,14 @@ export default function AgentRunner() {
 
   const handleNewConversation = useCallback(() => {
     disconnect();
+    clearUnboundAttachments();
     setRunId(null);
     setPrompt('');
     setCurrentPrompt('');
     setCurrentRunStartTime(null);
     setContinueFromRunId(null);
     inputRef.current?.focus();
-  }, [disconnect]);
+  }, [disconnect, clearUnboundAttachments]);
 
   const handleDeleteRun = useCallback(async (id: string) => {
     try {
@@ -391,6 +472,11 @@ export default function AgentRunner() {
       : '';
 
   const isRunning = state.status === 'running' || state.status === 'connecting';
+  const attachmentsUploading = attachmentDrafts.some(item => item.status === 'uploading');
+  const attachmentsFailed = attachmentDrafts.some(item => item.status === 'error');
+  const hasReadyAttachment = attachmentDrafts.some(item => item.status === 'ready');
+  const canSubmit = !isRunning && !loading && !attachmentsUploading && !attachmentsFailed
+    && (prompt.trim().length > 0 || hasReadyAttachment);
   const isFinalized = state.status === 'completed' || state.status === 'failed' || state.status === 'canceled';
   const hasActiveRun = !!runId;
   const providerOptions = useMemo(() => providers.filter(item => item.enabled).map(item => ({
@@ -596,6 +682,52 @@ export default function AgentRunner() {
           }}
         >
           <div style={{ maxWidth: 768, margin: '0 auto', pointerEvents: 'auto' }}>
+            {attachmentDrafts.length > 0 && (
+              <div
+                role="list"
+                aria-label="待发送附件"
+                style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}
+              >
+                {attachmentDrafts.map(item => {
+                  const image = item.attachment?.kind === 'image' || /\.(png|jpe?g|gif|webp)$/i.test(item.name);
+                  return (
+                    <div
+                      role="listitem"
+                      key={item.localId}
+                      title={item.error ?? item.name}
+                      style={{
+                        maxWidth: '100%', minHeight: 40, display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '5px 5px 5px 10px', borderRadius: 10,
+                        border: `1px solid ${item.status === 'error' ? t.errorBorder : t.borderSubtle}`,
+                        background: item.status === 'error' ? t.errorBg : t.bgSubtle,
+                        color: item.status === 'error' ? t.errorText : t.text,
+                      }}
+                    >
+                      {item.status === 'uploading'
+                        ? <Spin size="small" />
+                        : image ? <FileImageOutlined /> : <FileTextOutlined />}
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: 'block', maxWidth: 230, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
+                          {item.name}
+                        </span>
+                        <span style={{ display: 'block', color: t.textSecondary, fontSize: 10 }}>
+                          {item.status === 'uploading' ? '正在解析' : item.status === 'error' ? item.error : formatFileSize(item.size)}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={`移除附件 ${item.name}`}
+                        onClick={() => handleRemoveAttachment(item.localId)}
+                        style={{ width: 32, height: 32, border: 0, borderRadius: 8, background: 'transparent', color: t.textSecondary, cursor: 'pointer' }}
+                      >
+                        <CloseOutlined />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Provider 选择面板（悬浮在输入框上方） */}
             {showSettings && (
               <div
@@ -649,6 +781,35 @@ export default function AgentRunner() {
                 e.currentTarget.style.borderColor = t.border;
               }}
             >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={attachmentConfig.accept}
+                aria-label="选择附件文件"
+                onChange={event => handleAttachmentFiles(event.target.files)}
+                style={{ display: 'none' }}
+              />
+              <Tooltip title="添加附件">
+                <button
+                  type="button"
+                  aria-label="添加附件"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isRunning || loading || attachmentDrafts.length >= attachmentConfig.maxFiles}
+                  style={{
+                    width: 44, height: 44, padding: 0, border: 0, borderRadius: '50%',
+                    background: 'transparent', color: t.textSecondary,
+                    cursor: isRunning || loading || attachmentDrafts.length >= attachmentConfig.maxFiles ? 'not-allowed' : 'pointer',
+                    opacity: isRunning || loading || attachmentDrafts.length >= attachmentConfig.maxFiles ? .45 : 1,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  }}
+                  onMouseEnter={event => { if (!event.currentTarget.disabled) event.currentTarget.style.background = t.bgHover; }}
+                  onMouseLeave={event => { event.currentTarget.style.background = 'transparent'; }}
+                >
+                  <PaperClipOutlined style={{ fontSize: 17 }} />
+                </button>
+              </Tooltip>
+
               {/* 左侧 Provider 设置按钮 */}
               <Tooltip title={showSettings ? '收起 Provider 设置' : '选择 Provider'}>
                 <button
@@ -739,20 +900,20 @@ export default function AgentRunner() {
                   </button>
                 </Tooltip>
               ) : (
-                <Tooltip title={prompt.trim().length < 1 ? '请输入内容' : '发送 (Ctrl+Enter)'}>
+                <Tooltip title={attachmentsUploading ? '附件正在解析' : canSubmit ? '发送 (Ctrl+Enter)' : '请输入内容或添加附件'}>
                   <button
                     type="button"
                     aria-label="发送消息"
                     onClick={handleStart}
-                    disabled={prompt.trim().length < 1 || loading}
+                    disabled={!canSubmit}
                     style={{
                       width: 34,
                       height: 34,
                       borderRadius: '50%',
-                      background: prompt.trim().length >= 1 && !loading ? '#1f2937' : t.bgHover,
+                      background: canSubmit ? '#1f2937' : t.bgHover,
                       border: 'none',
-                      cursor: prompt.trim().length >= 1 && !loading ? 'pointer' : 'not-allowed',
-                      color: prompt.trim().length >= 1 && !loading ? '#ffffff' : t.textMuted,
+                      cursor: canSubmit ? 'pointer' : 'not-allowed',
+                      color: canSubmit ? '#ffffff' : t.textMuted,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -761,10 +922,10 @@ export default function AgentRunner() {
                       transition: 'background 0.15s',
                     }}
                     onMouseEnter={(e) => {
-                      if (prompt.trim().length >= 1 && !loading) e.currentTarget.style.background = '#111827';
+                      if (canSubmit) e.currentTarget.style.background = '#111827';
                     }}
                     onMouseLeave={(e) => {
-                      if (prompt.trim().length >= 1 && !loading) e.currentTarget.style.background = '#1f2937';
+                      if (canSubmit) e.currentTarget.style.background = '#1f2937';
                     }}
                   >
                     <SendOutlined style={{ fontSize: 13, marginLeft: 1 }} />

@@ -186,6 +186,7 @@ export class AgentRepository {
     await this.pool.execute('DELETE FROM agent_approvals WHERE run_id = ?', [runId]);
     await this.pool.execute('DELETE FROM agent_events WHERE run_id = ?', [runId]);
     await this.pool.execute('DELETE FROM agent_reports WHERE run_id = ?', [runId]);
+    await this.pool.execute('DELETE FROM agent_attachments WHERE run_id = ?', [runId]);
     await this.pool.execute('DELETE FROM agent_runs WHERE id = ?', [runId]);
   }
 

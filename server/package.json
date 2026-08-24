@@ -79,6 +79,8 @@
   "dependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",
     "@fastify/cors": "^10.0.2",
+    "@fastify/multipart": "^10.1.1",
+    "@firecrawl/anydoc": "^0.2.3",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.0",
     "drizzle-zod": "^0.7.0",

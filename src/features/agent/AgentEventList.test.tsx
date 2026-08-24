@@ -58,6 +58,15 @@ describe('AgentEventList', () => {
     expect(screen.getByRole('status')).toHaveTextContent('正在分析任务');
   });
 
+  it('shows attachment names in the user message bubble', () => {
+    render(<AgentEventList runId="run-attachment" userPrompt="" events={[{
+      type: 'user', content: '分析这些资料', attachments: [{
+        id: 'attachment-1', name: 'research.pdf', mediaType: 'application/pdf', kind: 'document', size: 1024,
+      }],
+    }]} />);
+    expect(screen.getByLabelText('本轮附件')).toHaveTextContent('research.pdf');
+  });
+
   it('renders a persistent operation approval and submits only its public id', () => {
     const onApproval = vi.fn();
     render(<AgentEventList runId="run-approval" userPrompt="" onApproval={onApproval} events={[{

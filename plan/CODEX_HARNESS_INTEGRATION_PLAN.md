@@ -379,6 +379,16 @@ interface AgentProviderCapabilities {
 - 展示模型、沙箱和 Provider，但不向普通用户暴露底层命令参数；
 - 报告继续采用项目现有静态渲染与校验，不直接执行模型生成的脚本。
 
+#### 6.5.1 对话附件（2026-08-24）
+
+- [x] 输入框回形针恢复为附件语义，Provider 设置继续使用独立齿轮入口；
+- [x] 支持图片、Word、Markdown、PDF、Excel、CSV、OpenDocument 与 PowerPoint 常见格式；
+- [x] 文档使用本地 anydoc 转为 Markdown，原文件与派生文件均限制在项目工作区；
+- [x] 附件使用 UUID 存储、扩展名白名单、图片签名校验、大小/数量/上下文上限；
+- [x] 文档内容按不可信用户数据注入，Codex 图片使用 App Server `localImage`；
+- [x] 附件元数据进入会话历史，删除会话时同步清理文件；
+- [x] 扫描件 PDF 明确返回需要 OCR 的错误，不静默提交空内容。
+
 ### 6.6 测试
 
 - Provider 合同测试，同一套用例运行在 Claude/Codex fake provider 上；

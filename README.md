@@ -63,6 +63,7 @@
 - 输入问题后自动执行多步研究，并按任务复杂度与用户要求判断是否生成结构化 HTML 报告
 - 实时 SSE 展示执行进度、工具调用与输出，支持事件持久化、刷新恢复和取消运行
 - 对话历史管理、删除任务和继续对话；同一对话固定沿用创建时的 Provider
+- 支持图片、Word、Markdown、PDF、Excel、CSV 等附件；文档在本地转为 Markdown 后随对话提交，图片走 Provider 原生图片输入
 - Codex 在项目工作区内自主运行命令、修改文件和执行测试，常规操作不逐步请求人工审批
 - 行情查询遵循“项目本地接口优先，明确缺失后再由 a-stock-data 补缺”的顺序
 - 报告版式由系统统一处理，智能体只负责判断本轮是否值得生成报告
@@ -209,9 +210,15 @@ AGENT_TIMEOUT_MINUTES=30
 AGENT_CODEX_TIMEOUT_MINUTES=60
 AGENT_MAX_CONCURRENT=1
 AGENT_REPORT_ROOT=data/agent-reports
+AGENT_ATTACHMENT_ROOT=tmp_output/.agent-attachments
+AGENT_ATTACHMENT_MAX_FILE_MB=20
+AGENT_ATTACHMENT_MAX_FILES=8
+AGENT_ATTACHMENT_MAX_CONTEXT_CHARS=300000
 ```
 
 > 智能体访问地址：`http://localhost:5558/#/agent`。Claude Provider 需要在 WSL Ubuntu 中安装 `claude`；Codex Provider 使用 Windows 原生 `codex` CLI。Codex Harness 使用独立 `AGENT_CODEX_HOME` 和项目 API Key，不读取或修改全局 Codex 登录状态。OpenRouter 等自定义 Responses Provider 的配置见 [Codex 运行手册](./docs/agent-codex-runtime.md)。
+
+附件原文件和转换结果保存在项目内的 `AGENT_ATTACHMENT_ROOT`。支持 `png/jpg/jpeg/gif/webp`、`doc/docx/docm/rtf/odt`、`md/markdown/txt`、`pdf`、`csv/xls/xlsx/xlsm/xlsb/ods` 以及 `ppt/pptx/odp`。文档转换使用本地 `@firecrawl/anydoc`，不会因解析而上传到外部服务；扫描件 PDF 暂不做 OCR，上传时会明确提示先生成可检索文本层。
 
 ### 市场数据自动同步
 
@@ -248,9 +255,10 @@ SCHEDULE_SKIP_NON_TRADING_PERIODS=true
 
 1. 打开智能体页面（`/agent`）
 2. 新建对话时选择 Claude 或 Codex Provider
-3. 输入研究问题（如“调查某家公司近期重要公告与行情变化”）
-4. 实时观察执行进度与工具调用
-5. 对于明确要求报告或值得留档的复杂研究，查看自动生成的 HTML 研究报告
+3. 可通过输入框左侧回形针添加图片、Word、Markdown、PDF、Excel 或 CSV 附件
+4. 输入研究问题（也可以只提交附件，由智能体直接分析）
+5. 实时观察执行进度与工具调用
+6. 对于明确要求报告或值得留档的复杂研究，查看自动生成的 HTML 研究报告
 
 Codex 查询行情时先使用项目只读入口；只有项目接口返回空、缺少必要字段或数据已过期时，才使用项目隔离目录中的 `a-stock-data` 技能补缺。外部结果不会自动回写项目数据库或数据湖。
 

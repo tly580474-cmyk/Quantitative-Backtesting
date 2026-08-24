@@ -1,10 +1,10 @@
 import { useEffect, useId, useState } from 'react';
-import { CheckCircleOutlined, CloseCircleOutlined, CodeOutlined, DownOutlined, LoadingOutlined, RightOutlined, SafetyCertificateOutlined, UserOutlined, WarningOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, CloseCircleOutlined, CodeOutlined, DownOutlined, FileImageOutlined, FileTextOutlined, LoadingOutlined, RightOutlined, SafetyCertificateOutlined, UserOutlined, WarningOutlined } from '@ant-design/icons';
 import { Button } from 'antd';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAgentTheme } from '@/theme';
-import type { AgentEvent } from './types';
+import type { AgentAttachment, AgentEvent } from './types';
 import { AgentReportView } from './AgentReportView';
 import { AgentConfirmationCard } from './AgentConfirmationCard';
 
@@ -35,11 +35,23 @@ function Fold({ label, children, openWhileRunning, instanceKey }: {
   </div>;
 }
 
-function UserBubble({ text }: { text: string }) {
+function UserBubble({ text, attachments = [] }: { text: string; attachments?: AgentAttachment[] }) {
   const theme = useAgentTheme();
   return <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, margin: '18px 0 24px' }}>
     <div style={{ maxWidth: '76%', padding: '10px 16px', borderRadius: '18px 18px 4px 18px',
-      background: theme.bgUserBubble, color: theme.text, whiteSpace: 'pre-wrap', lineHeight: 1.65 }}>{text}</div>
+      background: theme.bgUserBubble, color: theme.text, whiteSpace: 'pre-wrap', lineHeight: 1.65 }}>
+      {attachments.length > 0 && <div aria-label="本轮附件" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: text ? 8 : 0 }}>
+        {attachments.map(attachment => <span key={attachment.id} style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5, maxWidth: 220,
+          padding: '4px 8px', borderRadius: 8, background: theme.bgSubtle,
+          border: `1px solid ${theme.borderSubtle}`, fontSize: 11,
+        }}>
+          {attachment.kind === 'image' ? <FileImageOutlined /> : <FileTextOutlined />}
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.name}</span>
+        </span>)}
+      </div>}
+      {text}
+    </div>
     <div style={{ width: 30, height: 30, borderRadius: '50%', background: theme.bgHover, color: theme.textSecondary,
       display: 'grid', placeItems: 'center', alignSelf: 'flex-end' }}><UserOutlined /></div>
   </div>;
@@ -119,7 +131,7 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
     </div>}
     {userPrompt && <UserBubble text={userPrompt} />}
     {turns.map((turn, index) => {
-      if (turn.type === 'user') return <UserBubble key={`u-${index}`} text={turn.events[0].content} />;
+      if (turn.type === 'user') return <UserBubble key={`u-${index}`} text={turn.events[0].content} attachments={turn.events[0].attachments} />;
       const current = isStreaming && index === turns.length - 1;
       const process = turn.events.filter(event => ['progress', 'tool_started', 'tool_finished'].includes(event.type));
       const final = turn.events.filter(event => event.type === 'assistant_final' || event.type === 'assistant_text');

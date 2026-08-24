@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { buildCodexEnvironment, CodexAgentProvider } from './codexAgentProvider.js';
+import { buildCodexEnvironment, buildCodexTurnInput, CodexAgentProvider } from './codexAgentProvider.js';
 
 describe('CodexAgentProvider safety boundary', () => {
+  it('uses the official localImage input for image attachments only', () => {
+    const base = {
+      id: 'a', name: 'chart.png', mediaType: 'image/png', size: 10,
+      absolutePath: 'D:/workspace/chart.png', workspacePath: 'chart.png',
+    };
+    expect(buildCodexTurnInput('分析附件', [
+      { ...base, kind: 'image' },
+      { ...base, id: 'b', name: 'report.pdf', kind: 'document', extractedText: 'text' },
+    ])).toEqual([
+      { type: 'text', text: '分析附件', text_elements: [] },
+      { type: 'localImage', path: 'D:/workspace/chart.png' },
+    ]);
+  });
   it('stays unavailable while disabled without affecting Claude startup', () => {
     const provider = new CodexAgentProvider({
       enabled: false,

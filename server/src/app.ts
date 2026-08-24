@@ -1,7 +1,9 @@
 import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { createPool, checkConnection, closePool } from './db/connection.js';
 import { initDb, closeDb } from './db/index.js';
@@ -139,6 +141,16 @@ async function main(): Promise<void> {
 
   // ── Fastify App ─────────────────────────────────────────────
   const app = Fastify({ logger: true, bodyLimit: 104857600 });
+
+  await app.register(multipart, {
+    limits: {
+      files: 1,
+      fileSize: Math.max(1, parseInt(config.AGENT_ATTACHMENT_MAX_FILE_MB, 10) || 20) * 1024 * 1024,
+      fields: 4,
+      parts: 5,
+    },
+    throwFileSizeLimit: true,
+  });
 
   await app.register(cors, {
     origin: /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
@@ -314,6 +326,8 @@ async function main(): Promise<void> {
   });
   // Agent system
   const agentEnabled = config.AGENT_ENABLED === 'true';
+  const projectRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
+  const attachmentRoot = resolve(projectRoot, config.AGENT_ATTACHMENT_ROOT);
   let agentOrchestrator: AgentOrchestrator | null = null;
   if (agentEnabled && dbOnline) {
     const agentProjectPath = config.AGENT_WSL_PROJECT_PATH.replace(/\/+$/, '');
@@ -359,6 +373,8 @@ async function main(): Promise<void> {
       reportRoot: config.AGENT_REPORT_ROOT,
       enabled: true,
       config,
+      attachmentRoot,
+      workspaceRoot: projectRoot,
     });
     console.log('[Agent] System enabled');
   } else {
@@ -368,6 +384,8 @@ async function main(): Promise<void> {
       reportRoot: config.AGENT_REPORT_ROOT,
       enabled: false,
       config,
+      attachmentRoot,
+      workspaceRoot: projectRoot,
     });
     if (!agentEnabled) console.log('[Agent] System disabled (AGENT_ENABLED=false)');
   }

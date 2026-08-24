@@ -25,6 +25,19 @@ export interface ProviderStartParams {
   prompt: string;
   maxTurns: number;
   resumeSessionId?: string;
+  attachments?: ProviderAttachment[];
+}
+
+export interface ProviderAttachment {
+  id: string;
+  name: string;
+  mediaType: string;
+  kind: 'image' | 'document' | 'text' | 'spreadsheet';
+  size: number;
+  absolutePath: string;
+  workspacePath: string;
+  extractedText?: string;
+  truncated?: boolean;
 }
 
 export type ApprovalDecision = 'approved' | 'denied';

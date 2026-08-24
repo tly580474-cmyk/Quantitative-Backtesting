@@ -9,7 +9,7 @@ import { validateAgentReport } from './reportValidator.js';
 import { renderStaticAgentReport } from './reportRenderer.js';
 import { ClaudeAgentProvider } from './providers/claudeAgentProvider.js';
 import { CodexAgentProvider } from './providers/codexAgentProvider.js';
-import type { AgentProvider, AgentProviderHealth, AgentProviderId, ProviderRun } from './providers/types.js';
+import type { AgentProvider, AgentProviderHealth, AgentProviderId, ProviderAttachment, ProviderRun } from './providers/types.js';
 import type { AgentApprovalRecord } from './agentRepository.js';
 
 export interface OrchestratorConfig {
@@ -48,6 +48,7 @@ export interface StartParams {
   templateStyle?: string;
   resumeSessionId?: string;
   provider?: AgentProviderId;
+  attachments?: ProviderAttachment[];
 }
 
 interface ActiveRun {
@@ -140,9 +141,11 @@ export class AgentOrchestrator {
           approvalsEnabled: this.config.codex?.approvalsEnabled,
           networkEnabled: this.config.codex?.networkEnabled,
         } : undefined,
+        params.attachments ?? [],
       );
       const providerRun = await provider.start({
         runId: params.runId, prompt, maxTurns: params.maxTurns, resumeSessionId: params.resumeSessionId,
+        attachments: params.attachments,
       }, {
         event: event => this.publish(params.runId, active, repo, event),
         session: sessionId => repo.updateSessionId(params.runId, sessionId),

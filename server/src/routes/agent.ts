@@ -9,6 +9,7 @@ import type { AgentOrchestrator } from '../services/agent/agentOrchestrator.js';
 import { isPublicAgentEventType, sanitizePublicContent, type PublicAgentEvent } from '../services/agent/eventProtocol.js';
 import type { EnvConfig } from '../config.js';
 import type { AgentProviderId } from '../services/agent/providers/types.js';
+import { AGENT_ATTACHMENT_ACCEPT, AgentAttachmentError, AgentAttachmentService } from '../services/agent/attachmentService.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'canceled']);
 
@@ -100,15 +101,26 @@ export function stripUnsafeHtml(html: string): string {
 export function registerAgentRoutes(
   app: FastifyInstance,
   dbOnline: boolean,
-  deps: { pool: Pool; orchestrator: AgentOrchestrator; reportRoot: string; enabled: boolean; config: EnvConfig },
+  deps: {
+    pool: Pool; orchestrator: AgentOrchestrator; reportRoot: string; enabled: boolean; config: EnvConfig;
+    attachmentRoot?: string; workspaceRoot?: string;
+  },
 ) {
   const { orchestrator, enabled, config } = deps;
+  const workspaceRoot = resolve(deps.workspaceRoot ?? process.cwd());
+  const attachmentService = new AgentAttachmentService(
+    deps.pool, deps.attachmentRoot ?? resolve(workspaceRoot, 'tmp_output/.agent-attachments'), workspaceRoot,
+    Number.parseInt(config.AGENT_ATTACHMENT_MAX_FILE_MB, 10) || 20,
+    Number.parseInt(config.AGENT_ATTACHMENT_MAX_FILES, 10) || 8,
+    Number.parseInt(config.AGENT_ATTACHMENT_MAX_CONTEXT_CHARS, 10) || 300_000,
+  );
   const defaultTimeoutMinutes = Number.parseInt(config.AGENT_TIMEOUT_MINUTES, 10) || 60;
   const defaultCodexTimeoutMinutes = Number.parseInt(config.AGENT_CODEX_TIMEOUT_MINUTES, 10) || 60;
   const messageSchema = z.object({
     prompt: z.string().trim().min(1).max(100_000),
     timeoutMinutes: z.number().int().min(1).max(360).optional(),
     provider: z.enum(['claude', 'codex']).optional(),
+    attachmentIds: z.array(z.string().uuid()).max(attachmentService.maxFiles).default([]),
   });
 
   app.addHook('preHandler', async (request, reply) => {
@@ -122,6 +134,50 @@ export function registerAgentRoutes(
     return true;
   };
 
+  const attachmentFailure = (reply: FastifyReply, error: unknown) => {
+    if (error instanceof AgentAttachmentError) {
+      const code = ErrorCodes[error.code as keyof typeof ErrorCodes] ?? ErrorCodes.ATTACHMENT_INVALID;
+      return reply.code(error.statusCode).send(apiError(code, error.message));
+    }
+    if (error instanceof app.multipartErrors.RequestFileTooLargeError) {
+      return reply.code(413).send(apiError(ErrorCodes.ATTACHMENT_TOO_LARGE, '附件超过允许的大小'));
+    }
+    requestLogError(error);
+    return reply.code(500).send(apiError(ErrorCodes.INTERNAL_ERROR, '附件处理失败'));
+  };
+
+  const requestLogError = (error: unknown) => {
+    console.error('[Agent/Attachment] request failed:', error);
+  };
+
+  app.post('/api/agent/attachments', async (request, reply) => {
+    if (!ensureAvailable(reply)) return;
+    if (!request.isMultipart()) {
+      return reply.code(415).send(apiError(ErrorCodes.ATTACHMENT_INVALID, '请使用 multipart/form-data 上传附件'));
+    }
+    try {
+      await attachmentService.cleanupStaleUnbound();
+      const file = await request.file();
+      if (!file) return reply.code(400).send(apiError(ErrorCodes.ATTACHMENT_INVALID, '未收到附件文件'));
+      const attachment = await attachmentService.create(file);
+      return reply.code(201).send({ attachment });
+    } catch (error) {
+      return attachmentFailure(reply, error);
+    }
+  });
+
+  app.delete('/api/agent/attachments/:attachmentId', async (request, reply) => {
+    if (!ensureAvailable(reply)) return;
+    try {
+      const attachmentId = (request.params as { attachmentId: string }).attachmentId;
+      const deleted = await attachmentService.deleteUnbound(attachmentId);
+      return deleted ? reply.send({ attachmentId, deleted: true })
+        : reply.code(404).send(apiError(ErrorCodes.ATTACHMENT_INVALID, '附件不存在'));
+    } catch (error) {
+      return attachmentFailure(reply, error);
+    }
+  });
+
   const startRun = async (body: z.infer<typeof messageSchema>, parent?: AgentRunRecord) => {
     const repo = new AgentRepository(deps.pool);
     const runId = crypto.randomUUID();
@@ -132,18 +188,33 @@ export function registerAgentRoutes(
       ?? (provider === 'codex' ? defaultCodexTimeoutMinutes : defaultTimeoutMinutes);
     await repo.createRun(runId, body.prompt, 0, timeoutMinutes * 60_000,
       'classic-blue', parent?.id, conversationId, turnIndex, provider);
+    try {
+      await attachmentService.bindToRun(body.attachmentIds, runId);
+    } catch (error) {
+      await attachmentService.removeRunFiles(runId);
+      await repo.deleteRun(runId);
+      throw error;
+    }
     if (parent?.sessionId) await repo.updateSessionId(runId, parent.sessionId);
+    const attachments = body.attachmentIds.length
+      ? await attachmentService.providerAttachments(runId)
+      : [];
     void orchestrator.start({
       runId, prompt: body.prompt, maxTurns: 0, timeoutMs: timeoutMinutes * 60_000,
       templateStyle: 'classic-blue', resumeSessionId: parent?.sessionId ?? undefined,
-      provider,
+      provider, attachments,
     }).catch(error => console.error(`[Agent] start failed for ${runId}:`, error));
     return { runId, conversationId, turnIndex, status: 'pending' as const, parentRunId: parent?.id ?? null };
   };
 
   app.post('/api/agent/runs', async (request, reply) => {
     if (!ensureAvailable(reply)) return;
-    return reply.code(201).send(await startRun(messageSchema.parse(request.body)));
+    try {
+      return reply.code(201).send(await startRun(messageSchema.parse(request.body)));
+    } catch (error) {
+      if (error instanceof AgentAttachmentError) return attachmentFailure(reply, error);
+      throw error;
+    }
   });
 
   app.post('/api/agent/conversations/:conversationId/messages', async (request, reply) => {
@@ -159,7 +230,12 @@ export function registerAgentRoutes(
     if (body.provider && body.provider !== parent.provider) {
       return reply.code(409).send(apiError(ErrorCodes.PROVIDER_MISMATCH, '同一对话不能切换 Provider，请新建对话'));
     }
-    return reply.code(201).send(await startRun(body, parent));
+    try {
+      return reply.code(201).send(await startRun(body, parent));
+    } catch (error) {
+      if (error instanceof AgentAttachmentError) return attachmentFailure(reply, error);
+      throw error;
+    }
   });
 
   // Legacy continuation endpoint delegates to the same conversation model.
@@ -175,7 +251,12 @@ export function registerAgentRoutes(
     if (body.provider && body.provider !== parent.provider) {
       return reply.code(409).send(apiError(ErrorCodes.PROVIDER_MISMATCH, '同一对话不能切换 Provider，请新建对话'));
     }
-    return reply.code(201).send(await startRun(body, parent));
+    try {
+      return reply.code(201).send(await startRun(body, parent));
+    } catch (error) {
+      if (error instanceof AgentAttachmentError) return attachmentFailure(reply, error);
+      throw error;
+    }
   });
 
   app.get('/api/agent/runs/:runId/stream', async (request, reply) => {
@@ -280,6 +361,11 @@ export function registerAgentRoutes(
     return reply.send({
       defaultProvider: orchestrator.getDefaultProvider(),
       providers: orchestrator.getProviderHealth(),
+      attachments: {
+        maxFiles: attachmentService.maxFiles,
+        maxFileMb: attachmentService.maxFileBytes / 1024 / 1024,
+        accept: AGENT_ATTACHMENT_ACCEPT,
+      },
     });
   });
 
@@ -296,6 +382,7 @@ export function registerAgentRoutes(
       run,
       events: eventsWithTerminal(run, await repo.getEvents(run.id, -1, 300)),
       report: await repo.getReport(run.id),
+      attachments: await attachmentService.listForRun(run.id),
     })));
     return reply.send({ turns, nextCursor: hasMore ? selected[0]?.turnIndex ?? null : null });
   });
@@ -322,7 +409,8 @@ export function registerAgentRoutes(
     const runs = await repo.getRunChain((request.params as { runId: string }).runId);
     if (!runs.length) return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '对话不存在'));
     const turns = await Promise.all(runs.map(async run => ({ run,
-      events: eventsWithTerminal(run, await repo.getEvents(run.id)), report: await repo.getReport(run.id) })));
+      events: eventsWithTerminal(run, await repo.getEvents(run.id)), report: await repo.getReport(run.id),
+      attachments: await attachmentService.listForRun(run.id) })));
     return reply.send({ turns });
   });
   app.get('/api/agent/runs/:runId', async (request, reply) => {
@@ -330,7 +418,8 @@ export function registerAgentRoutes(
     const repo = new AgentRepository(deps.pool);
     const run = await repo.getRun(runId);
     if (!run) return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '运行不存在'));
-    return reply.send({ run, events: eventsWithTerminal(run, await repo.getEvents(runId)), report: await repo.getReport(runId) });
+    return reply.send({ run, events: eventsWithTerminal(run, await repo.getEvents(runId)),
+      report: await repo.getReport(runId), attachments: await attachmentService.listForRun(runId) });
   });
 
   app.delete('/api/agent/runs/:runId', async (request, reply) => {
@@ -340,6 +429,7 @@ export function registerAgentRoutes(
     const repo = new AgentRepository(deps.pool);
     const report = await repo.getReport(runId);
     if (report?.htmlPath) await unlink(report.htmlPath).catch(() => undefined);
+    await attachmentService.removeRunFiles(runId);
     await repo.deleteRun(runId);
     return reply.send({ runId, deleted: true });
   });

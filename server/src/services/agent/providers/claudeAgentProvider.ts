@@ -26,6 +26,11 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function windowsPathToWsl(value: string): string {
+  const normalized = value.replace(/\\/g, '/');
+  return normalized.replace(/^([A-Za-z]):\//, (_, drive: string) => `/mnt/${drive.toLowerCase()}/`);
+}
+
 export class ClaudeAgentProvider implements AgentProvider {
   readonly id = 'claude' as const;
   readonly capabilities: AgentProviderCapabilities = {
@@ -128,7 +133,13 @@ export class ClaudeAgentProvider implements AgentProvider {
           : { status: 'failed', exitCode, errorCode: 'PROCESS_EXIT', errorMessage: `进程退出码 ${exitCode}` });
       });
     });
-    child.stdin?.end(params.prompt, 'utf8');
+    const imagePaths = (params.attachments ?? [])
+      .filter(attachment => attachment.kind === 'image')
+      .map(attachment => `- ${JSON.stringify(attachment.name)}: ${windowsPathToWsl(attachment.absolutePath)}`);
+    const prompt = imagePaths.length
+      ? `${params.prompt}\n\n## Claude 图片附件路径\n使用 Read 工具查看以下工作区内图片：\n${imagePaths.join('\n')}`
+      : params.prompt;
+    child.stdin?.end(prompt, 'utf8');
 
     return {
       pid: child.pid ?? null,

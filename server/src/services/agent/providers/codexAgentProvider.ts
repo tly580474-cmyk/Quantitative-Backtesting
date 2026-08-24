@@ -10,10 +10,20 @@ import type {
   AgentProviderCapabilities,
   AgentProviderHealth,
   ProviderCompletion,
+  ProviderAttachment,
   ProviderEventSink,
   ProviderRun,
   ProviderStartParams,
 } from './types.js';
+
+export function buildCodexTurnInput(prompt: string, attachments: ProviderAttachment[] = []): Array<Record<string, unknown>> {
+  return [
+    { type: 'text', text: prompt, text_elements: [] },
+    ...attachments
+      .filter(attachment => attachment.kind === 'image')
+      .map(attachment => ({ type: 'localImage', path: attachment.absolutePath })),
+  ];
+}
 
 export interface CodexAgentProviderConfig {
   enabled: boolean;
@@ -379,7 +389,7 @@ export class CodexAgentProvider implements AgentProvider {
       await sink.session(threadId);
       const turnResult = await request('turn/start', {
         threadId,
-        input: [{ type: 'text', text: params.prompt, text_elements: [] }],
+        input: buildCodexTurnInput(params.prompt, params.attachments),
         cwd: this.config.workingDirectory,
         approvalPolicy: this.approvalPolicy,
       });

@@ -11,7 +11,7 @@ export interface AdminConfigDefinition {
   secret: boolean;
   editable: boolean;
   restartRequired: boolean;
-  inputType?: 'text' | 'time' | 'boolean';
+  inputType?: 'text' | 'time' | 'boolean' | 'number';
   defaultValue?: string;
   /**
    * 重启影响范围标签（见 §4.3）：
@@ -233,6 +233,21 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     key: 'AGENT_CODEX_PYTHON_PATH', label: 'Codex 隔离 Python', category: 'ai',
     description: 'a-stock-data 专属虚拟环境 Python，不使用全局 Python 包环境。', secret: false, editable: true,
     restartRequired: true, restartScope: 'ai',
+  },
+  {
+    key: 'AGENT_ATTACHMENT_ROOT', label: '智能体附件目录', category: 'ai',
+    description: '保存附件原文件和本地转换结果的项目数据目录。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', defaultValue: 'tmp_output/.agent-attachments',
+  },
+  {
+    key: 'AGENT_ATTACHMENT_MAX_FILE_MB', label: '附件单文件上限', category: 'ai',
+    description: '单个附件允许的最大 MB 数。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', defaultValue: '20', inputType: 'number',
+  },
+  {
+    key: 'AGENT_ATTACHMENT_MAX_FILES', label: '单轮附件数量', category: 'ai',
+    description: '每轮消息最多绑定的附件数量。', secret: false, editable: true,
+    restartRequired: true, restartScope: 'ai', defaultValue: '8', inputType: 'number',
   },
   {
     key: 'MARKET_OPINION_MORNING_TIME',

@@ -110,6 +110,10 @@ const envSchema = z.object({
   AGENT_TIMEOUT_MINUTES: z.string().regex(/^\d+$/).default('60'),
   AGENT_MAX_CONCURRENT: z.string().regex(/^\d+$/).default('1'),
   AGENT_REPORT_ROOT: z.string().default('data/agent-reports'),
+  AGENT_ATTACHMENT_ROOT: z.string().default('tmp_output/.agent-attachments'),
+  AGENT_ATTACHMENT_MAX_FILE_MB: z.string().regex(/^\d+$/).default('20'),
+  AGENT_ATTACHMENT_MAX_FILES: z.string().regex(/^\d+$/).default('8'),
+  AGENT_ATTACHMENT_MAX_CONTEXT_CHARS: z.string().regex(/^\d+$/).default('300000'),
 
   PORT: z.string().default('3001'),
 });

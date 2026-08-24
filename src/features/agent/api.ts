@@ -1,7 +1,7 @@
 import { ApiError, apiFetch } from '@/api/client';
 import type {
   AgentRun, AgentReport, AgentEvent, AgentConversationTurn, AgentEventType,
-  AgentProviderHealth, AgentProviderId,
+  AgentAttachment, AgentAttachmentConfig, AgentProviderHealth, AgentProviderId,
 } from './types';
 
 interface AgentEventRecord {
@@ -43,10 +43,10 @@ export function normalizeAgentEvent(event: AgentEventRecord): AgentEvent | null 
 }
 
 export async function createAgentRun(
-  prompt: string, provider?: AgentProviderId,
+  prompt: string, provider?: AgentProviderId, attachmentIds: string[] = [],
 ): Promise<{ runId: string; conversationId: string; status: string }> {
   return apiFetch('/api/agent/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, provider }) });
+    body: JSON.stringify({ prompt, provider, attachmentIds }) });
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {
@@ -56,10 +56,23 @@ export async function deleteAgentRun(runId: string): Promise<void> {
   await apiFetch(`/api/agent/runs/${runId}`, { method: 'DELETE' });
 }
 export async function continueAgentRun(
-  parentRunId: string, prompt: string,
+  parentRunId: string, prompt: string, attachmentIds: string[] = [],
 ): Promise<{ runId: string; conversationId: string; status: string; parentRunId: string }> {
   return apiFetch(`/api/agent/runs/${parentRunId}/continue`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }) });
+    body: JSON.stringify({ prompt, attachmentIds }) });
+}
+
+export async function uploadAgentAttachment(file: File): Promise<AgentAttachment> {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const result = await apiFetch<{ attachment: AgentAttachment }>('/api/agent/attachments', {
+    method: 'POST', body: form, timeoutMs: 120_000,
+  });
+  return result.attachment;
+}
+
+export async function deleteAgentAttachment(attachmentId: string): Promise<void> {
+  await apiFetch(`/api/agent/attachments/${attachmentId}`, { method: 'DELETE' });
 }
 
 export async function decideAgentApproval(approvalId: string, decision: 'approved' | 'denied'): Promise<void> {
@@ -71,6 +84,7 @@ export async function decideAgentApproval(approvalId: string, decision: 'approve
 export async function getAgentProviders(): Promise<{
   defaultProvider: AgentProviderId;
   providers: AgentProviderHealth[];
+  attachments: AgentAttachmentConfig;
 }> {
   return apiFetch('/api/agent/providers');
 }
@@ -89,8 +103,12 @@ export async function listAgentRuns(limit?: number, offset?: number, status?: st
   return apiFetch(`/api/agent/runs?${params}`);
 }
 
-export async function getAgentRun(runId: string): Promise<{ run: AgentRun; events: AgentEvent[]; report: AgentReport | null }> {
-  const result = await apiFetch<{ run: AgentRun; events: AgentEventRecord[]; report: AgentReport | null }>(`/api/agent/runs/${runId}`);
+export async function getAgentRun(runId: string): Promise<{
+  run: AgentRun; events: AgentEvent[]; report: AgentReport | null; attachments: AgentAttachment[];
+}> {
+  const result = await apiFetch<{
+    run: AgentRun; events: AgentEventRecord[]; report: AgentReport | null; attachments: AgentAttachment[];
+  }>(`/api/agent/runs/${runId}`);
   return { ...result, events: result.events.map(normalizeAgentEvent).filter((event): event is AgentEvent => Boolean(event)) };
 }
 

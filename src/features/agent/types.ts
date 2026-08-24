@@ -15,6 +15,20 @@ export interface AgentProviderHealth {
   };
 }
 
+export interface AgentAttachment {
+  id: string;
+  name: string;
+  mediaType: string;
+  kind: 'image' | 'document' | 'text' | 'spreadsheet';
+  size: number;
+}
+
+export interface AgentAttachmentConfig {
+  maxFiles: number;
+  maxFileMb: number;
+  accept: string;
+}
+
 export interface AgentEvent {
   type: AgentEventType;
   content: string;
@@ -30,6 +44,7 @@ export interface AgentEvent {
     status: 'pending' | 'approved' | 'denied' | 'expired' | 'canceled';
     expiresAt: string; summary: string;
   };
+  attachments?: AgentAttachment[];
 }
 
 export interface AgentRun {
@@ -66,4 +81,9 @@ export interface AgentStreamState {
   reportMeta: { title: string; summary: string } | null;
 }
 
-export interface AgentConversationTurn { run: AgentRun; events: AgentEvent[]; report: AgentReport | null; }
+export interface AgentConversationTurn {
+  run: AgentRun;
+  events: AgentEvent[];
+  report: AgentReport | null;
+  attachments?: AgentAttachment[];
+}

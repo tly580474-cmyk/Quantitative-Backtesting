@@ -46,6 +46,10 @@ Codex 是可选 Provider。默认 Provider 保持 `AGENT_PROVIDER=claude`；Code
    AGENT_CODEX_MARKET_DATA_CLI=D:/github_public_repo/量化回测/server/scripts/agentMarketData.mjs
    AGENT_CODEX_EXTERNAL_DATA_SKILL_ENABLED=true
    AGENT_CODEX_PYTHON_PATH=C:/Users/<you>/AppData/Local/QuantBacktest/codex-home/a-stock-data-venv/Scripts/python.exe
+   AGENT_ATTACHMENT_ROOT=tmp_output/.agent-attachments
+   AGENT_ATTACHMENT_MAX_FILE_MB=20
+   AGENT_ATTACHMENT_MAX_FILES=8
+   AGENT_ATTACHMENT_MAX_CONTEXT_CHARS=300000
    ```
 
    OpenRouter 隔离探针可额外设置：
@@ -93,6 +97,15 @@ npm run agent:codex:probe -- --cancel
 - Ox Alpha 模型目录启用结构化 `shell_command` 并注入 skill 使用说明；文件修改由工作区内
   Shell 完成，因为 OpenRouter Responses 路径未暴露 Codex 的 `apply_patch` 自定义工具。
   常规工作区命令、修改、测试和只读取数不走逐步人工审批。
+
+## 对话附件
+
+- 上传接口接受图片、Word、Markdown、纯文本、PDF、Excel、CSV、OpenDocument 和 PowerPoint 常见格式；前端限制由后端 Provider 配置接口返回，避免前后端规则漂移。
+- 原文件和派生的 `content.md` 均保存在项目工作区内的 `AGENT_ATTACHMENT_ROOT`，目录名使用服务端 UUID；路径必须落在工作区内，不能配置到外部目录。
+- Word、PDF、表格等文档由 `@firecrawl/anydoc` 在本机转换为 Markdown，再作为明确标注的用户数据加入提示词。附件内容不具有系统指令优先级，并受单轮总字符上限约束。
+- Codex 图片通过 App Server 的 `localImage` 输入传递；Claude 图片以工作区文件路径交给其读取工具。图片不会伪装成文本解析。
+- 仅含扫描图像、没有文本层的 PDF 当前不做 OCR，上传会返回明确错误；先在可信工具中添加可检索文本层后再上传。
+- 附件在绑定运行前可以删除；超过 24 小时的未绑定文件会在后续上传时清理。绑定后随会话历史保留，删除会话时同步删除其磁盘文件。
 
 ## 安全与故障边界
 
