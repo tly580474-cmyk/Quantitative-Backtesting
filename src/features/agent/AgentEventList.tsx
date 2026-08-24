@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { CheckCircleOutlined, CloseCircleOutlined, CodeOutlined, DownOutlined, FileImageOutlined, FileTextOutlined, LoadingOutlined, RightOutlined, SafetyCertificateOutlined, UserOutlined, WarningOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, CloseCircleOutlined, CodeOutlined, DownOutlined, FileImageOutlined, FileTextOutlined, LoadingOutlined, ReloadOutlined, RightOutlined, SafetyCertificateOutlined, UserOutlined, WarningOutlined } from '@ant-design/icons';
 import { Button } from 'antd';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -104,12 +104,14 @@ function groupTurns(events: AgentEvent[]): Turn[] {
 }
 
 export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runId, isStreaming = false,
-  onConfirm, confirmationDisabled = false, onApproval, approvalDisabled = false }: {
+  onConfirm, confirmationDisabled = false, onApproval, approvalDisabled = false,
+  retryableRunId, onRetry, retrying = false }: {
   events: AgentEvent[]; userPrompt: string; reportUrl?: string | null;
   reportMeta?: { title: string; summary: string } | null; runId?: string | null; isStreaming?: boolean;
   autoCollapseIntermediates?: boolean;
   onConfirm?: (response: string) => void; confirmationDisabled?: boolean;
   onApproval?: (approvalId: string, decision: 'approved' | 'denied') => void; approvalDisabled?: boolean;
+  retryableRunId?: string | null; onRetry?: (runId: string) => void; retrying?: boolean;
 }) {
   const theme = useAgentTheme();
   const [clock, setClock] = useState(() => Date.now());
@@ -141,10 +143,7 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
           ? { ...event, content: '正在整理最终回答' }
           : event
       ));
-      // Individual tool failures are implementation detail: the agent may recover by
-      // retrying or choosing another tool. Keep only run-level errors user-visible.
-      const errors = turn.events.filter(event =>
-        (event.type === 'error' && !event.toolUseId)
+      const errors = turn.events.filter(event => event.type === 'error'
         || (event.type === 'terminal' && event.terminal?.status !== 'completed'));
       const confirmations = turn.events.filter(event => event.type === 'confirmation_required' && !event.approval);
       const approvals = [...turn.events.reduce((map, event) => {
@@ -158,6 +157,8 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
       const last = [...turn.events].reverse().find(event => event.timestamp)?.timestamp;
       const duration = calcDuration(first, current ? new Date(clock).toISOString() : last);
       const turnRunId = turn.events.find(event => event.runId)?.runId ?? runId ?? 'history';
+      const canRetry = Boolean(onRetry && retryableRunId === turnRunId
+        && turn.events.some(event => event.type === 'terminal' && event.terminal?.status === 'failed'));
       const key = `${turnRunId}:${index}:${first ?? 'none'}`;
       return <div key={key} style={{ display: 'flex', gap: 12, margin: '8px 0 26px' }}>
         <AssistantAvatar />
@@ -180,6 +181,17 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{event.content}</ReactMarkdown>
           </div>)}
           {errors.map((event, eventIndex) => <ErrorBlock key={`${event.seq ?? eventIndex}`} event={event} />)}
+          {canRetry && <div style={{ marginTop: 12 }}>
+            <Button
+              icon={<ReloadOutlined />}
+              loading={retrying}
+              disabled={retrying}
+              onClick={() => onRetry?.(turnRunId)}
+              style={{ minHeight: 44, borderRadius: 10 }}
+            >
+              重试失败任务
+            </Button>
+          </div>}
           {confirmations.map((event, eventIndex) => <AgentConfirmationCard key={`${event.seq ?? eventIndex}`}
             content={event.content} onSubmit={onConfirm} disabled={confirmationDisabled}
             answered={confirmationAnswered} />)}

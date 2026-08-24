@@ -26,13 +26,24 @@ describe('AgentEventList', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('运行超时（TIMEOUT）');
   });
 
-  it('hides recoverable tool failures while preserving run-level failures', () => {
+  it('shows tool failures and run-level failures without omitting error details', () => {
     render(<AgentEventList runId="run-tool-error" userPrompt="" events={[
       { type: 'error', content: '工具执行失败', toolUseId: 'tool-1' },
       { type: 'error', content: '智能体进程异常' },
     ]} />);
-    expect(screen.queryByText('工具执行失败')).not.toBeInTheDocument();
-    expect(screen.getByRole('alert')).toHaveTextContent('智能体进程异常');
+    expect(screen.getByText('工具执行失败')).toBeVisible();
+    expect(screen.getByText('智能体进程异常')).toBeVisible();
+  });
+
+  it('offers an explicit retry only for the retryable failed run', () => {
+    const onRetry = vi.fn();
+    render(<AgentEventList runId="run-failed" userPrompt="" retryableRunId="run-failed" onRetry={onRetry} events={[
+      { type: 'user', content: '研究任务', runId: 'run-failed' },
+      { type: 'error', content: '模型连接中断', runId: 'run-failed' },
+      { type: 'terminal', content: '执行失败', runId: 'run-failed', terminal: { status: 'failed', exitCode: 1 } },
+    ]} />);
+    fireEvent.click(screen.getByRole('button', { name: /重试失败任务/ }));
+    expect(onRetry).toHaveBeenCalledWith('run-failed');
   });
 
   it('renders a confirmation card and submits the selected decision', () => {

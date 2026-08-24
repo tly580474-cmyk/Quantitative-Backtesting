@@ -178,7 +178,10 @@ export function registerAgentRoutes(
     }
   });
 
-  const startRun = async (body: z.infer<typeof messageSchema>, parent?: AgentRunRecord) => {
+  const startRun = async (
+    body: z.infer<typeof messageSchema>, parent?: AgentRunRecord,
+    attachmentOverride?: Awaited<ReturnType<AgentAttachmentService['providerAttachments']>>,
+  ) => {
     const repo = new AgentRepository(deps.pool);
     const runId = crypto.randomUUID();
     const conversationId = parent?.conversationId ?? runId;
@@ -196,9 +199,9 @@ export function registerAgentRoutes(
       throw error;
     }
     if (parent?.sessionId) await repo.updateSessionId(runId, parent.sessionId);
-    const attachments = body.attachmentIds.length
+    const attachments = attachmentOverride ?? (body.attachmentIds.length
       ? await attachmentService.providerAttachments(runId)
-      : [];
+      : []);
     void orchestrator.start({
       runId, prompt: body.prompt, maxTurns: 0, timeoutMs: timeoutMinutes * 60_000,
       templateStyle: 'classic-blue', resumeSessionId: parent?.sessionId ?? undefined,
@@ -338,6 +341,29 @@ export function registerAgentRoutes(
     });
   });
 
+  app.post('/api/agent/runs/:runId/retry', async (request, reply) => {
+    if (!ensureAvailable(reply)) return;
+    const repo = new AgentRepository(deps.pool);
+    const parent = await repo.getRun((request.params as { runId: string }).runId);
+    if (!parent) return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '运行不存在'));
+    if (parent.status !== 'failed') {
+      return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '只有失败任务可以重试'));
+    }
+    const latest = (await repo.listConversationTurns(parent.conversationId, 1))[0];
+    if (!latest || latest.id !== parent.id) {
+      return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '该失败任务之后已有新对话，不能重复重试'));
+    }
+    const retryPrompt = parent.prompt.length > 99_950 ? parent.prompt : `重试上一轮任务：\n${parent.prompt}`;
+    try {
+      const attachments = await attachmentService.providerAttachments(parent.id);
+      const result = await startRun({ prompt: retryPrompt, attachmentIds: [] }, parent, attachments);
+      return reply.code(201).send({ ...result, prompt: retryPrompt });
+    } catch (error) {
+      if (error instanceof AgentAttachmentError) return attachmentFailure(reply, error);
+      throw error;
+    }
+  });
+
   app.get('/api/agent/approvals', async (request, reply) => {
     if (!ensureAvailable(reply)) return;
     const { runId } = request.query as { runId?: string };
@@ -432,6 +458,24 @@ export function registerAgentRoutes(
     await attachmentService.removeRunFiles(runId);
     await repo.deleteRun(runId);
     return reply.send({ runId, deleted: true });
+  });
+
+  app.delete('/api/agent/conversations/:conversationId', async (request, reply) => {
+    if (!ensureAvailable(reply)) return;
+    const conversationId = (request.params as { conversationId: string }).conversationId;
+    const repo = new AgentRepository(deps.pool);
+    const runs = await repo.getConversationRuns(conversationId);
+    if (!runs.length) return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '对话不存在'));
+    if (runs.some(run => !TERMINAL.has(run.status) || orchestrator.isRunning(run.id))) {
+      return reply.code(409).send(apiError(ErrorCodes.INTERNAL_ERROR, '对话仍在运行，请先取消任务'));
+    }
+    for (const run of runs) {
+      const report = await repo.getReport(run.id);
+      if (report?.htmlPath) await unlink(report.htmlPath).catch(() => undefined);
+      await attachmentService.removeRunFiles(run.id);
+    }
+    await repo.deleteConversation(conversationId);
+    return reply.send({ conversationId, deletedRuns: runs.length });
   });
 
   const loadReport = async (runId: string) => {

@@ -126,4 +126,87 @@ describe('agent route boundary', () => {
     expect(response.json().approval).toMatchObject({ id: approvalId, status: 'approved', runId: 'run-approval' });
     await app.close();
   });
+
+  it('retries a failed task only through the explicit retry endpoint', async () => {
+    const app = Fastify();
+    const failedRun = {
+      id: 'run-failed', prompt: '研究失败任务', status: 'failed', max_turns: 0, template_style: 'classic-blue',
+      timeout_ms: 60_000, pid: null, provider: 'codex', session_id: 'thread-1', parent_run_id: null,
+      conversation_id: 'conversation-1', turn_index: 0, protocol_version: 2, exit_code: 1,
+      error_message: '连接失败', error_code: 'PROVIDER_ERROR', created_at: new Date().toISOString(),
+      started_at: null, finished_at: new Date().toISOString(),
+    };
+    const pool = {
+      execute: async (sql: string) => {
+        if (sql.includes('SELECT * FROM agent_runs WHERE id')) return [[failedRun]];
+        if (sql.includes('SELECT * FROM agent_attachments WHERE run_id')) return [[]];
+        return [{ affectedRows: 1 }];
+      },
+      query: async (sql: string) => sql.includes('SELECT * FROM agent_runs WHERE conversation_id')
+        ? [[failedRun]] : [[]],
+    } as unknown as Pool;
+    let startParams: Record<string, unknown> | undefined;
+    const orchestrator = {
+      getDefaultProvider: () => 'claude',
+      start: async (params: Record<string, unknown>) => { startParams = params; },
+    } as unknown as AgentOrchestrator;
+    registerAgentRoutes(app, true, {
+      pool, orchestrator, reportRoot: '.', enabled: true, config: loadConfig(),
+    });
+
+    const response = await app.inject({ method: 'POST', url: '/api/agent/runs/run-failed/retry' });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().prompt).toContain('重试上一轮任务');
+    expect(startParams).toMatchObject({ provider: 'codex', resumeSessionId: 'thread-1' });
+    await app.close();
+  });
+
+  it('deletes every finalized turn through the conversation endpoint', async () => {
+    const app = Fastify();
+    const baseRun = {
+      prompt: '研究任务', status: 'completed', max_turns: 0, template_style: 'classic-blue',
+      timeout_ms: 60_000, pid: null, provider: 'codex', session_id: 'thread-1',
+      conversation_id: 'conversation-1', protocol_version: 2, exit_code: 0,
+      error_message: null, error_code: null, created_at: new Date().toISOString(),
+      started_at: null, finished_at: new Date().toISOString(),
+    };
+    const runs = [
+      { ...baseRun, id: 'run-1', parent_run_id: null, turn_index: 0 },
+      { ...baseRun, id: 'run-2', parent_run_id: 'run-1', turn_index: 1 },
+    ];
+    const transactionSql: string[] = [];
+    const connection = {
+      beginTransaction: async () => undefined,
+      execute: async (sql: string) => {
+        transactionSql.push(sql);
+        return sql.includes('SELECT id FROM agent_runs')
+          ? [[{ id: 'run-1' }, { id: 'run-2' }]]
+          : [{ affectedRows: 2 }];
+      },
+      commit: async () => undefined,
+      rollback: async () => undefined,
+      release: () => undefined,
+    };
+    const pool = {
+      execute: async (sql: string) => {
+        if (sql.includes('SELECT * FROM agent_runs WHERE conversation_id')) return [runs];
+        return [[]];
+      },
+      getConnection: async () => connection,
+    } as unknown as Pool;
+    const orchestrator = { isRunning: () => false } as unknown as AgentOrchestrator;
+    registerAgentRoutes(app, true, {
+      pool, orchestrator, reportRoot: '.', enabled: true, config: loadConfig(),
+    });
+
+    const response = await app.inject({
+      method: 'DELETE', url: '/api/agent/conversations/conversation-1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ conversationId: 'conversation-1', deletedRuns: 2 });
+    expect(transactionSql).toContain('DELETE FROM agent_runs WHERE conversation_id = ?');
+    await app.close();
+  });
 });

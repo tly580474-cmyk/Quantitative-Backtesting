@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { buildCodexEnvironment, buildCodexTurnInput, CodexAgentProvider } from './codexAgentProvider.js';
+import {
+  buildCodexEnvironment, buildCodexTurnInput, codexToolErrorContent, CodexAgentProvider,
+} from './codexAgentProvider.js';
 
 describe('CodexAgentProvider safety boundary', () => {
+  it('keeps useful tool failure details while redacting credentials and host paths', () => {
+    expect(codexToolErrorContent({
+      type: 'commandExecution', status: 'failed',
+      aggregatedOutput: '读取 C:\\Users\\alice\\data.csv 失败，api_key=very-secret-value',
+    })).toBe('读取 [已隐藏] 失败，[已隐藏]');
+  });
+
   it('uses the official localImage input for image attachments only', () => {
     const base = {
       id: 'a', name: 'chart.png', mediaType: 'image/png', size: 10,

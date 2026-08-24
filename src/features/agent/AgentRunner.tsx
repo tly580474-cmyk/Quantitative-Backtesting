@@ -8,13 +8,13 @@ import {
   PlusOutlined, SettingOutlined, ReloadOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined,
   SendOutlined, PaperClipOutlined, CloseOutlined, FileImageOutlined, FileTextOutlined,
-  DeleteOutlined, MessageOutlined,
+  DeleteOutlined, MessageOutlined, UndoOutlined, UploadOutlined,
   DownOutlined, RightOutlined,
 } from '@ant-design/icons';
 import { AgentEventList, calcDuration } from './AgentEventList';
 import { useAgentStream } from './useAgentStream';
 import {
-  createAgentRun, cancelAgentRun, listAgentConversations, deleteAgentRun,
+  createAgentRun, cancelAgentRun, listAgentConversations, deleteAgentConversation, retryAgentRun,
   continueAgentRun, getAgentConversation, getAgentProviders, decideAgentApproval,
   uploadAgentAttachment, deleteAgentAttachment,
 } from './api';
@@ -89,6 +89,17 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function normalizePastedFile(file: File): File {
+  if (file.name && file.name.includes('.')) return file;
+  const extension = ({
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp',
+    'text/plain': 'txt', 'text/markdown': 'md', 'text/csv': 'csv', 'application/pdf': 'pdf',
+  } as Record<string, string>)[file.type] ?? 'bin';
+  return new File([file], `clipboard-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`, {
+    type: file.type, lastModified: file.lastModified,
+  });
+}
+
 function formatChatDate(iso?: string | null): string {
   if (!iso) {
     const d = new Date();
@@ -161,7 +172,11 @@ export default function AgentRunner() {
   const [providers, setProviders] = useState<AgentProviderHealth[]>([]);
   const [attachmentConfig, setAttachmentConfig] = useState(DEFAULT_ATTACHMENT_CONFIG);
   const [attachmentDrafts, setAttachmentDrafts] = useState<AttachmentDraft[]>([]);
+  const [attachmentDragActive, setAttachmentDragActive] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [pendingConversationDeletes, setPendingConversationDeletes] = useState<Set<string>>(new Set());
   const [runId, setRunId] = useState<string | null>(null);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -174,11 +189,12 @@ export default function AgentRunner() {
   const [currentRunStartTime, setCurrentRunStartTime] = useState<string | null>(null);
   const [continueFromRunId, setContinueFromRunId] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(new Set(['yesterday', 'week', 'earlier']));
-  const { message } = App.useApp();
+  const { message, notification } = App.useApp();
   const { state, connect, disconnect, hydrate } = useAgentStream();
   const t = useAgentTheme();
   const inputRef = useRef<{ focus: () => void; resizableTextArea?: { textArea: HTMLTextAreaElement } } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const deleteTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 900px)');
@@ -212,6 +228,7 @@ export default function AgentRunner() {
     if (!selectedTurn) throw new Error('对话内容为空');
 
     setRunId(selectedRunId ?? selectedTurn.run.id);
+    setCurrentConversationId(selectedTurn.run.conversationId);
     setProvider(selectedTurn.run.provider ?? 'claude');
     setCurrentPrompt('');
     setCurrentRunStartTime(result.turns[0]?.run.createdAt ?? selectedTurn.run.createdAt);
@@ -310,7 +327,7 @@ export default function AgentRunner() {
     });
   }, []);
 
-  const handleAttachmentFiles = useCallback((files: FileList | null) => {
+  const handleAttachmentFiles = useCallback((files: FileList | File[] | null) => {
     if (!files?.length) return;
     const available = Math.max(0, attachmentConfig.maxFiles - attachmentDrafts.length);
     const selected = Array.from(files).slice(0, available);
@@ -336,6 +353,21 @@ export default function AgentRunner() {
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [attachmentConfig, attachmentDrafts.length, message]);
+
+  const handleAttachmentPaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData.files).map(normalizePastedFile);
+    if (!files.length) return;
+    event.preventDefault();
+    handleAttachmentFiles(files);
+  }, [handleAttachmentFiles]);
+
+  const handleAttachmentDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setAttachmentDragActive(false);
+    if (state.status === 'running' || state.status === 'connecting' || loading) return;
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length) handleAttachmentFiles(files);
+  }, [handleAttachmentFiles, loading, state.status]);
 
   const handleRemoveAttachment = useCallback((localId: string) => {
     const selected = attachmentDrafts.find(item => item.localId === localId);
@@ -368,7 +400,7 @@ export default function AgentRunner() {
     }
     setLoading(true);
     try {
-      let result: { runId: string; status: string };
+      let result: { runId: string; conversationId: string; status: string };
       const parentRunId = continueFromRunId
         ?? ((state.status === 'completed' || state.status === 'failed' || state.status === 'canceled') ? runId : null);
       const isContinue = !!parentRunId;
@@ -379,6 +411,7 @@ export default function AgentRunner() {
         result = await createAgentRun(submittedPrompt, provider, attachmentIds);
       }
       setRunId(result.runId);
+      setCurrentConversationId(result.conversationId);
       if (!isContinue) {
         setCurrentPrompt('');
         setCurrentRunStartTime(new Date().toISOString());
@@ -430,6 +463,7 @@ export default function AgentRunner() {
     disconnect();
     clearUnboundAttachments();
     setRunId(null);
+    setCurrentConversationId(null);
     setPrompt('');
     setCurrentPrompt('');
     setCurrentRunStartTime(null);
@@ -437,18 +471,77 @@ export default function AgentRunner() {
     inputRef.current?.focus();
   }, [disconnect, clearUnboundAttachments]);
 
-  const handleDeleteRun = useCallback(async (id: string) => {
+  const undoConversationDelete = useCallback((conversationId: string) => {
+    const timer = deleteTimersRef.current.get(conversationId);
+    if (timer) clearTimeout(timer);
+    deleteTimersRef.current.delete(conversationId);
+    setPendingConversationDeletes(current => {
+      const next = new Set(current); next.delete(conversationId); return next;
+    });
+    notification.destroy(`delete-conversation-${conversationId}`);
+    message.success('已撤销删除');
+  }, [message, notification]);
+
+  const scheduleConversationDelete = useCallback((conversation: AgentRun) => {
+    const conversationId = conversation.conversationId;
+    if (deleteTimersRef.current.has(conversationId)) return;
+    setPendingConversationDeletes(current => new Set(current).add(conversationId));
+    const key = `delete-conversation-${conversationId}`;
+    const timer = setTimeout(() => {
+      deleteTimersRef.current.delete(conversationId);
+      void deleteAgentConversation(conversationId).then(() => {
+        notification.destroy(key);
+        setPendingConversationDeletes(current => {
+          const next = new Set(current); next.delete(conversationId); return next;
+        });
+        void fetchHistory();
+        if (currentConversationId === conversationId) handleNewConversation();
+        message.success('整段对话已删除');
+      }).catch(error => {
+        notification.destroy(key);
+        setPendingConversationDeletes(current => {
+          const next = new Set(current); next.delete(conversationId); return next;
+        });
+        message.error(`删除失败：${error instanceof Error ? error.message : String(error)}`);
+      });
+    }, 5_000);
+    deleteTimersRef.current.set(conversationId, timer);
+    notification.warning({
+      key,
+      title: '将在 5 秒后删除整段对话',
+      description: '所有轮次、附件和报告都会一起删除。',
+      placement: 'bottomRight',
+      duration: 5,
+      showProgress: true,
+      pauseOnHover: false,
+      closable: false,
+      actions: <Button size="small" icon={<UndoOutlined />} onClick={() => undoConversationDelete(conversationId)}>撤销删除</Button>,
+    });
+  }, [currentConversationId, fetchHistory, handleNewConversation, message, notification, undoConversationDelete]);
+
+  useEffect(() => () => {
+    for (const timer of deleteTimersRef.current.values()) clearTimeout(timer);
+    deleteTimersRef.current.clear();
+  }, []);
+
+  const handleRetry = useCallback(async (failedRunId: string) => {
+    if (retrying) return;
+    setRetrying(true);
     try {
-      await deleteAgentRun(id);
-      message.success('已删除');
-      fetchHistory();
-      if (runId === id) {
-        handleNewConversation();
-      }
-    } catch (err) {
-      message.error(`删除失败: ${err instanceof Error ? err.message : String(err)}`);
+      const result = await retryAgentRun(failedRunId);
+      const userEvent: AgentEvent = {
+        type: 'user', content: result.prompt, timestamp: new Date().toISOString(), runId: result.runId,
+      };
+      setRunId(result.runId);
+      setCurrentConversationId(result.conversationId);
+      setContinueFromRunId(null);
+      connect(result.runId, { initialEvents: [...state.events, userEvent] });
+    } catch (error) {
+      message.error(`重试失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setRetrying(false);
     }
-  }, [runId, fetchHistory, handleNewConversation, message]);
+  }, [connect, message, retrying, state.events]);
 
   const handleContinueRun = useCallback(async (parentRun: AgentRun) => {
     try {
@@ -633,6 +726,9 @@ export default function AgentRunner() {
               confirmationDisabled={loading || isRunning}
               onApproval={(id, decision) => void handleApproval(id, decision)}
               approvalDisabled={loading}
+              retryableRunId={state.status === 'failed' ? runId : null}
+              onRetry={handleRetry}
+              retrying={retrying}
             />
           </div>
         </div>
@@ -681,7 +777,30 @@ export default function AgentRunner() {
             pointerEvents: 'none',
           }}
         >
-          <div style={{ maxWidth: 768, margin: '0 auto', pointerEvents: 'auto' }}>
+          <div
+            style={{ maxWidth: 768, margin: '0 auto', pointerEvents: 'auto' }}
+            onDragEnter={event => {
+              if (!isRunning && !loading && event.dataTransfer.types.includes('Files')) setAttachmentDragActive(true);
+            }}
+            onDragOver={event => {
+              if (!event.dataTransfer.types.includes('Files')) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = isRunning || loading ? 'none' : 'copy';
+            }}
+            onDragLeave={event => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setAttachmentDragActive(false);
+            }}
+            onDrop={handleAttachmentDrop}
+          >
+            {attachmentDragActive && (
+              <div role="status" aria-live="polite" style={{
+                minHeight: 52, marginBottom: 10, borderRadius: 14, border: `2px dashed ${t.textOnBlue}`,
+                background: t.bgSelected, color: t.textOnBlue, display: 'flex', alignItems: 'center',
+                justifyContent: 'center', gap: 9, fontSize: 13, fontWeight: 600,
+              }}>
+                <UploadOutlined />释放文件以添加附件
+              </div>
+            )}
             {attachmentDrafts.length > 0 && (
               <div
                 role="list"
@@ -790,7 +909,7 @@ export default function AgentRunner() {
                 onChange={event => handleAttachmentFiles(event.target.files)}
                 style={{ display: 'none' }}
               />
-              <Tooltip title="添加附件">
+              <Tooltip title="添加附件，也可拖入文件或按 Ctrl+V 粘贴">
                 <button
                   type="button"
                   aria-label="添加附件"
@@ -843,6 +962,7 @@ export default function AgentRunner() {
                 ref={inputRef as never}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
+                onPaste={handleAttachmentPaste}
                 placeholder={
                   isRunning
                     ? 'Agent 运行中…'
@@ -937,8 +1057,8 @@ export default function AgentRunner() {
             {!showSettings && !isRunning && (
               <div style={{ textAlign: 'center', marginTop: 10, color: t.textSecondary, fontSize: 11 }}>
                 {compactLayout
-                  ? 'Ctrl + Enter 发送 · 设置中可选择 Provider'
-                  : '按 Ctrl + Enter 发送 · 智能体按任务自动完成研究'}
+                  ? 'Ctrl + Enter 发送 · 可拖入或 Ctrl+V 添加附件'
+                  : '按 Ctrl + Enter 发送 · 拖入文件或 Ctrl+V 可添加附件'}
               </div>
             )}
           </div>
@@ -1095,16 +1215,18 @@ export default function AgentRunner() {
                                   />
                                 </Tooltip>
                               )}
-                              <Tooltip title="删除">
+                              <Tooltip title="删除整段对话">
                                 <Button
-                                  aria-label="删除此轮运行"
+                                  aria-label="删除整段对话"
                                   size="small"
                                   type="text"
                                   danger
                                   icon={<DeleteOutlined style={{ fontSize: 12 }} />}
+                                  loading={pendingConversationDeletes.has(run.conversationId)}
+                                  disabled={pendingConversationDeletes.has(run.conversationId)}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDeleteRun(run.id);
+                                    scheduleConversationDelete(run);
                                   }}
                                   style={{ width: 22, height: 22, minWidth: 22 }}
                                 />

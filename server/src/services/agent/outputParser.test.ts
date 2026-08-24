@@ -30,6 +30,20 @@ describe('agent public event protocol', () => {
     expect(JSON.stringify(events)).not.toContain('SECRET_OUTPUT');
   });
 
+  it('keeps a sanitized failed tool result instead of replacing it with a generic error', () => {
+    const events = parseStreamLine(JSON.stringify({
+      type: 'user',
+      message: { content: [{
+        type: 'tool_result', tool_use_id: 'call-failed', is_error: true,
+        content: [{ type: 'text', text: '连接行情接口超时；token=private-token-value' }],
+      }] },
+    }));
+    expect(events[0]).toMatchObject({
+      type: 'error', toolUseId: 'call-failed',
+      publicContent: '工具执行失败：连接行情接口超时；[已隐藏]',
+    });
+  });
+
   it('turns partial thinking and tool starts into safe realtime markers', () => {
     const thinking = parseStreamLine(JSON.stringify({
       type: 'stream_event', event: { type: 'content_block_start', index: 0,

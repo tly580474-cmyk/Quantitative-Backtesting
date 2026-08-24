@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { continueAgentRun, createAgentRun, normalizeAgentEvent } from './api';
+import { continueAgentRun, createAgentRun, deleteAgentConversation, normalizeAgentEvent, retryAgentRun } from './api';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -41,5 +41,23 @@ describe('agent run request settings', () => {
 
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(JSON.parse(String(request.body))).toEqual({ prompt: '继续研究', attachmentIds: ['attachment-2'] });
+  });
+
+  it('deletes an entire conversation instead of one run', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ deletedRuns: 3 }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await deleteAgentConversation('conversation-1');
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/agent/conversations/conversation-1'),
+      expect.objectContaining({ method: 'DELETE' }));
+  });
+
+  it('retries only through the explicit retry endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      runId: 'run-2', conversationId: 'conversation-1', parentRunId: 'run-1', status: 'pending', prompt: '重试任务',
+    }), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await retryAgentRun('run-1');
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/agent/runs/run-1/retry'),
+      expect.objectContaining({ method: 'POST' }));
   });
 });

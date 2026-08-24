@@ -58,4 +58,26 @@ describe('AgentRepository state machine', () => {
     const events = await repo.getEvents('run-1');
     expect(events[0].terminal).toEqual({ status: 'canceled', exitCode: null });
   });
+
+  it('deletes every run in a conversation in one transaction', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce([[{ id: 'run-1' }, { id: 'run-2' }]])
+      .mockResolvedValue([{ affectedRows: 2 }]);
+    const connection = {
+      beginTransaction: vi.fn(), execute, commit: vi.fn(), rollback: vi.fn(), release: vi.fn(),
+    };
+    const repo = new AgentRepository({ getConnection: vi.fn().mockResolvedValue(connection) } as unknown as Pool);
+
+    await repo.deleteConversation('conversation-1');
+
+    expect(connection.beginTransaction).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledTimes(6);
+    expect(execute.mock.calls[0]?.[0]).toContain('FOR UPDATE');
+    expect(execute.mock.calls[1]?.[0]).toContain('run_id IN (?, ?)');
+    expect(execute.mock.calls[1]?.[1]).toEqual(['run-1', 'run-2']);
+    expect(execute.mock.calls.at(-1)?.[0]).toContain('DELETE FROM agent_runs WHERE conversation_id');
+    expect(connection.commit).toHaveBeenCalledOnce();
+    expect(connection.rollback).not.toHaveBeenCalled();
+    expect(connection.release).toHaveBeenCalledOnce();
+  });
 });

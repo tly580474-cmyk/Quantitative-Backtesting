@@ -190,10 +190,45 @@ export class AgentRepository {
     await this.pool.execute('DELETE FROM agent_runs WHERE id = ?', [runId]);
   }
 
+  async deleteConversation(conversationId: string): Promise<void> {
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      // Do not compare child.run_id directly with agent_runs.id here. Existing
+      // installations may have inherited different utf8mb4 collations for
+      // those columns, which makes a subquery comparison fail in MySQL.
+      const [rows] = await connection.execute(
+        'SELECT id FROM agent_runs WHERE conversation_id = ? FOR UPDATE', [conversationId],
+      );
+      const runIds = (rows as Array<{ id: string }>).map(row => row.id);
+      if (runIds.length) {
+        const placeholders = runIds.map(() => '?').join(', ');
+        await connection.execute(`DELETE FROM agent_approvals WHERE run_id IN (${placeholders})`, runIds);
+        await connection.execute(`DELETE FROM agent_events WHERE run_id IN (${placeholders})`, runIds);
+        await connection.execute(`DELETE FROM agent_reports WHERE run_id IN (${placeholders})`, runIds);
+        await connection.execute(`DELETE FROM agent_attachments WHERE run_id IN (${placeholders})`, runIds);
+      }
+      await connection.execute('DELETE FROM agent_runs WHERE conversation_id = ?', [conversationId]);
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   async getRun(runId: string): Promise<AgentRunRecord | null> {
     const [rows] = await this.pool.execute('SELECT * FROM agent_runs WHERE id = ?', [runId]);
     const row = (rows as Record<string, unknown>[])[0];
     return row ? toCamelRow<AgentRunRecord>(row) : null;
+  }
+
+  async getConversationRuns(conversationId: string): Promise<AgentRunRecord[]> {
+    const [rows] = await this.pool.execute(
+      'SELECT * FROM agent_runs WHERE conversation_id = ? ORDER BY turn_index ASC', [conversationId],
+    );
+    return (rows as Record<string, unknown>[]).map(row => toCamelRow<AgentRunRecord>(row));
   }
 
   async getRunChain(runId: string): Promise<AgentRunRecord[]> {

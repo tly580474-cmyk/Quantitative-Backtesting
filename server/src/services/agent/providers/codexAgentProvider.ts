@@ -114,6 +114,25 @@ function isToolItem(item: Record<string, any>): boolean {
   return ['commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall', 'webSearch'].includes(item.type);
 }
 
+export function codexToolErrorContent(item: Record<string, any>): string {
+  const candidates = [
+    item.error?.message,
+    item.error,
+    item.message,
+    item.aggregatedOutput,
+    item.output,
+    item.result?.error?.message,
+    item.result?.error,
+    item.result?.message,
+    item.result?.content,
+  ];
+  for (const candidate of candidates) {
+    const content = sanitizePublicContent(candidate);
+    if (content) return content;
+  }
+  return '';
+}
+
 export class CodexAgentProvider implements AgentProvider {
   readonly id = 'codex' as const;
   readonly capabilities: AgentProviderCapabilities;
@@ -279,9 +298,12 @@ export class CodexAgentProvider implements AgentProvider {
         if (isToolItem(item)) {
           const toolName = publicToolName(item);
           const failed = ['failed', 'declined', 'error'].includes(String(item.status ?? '').toLowerCase());
+          const errorDetail = failed ? codexToolErrorContent(item) : '';
           await sink.event({
             type: failed ? 'error' : 'tool_finished',
-            publicContent: failed ? `${toolName} 执行失败` : `${toolName} 执行完成`,
+            publicContent: failed
+              ? `${toolName} 执行失败${errorDetail ? `：${errorDetail}` : ''}`
+              : `${toolName} 执行完成`,
             timestamp: now(), toolName,
             toolUseId: String(item.id ?? '').slice(0, 128) || undefined,
             durationMs: typeof item.durationMs === 'number' ? item.durationMs : undefined,

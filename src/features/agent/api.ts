@@ -55,6 +55,14 @@ export async function cancelAgentRun(runId: string): Promise<void> {
 export async function deleteAgentRun(runId: string): Promise<void> {
   await apiFetch(`/api/agent/runs/${runId}`, { method: 'DELETE' });
 }
+export async function deleteAgentConversation(conversationId: string): Promise<void> {
+  await apiFetch(`/api/agent/conversations/${conversationId}`, { method: 'DELETE' });
+}
+export async function retryAgentRun(runId: string): Promise<{
+  runId: string; conversationId: string; status: string; parentRunId: string; prompt: string;
+}> {
+  return apiFetch(`/api/agent/runs/${runId}/retry`, { method: 'POST' });
+}
 export async function continueAgentRun(
   parentRunId: string, prompt: string, attachmentIds: string[] = [],
 ): Promise<{ runId: string; conversationId: string; status: string; parentRunId: string }> {

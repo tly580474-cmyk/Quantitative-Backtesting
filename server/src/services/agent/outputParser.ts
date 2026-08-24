@@ -16,6 +16,21 @@ interface StreamBlock {
   is_error?: boolean;
 }
 
+function toolResultErrorContent(content: unknown): string {
+  if (typeof content === 'string') return sanitizePublicContent(content);
+  if (Array.isArray(content)) {
+    const text = content.flatMap(item => {
+      if (typeof item === 'string') return [item];
+      if (item && typeof item === 'object' && typeof (item as { text?: unknown }).text === 'string') {
+        return [(item as { text: string }).text];
+      }
+      return [];
+    }).join('\n');
+    return sanitizePublicContent(text);
+  }
+  return sanitizePublicContent(content);
+}
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -140,9 +155,12 @@ function parseBlocks(blocks: StreamBlock[]): ParsedEvent[] {
     }
 
     if (block.type === 'tool_result') {
+      const errorDetail = block.is_error ? toolResultErrorContent(block.content) : '';
       events.push({
         type: block.is_error ? 'error' : 'tool_finished',
-        publicContent: block.is_error ? '工具执行失败' : '工具执行完成',
+        publicContent: block.is_error
+          ? `工具执行失败${errorDetail ? `：${errorDetail}` : ''}`
+          : '工具执行完成',
         timestamp: now(),
         toolUseId: typeof block.tool_use_id === 'string' ? block.tool_use_id.slice(0, 128) : undefined,
       });
