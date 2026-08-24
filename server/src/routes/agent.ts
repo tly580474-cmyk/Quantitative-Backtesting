@@ -103,18 +103,11 @@ export function registerAgentRoutes(
   deps: { pool: Pool; orchestrator: AgentOrchestrator; reportRoot: string; enabled: boolean; config: EnvConfig },
 ) {
   const { orchestrator, enabled, config } = deps;
-  const defaultMaxTurns = Number.parseInt(config.AGENT_DEFAULT_MAX_TURNS, 10) || 50;
   const defaultTimeoutMinutes = Number.parseInt(config.AGENT_TIMEOUT_MINUTES, 10) || 60;
   const defaultCodexTimeoutMinutes = Number.parseInt(config.AGENT_CODEX_TIMEOUT_MINUTES, 10) || 60;
   const messageSchema = z.object({
     prompt: z.string().trim().min(1).max(100_000),
-    maxTurns: z.number().int().min(0).max(200).default(defaultMaxTurns),
     timeoutMinutes: z.number().int().min(1).max(360).optional(),
-    templateStyle: z.enum(['classic-blue', 'dark-pro', 'minimal-white', 'dashboard']).default('classic-blue'),
-    reportMode: z.literal('auto').default('auto'),
-    // Kept temporarily so an older frontend does not fail validation. The agent now decides
-    // from the task itself; this legacy switch no longer forces or suppresses a report.
-    generateReport: z.boolean().optional(),
     provider: z.enum(['claude', 'codex']).optional(),
   });
 
@@ -137,12 +130,12 @@ export function registerAgentRoutes(
     const provider: AgentProviderId = parent?.provider ?? body.provider ?? orchestrator.getDefaultProvider();
     const timeoutMinutes = body.timeoutMinutes
       ?? (provider === 'codex' ? defaultCodexTimeoutMinutes : defaultTimeoutMinutes);
-    await repo.createRun(runId, body.prompt, body.maxTurns, timeoutMinutes * 60_000,
-      body.templateStyle, parent?.id, conversationId, turnIndex, provider);
+    await repo.createRun(runId, body.prompt, 0, timeoutMinutes * 60_000,
+      'classic-blue', parent?.id, conversationId, turnIndex, provider);
     if (parent?.sessionId) await repo.updateSessionId(runId, parent.sessionId);
     void orchestrator.start({
-      runId, prompt: body.prompt, maxTurns: body.maxTurns, timeoutMs: timeoutMinutes * 60_000,
-      templateStyle: body.templateStyle, resumeSessionId: parent?.sessionId ?? undefined,
+      runId, prompt: body.prompt, maxTurns: 0, timeoutMs: timeoutMinutes * 60_000,
+      templateStyle: 'classic-blue', resumeSessionId: parent?.sessionId ?? undefined,
       provider,
     }).catch(error => console.error(`[Agent] start failed for ${runId}:`, error));
     return { runId, conversationId, turnIndex, status: 'pending' as const, parentRunId: parent?.id ?? null };

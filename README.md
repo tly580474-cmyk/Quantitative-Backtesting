@@ -65,7 +65,7 @@
 - 对话历史管理、删除任务和继续对话；同一对话固定沿用创建时的 Provider
 - Codex 在项目工作区内自主运行命令、修改文件和执行测试，常规操作不逐步请求人工审批
 - 行情查询遵循“项目本地接口优先，明确缺失后再由 a-stock-data 补缺”的顺序
-- 四套可配置报告模板：经典金融蓝 / 暗色专业 / 极简白 / 数据面板
+- 报告版式由系统统一处理，智能体只负责判断本轮是否值得生成报告
 
 ### 🎯 策略研究
 - **策略工作室**：自然语言生成策略 DSL，可视化节点编辑器
@@ -205,7 +205,6 @@ AGENT_CODEX_MARKET_DATA_CLI=D:/github_public_repo/量化回测/server/scripts/ag
 AGENT_CODEX_EXTERNAL_DATA_SKILL_ENABLED=true
 AGENT_CODEX_PYTHON_PATH=C:/Users/<you>/AppData/Local/QuantBacktest/codex-home/a-stock-data-venv/Scripts/python.exe
 
-AGENT_DEFAULT_MAX_TURNS=0     # 0=不限制
 AGENT_TIMEOUT_MINUTES=30
 AGENT_CODEX_TIMEOUT_MINUTES=60
 AGENT_MAX_CONCURRENT=1

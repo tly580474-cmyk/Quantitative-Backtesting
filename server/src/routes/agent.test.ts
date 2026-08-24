@@ -72,6 +72,39 @@ describe('agent route boundary', () => {
     await app.close();
   });
 
+  it('ignores legacy turn and report-style fields and always starts without a turn limit', async () => {
+    const app = Fastify();
+    let insertParams: unknown[] = [];
+    let startParams: Record<string, unknown> | undefined;
+    const pool = {
+      execute: async (sql: string, params?: unknown[]) => {
+        if (sql.includes('INSERT INTO agent_runs')) insertParams = params ?? [];
+        return [{}];
+      },
+    } as unknown as Pool;
+    const orchestrator = {
+      getDefaultProvider: () => 'claude',
+      start: async (params: Record<string, unknown>) => { startParams = params; },
+    } as unknown as AgentOrchestrator;
+    registerAgentRoutes(app, true, {
+      pool, orchestrator, reportRoot: '.', enabled: true, config: loadConfig(),
+    });
+
+    const response = await app.inject({
+      method: 'POST', url: '/api/agent/runs',
+      payload: {
+        prompt: 'research', provider: 'codex', maxTurns: 3,
+        templateStyle: 'dark-pro', reportMode: 'auto', generateReport: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(insertParams[2]).toBe(0);
+    expect(insertParams[4]).toBe('classic-blue');
+    expect(startParams).toMatchObject({ maxTurns: 0, templateStyle: 'classic-blue', provider: 'codex' });
+    await app.close();
+  });
+
   it('accepts an idempotent approval decision through the public approval id', async () => {
     const app = Fastify();
     const approvalId = '72d6bc2b-c3e9-4c01-88b6-6c04610df31e';

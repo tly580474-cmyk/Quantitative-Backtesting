@@ -133,13 +133,6 @@ export default function AgentRunHistory() {
       render: (status: string) => <Tag color={STATUS_COLORS[status] ?? 'default'}>{STATUS_TEXTS[status] ?? status}</Tag>,
     },
     {
-      title: '最大轮次',
-      dataIndex: 'maxTurns',
-      key: 'maxTurns',
-      width: 90,
-      render: (v: number) => <Text type="secondary">{v === 0 ? '不限制' : v}</Text>,
-    },
-    {
       title: '耗时',
       key: 'duration',
       width: 100,

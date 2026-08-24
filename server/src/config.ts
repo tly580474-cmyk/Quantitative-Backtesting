@@ -107,7 +107,6 @@ const envSchema = z.object({
   AGENT_CODEX_EXTERNAL_DATA_SKILL_ENABLED: z.enum(['true', 'false']).default('false'),
   AGENT_CODEX_PYTHON_PATH: z.string().default(''),
   AGENT_CODEX_TIMEOUT_MINUTES: z.string().regex(/^\d+$/).default('60'),
-  AGENT_DEFAULT_MAX_TURNS: z.string().regex(/^\d+$/).default('50'),
   AGENT_TIMEOUT_MINUTES: z.string().regex(/^\d+$/).default('60'),
   AGENT_MAX_CONCURRENT: z.string().regex(/^\d+$/).default('1'),
   AGENT_REPORT_ROOT: z.string().default('data/agent-reports'),

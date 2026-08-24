@@ -1,13 +1,13 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Input, Button, Typography, Tag, App, InputNumber, Select, Tooltip, Spin, Empty,
+  Input, Button, Typography, Tag, App, Select, Tooltip, Spin, Empty,
 } from 'antd';
 import {
   StopOutlined,
   PlusOutlined, SettingOutlined, ReloadOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined,
-  SendOutlined, PaperClipOutlined,
+  SendOutlined,
   DeleteOutlined, MessageOutlined,
   DownOutlined, RightOutlined,
 } from '@ant-design/icons';
@@ -134,8 +134,6 @@ function lastEventSeq(turn?: AgentConversationTurn): number {
 export default function AgentRunner() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [prompt, setPrompt] = useState('');
-  const [maxTurns, setMaxTurns] = useState(0);
-  const [templateStyle, setTemplateStyle] = useState<string>('classic-blue');
   const [provider, setProvider] = useState<AgentProviderId>('claude');
   const [providers, setProviders] = useState<AgentProviderHealth[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
@@ -298,9 +296,9 @@ export default function AgentRunner() {
         ?? ((state.status === 'completed' || state.status === 'failed' || state.status === 'canceled') ? runId : null);
       const isContinue = !!parentRunId;
       if (parentRunId) {
-        result = await continueAgentRun(parentRunId, submittedPrompt, maxTurns, undefined, templateStyle);
+        result = await continueAgentRun(parentRunId, submittedPrompt);
       } else {
-        result = await createAgentRun(submittedPrompt, maxTurns, undefined, templateStyle, provider);
+        result = await createAgentRun(submittedPrompt, provider);
       }
       setRunId(result.runId);
       if (!isContinue) {
@@ -323,7 +321,7 @@ export default function AgentRunner() {
     } finally {
       setLoading(false);
     }
-  }, [maxTurns, templateStyle, provider, connect, message, continueFromRunId, state.events, state.status, runId]);
+  }, [provider, connect, message, continueFromRunId, state.events, state.status, runId]);
 
   const handleStart = useCallback(() => submitMessage(prompt), [prompt, submitMessage]);
   const handleConfirmation = useCallback((response: string) => {
@@ -598,7 +596,7 @@ export default function AgentRunner() {
           }}
         >
           <div style={{ maxWidth: 768, margin: '0 auto', pointerEvents: 'auto' }}>
-            {/* 设置面板（悬浮在输入框上方） */}
+            {/* Provider 选择面板（悬浮在输入框上方） */}
             {showSettings && (
               <div
                 style={{
@@ -613,48 +611,18 @@ export default function AgentRunner() {
                   flexWrap: 'wrap',
                 }}
               >
-                {providerOptions.length > 0 && (
-                  <>
-                    <Text type="secondary" style={{ fontSize: 12 }}>Provider：</Text>
-                    <Select
-                      size="small"
-                      value={provider}
-                      onChange={(value: AgentProviderId) => setProvider(value)}
-                      options={providerOptions}
-                      style={{ width: 110 }}
-                      disabled={isRunning || Boolean(continueFromRunId)}
-                    />
-                  </>
-                )}
-                <Text type="secondary" style={{ fontSize: 12 }}>最大轮次：</Text>
-                <InputNumber
-                  size="small"
-                  value={maxTurns}
-                  onChange={(v) => setMaxTurns(v ?? 0)}
-                  min={0}
-                  max={200}
-                  style={{ width: 80 }}
-                  disabled={isRunning}
-                  placeholder="0=不限制"
-                />
-                {maxTurns === 0 && (
-                  <Text type="secondary" style={{ fontSize: 11, color: '#10b981' }}>不限制</Text>
-                )}
-                <Text type="secondary" style={{ fontSize: 12 }}>报告生成：</Text>
-                <Tag color="blue" style={{ margin: 0 }}>智能体自动判断</Tag>
-                <Text type="secondary" style={{ fontSize: 12 }}>报告风格：</Text>
+                <label htmlFor="agent-provider-select" style={{ color: t.textSecondary, fontSize: 12 }}>
+                  Provider：
+                </label>
                 <Select
+                  id="agent-provider-select"
+                  aria-label="选择 Provider"
                   size="small"
-                  value={templateStyle}
-                  onChange={(v) => setTemplateStyle(v)}
+                  value={provider}
+                  onChange={(value: AgentProviderId) => setProvider(value)}
+                  options={providerOptions}
                   style={{ width: 140 }}
-                  disabled={isRunning}
-                  options={[
-                    { value: 'classic-blue', label: '经典金融蓝' },
-                    { value: 'dark-pro', label: '暗黑专业版' },
-                    { value: 'minimal-white', label: '极简白' },
-                    { value: 'dashboard', label: '数据仪表盘' },
-                  ]}
+                  disabled={isRunning || Boolean(continueFromRunId) || providerOptions.length === 0}
                 />
               </div>
             )}
@@ -681,29 +649,31 @@ export default function AgentRunner() {
                 e.currentTarget.style.borderColor = t.border;
               }}
             >
-              {/* 左侧设置按钮（ChatGPT同款附件图标位置） */}
-              <Tooltip title={showSettings ? '收起配置' : '高级配置'}>
+              {/* 左侧 Provider 设置按钮 */}
+              <Tooltip title={showSettings ? '收起 Provider 设置' : '选择 Provider'}>
                 <button
                   type="button"
-                  aria-label={showSettings ? '收起高级配置' : '打开高级配置'}
+                  aria-label={showSettings ? '收起 Provider 设置' : '打开 Provider 设置'}
+                  aria-expanded={showSettings}
                   onClick={() => setShowSettings(s => !s)}
                   style={{
                     background: 'transparent',
                     border: 'none',
                     cursor: 'pointer',
-                    padding: 6,
+                    padding: 0,
+                    width: 44,
+                    height: 44,
                     borderRadius: '50%',
                     color: showSettings ? t.textOnBlue : t.textSecondary,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    marginBottom: 6,
                     flexShrink: 0,
                   }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = t.bgHover; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 >
-                  {showSettings ? <SettingOutlined style={{ fontSize: 16 }} /> : <PaperClipOutlined style={{ fontSize: 16 }} />}
+                  <SettingOutlined style={{ fontSize: 17 }} />
                 </button>
               </Tooltip>
 
@@ -806,8 +776,8 @@ export default function AgentRunner() {
             {!showSettings && !isRunning && (
               <div style={{ textAlign: 'center', marginTop: 10, color: t.textSecondary, fontSize: 11 }}>
                 {compactLayout
-                  ? 'Ctrl + Enter 发送 · 回形针中可调整设置'
-                  : '按 Ctrl + Enter 发送 · 智能体按任务自动判断是否生成报告 · 0=不限轮次'}
+                  ? 'Ctrl + Enter 发送 · 设置中可选择 Provider'
+                  : '按 Ctrl + Enter 发送 · 智能体按任务自动完成研究'}
               </div>
             )}
           </div>

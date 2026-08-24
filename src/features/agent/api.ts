@@ -43,11 +43,10 @@ export function normalizeAgentEvent(event: AgentEventRecord): AgentEvent | null 
 }
 
 export async function createAgentRun(
-  prompt: string, maxTurns?: number, timeoutMinutes?: number, templateStyle?: string,
-  provider?: AgentProviderId,
+  prompt: string, provider?: AgentProviderId,
 ): Promise<{ runId: string; conversationId: string; status: string }> {
   return apiFetch('/api/agent/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, maxTurns, timeoutMinutes, templateStyle, reportMode: 'auto', provider }) });
+    body: JSON.stringify({ prompt, provider }) });
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {
@@ -57,11 +56,10 @@ export async function deleteAgentRun(runId: string): Promise<void> {
   await apiFetch(`/api/agent/runs/${runId}`, { method: 'DELETE' });
 }
 export async function continueAgentRun(
-  parentRunId: string, prompt: string, maxTurns?: number, timeoutMinutes?: number,
-  templateStyle?: string,
+  parentRunId: string, prompt: string,
 ): Promise<{ runId: string; conversationId: string; status: string; parentRunId: string }> {
   return apiFetch(`/api/agent/runs/${parentRunId}/continue`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, maxTurns, timeoutMinutes, templateStyle, reportMode: 'auto' }) });
+    body: JSON.stringify({ prompt }) });
 }
 
 export async function decideAgentApproval(approvalId: string, decision: 'approved' | 'denied'): Promise<void> {
