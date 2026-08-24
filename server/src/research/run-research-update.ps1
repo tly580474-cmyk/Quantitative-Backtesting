@@ -76,7 +76,6 @@ try {
   Invoke-ResearchCommand -ScriptName 'dividend:update'
   Invoke-ResearchCommand -ScriptName 'snapshot:build'
   Invoke-ResearchCommand -ScriptName 'snapshot:verify'
-  Invoke-ResearchCommand -ScriptName 'snapshot:prune' -ScriptArgs @('--', '--apply')
   "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Finished automatic research snapshot update with exit code 0." |
     Out-File -LiteralPath $logPath -Append -Encoding utf8
   exit 0

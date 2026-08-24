@@ -281,20 +281,18 @@ npm run backup:restore-check -- --path ./data/backups/<backup-id> --database qua
 
 ## 14. 自动保留与磁盘维护
 
-盘后任务在新快照通过 `snapshot:verify` 后自动执行安全清理。默认策略为：
+自动任务、前端手动更新和 `snapshot:build` 在成功发布快照（或确认无需重建）后都会执行安全清理。默认策略为：
 
 - 始终保留 `current.json` 指向的当前快照。
-- 始终保留最近 7 个快照。
-- 最近 30 天每天至少保留 1 个快照。
-- 快照目录内存在 `.retain` 文件时永久保留，适合重要研究节点。
+- 保留最近 5×24 小时内生成的全部快照。
+- 删除时间窗之外所有 manifest 合法的历史快照。
 - `.building-*`、manifest 缺失或校验失败的未知目录不会自动删除。
 
 配置项：
 
 ```dotenv
 RESEARCH_SNAPSHOT_RETENTION_ENABLED=true
-RESEARCH_SNAPSHOT_RETAIN_LATEST=7
-RESEARCH_SNAPSHOT_RETAIN_DAILY_DAYS=30
+RESEARCH_SNAPSHOT_RETENTION_DAYS=5
 ```
 
 人工检查候选项时默认仅预览；只有显式传入 `--apply` 才会删除：

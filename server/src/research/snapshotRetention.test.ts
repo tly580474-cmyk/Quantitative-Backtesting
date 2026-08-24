@@ -11,14 +11,14 @@ afterEach(async () => Promise.all(
 ));
 
 describe('snapshot retention', () => {
-  it('keeps current/latest/daily/pinned snapshots and removes only eligible versions', async () => {
+  it('keeps every snapshot inside five days and removes every older valid snapshot', async () => {
     const root = await mkdtemp(join(tmpdir(), 'snapshot-retention-'));
     roots.push(root);
     await createSnapshot(root, 'current', '2026-07-10T12:00:00.000Z');
     await createSnapshot(root, 'same-day-old', '2026-07-10T10:00:00.000Z');
-    await createSnapshot(root, 'daily', '2026-07-09T12:00:00.000Z');
+    await createSnapshot(root, 'recent', '2026-07-06T12:00:00.000Z');
     await createSnapshot(root, 'expired', '2026-06-01T12:00:00.000Z');
-    await createSnapshot(root, 'pinned', '2026-05-01T12:00:00.000Z', true);
+    await createSnapshot(root, 'formerly-pinned', '2026-05-01T12:00:00.000Z', true);
     await mkdir(join(root, '.building-interrupted'));
     await writeFile(join(root, 'current.json'), JSON.stringify({
       snapshotId: 'current',
@@ -27,17 +27,18 @@ describe('snapshot retention', () => {
 
     const report = await pruneResearchSnapshots({
       root,
-      retainLatest: 1,
-      retainDailyDays: 7,
+      retentionDays: 5,
       dryRun: false,
       now: new Date('2026-07-10T18:00:00.000Z'),
     });
 
     expect(report.removed.map((item) => item.snapshotId).sort())
-      .toEqual(['expired', 'same-day-old']);
+      .toEqual(['expired', 'formerly-pinned']);
     expect(report.kept.find((item) => item.snapshotId === 'current')?.reason).toContain('current');
-    expect(report.kept.find((item) => item.snapshotId === 'daily')?.reason).toContain('daily');
-    expect(report.kept.find((item) => item.snapshotId === 'pinned')?.reason).toContain('pinned');
+    expect(report.kept.find((item) => item.snapshotId === 'same-day-old')?.reason)
+      .toContain('within-retention-window');
+    expect(report.kept.find((item) => item.snapshotId === 'recent')?.reason)
+      .toContain('within-retention-window');
     expect(report.skipped).toContainEqual(expect.objectContaining({
       snapshotId: '.building-interrupted',
       reason: 'building-directory',
@@ -58,8 +59,7 @@ describe('snapshot retention', () => {
 
     const report = await pruneResearchSnapshots({
       root,
-      retainLatest: 1,
-      retainDailyDays: 7,
+      retentionDays: 5,
       dryRun: true,
       now: new Date('2026-07-10T18:00:00.000Z'),
     });

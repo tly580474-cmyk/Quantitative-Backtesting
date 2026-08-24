@@ -27,6 +27,7 @@ import {
   type ResearchSnapshotDataset,
   type ResearchSnapshotPartition,
 } from './snapshotManifest.js';
+import { pruneResearchSnapshots } from './snapshotRetention.js';
 
 const SNAPSHOT_COLUMNS = [
   'instrumentKey',
@@ -438,6 +439,7 @@ export async function buildResearchSnapshot(
     && swBarsCurrent
   ) {
     onProgress('当前研究快照已与 MySQL 年度摘要一致，无需生成新快照');
+    await applyConfiguredSnapshotRetention(config, root, onProgress);
     return current.manifest;
   }
   onProgress(
@@ -834,6 +836,7 @@ export async function buildResearchSnapshot(
     readyToPublish = true;
     await publishStagedResearchSnapshot(root, staging);
     onProgress(`研究快照已发布：${snapshotId}`);
+    await applyConfiguredSnapshotRetention(config, root, onProgress);
     return manifest;
   } catch (error) {
     if (!readyToPublish) {
@@ -841,6 +844,22 @@ export async function buildResearchSnapshot(
     }
     throw error;
   }
+}
+
+async function applyConfiguredSnapshotRetention(
+  config: EnvConfig,
+  root: string,
+  onProgress: (message: string) => void,
+): Promise<void> {
+  if (config.RESEARCH_SNAPSHOT_RETENTION_ENABLED !== 'true') return;
+  const report = await pruneResearchSnapshots({
+    root,
+    retentionDays: Number(config.RESEARCH_SNAPSHOT_RETENTION_DAYS),
+    dryRun: false,
+  });
+  onProgress(
+    `快照保留策略已执行：保留近 ${report.policy.retentionDays} 天，删除 ${report.removed.length} 个历史快照`,
+  );
 }
 
 async function readAdjustmentFactorSummary(pool: Pool): Promise<AdjustmentFactorSummary> {

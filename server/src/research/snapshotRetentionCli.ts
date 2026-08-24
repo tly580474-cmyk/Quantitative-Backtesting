@@ -12,8 +12,7 @@ async function main(): Promise<void> {
   }
   const report = await pruneResearchSnapshots({
     root: config.RESEARCH_SNAPSHOT_ROOT,
-    retainLatest: Number(config.RESEARCH_SNAPSHOT_RETAIN_LATEST),
-    retainDailyDays: Number(config.RESEARCH_SNAPSHOT_RETAIN_DAILY_DAYS),
+    retentionDays: Number(config.RESEARCH_SNAPSHOT_RETENTION_DAYS),
     dryRun: !apply,
   });
   console.log(JSON.stringify(report, null, 2));

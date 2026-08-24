@@ -1,4 +1,4 @@
-import { access, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { readFile, readdir, rm, stat } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import {
   readCurrentSnapshot,
@@ -8,8 +8,7 @@ import {
 
 export interface SnapshotRetentionOptions {
   root: string;
-  retainLatest: number;
-  retainDailyDays: number;
+  retentionDays: number;
   dryRun: boolean;
   now?: Date;
 }
@@ -25,8 +24,7 @@ export interface SnapshotRetentionReport {
   status: 'dry-run' | 'applied';
   currentSnapshotId: string;
   policy: {
-    retainLatest: number;
-    retainDailyDays: number;
+    retentionDays: number;
   };
   kept: SnapshotRetentionEntry[];
   removed: SnapshotRetentionEntry[];
@@ -40,15 +38,13 @@ interface ValidSnapshot {
   manifest: ResearchSnapshotManifest;
   createdMs: number;
   logicalBytes: number;
-  pinned: boolean;
 }
 
 export async function pruneResearchSnapshots(
   options: SnapshotRetentionOptions,
 ): Promise<SnapshotRetentionReport> {
   const root = resolve(options.root);
-  const retainLatest = requireNonNegativeInteger(options.retainLatest, 'retainLatest');
-  const retainDailyDays = requireNonNegativeInteger(options.retainDailyDays, 'retainDailyDays');
+  const retentionDays = requirePositiveInteger(options.retentionDays, 'retentionDays');
   const now = options.now ?? new Date();
   const current = await readCurrentSnapshot(root);
   if (!current) throw new Error('尚未发布可用的研究快照，拒绝执行清理');
@@ -83,7 +79,6 @@ export async function pruneResearchSnapshots(
         manifest,
         createdMs,
         logicalBytes: await manifestLogicalBytes(snapshotPath, manifest),
-        pinned: await exists(join(snapshotPath, '.retain')),
       });
     } catch (error) {
       skipped.push({
@@ -97,21 +92,10 @@ export async function pruneResearchSnapshots(
   const keepReasons = new Map<string, string>();
   keepReasons.set(current.manifest.snapshotId, 'current');
 
-  for (const snapshot of valid.slice(0, retainLatest)) {
-    addKeepReason(keepReasons, snapshot.snapshotId, 'latest');
-  }
-  for (const snapshot of valid.filter((item) => item.pinned)) {
-    addKeepReason(keepReasons, snapshot.snapshotId, 'pinned');
-  }
-
-  const cutoffMs = now.getTime() - retainDailyDays * 24 * 60 * 60 * 1000;
-  const retainedDays = new Set<string>();
+  const cutoffMs = now.getTime() - retentionDays * 24 * 60 * 60 * 1000;
   for (const snapshot of valid) {
     if (snapshot.createdMs < cutoffMs) continue;
-    const day = snapshot.manifest.createdAt.slice(0, 10);
-    if (retainedDays.has(day)) continue;
-    retainedDays.add(day);
-    addKeepReason(keepReasons, snapshot.snapshotId, 'daily');
+    addKeepReason(keepReasons, snapshot.snapshotId, 'within-retention-window');
   }
 
   const kept: SnapshotRetentionEntry[] = [];
@@ -135,7 +119,7 @@ export async function pruneResearchSnapshots(
   return {
     status: options.dryRun ? 'dry-run' : 'applied',
     currentSnapshotId: current.manifest.snapshotId,
-    policy: { retainLatest, retainDailyDays },
+    policy: { retentionDays },
     kept,
     removed,
     skipped,
@@ -169,9 +153,9 @@ async function manifestLogicalBytes(
   return payload + manifestStat.size;
 }
 
-function requireNonNegativeInteger(value: number, name: string): number {
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`${name} 必须是非负整数`);
+function requirePositiveInteger(value: number, name: string): number {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${name} 必须是正整数`);
   }
   return value;
 }
@@ -180,14 +164,5 @@ function assertDirectChild(root: string, target: string): void {
   const relativePath = relative(root, resolve(target));
   if (!relativePath || relativePath.startsWith('..') || relativePath.includes(sep)) {
     throw new Error(`拒绝删除快照根目录之外或非直属目录：${target}`);
-  }
-}
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
   }
 }
