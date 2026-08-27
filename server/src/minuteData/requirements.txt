@@ -4,3 +4,4 @@ pymysql>=1.1
 mootdx>=0.11.7
 requests>=2.32
 tushare>=1.4
+pytdx>=1.72

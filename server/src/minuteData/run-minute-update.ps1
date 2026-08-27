@@ -1,4 +1,7 @@
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding = [Console]::OutputEncoding
+$env:PYTHONUTF8 = '1'
 $serverRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
 $logRoot = Join-Path $serverRoot '.logs\minute-data'
@@ -74,6 +77,25 @@ function Write-MinuteProgress {
   Move-Item -LiteralPath $temporary -Destination $progressPath -Force
 }
 
+function Resolve-MinuteFeatureFlag {
+  param([string]$Key, [bool]$Fallback)
+  $fromProcess = [Environment]::GetEnvironmentVariable($Key)
+  if ($fromProcess) {
+    return $fromProcess.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+  }
+  $envPath = Join-Path $serverRoot '.env'
+  if (Test-Path -LiteralPath $envPath) {
+    $line = Get-Content -LiteralPath $envPath |
+      Where-Object { $_ -match "^$Key=" } |
+      Select-Object -Last 1
+    if ($line) {
+      $value = $line.Substring($Key.Length + 1).Trim().Trim('"').Trim("'")
+      return $value.ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+    }
+  }
+  return $Fallback
+}
+
 Set-Location -LiteralPath $serverRoot
 "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Starting automatic minute update." |
   Out-File -LiteralPath $logPath -Append -Encoding utf8
@@ -92,8 +114,10 @@ if ($configuredDependencyWait -and [int]::TryParse($configuredDependencyWait, [r
 }
 $dependencyDeadline = (Get-Date).AddMinutes($dependencyWaitMinutes)
 $dependencyTimedOut = $false
+$tdxTcpEnabled = Resolve-MinuteFeatureFlag 'MINUTE_TDX_TCP_ENABLED' $false
+$primaryScript = if ($tdxTcpEnabled) { 'minute:tdx-online:update' } else { 'minute:online:update' }
 do {
-  $exitCode = Invoke-MinuteUpdateCommand -ScriptName 'minute:online:update'
+  $exitCode = Invoke-MinuteUpdateCommand -ScriptName $primaryScript
   if ($exitCode -ne 3) { break }
   if ((Get-Date) -ge $dependencyDeadline) {
     Write-MinuteProgress `
@@ -112,6 +136,13 @@ do {
     Out-File -LiteralPath $logPath -Append -Encoding utf8
   Start-Sleep -Seconds 60
 } while ($true)
+
+if ($exitCode -ne 0 -and -not $dependencyTimedOut -and $tdxTcpEnabled) {
+  "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] TDX TCP update failed with $exitCode; trying Sina online fallback." |
+    Out-File -LiteralPath $logPath -Append -Encoding utf8
+  Write-MinuteProgress -Status 'running' -Phase 'sina-fallback' -Message 'TDX TCP update failed; running the Sina online fallback.'
+  $exitCode = Invoke-MinuteUpdateCommand -ScriptName 'minute:online:update'
+}
 
 if ($exitCode -ne 0 -and -not $dependencyTimedOut) {
   "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Online update failed with $exitCode; trying local TDX fallback." |

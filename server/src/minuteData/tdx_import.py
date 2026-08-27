@@ -12,6 +12,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from minute_lock import MinuteUpdateLock, default_lock_path
 from update import (
     EXPECTED_COLUMNS,
     file_crc32,
@@ -599,7 +600,12 @@ def optional_float(value: Any) -> float | None:
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main())
+        load_env_file(Path.cwd() / ".env")
+        args_preview = parse_args()
+        if args_preview.dry_run or args_preview.probe_symbol:
+            raise SystemExit(main())
+        with MinuteUpdateLock(default_lock_path(), "tdx-local"):
+            raise SystemExit(main())
     except Exception as error:
         print(json.dumps({"status": "failed", "error": str(error)}, ensure_ascii=False), file=sys.stderr)
         raise

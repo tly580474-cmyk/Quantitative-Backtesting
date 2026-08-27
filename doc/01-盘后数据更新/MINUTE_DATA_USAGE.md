@@ -6,7 +6,7 @@
 - 年度压缩包：`1m_price_zip/<year>.zip`。
 - 查询数据湖：`1m_price_parquet/year=<year>/<YYYYMMDD>.parquet`。
 - 查询引擎：DuckDB；MySQL 只提供股票、交易日和最终日线对账数据，不保存分钟明细。
-- 2026-04-10 之后由在线分钟源自动增量更新；通达信本地 `.lc1` 和 Tushare 作为故障回补源。
+- 2026-04-10 之后由在线分钟源自动增量更新；TDX TCP 正在影子验收，通达信本地 `.lc1` 和 Tushare 作为故障回补源。
 
 在 `server/.env` 中可覆盖路径：
 
@@ -15,6 +15,10 @@ MINUTE_DATA_ZIP_ROOT=../../所有股票的历史数据/1m_price_zip
 MINUTE_DATA_ROOT=../../所有股票的历史数据/1m_price_parquet
 TDX_DATA_ROOT=D:/tdx
 MINUTE_QUERY_MAX_ROWS=100000
+MINUTE_TDX_TCP_ENABLED=false
+MINUTE_TDX_TCP_SHADOW_ENABLED=true
+MINUTE_TDX_TCP_WORKERS=2
+MINUTE_UPDATE_LOCK_FILE=.logs/minute-data/update.lock
 ```
 
 相对路径以 `server/` 为工作目录解析。
@@ -41,6 +45,31 @@ npm run minute:online:update
 ```
 
 在线更新器会以数据库最终日线进行独立对账，保留 09:31–15:00 的 240 根时间轴；覆盖率低于阈值、收盘价不一致或源数据内部不自洽时拒绝发布。写盘仍采用临时文件、Parquet 校验和 manifest 原子更新。
+
+## TDX TCP 在线源（影子验收中）
+
+TDX TCP 通过通达信真实行情协议获取沪、深、北交所原生 240 根分钟线，不要求本机通达信客户端下载 `.lc1`。首期复用 `pytdx 1.72`，运行环境可用下列命令验证：
+
+```powershell
+cd server
+python -m pip install -r src/minuteData/requirements.txt
+npm run minute:tdx-online:probe
+npm run minute:tdx-online:health
+npm run minute:tdx-online:dry-run
+npm run minute:tdx-online:shadow
+```
+
+更新器会真实探测多个行情节点，使用两个持久连接抓取；连接或协议失败时切换节点。原始响应写入 `.logs/minute-data/checkpoints` 的 SQLite 检查点，影子任务中断后可复用。字段、时间轴或日线对账异常的股票会从另一节点二次获取，仍不合格时计入缺失且不放宽 99.5% 覆盖率门槛。
+
+影子模式只打印并记录覆盖率、行数、缺失股票和日线对账结果，不写 Parquet 或 `manifest.json`。注册每日 16:00 影子任务：
+
+```powershell
+npm run minute:tdx-online:shadow:register
+```
+
+日志位于 `server/.logs/minute-data/tdx-shadow.log`，进度位于 `tdx-shadow-progress.json`。必须连续三个交易日满足计划中的覆盖率、对账、耗时和故障切换标准后，才可在 `server/.env` 设置 `MINUTE_TDX_TCP_ENABLED=true`。启用后的顺序为 TDX TCP → 新浪 → 本地 `.lc1`；回滚只需改回 `false`，无需回退已经校验发布的 Parquet。正式写入器共用 `MINUTE_UPDATE_LOCK_FILE`，避免多个来源同时改写分钟湖。
+
+完整批准计划见 `plan/TDX_TCP_MINUTE_PROVIDER_PLAN.md`。
 
 ## 通达信本地回补
 
@@ -96,7 +125,7 @@ cd server
 npm run minute:schedule:register
 ```
 
-计划任务优先运行 `minute:online:update`；在线源失败时才尝试本地 TDX 回补。每日主流程不再依赖人工下载 `.lc1`。任务使用 `StartWhenAvailable` 和 `IgnoreNew`，任务名为 `QuantBacktest-MinuteUpdate`。
+默认计划任务优先运行 `minute:online:update`；在线源失败时才尝试本地 TDX 回补。三个交易日影子验收通过并启用开关后，顺序自动变为 TDX TCP → 新浪 → 本地 TDX。每日主流程不再依赖人工下载 `.lc1`。任务使用 `StartWhenAvailable` 和 `IgnoreNew`，任务名为 `QuantBacktest-MinuteUpdate`。
 
 后台的“跳过非交易时段”开关（`SCHEDULE_SKIP_NON_TRADING_PERIODS=true`）默认开启。
 自动任务会依据 A 股交易日历跳过周末和休市日；手动执行上述 npm 命令不受影响。

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from minute_lock import MinuteUpdateLock, default_lock_path
 from tdx_import import (
     DailyReference,
     Instrument,
@@ -767,7 +768,12 @@ def optional_number(value: Any) -> float | None:
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main())
+        load_env_file(Path.cwd() / ".env")
+        args_preview = parse_args()
+        if args_preview.dry_run or args_preview.probe_symbol or args_preview.probe_count > 0:
+            raise SystemExit(main())
+        with MinuteUpdateLock(default_lock_path(), "sina-online"):
+            raise SystemExit(main())
     except DependencyNotReadyError as error:
         write_progress("pending", "waiting-daily-reference", message=str(error))
         print(json.dumps({

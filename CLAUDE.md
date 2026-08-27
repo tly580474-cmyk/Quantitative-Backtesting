@@ -86,12 +86,18 @@ cd server && npm run fund-flow:update       # Update the latest completed tradin
 cd server && npm run fund-flow:test
 cd server && npm run fund-flow:schedule:register  # Register Windows scheduled task
 
-# Minute data (Python: TDX import + online update)
+# Minute data (Python: TDX TCP + Sina online + local TDX fallback)
 cd server && npm run minute:prepare         # Prepare minute data pipeline
 cd server && npm run minute:update          # Update minute data
 cd server && npm run minute:tdx:import      # Import minute data from TDX
 cd server && npm run minute:online:update   # Online minute data update
 cd server && npm run minute:online:health   # Probe online provider health across a sample
+cd server && npm run minute:tdx-online:probe   # Probe one symbol over the TDX TCP protocol
+cd server && npm run minute:tdx-online:health  # Validate a deterministic 100-stock sample
+cd server && npm run minute:tdx-online:dry-run # Plan the pending TDX TCP update without network fetch/write
+cd server && npm run minute:tdx-online:shadow  # Full-market validation without Parquet/manifest writes
+cd server && npm run minute:tdx-online:update  # Production publish; use only after the shadow gate passes
+cd server && npm run minute:tdx-online:shadow:register # Register daily 16:00 Windows shadow task
 cd server && npm run minute:schedule:register  # Register Windows scheduled task
 cd server && npm run minute:test            # Run minute data Python tests
 
@@ -211,7 +217,8 @@ server/src/
                      + materialization (offline complex factor computation)
   referenceData/     Python: index/dividend/financial/SW industry reference data maintenance
   fundFlow/          Python: Tinyshare historical + AKShare/East Money daily stock fund flow
-  minuteData/        Python: minute data lake (TDX import, online update, prepare pipeline)
+  minuteData/        Python: minute data lake (TDX TCP online provider, Sina online update,
+                     local TDX import, shared writer lock, checkpoints, prepare pipeline)
   validation/        Shared error codes and API error helpers
 ```
 
@@ -331,8 +338,32 @@ Maintains reference datasets that enrich research:
 
 ### Minute Data Lake (`server/src/minuteData/`, Python)
 - **Prepare** (`prepare.py`): pipeline preparation (zip → parquet conversion)
-- **TDX Import** (`tdx_import.py`): import minute bars from TDX (通达信) data
-- **Online Update** (`online_update.py`): online minute data update with health probes
+- **TDX TCP Online** (`tdx_online.py`): fetches native 1-minute OHLCV/amount bars for SH/SZ/BJ through
+  the TongdaXin quote protocol using `pytdx 1.72`. It performs real-protocol server discovery,
+  two-node SH/SZ/BJ consistency canaries, persistent connections, node failover, pagination,
+  SQLite/zlib checkpoints, and second-node refetch for symbols that fail validation.
+- **TDX Import** (`tdx_import.py`): local `.lc1` recovery source; it does not require network access.
+- **Sina Online** (`online_update.py`): HTTPS online source with throttling/recovery logic. It remains
+  the production primary until the TDX TCP shadow gate passes.
+- **Quality gates**: every traded symbol must have the native 240-bar axis
+  (09:31–11:30, 13:01–15:00), valid OHLC/volume/amount fields, exact final-daily close reconciliation,
+  and at least 99.5% market coverage before publication. Writes use temporary Parquet validation,
+  CRC, and atomic manifest publication; source is recorded as `tdx-online:tcp`.
+- **Concurrency safety** (`minute_lock.py`): TDX TCP, Sina online, and local TDX production writers
+  share `MINUTE_UPDATE_LOCK_FILE`; probe, health, dry-run, and shadow modes do not take the writer lock.
+- **Provider order** (`run-minute-update.ps1`): with `MINUTE_TDX_TCP_ENABLED=false` the existing Sina
+  primary is unchanged. After approval, enabling it changes fallback order to TDX TCP → Sina → local
+  `.lc1`. Rollback only requires setting the flag back to `false`.
+- **Shadow rollout**: `QuantBacktest-MinuteTdxShadow` runs daily at 16:00 using
+  `run-minute-tdx-shadow.ps1`, writes `.logs/minute-data/tdx-shadow.log` and a separate progress file,
+  but never writes formal Parquet or `manifest.json`. Do not enable TDX TCP production until three
+  consecutive trading days meet the coverage, reconciliation, latency, and failover gates in
+  `plan/TDX_TCP_MINUTE_PROVIDER_PLAN.md`.
+- **Current rollout status (2026-08-27)**: day 1/3 passed with 5,547/5,547 symbols,
+  1,331,280 rows, 100% coverage, zero request errors and zero missing symbols. Five quote servers were
+  healthy; cross-server SH/SZ/BJ canaries had zero row differences. After that shadow pass, a user-approved
+  one-off TDX TCP production run published 2026-08-27 with the same coverage. This did not enable the
+  provider globally: keep `MINUTE_TDX_TCP_ENABLED=false` until the three-day rollout gate passes.
 
 ### Backtest Engine Rules
 - Signal generated at bar T, executed at bar T+1 open (no look-ahead bias)
@@ -427,7 +458,12 @@ Reference/operations tables include `financial_reports`, `index_constituent_snap
   `FUND_FLOW_UPDATE_TIME`, `FUND_FLOW_RETRY_TIME`, `SCHEDULE_SKIP_NON_TRADING_PERIODS`
 - **History Store**: `HISTORY_STORE_READ_MODE` (legacy/prefer-v2/v2), `HISTORY_STORE_DUAL_WRITE` (true/false)
 - **Research**: `RESEARCH_SNAPSHOT_ROOT`, `RESEARCH_QUERY_MAX_ROWS`
-- **Minute Data**: `MINUTE_DATA_ZIP_ROOT`, `MINUTE_DATA_ROOT`, `MINUTE_QUERY_MAX_ROWS`
+- **Minute Data**: `MINUTE_DATA_ZIP_ROOT`, `MINUTE_DATA_ROOT`, `MINUTE_QUERY_MAX_ROWS`,
+  `MINUTE_TDX_TCP_ENABLED` (default false until the three-day shadow gate passes),
+  `MINUTE_TDX_TCP_SHADOW_ENABLED`, `MINUTE_TDX_TCP_WORKERS`, `MINUTE_TDX_TCP_MIN_SERVERS`,
+  `MINUTE_TDX_TCP_MAX_SERVERS`, `MINUTE_TDX_TCP_CONNECT_TIMEOUT_SECONDS`,
+  `MINUTE_TDX_TCP_PAGE_SIZE`, `MINUTE_TDX_TCP_MAX_PAGES`, `MINUTE_TDX_TCP_MIN_COVERAGE`,
+  `MINUTE_TDX_TCP_CHECKPOINT_ROOT`, `MINUTE_TDX_TCP_SERVERS`, `MINUTE_UPDATE_LOCK_FILE`
 - **Backup**: `BACKUP_ROOT`
 - **Factor Research**: `FACTOR_RESEARCH_ROOT`, `FACTOR_MINER_PYTHON`, `FACTOR_MINER_ROOT`, `FACTOR_MINER_TIMEOUT_MS` (default 6h), `FACTOR_MINER_MAX_MEMORY_MB` (default 4GB)
 - **Admin Console**: `ADMIN_API_TOKEN` (empty disables admin API), `ADMIN_OVERVIEW_CACHE_TTL_MS` (default 10000, 0 disables caching)
@@ -444,3 +480,5 @@ Reference/operations tables include `financial_reports`, `index_constituent_snap
 - `README.md`: User-facing project documentation (Chinese)
 - `doc/`: 14 structured docs across 5 categories (盘后数据更新, 因子研究与查询, 运维监控, 数据治理与验收, 架构设计与规划)
 - `plan/`: Phase development plans (Phase 1 through Phase 6.5)
+- `plan/TDX_TCP_MINUTE_PROVIDER_PLAN.md`: approved TDX TCP minute-provider rollout, acceptance,
+  production cutover, and rollback plan
