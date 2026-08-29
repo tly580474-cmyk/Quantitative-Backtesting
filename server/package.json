@@ -80,6 +80,9 @@
     "factor:list": "tsx src/factorResearch/factorCli.ts list",
     "factor:run": "tsx src/factorResearch/factorCli.ts run",
     "factor:composite": "tsx src/factorResearch/factorCli.ts composite",
+    "experiment:mhi": "tsx src/research/duckdbCli.ts pipeline --file experiments/mhi-v1/pipeline.json --out-dir ../output/mhi-v1 --threads 8 --max-memory 8GB",
+    "experiment:mhi:v2": "tsx src/research/duckdbCli.ts pipeline --file experiments/mhi-v2/pipeline.json --out-dir ../output/mhi-v2 --threads 8 --max-memory 8GB",
+    "experiment:mhi:v3": "tsx src/research/duckdbCli.ts pipeline --file experiments/mhi-v3/pipeline.json --out-dir ../output/mhi-v3 --threads 8 --max-memory 8GB",
     "test": "vitest run src"
   },
   "dependencies": {

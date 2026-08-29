@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "fetchedAt": "2026-08-29T02:01:29.157944+00:00",
+  "akshareVersion": "1.18.41",
+  "vintageWarning": "AKShare returns the latest historical series, not archived first-release vintages. Conservative availability dates prevent obvious look-ahead but cannot remove revision bias.",
+  "series": [
+    {
+      "key": "pmi",
+      "akshareFunction": "macro_china_pmi",
+      "retrievalUrl": "https://data.eastmoney.com/cjsj/pmi.html",
+      "officialAuthority": "National Bureau of Statistics of China",
+      "officialReferenceUrl": "https://www.stats.gov.cn/sj/zxfbhjd/",
+      "file": "data/raw/pmi.csv",
+      "rows": 223,
+      "firstObservation": "2008-01-01",
+      "lastObservation": "2026-07-01",
+      "sha256": "36f62c840423797a0b51fcd0410cc09142e4e43f588ef39ab1001b145822dfa7"
+    },
+    {
+      "key": "ppi",
+      "akshareFunction": "macro_china_ppi",
+      "retrievalUrl": "https://data.eastmoney.com/cjsj/ppi.html",
+      "officialAuthority": "National Bureau of Statistics of China",
+      "officialReferenceUrl": "https://www.stats.gov.cn/sj/zxfbhjd/",
+      "file": "data/raw/ppi.csv",
+      "rows": 247,
+      "firstObservation": "2006-01-01",
+      "lastObservation": "2026-07-01",
+      "sha256": "58a51588e331e00dc11ced3ba4e695cef3e1e190cc1135cbe7f85f7f9ba51373"
+    },
+    {
+      "key": "money_supply",
+      "akshareFunction": "macro_china_money_supply",
+      "retrievalUrl": "https://data.eastmoney.com/cjsj/hbgyl.html",
+      "officialAuthority": "People's Bank of China",
+      "officialReferenceUrl": "https://www.pbc.gov.cn/diaochatongjisi/116219/116225/index.html",
+      "file": "data/raw/money-supply.csv",
+      "rows": 223,
+      "firstObservation": "2008-01-01",
+      "lastObservation": "2026-07-01",
+      "sha256": "e840b7febd81e2018f3f5099e7f43382cd9098f7f200443904b140207ab70c64"
+    }
+  ]
+}

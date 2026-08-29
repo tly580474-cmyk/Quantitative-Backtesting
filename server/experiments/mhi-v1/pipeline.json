@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "name": "MHI v1 历史可行性实验",
+  "transaction": true,
+  "params": {
+    "sourceStartDate": "2004-01-01",
+    "evaluationStartDate": "2007-01-01",
+    "evaluationEndDate": "2026-07-30"
+  },
+  "steps": [
+    {
+      "id": "prepare",
+      "file": "./prepare.sql"
+    },
+    {
+      "id": "metadata",
+      "file": "./outputs/metadata.sql",
+      "out": "metadata.json",
+      "format": "json"
+    },
+    {
+      "id": "daily_series",
+      "file": "./outputs/daily-series.sql",
+      "out": "daily-series.csv",
+      "format": "csv"
+    },
+    {
+      "id": "decile_validation",
+      "file": "./outputs/decile-validation.sql",
+      "out": "decile-validation.csv",
+      "format": "csv"
+    },
+    {
+      "id": "summary_validation",
+      "file": "./outputs/summary-validation.sql",
+      "out": "summary-validation.csv",
+      "format": "csv"
+    },
+    {
+      "id": "component_correlations",
+      "file": "./outputs/component-correlations.sql",
+      "out": "component-correlations.csv",
+      "format": "csv"
+    },
+    {
+      "id": "ablation_validation",
+      "file": "./outputs/ablation-validation.sql",
+      "out": "ablation-validation.csv",
+      "format": "csv"
+    },
+    {
+      "id": "episode_validation",
+      "file": "./outputs/episode-validation.sql",
+      "out": "episode-validation.csv",
+      "format": "csv"
+    },
+    {
+      "id": "health_band_validation",
+      "file": "./outputs/health-band-validation.sql",
+      "out": "health-band-validation.csv",
+      "format": "csv"
+    },
+    {
+      "id": "era_validation",
+      "file": "./outputs/era-validation.sql",
+      "out": "era-validation.csv",
+      "format": "csv"
+    }
+  ]
+}

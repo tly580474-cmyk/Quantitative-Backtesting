@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "MHI v3 宏观增量验证",
+  "transaction": true,
+  "params": {
+    "sourceStartDate": "2004-01-01",
+    "evaluationStartDate": "2007-01-01",
+    "evaluationEndDate": "2026-07-30"
+  },
+  "steps": [
+    { "id": "prepare_technical", "file": "../mhi-v1/prepare.sql" },
+    { "id": "prepare_fundamentals", "file": "../mhi-v2/prepare-fundamentals.sql" },
+    { "id": "prepare_macro", "file": "./prepare-macro.sql" },
+    { "id": "metadata", "file": "./outputs/metadata.sql", "out": "metadata.json", "format": "json" },
+    { "id": "macro_vintages", "file": "./outputs/macro-vintages.sql", "out": "macro-vintages.csv", "format": "csv" },
+    { "id": "daily_series", "file": "./outputs/daily-series.sql", "out": "daily-series.csv", "format": "csv" },
+    { "id": "monthly_axis_validation", "file": "./outputs/monthly-axis-validation.sql", "out": "monthly-axis-validation.csv", "format": "csv" },
+    { "id": "daily_axis_validation", "file": "./outputs/daily-axis-validation.sql", "out": "daily-axis-validation.csv", "format": "csv" },
+    { "id": "era_validation", "file": "./outputs/era-validation.sql", "out": "era-validation.csv", "format": "csv" },
+    { "id": "fundamental_transition_validation", "file": "./outputs/fundamental-transition-validation.sql", "out": "fundamental-transition-validation.csv", "format": "csv" },
+    { "id": "regime_validation", "file": "./outputs/regime-validation.sql", "out": "regime-validation.csv", "format": "csv" },
+    { "id": "episode_snapshots", "file": "./outputs/episode-snapshots.sql", "out": "episode-snapshots.csv", "format": "csv" }
+  ]
+}

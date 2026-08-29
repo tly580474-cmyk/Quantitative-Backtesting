@@ -1,0 +1,30 @@
+[
+  {
+    "series": "pmi",
+    "observationMonth": "2026-07-01",
+    "field": "manufacturing_pmi",
+    "expected": 49.2,
+    "officialUrl": "https://www.stats.gov.cn/sj/zxfbhjd/202607/t20260731_1964253.html"
+  },
+  {
+    "series": "ppi",
+    "observationMonth": "2026-07-01",
+    "field": "ppi_yoy",
+    "expected": 3.5,
+    "officialUrl": "https://www.stats.gov.cn/sj/zxfbhjd/202608/t20260809_1965007.html"
+  },
+  {
+    "series": "money-supply",
+    "observationMonth": "2024-07-01",
+    "field": "m2_yoy",
+    "expected": 6.3,
+    "officialUrl": "https://www.pbc.gov.cn/diaochatongjisi/116219/116225/8980a8a6f1414f649d3443cc09352c2b/index.html"
+  },
+  {
+    "series": "money-supply",
+    "observationMonth": "2024-07-01",
+    "field": "m1_yoy",
+    "expected": -6.6,
+    "officialUrl": "https://www.pbc.gov.cn/diaochatongjisi/116219/116225/8980a8a6f1414f649d3443cc09352c2b/index.html"
+  }
+]

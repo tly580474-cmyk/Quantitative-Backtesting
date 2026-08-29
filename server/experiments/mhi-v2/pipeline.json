@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "name": "MHI v2 基本面增量验证",
+  "transaction": true,
+  "params": {
+    "sourceStartDate": "2004-01-01",
+    "evaluationStartDate": "2007-01-01",
+    "evaluationEndDate": "2026-07-30"
+  },
+  "steps": [
+    {
+      "id": "prepare_technical_baseline",
+      "file": "../mhi-v1/prepare.sql"
+    },
+    {
+      "id": "prepare_fundamental_increment",
+      "file": "./prepare-fundamentals.sql"
+    },
+    {
+      "id": "metadata",
+      "file": "./outputs/metadata.sql",
+      "out": "metadata.json",
+      "format": "json"
+    },
+    {
+      "id": "daily_series",
+      "file": "./outputs/daily-series.sql",
+      "out": "daily-series.csv",
+      "format": "csv"
+    },
+    {
+      "id": "axis_validation",
+      "file": "./outputs/axis-validation.sql",
+      "out": "axis-validation.csv",
+      "format": "csv"
+    },
+    {
+      "id": "score_comparison",
+      "file": "./outputs/score-comparison.sql",
+      "out": "score-comparison.csv",
+      "format": "csv"
+    },
+    {
+      "id": "era_validation",
+      "file": "./outputs/era-validation.sql",
+      "out": "era-validation.csv",
+      "format": "csv"
+    },
+    {
+      "id": "regime_validation",
+      "file": "./outputs/regime-validation.sql",
+      "out": "regime-validation.csv",
+      "format": "csv"
+    },
+    {
+      "id": "episode_snapshots",
+      "file": "./outputs/episode-snapshots.sql",
+      "out": "episode-snapshots.csv",
+      "format": "csv"
+    }
+  ]
+}
