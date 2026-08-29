@@ -6,7 +6,7 @@ WITH selected_dates AS (
     FROM read_parquet('__BARS_PATH__', hive_partitioning = true)
   )
   ORDER BY tradeDate DESC
-  LIMIT 900
+  LIMIT __DATE_LIMIT__
 ), cutoff AS (
   SELECT MIN(tradeDate) AS min_date FROM selected_dates
 ), stock_history AS (

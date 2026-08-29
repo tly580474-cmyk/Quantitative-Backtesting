@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateFundamentalAndValuation,
+  calculateFundamentalAndValuationSeries,
   type FundamentalValuationRawPoint,
 } from './fundamentalValuation.js';
 
@@ -44,5 +45,13 @@ describe('fundamental health and valuation pressure', () => {
   it('rejects insufficient coverage and causal history', () => {
     expect(calculateFundamentalAndValuation(points(260, 20), 'snapshot-1')).toEqual({ fhi: null, vpi: null });
     expect(calculateFundamentalAndValuation(points(252), 'snapshot-1')).toEqual({ fhi: null, vpi: null });
+  });
+
+  it('builds a causal historical series from the same frozen formula', () => {
+    const result = calculateFundamentalAndValuationSeries(points(270), 'snapshot-1');
+    expect(result.fhi).toHaveLength(18);
+    expect(result.vpi).toHaveLength(18);
+    expect(result.fhi[0].asOfDate).toBe(points(270)[252].tradeDate);
+    expect(result.vpi.at(-1)?.direction).toBe('higher_is_riskier');
   });
 });

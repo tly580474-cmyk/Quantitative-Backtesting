@@ -1,4 +1,4 @@
-import { and, desc, eq, ne } from 'drizzle-orm';
+import { and, desc, eq, ne, sql } from 'drizzle-orm';
 import { getDb, schema } from '../db/index.js';
 import {
   MARKET_HEALTH_INDICATOR_KEYS,
@@ -48,7 +48,7 @@ export async function getLatestMarketHealthSnapshot(
 export async function listMarketHealthSnapshotHistory(
   indicatorKey: MarketHealthIndicatorKey,
   modelVersion: string,
-  limit = 24,
+  limit = 6000,
 ): Promise<StoredMarketHealthSnapshot[]> {
   const rows = await getDb().select().from(marketHealthSnapshots)
     .where(and(
@@ -57,8 +57,41 @@ export async function listMarketHealthSnapshotHistory(
       ne(marketHealthSnapshots.publicationStatus, 'pending'),
     ))
     .orderBy(desc(marketHealthSnapshots.asOfDate), desc(marketHealthSnapshots.calculatedAt))
-    .limit(Math.min(60, Math.max(1, limit)));
+    .limit(Math.min(8000, Math.max(1, limit)));
   return rows.map(toStoredSnapshot).reverse();
+}
+
+export async function insertMarketHealthHistoricalSnapshots(
+  inputs: MarketHealthSnapshotInput[],
+): Promise<number> {
+  if (!inputs.length) return 0;
+  const db = getDb();
+  const chunkSize = 250;
+  await db.transaction(async (tx) => {
+    for (let offset = 0; offset < inputs.length; offset += chunkSize) {
+      const chunk = inputs.slice(offset, offset + chunkSize).map((input) => ({
+        indicatorKey: input.indicatorKey,
+        asOfDate: input.asOfDate,
+        periodKey: input.periodKey,
+        score: input.score,
+        statusLabel: input.statusLabel,
+        interpretation: input.interpretation,
+        direction: input.direction,
+        frequency: input.frequency,
+        modelVersion: input.modelVersion,
+        components: input.components,
+        sourcePeriods: { ...input.sourcePeriods, historicalBackfill: true },
+        coveragePct: input.coveragePct,
+        sourceSnapshotId: input.sourceSnapshotId,
+        calculatedAt: toMysqlUtc(input.calculatedAt),
+        publicationStatus: 'superseded',
+        staleAfter: input.staleAfter ? toMysqlUtc(input.staleAfter) : null,
+      }));
+      await tx.insert(marketHealthSnapshots).values(chunk)
+        .onDuplicateKeyUpdate({ set: { id: sql`${marketHealthSnapshots.id}` } });
+    }
+  });
+  return inputs.length;
 }
 
 export async function publishMarketHealthSnapshot(input: MarketHealthSnapshotInput): Promise<void> {

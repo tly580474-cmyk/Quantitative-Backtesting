@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { calculateLatestNominalEarningsCycle } from './nominalEarningsCycle.js';
+import {
+  calculateLatestNominalEarningsCycle,
+  calculateNominalEarningsCycleSeries,
+} from './nominalEarningsCycle.js';
 import type { StoredMacroObservation } from '../macroRepository.js';
 
 function observations(values: number[]): StoredMacroObservation[] {
@@ -36,5 +39,12 @@ describe('nominal earnings cycle', () => {
     expect(result!.indicatorKey).toBe('nec');
     expect(result!.score).toBeGreaterThan(50);
     expect(result!.components.map((item) => item.weight)).toEqual([0.6, 0.4]);
+  });
+
+  it('constructs one causal snapshot per eligible observation month', () => {
+    const result = calculateNominalEarningsCycleSeries(observations(Array.from({ length: 64 }, (_, index) => index * 0.1)));
+    expect(result).toHaveLength(25);
+    expect(result[0].periodKey).toBe('2023-04');
+    expect(result.at(-1)?.periodKey).toBe('2025-04');
   });
 });

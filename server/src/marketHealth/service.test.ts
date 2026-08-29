@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { presentSnapshot, resolveFreshness } from './service.js';
+import { compactHistory, presentSnapshot, resolveFreshness } from './service.js';
 import type { StoredMarketHealthSnapshot } from './repository.js';
 
 function snapshot(overrides: Partial<StoredMarketHealthSnapshot> = {}): StoredMarketHealthSnapshot {
@@ -57,5 +57,15 @@ describe('market health presentation', () => {
       score: 58.13,
       components: [],
     }]);
+  });
+
+  it('keeps the last daily snapshot of each month for long-range charts', () => {
+    const history = [
+      snapshot({ id: 2, asOfDate: '2026-06-03' }),
+      snapshot({ id: 3, asOfDate: '2026-06-30' }),
+      snapshot({ id: 4, asOfDate: '2026-07-31' }),
+    ];
+    expect(compactHistory('daily', history).map((item) => item.asOfDate))
+      .toEqual(['2026-06-30', '2026-07-31']);
   });
 });

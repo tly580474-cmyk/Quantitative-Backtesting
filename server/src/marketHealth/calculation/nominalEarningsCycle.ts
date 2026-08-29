@@ -13,7 +13,29 @@ export function calculateLatestNominalEarningsCycle(
     .filter((item) => item.seriesKey === 'ppi_yoy' && Number.isFinite(item.value))
     .sort((left, right) => left.observationPeriod.localeCompare(right.observationPeriod));
   if (ordered.length < MIN_HISTORY_MONTHS + 3 + 1) return null;
-  const currentIndex = ordered.length - 1;
+  return calculateNominalEarningsCycleAt(ordered, ordered.length - 1, calculatedAt);
+}
+
+export function calculateNominalEarningsCycleSeries(
+  observations: StoredMacroObservation[],
+  calculatedAt = new Date(),
+): MarketHealthSnapshotInput[] {
+  const ordered = [...observations]
+    .filter((item) => item.seriesKey === 'ppi_yoy' && Number.isFinite(item.value))
+    .sort((left, right) => left.observationPeriod.localeCompare(right.observationPeriod));
+  const snapshots: MarketHealthSnapshotInput[] = [];
+  for (let currentIndex = MIN_HISTORY_MONTHS + 3; currentIndex < ordered.length; currentIndex += 1) {
+    const snapshot = calculateNominalEarningsCycleAt(ordered, currentIndex, calculatedAt);
+    if (snapshot) snapshots.push(snapshot);
+  }
+  return snapshots;
+}
+
+function calculateNominalEarningsCycleAt(
+  ordered: StoredMacroObservation[],
+  currentIndex: number,
+  calculatedAt: Date,
+): MarketHealthSnapshotInput | null {
   const current = ordered[currentIndex];
   const currentChange = current.value - ordered[currentIndex - 3].value;
   const historyStart = Math.max(3, currentIndex - MAX_HISTORY_MONTHS);

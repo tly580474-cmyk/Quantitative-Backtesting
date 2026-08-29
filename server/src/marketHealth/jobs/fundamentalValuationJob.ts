@@ -69,6 +69,7 @@ export async function queryFundamentalValuationRawPoints(
   snapshotRoot: string,
   snapshotId: string,
   financialRelativePath: string,
+  dateLimit = 900,
 ): Promise<FundamentalValuationRawPoint[]> {
   const barsPath = normalizePath(join(snapshotRoot, snapshotId, 'bars', 'year=*', '*.parquet'));
   const financialPath = normalizePath(join(snapshotRoot, snapshotId, financialRelativePath));
@@ -78,7 +79,8 @@ export async function queryFundamentalValuationRawPoints(
   );
   const sql = template
     .replaceAll('__BARS_PATH__', escapeSql(barsPath))
-    .replaceAll('__FINANCIAL_PATH__', escapeSql(financialPath));
+    .replaceAll('__FINANCIAL_PATH__', escapeSql(financialPath))
+    .replaceAll('__DATE_LIMIT__', String(Math.min(10_000, Math.max(900, Math.trunc(dateLimit)))));
   const session = await openManagedDuckDB({
     label: 'market-health-fhi-vpi',
     config: { threads: '4', max_memory: '4GB' },

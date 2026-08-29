@@ -84,6 +84,7 @@
     "experiment:mhi:v2": "tsx src/research/duckdbCli.ts pipeline --file experiments/mhi-v2/pipeline.json --out-dir ../output/mhi-v2 --threads 8 --max-memory 8GB",
     "experiment:mhi:v3": "tsx src/research/duckdbCli.ts pipeline --file experiments/mhi-v3/pipeline.json --out-dir ../output/mhi-v3 --threads 8 --max-memory 8GB",
     "market-health:materialize": "tsx src/marketHealth/materializeCli.ts",
+    "market-health:backfill": "tsx src/marketHealth/backfillCli.ts",
     "test": "vitest run src"
   },
   "dependencies": {

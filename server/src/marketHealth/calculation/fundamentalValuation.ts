@@ -45,6 +45,26 @@ export function calculateFundamentalAndValuation(
   };
 }
 
+export function calculateFundamentalAndValuationSeries(
+  points: FundamentalValuationRawPoint[],
+  sourceSnapshotId: string,
+  calculatedAt = new Date(),
+): { fhi: MarketHealthSnapshotInput[]; vpi: MarketHealthSnapshotInput[] } {
+  const ordered = [...points].sort((left, right) => left.tradeDate.localeCompare(right.tradeDate));
+  const fhi: MarketHealthSnapshotInput[] = [];
+  const vpi: MarketHealthSnapshotInput[] = [];
+  for (let index = MIN_HISTORY; index < ordered.length; index += 1) {
+    const current = ordered[index];
+    const history = ordered.slice(Math.max(0, index - MAX_HISTORY), index);
+    if (history.length < MIN_HISTORY) continue;
+    const fhiPoint = calculateFhi(current, history, sourceSnapshotId, calculatedAt);
+    const vpiPoint = calculateVpi(current, history, sourceSnapshotId, calculatedAt);
+    if (fhiPoint) fhi.push(fhiPoint);
+    if (vpiPoint) vpi.push(vpiPoint);
+  }
+  return { fhi, vpi };
+}
+
 function calculateFhi(
   current: FundamentalValuationRawPoint,
   history: FundamentalValuationRawPoint[],

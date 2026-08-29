@@ -29,7 +29,11 @@ export async function getMarketHealthOverview(force = false): Promise<MarketHeal
     listMarketHealthSnapshotHistory(snapshot.indicatorKey, snapshot.modelVersion)
   )));
   for (const [index, snapshot] of snapshots.entries()) {
-    indicators[snapshot.indicatorKey] = presentSnapshot(snapshot, generatedAt, histories[index]);
+    indicators[snapshot.indicatorKey] = presentSnapshot(
+      snapshot,
+      generatedAt,
+      compactHistory(snapshot.frequency, histories[index]),
+    );
   }
   const value = { generatedAt, indicators };
   cache = { value, expiresAt: Date.now() + CACHE_MS };
@@ -79,4 +83,16 @@ export function resolveFreshness(snapshot: StoredMarketHealthSnapshot, nowIso: s
 
 function clampScore(value: number): number {
   return Math.round(Math.min(100, Math.max(0, value)) * 100) / 100;
+}
+
+export function compactHistory(
+  frequency: StoredMarketHealthSnapshot['frequency'],
+  history: StoredMarketHealthSnapshot[],
+): StoredMarketHealthSnapshot[] {
+  const byDisplayPeriod = new Map<string, StoredMarketHealthSnapshot>();
+  for (const point of history) {
+    const key = frequency === 'daily' ? point.asOfDate.slice(0, 7) : point.periodKey;
+    byDisplayPeriod.set(key, point);
+  }
+  return [...byDisplayPeriod.values()].slice(-120);
 }
