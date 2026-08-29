@@ -37,6 +37,7 @@ const envSchema = z.object({
   FINANCIAL_DATA_LOOKBACK_DAYS: z.string().regex(/^\d+$/).default('21'),
   MARKET_HEALTH_ENABLED: z.enum(['true', 'false']).default('false'),
   MARKET_HEALTH_MACRO_CHECK_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('10:30'),
+  MARKET_HEALTH_DAILY_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('20:30'),
   MARKET_HEALTH_PYTHON: z.string().default('python'),
   RESEARCH_SNAPSHOT_MORNING_RETRY_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('08:30'),
   RESEARCH_SNAPSHOT_UPDATE_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('18:00'),

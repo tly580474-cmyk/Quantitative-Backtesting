@@ -244,10 +244,13 @@ async function main(): Promise<void> {
       startMarketHealthScheduler({
         enabled: true,
         macroCheckTime: config.MARKET_HEALTH_MACRO_CHECK_TIME,
+        dailyMaterializationTime: config.MARKET_HEALTH_DAILY_TIME,
+        snapshotRoot: config.RESEARCH_SNAPSHOT_ROOT,
         pythonExecutable: config.MARKET_HEALTH_PYTHON,
       });
       console.log(
-        `[MarketHealth] Natural-day macro check scheduled at ${config.MARKET_HEALTH_MACRO_CHECK_TIME}`,
+        `[MarketHealth] Natural-day checks scheduled at ${config.MARKET_HEALTH_MACRO_CHECK_TIME}` +
+        `/${config.MARKET_HEALTH_DAILY_TIME}`,
       );
     }
 

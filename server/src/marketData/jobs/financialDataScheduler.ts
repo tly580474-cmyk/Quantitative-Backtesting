@@ -2,9 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { getChinaMarketSession } from './marketSession.js';
-import { getTradeDateStatus } from '../repositories/calendarRepository.js';
 import { finishCollectorRun, tryStartCollectorRun } from '../repositories/collectorRunRepository.js';
-import { shouldSkipNonTradingPeriods } from '../../scheduling/tradingPeriodPolicy.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -41,12 +39,6 @@ async function tick(): Promise<void> {
   if (running || !config) return;
   const session = getChinaMarketSession();
   if (!isFinancialUpdateDue(session.minuteOfDay, config.updateTime)) return;
-  if (shouldSkipNonTradingPeriods()) {
-    const status = await getTradeDateStatus('SH', session.tradeDate);
-    if (status === false || (status == null && (session.weekday === 0 || session.weekday === 6))) {
-      return;
-    }
-  }
   const runKey = `financial_reports:${session.tradeDate}:${config.updateTime}`;
   if (!await tryStartCollectorRun(runKey, 'financial_reports')) return;
   running = true;
