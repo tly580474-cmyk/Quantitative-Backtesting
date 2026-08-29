@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   appendReferenceArticles,
+  filterMarketOpinionIndices,
   getMarketSnapshotSemantics,
   summarizePushResult,
   withStageTimeout,
@@ -98,6 +99,15 @@ describe('market opinion delivery details', () => {
 });
 
 describe('market snapshot time ownership', () => {
+  it('excludes CSI 2000 only from the market-opinion AI context', () => {
+    const indices = filterMarketOpinionIndices([
+      { code: '000001', name: '上证指数' },
+      { code: '932000', name: '中证2000' },
+      { code: '399001', name: '深证成指' },
+    ]);
+    expect(indices.map((item) => item.code)).toEqual(['000001', '399001']);
+  });
+
   it('labels a Monday 09:16 quote as the current-session opening auction', () => {
     const semantics = getMarketSnapshotSemantics({
       tradeDate: '2026-07-20', minuteOfDay: 9 * 60 + 16, weekday: 1,

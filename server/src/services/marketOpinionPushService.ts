@@ -237,7 +237,7 @@ export async function buildMarketContext(
     marketPhase: session.phase,
     referenceTradeDate,
     dataTradeDate: referenceTradeDate,
-    indices: indices.status === 'fulfilled' ? indices.value.map((item) => ({
+    indices: indices.status === 'fulfilled' ? filterMarketOpinionIndices(indices.value).map((item) => ({
       code: item.code, name: item.name, price: item.price, changePct: item.changePct,
       quoteTradeDate: semantics.quoteTradeDate,
       quotePhase: semantics.quotePhase,
@@ -300,6 +300,14 @@ export interface MarketSnapshotSemantics {
   previousCloseTradeDate: string | null;
   quotePhase: 'market_closed' | 'pre_open_reference' | 'opening_auction' | 'continuous_trading' | 'lunch_break' | 'closing_settlement' | 'official_close';
   snapshotType: 'previous_close_reference' | 'current_session';
+}
+
+/**
+ * Keep indices backed only by delayed local daily bars out of the AI context.
+ * They remain available to public market-data APIs and research consumers.
+ */
+export function filterMarketOpinionIndices<T extends { code?: string }>(indices: T[]): T[] {
+  return indices.filter((item) => item.code !== '932000');
 }
 
 /**
