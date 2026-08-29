@@ -9,6 +9,8 @@ import {
   queryFundamentalValuationRawPoints,
   refreshFundamentalValuation,
 } from './jobs/fundamentalValuationJob.js';
+import { queryMarketStructureRawPoints, refreshMarketStructure } from './jobs/marketStructureJob.js';
+import { calculateMarketStructure } from './calculation/marketStructure.js';
 
 async function main(): Promise<void> {
   const apply = process.argv.includes('--apply');
@@ -18,8 +20,9 @@ async function main(): Promise<void> {
     const pool = createPool(config);
     initDb(pool);
     try {
-      const result = await refreshFundamentalValuation(snapshotRoot);
-      console.log(JSON.stringify({ mode: 'apply', ...result }));
+      const fundamentalValuation = await refreshFundamentalValuation(snapshotRoot);
+      const marketStructure = await refreshMarketStructure(snapshotRoot);
+      console.log(JSON.stringify({ mode: 'apply', fundamentalValuation, marketStructure }));
     } finally {
       closeDb();
       await closePool(pool);
@@ -36,12 +39,21 @@ async function main(): Promise<void> {
     financial.relativePath,
   );
   const result = calculateFundamentalAndValuation(rows, current.manifest.snapshotId);
+  const datasets = Object.fromEntries((current.manifest.datasets ?? []).map((item) => [item.name, item.relativePath]));
+  const structureRows = await queryMarketStructureRawPoints(
+    snapshotRoot,
+    current.manifest.snapshotId,
+    datasets,
+  );
+  const marketStructure = calculateMarketStructure(structureRows, current.manifest.snapshotId);
   console.log(JSON.stringify({
     mode: 'dry-run',
     snapshotId: current.manifest.snapshotId,
     observations: rows.length,
     fhi: result.fhi,
     vpi: result.vpi,
+    marketStructureObservations: structureRows.length,
+    msh: marketStructure,
   }));
 }
 

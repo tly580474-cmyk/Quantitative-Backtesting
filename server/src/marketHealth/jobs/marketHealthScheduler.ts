@@ -2,6 +2,7 @@ import { finishCollectorRun, tryStartCollectorRun } from '../../marketData/repos
 import { getChinaMarketSession } from '../../marketData/jobs/marketSession.js';
 import { refreshNominalEarningsCycle } from './nominalCycleJob.js';
 import { refreshFundamentalValuation } from './fundamentalValuationJob.js';
+import { refreshMarketStructure } from './marketStructureJob.js';
 
 export interface MarketHealthSchedulerConfig {
   enabled: boolean;
@@ -46,9 +47,12 @@ async function tick(config: MarketHealthSchedulerConfig): Promise<void> {
     }
     if (isNaturalDayTaskDue(session.minuteOfDay, config.dailyMaterializationTime)) {
       await runCollectorTask(
-        `market_health_fhi_vpi:${session.tradeDate}`,
-        'market_health_fhi_vpi',
-        () => refreshFundamentalValuation(config.snapshotRoot),
+        `market_health_daily:${session.tradeDate}`,
+        'market_health_daily',
+        async () => ({
+          fundamentalValuation: await refreshFundamentalValuation(config.snapshotRoot),
+          marketStructure: await refreshMarketStructure(config.snapshotRoot),
+        }),
       );
     }
   } finally {
