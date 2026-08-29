@@ -48,4 +48,14 @@ describe('market health presentation', () => {
   it('clamps malformed persisted scores at the API boundary', () => {
     expect(presentSnapshot(snapshot({ score: 140 }), '2026-08-29T12:00:00.000Z').score).toBe(100);
   });
+
+  it('presents chronological history without leaking persistence fields', () => {
+    const older = snapshot({ id: 2, asOfDate: '2026-03-31', periodKey: '2026Q1', score: 58.129 });
+    expect(presentSnapshot(snapshot(), '2026-08-29T12:00:00.000Z', [older]).history).toEqual([{
+      asOfDate: '2026-03-31',
+      periodKey: '2026Q1',
+      score: 58.13,
+      components: [],
+    }]);
+  });
 });

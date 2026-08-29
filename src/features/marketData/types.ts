@@ -520,6 +520,13 @@ export interface MarketHealthComponent {
   description: string;
 }
 
+export interface MarketHealthHistoryPoint {
+  asOfDate: string;
+  periodKey: string;
+  score: number;
+  components: MarketHealthComponent[];
+}
+
 export interface MarketHealthIndicator {
   key: MarketHealthIndicatorKey;
   name: string;
@@ -537,6 +544,7 @@ export interface MarketHealthIndicator {
   freshness: 'current' | 'preliminary' | 'stale' | 'unavailable';
   components: MarketHealthComponent[];
   sourcePeriods: Record<string, string | number | null>;
+  history?: MarketHealthHistoryPoint[];
 }
 
 export interface MarketHealthOverview {

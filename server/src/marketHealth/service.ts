@@ -1,4 +1,8 @@
-import { listLatestPublishedMarketHealthSnapshots, type StoredMarketHealthSnapshot } from './repository.js';
+import {
+  listLatestPublishedMarketHealthSnapshots,
+  listMarketHealthSnapshotHistory,
+  type StoredMarketHealthSnapshot,
+} from './repository.js';
 import type {
   MarketHealthFreshness,
   MarketHealthIndicator,
@@ -21,8 +25,11 @@ export async function getMarketHealthOverview(force = false): Promise<MarketHeal
   const snapshots = await listLatestPublishedMarketHealthSnapshots();
   const generatedAt = new Date().toISOString();
   const indicators: MarketHealthOverview['indicators'] = {};
-  for (const snapshot of snapshots) {
-    indicators[snapshot.indicatorKey] = presentSnapshot(snapshot, generatedAt);
+  const histories = await Promise.all(snapshots.map((snapshot) => (
+    listMarketHealthSnapshotHistory(snapshot.indicatorKey, snapshot.modelVersion)
+  )));
+  for (const [index, snapshot] of snapshots.entries()) {
+    indicators[snapshot.indicatorKey] = presentSnapshot(snapshot, generatedAt, histories[index]);
   }
   const value = { generatedAt, indicators };
   cache = { value, expiresAt: Date.now() + CACHE_MS };
@@ -33,7 +40,11 @@ export function invalidateMarketHealthCache(): void {
   cache = null;
 }
 
-export function presentSnapshot(snapshot: StoredMarketHealthSnapshot, nowIso: string): MarketHealthIndicator {
+export function presentSnapshot(
+  snapshot: StoredMarketHealthSnapshot,
+  nowIso: string,
+  history: StoredMarketHealthSnapshot[] = [],
+): MarketHealthIndicator {
   return {
     key: snapshot.indicatorKey,
     name: NAMES[snapshot.indicatorKey],
@@ -51,6 +62,12 @@ export function presentSnapshot(snapshot: StoredMarketHealthSnapshot, nowIso: st
     freshness: resolveFreshness(snapshot, nowIso),
     components: snapshot.components,
     sourcePeriods: snapshot.sourcePeriods,
+    history: history.map((point) => ({
+      asOfDate: point.asOfDate,
+      periodKey: point.periodKey,
+      score: clampScore(point.score),
+      components: point.components,
+    })),
   };
 }
 

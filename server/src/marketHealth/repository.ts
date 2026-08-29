@@ -45,6 +45,22 @@ export async function getLatestMarketHealthSnapshot(
   return row ? toStoredSnapshot(row) : null;
 }
 
+export async function listMarketHealthSnapshotHistory(
+  indicatorKey: MarketHealthIndicatorKey,
+  modelVersion: string,
+  limit = 24,
+): Promise<StoredMarketHealthSnapshot[]> {
+  const rows = await getDb().select().from(marketHealthSnapshots)
+    .where(and(
+      eq(marketHealthSnapshots.indicatorKey, indicatorKey),
+      eq(marketHealthSnapshots.modelVersion, modelVersion),
+      ne(marketHealthSnapshots.publicationStatus, 'pending'),
+    ))
+    .orderBy(desc(marketHealthSnapshots.asOfDate), desc(marketHealthSnapshots.calculatedAt))
+    .limit(Math.min(60, Math.max(1, limit)));
+  return rows.map(toStoredSnapshot).reverse();
+}
+
 export async function publishMarketHealthSnapshot(input: MarketHealthSnapshotInput): Promise<void> {
   const db = getDb();
   await db.transaction(async (tx) => {

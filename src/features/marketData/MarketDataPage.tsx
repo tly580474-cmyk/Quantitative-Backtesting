@@ -461,8 +461,189 @@ function healthFreshnessTag(indicator: MarketHealthIndicator) {
   return <Tag color="green">已发布</Tag>;
 }
 
+function healthMetricOptions(indicator: MarketHealthIndicator) {
+  return [
+    { value: 'score', label: indicator.key === 'nec' ? '周期指数' : indicator.name },
+    ...indicator.components.map((component) => ({ value: component.key, label: component.label })),
+  ];
+}
+
+function metricValue(
+  point: Pick<MarketHealthIndicator, 'score' | 'components'>,
+  metricKey: string,
+  raw = false,
+) {
+  if (metricKey === 'score') return point.score;
+  const component = point.components.find((item) => item.key === metricKey);
+  return raw ? component?.value ?? null : component?.score ?? null;
+}
+
+function MarketStructureRadar({ indicator }: { indicator: MarketHealthIndicator }) {
+  const components = indicator.components.slice(0, 6);
+  const centerX = 160;
+  const centerY = 78;
+  const radius = 52;
+  const polar = (index: number, ratio: number) => {
+    const angle = -Math.PI / 2 + index * Math.PI * 2 / components.length;
+    return [centerX + Math.cos(angle) * radius * ratio, centerY + Math.sin(angle) * radius * ratio] as const;
+  };
+  const polygon = (ratio: number) => components.map((_, index) => polar(index, ratio).join(',')).join(' ');
+  const valuePolygon = components.map((component, index) => polar(index, Math.max(0, Math.min(100, component.score ?? 0)) / 100).join(',')).join(' ');
+  const summary = components.map((item) => `${item.label}${fmt(item.score, 1)}分`).join('，');
+
+  return <figure className="market-health-chart market-health-radar">
+    <svg viewBox="0 0 320 160" role="img" aria-label={`市场结构雷达图：${summary}`}>
+      <title>{`市场结构雷达图：${summary}`}</title>
+      {[0.25, 0.5, 0.75, 1].map((ratio) => <polygon key={ratio} points={polygon(ratio)} className="market-health-radar-grid" />)}
+      {components.map((_, index) => {
+        const [x, y] = polar(index, 1);
+        return <line key={index} x1={centerX} y1={centerY} x2={x} y2={y} className="market-health-radar-grid" />;
+      })}
+      <polygon points={valuePolygon} className="market-health-radar-value" />
+      {components.map((component, index) => {
+        const [x, y] = polar(index, 1.31);
+        const anchor = x < centerX - 8 ? 'end' : x > centerX + 8 ? 'start' : 'middle';
+        return <text key={component.key} x={x} y={y} textAnchor={anchor} dominantBaseline="middle">
+          {component.label}<tspan x={x} dy="12">{fmt(component.score, 1)}</tspan>
+        </text>;
+      })}
+    </svg>
+    <figcaption>四项结构分数的当前形态；越靠外代表该维度越稳健。</figcaption>
+  </figure>;
+}
+
+function HealthHistoryColumns({ indicator, metricKey }: { indicator: MarketHealthIndicator; metricKey: string }) {
+  const points = (indicator.history?.length ? indicator.history : [{
+    asOfDate: indicator.asOfDate,
+    periodKey: indicator.periodKey,
+    score: indicator.score,
+    components: indicator.components,
+  }]).slice(-8);
+  const values = points.map((point) => metricValue(point, metricKey) ?? 0);
+  const label = healthMetricOptions(indicator).find((item) => item.value === metricKey)?.label ?? indicator.name;
+  const chartWidth = 320;
+  const chartHeight = 158;
+  const left = 28;
+  const top = 12;
+  const bottom = 31;
+  const plotHeight = chartHeight - top - bottom;
+  const slot = (chartWidth - left - 8) / Math.max(1, points.length);
+  const barWidth = Math.min(34, slot * 0.58);
+
+  return <figure className="market-health-chart market-health-columns">
+    <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label={`${label}历史柱状图`}>
+      <title>{`${label}历史柱状图：${points.map((point, index) => `${point.periodKey} ${fmt(values[index], 1)}分`).join('，')}`}</title>
+      {[0, 25, 50, 75, 100].map((tick) => {
+        const y = top + (100 - tick) / 100 * plotHeight;
+        return <g key={tick}><line x1={left} x2={chartWidth - 4} y1={y} y2={y} className="market-health-chart-grid" /><text x={left - 5} y={y + 3} textAnchor="end" className="market-health-axis-label">{tick}</text></g>;
+      })}
+      {points.map((point, index) => {
+        const value = Math.max(0, Math.min(100, values[index]));
+        const x = left + slot * index + (slot - barWidth) / 2;
+        const y = top + (100 - value) / 100 * plotHeight;
+        return <g key={`${point.asOfDate}-${index}`}>
+          <rect x={x} y={y} width={barWidth} height={top + plotHeight - y} rx="4" className="market-health-column" />
+          <text x={x + barWidth / 2} y={Math.max(9, y - 4)} textAnchor="middle" className="market-health-value-label">{fmt(value, 0)}</text>
+          <text x={x + barWidth / 2} y={chartHeight - 10} textAnchor="middle" className="market-health-period-label">{point.periodKey.replace(/^20/, '')}</text>
+        </g>;
+      })}
+    </svg>
+    <figcaption>{points.length < 3 ? '历史快照仍在积累，柱形会随自动更新逐期增加。' : `最近 ${points.length} 个已发布数据期，纵轴为标准化得分。`}</figcaption>
+  </figure>;
+}
+
+function NominalCycleColumns({ indicator, metricKey }: { indicator: MarketHealthIndicator; metricKey: string }) {
+  if (metricKey === 'score') return <HealthHistoryColumns indicator={indicator} metricKey={metricKey} />;
+  const points = (indicator.history?.length ? indicator.history : [{
+    asOfDate: indicator.asOfDate,
+    periodKey: indicator.periodKey,
+    score: indicator.score,
+    components: indicator.components,
+  }]).slice(-8);
+  const values = points.map((point) => metricValue(point, metricKey, true) ?? 0);
+  const extent = Math.max(1, ...values.map((value) => Math.abs(value))) * 1.18;
+  const chartWidth = 320;
+  const chartHeight = 158;
+  const left = 31;
+  const top = 14;
+  const bottom = 31;
+  const plotHeight = chartHeight - top - bottom;
+  const zeroY = top + plotHeight / 2;
+  const slot = (chartWidth - left - 8) / Math.max(1, points.length);
+  const barWidth = Math.min(34, slot * 0.58);
+  const label = healthMetricOptions(indicator).find((item) => item.value === metricKey)?.label ?? '宏观变化';
+
+  return <figure className="market-health-chart market-health-columns is-diverging">
+    <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label={`${label}正负柱状图`}>
+      <title>{`${label}正负柱状图：${points.map((point, index) => `${point.periodKey} ${fmt(values[index], 2)}%`).join('，')}`}</title>
+      <line x1={left} x2={chartWidth - 4} y1={zeroY} y2={zeroY} className="market-health-zero-line" />
+      <text x={left - 5} y={top + 3} textAnchor="end" className="market-health-axis-label">+{fmt(extent, 1)}</text>
+      <text x={left - 5} y={zeroY + 3} textAnchor="end" className="market-health-axis-label">0</text>
+      <text x={left - 5} y={top + plotHeight + 3} textAnchor="end" className="market-health-axis-label">-{fmt(extent, 1)}</text>
+      {points.map((point, index) => {
+        const value = values[index];
+        const height = Math.abs(value) / extent * (plotHeight / 2);
+        const x = left + slot * index + (slot - barWidth) / 2;
+        const y = value >= 0 ? zeroY - height : zeroY;
+        return <g key={`${point.asOfDate}-${index}`}>
+          <rect x={x} y={y} width={barWidth} height={Math.max(1, height)} rx="4" className={`market-health-column ${value < 0 ? 'is-negative' : 'is-positive'}`} />
+          <text x={x + barWidth / 2} y={value >= 0 ? Math.max(10, y - 4) : Math.min(chartHeight - bottom - 2, y + height + 11)} textAnchor="middle" className="market-health-value-label">{fmt(value, 1)}%</text>
+          <text x={x + barWidth / 2} y={chartHeight - 10} textAnchor="middle" className="market-health-period-label">{point.periodKey.slice(2)}</text>
+        </g>;
+      })}
+    </svg>
+    <figcaption>零轴上方代表改善，零轴下方代表收缩；展示原始宏观值而非标准化分数。</figcaption>
+  </figure>;
+}
+
+function ValuationBandChart({ indicator, metricKey }: { indicator: MarketHealthIndicator; metricKey: string }) {
+  const points = (indicator.history?.length ? indicator.history : [{
+    asOfDate: indicator.asOfDate,
+    periodKey: indicator.periodKey,
+    score: indicator.score,
+    components: indicator.components,
+  }]).slice(-24);
+  const values = points.map((point) => metricValue(point, metricKey) ?? 0);
+  const chartWidth = 320;
+  const chartHeight = 158;
+  const left = 29;
+  const right = 7;
+  const top = 10;
+  const bottom = 30;
+  const plotWidth = chartWidth - left - right;
+  const plotHeight = chartHeight - top - bottom;
+  const xAt = (index: number) => left + (points.length === 1 ? plotWidth / 2 : index / (points.length - 1) * plotWidth);
+  const yAt = (value: number) => top + (100 - Math.max(0, Math.min(100, value))) / 100 * plotHeight;
+  const path = points.map((_, index) => `${index ? 'L' : 'M'}${xAt(index)},${yAt(values[index])}`).join(' ');
+  const label = healthMetricOptions(indicator).find((item) => item.value === metricKey)?.label ?? indicator.name;
+  const bands = [
+    { min: 80, max: 100, className: 'is-high' },
+    { min: 60, max: 80, className: 'is-elevated' },
+    { min: 40, max: 60, className: 'is-normal' },
+    { min: 20, max: 40, className: 'is-low' },
+    { min: 0, max: 20, className: 'is-depressed' },
+  ];
+
+  return <figure className="market-health-chart market-health-line-chart">
+    <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label={`${label}历史估值压力区间图`}>
+      <title>{`${label}历史估值压力区间图：当前 ${fmt(values[values.length - 1], 1)} 分`}</title>
+      {bands.map((band) => <rect key={band.min} x={left} y={yAt(band.max)} width={plotWidth} height={plotHeight / 5} className={`market-health-band ${band.className}`} />)}
+      {[0, 20, 40, 60, 80, 100].map((tick) => <g key={tick}>
+        <line x1={left} x2={chartWidth - right} y1={yAt(tick)} y2={yAt(tick)} className="market-health-chart-grid" />
+        <text x={left - 5} y={yAt(tick) + 3} textAnchor="end" className="market-health-axis-label">{tick}</text>
+      </g>)}
+      <path d={path} className="market-health-line" />
+      {points.map((point, index) => <circle key={`${point.asOfDate}-${index}`} cx={xAt(index)} cy={yAt(values[index])} r="2.6" className="market-health-line-point" />)}
+      <text x={left} y={chartHeight - 10} className="market-health-period-label">{points[0]?.periodKey}</text>
+      <text x={chartWidth - right} y={chartHeight - 10} textAnchor="end" className="market-health-period-label">{points[points.length - 1]?.periodKey}</text>
+    </svg>
+    <figcaption>{points.length < 3 ? '历史快照仍在积累；底色由低到高表示估值压力区间。' : `最近 ${points.length} 个已发布数据期；高位暖色区表示压力更高。`}</figcaption>
+  </figure>;
+}
+
 function HealthIndicatorContent({ indicator }: { indicator: MarketHealthIndicator }) {
-  const tone = indicator.direction === 'higher_is_riskier' ? 'risk' : indicator.direction === 'cycle_strength' ? 'cycle' : 'health';
+  const [metricKey, setMetricKey] = useState(() => indicator.key === 'nec' ? indicator.components[0]?.key ?? 'score' : 'score');
+  const metricOptions = healthMetricOptions(indicator);
   return <>
     <div className="market-thermometer-head">
       <div>
@@ -471,10 +652,22 @@ function HealthIndicatorContent({ indicator }: { indicator: MarketHealthIndicato
       </div>
       <b>{fmt(indicator.score, 1)}</b>
     </div>
-    <div className={`market-thermometer-track is-${tone}`}>
-      <span style={{ left: `${Math.min(100, Math.max(0, indicator.score))}%` }} />
-    </div>
-    <div className="market-thermometer-axis"><span>0</span><span>20</span><span>40</span><span>60</span><span>80</span><span>100</span></div>
+    {indicator.key !== 'msh' && <Segmented<string>
+      className="market-health-metric-tabs"
+      block
+      size="small"
+      aria-label={`${indicator.name}图表指标`}
+      value={metricKey}
+      options={metricOptions}
+      onChange={setMetricKey}
+    />}
+    {indicator.key === 'msh'
+      ? <MarketStructureRadar indicator={indicator} />
+      : indicator.key === 'vpi'
+        ? <ValuationBandChart indicator={indicator} metricKey={metricKey} />
+        : indicator.key === 'nec'
+          ? <NominalCycleColumns indicator={indicator} metricKey={metricKey} />
+          : <HealthHistoryColumns indicator={indicator} metricKey={metricKey} />}
     <div className="market-health-meta">
       {healthFreshnessTag(indicator)}
       <Tag>{healthFrequencyLabel(indicator.frequency)}</Tag>
@@ -550,7 +743,7 @@ function MarketIndicatorCard({
       </Tooltip>)}
     </div>
     </> : healthIndicator
-      ? <HealthIndicatorContent indicator={healthIndicator} />
+      ? <HealthIndicatorContent key={healthIndicator.key} indicator={healthIndicator} />
       : <div className="market-health-empty"><Spin spinning={healthLoading}><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`${selected.toUpperCase()} 尚无已发布数据`} /></Spin></div>}
   </div>;
 }
