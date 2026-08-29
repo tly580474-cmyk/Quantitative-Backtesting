@@ -1,0 +1,43 @@
+CREATE TABLE IF NOT EXISTS macro_observations (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  series_key VARCHAR(32) NOT NULL,
+  observation_period DATE NOT NULL,
+  value DOUBLE NOT NULL,
+  published_at DATETIME NULL,
+  available_at DATETIME NOT NULL,
+  fetched_at DATETIME NOT NULL,
+  source_key VARCHAR(64) NOT NULL,
+  authority_key VARCHAR(64) NOT NULL,
+  source_url VARCHAR(1024) NULL,
+  source_checksum VARCHAR(64) NOT NULL,
+  revision_no INT UNSIGNED NOT NULL DEFAULT 1,
+  status VARCHAR(16) NOT NULL DEFAULT 'observed',
+  PRIMARY KEY (id),
+  UNIQUE KEY idx_mo_series_period_checksum (series_key, observation_period, source_checksum),
+  KEY idx_mo_series_period (series_key, observation_period, revision_no),
+  KEY idx_mo_available_at (available_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS market_health_snapshots (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  indicator_key VARCHAR(16) NOT NULL,
+  as_of_date DATE NOT NULL,
+  period_key VARCHAR(16) NOT NULL,
+  score DOUBLE NOT NULL,
+  status_label VARCHAR(64) NOT NULL,
+  interpretation TEXT NOT NULL,
+  direction VARCHAR(32) NOT NULL,
+  frequency VARCHAR(16) NOT NULL,
+  model_version VARCHAR(32) NOT NULL,
+  components_json JSON NOT NULL,
+  source_periods_json JSON NOT NULL,
+  coverage_pct DOUBLE NULL,
+  source_snapshot_id VARCHAR(128) NULL,
+  calculated_at DATETIME NOT NULL,
+  publication_status VARCHAR(16) NOT NULL DEFAULT 'pending',
+  stale_after DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY idx_mhs_indicator_date_version (indicator_key, as_of_date, model_version),
+  KEY idx_mhs_latest (indicator_key, publication_status, as_of_date),
+  KEY idx_mhs_period (period_key, publication_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

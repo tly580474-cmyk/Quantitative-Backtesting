@@ -42,6 +42,7 @@ import { startDragonTigerScheduler } from './marketData/jobs/dragonTigerSchedule
 import { startMarketNewsScheduler } from './marketData/jobs/marketNewsScheduler.js';
 import { startMarketOpinionPushScheduler } from './marketData/jobs/marketOpinionPushScheduler.js';
 import { startFinancialDataScheduler } from './marketData/jobs/financialDataScheduler.js';
+import { startMarketHealthScheduler } from './marketHealth/jobs/marketHealthScheduler.js';
 import { EmailSender } from './services/emailSender.js';
 import { MarketOpinionAgent } from './services/marketOpinionAgent.js';
 import { MarketOpinionPushService } from './services/marketOpinionPushService.js';
@@ -239,6 +240,17 @@ async function main(): Promise<void> {
       );
     }
 
+    if (config.MARKET_HEALTH_ENABLED === 'true') {
+      startMarketHealthScheduler({
+        enabled: true,
+        macroCheckTime: config.MARKET_HEALTH_MACRO_CHECK_TIME,
+        pythonExecutable: config.MARKET_HEALTH_PYTHON,
+      });
+      console.log(
+        `[MarketHealth] Natural-day macro check scheduled at ${config.MARKET_HEALTH_MACRO_CHECK_TIME}`,
+      );
+    }
+
     if (config.DRAGON_TIGER_ENABLED === 'true') {
       startDragonTigerScheduler({
         syncTime: config.DRAGON_TIGER_SYNC_TIME,
@@ -414,6 +426,7 @@ async function main(): Promise<void> {
     const { stopMarketNewsScheduler } = await import('./marketData/jobs/marketNewsScheduler.js');
     const { stopMarketOpinionPushScheduler } = await import('./marketData/jobs/marketOpinionPushScheduler.js');
     const { stopFinancialDataScheduler } = await import('./marketData/jobs/financialDataScheduler.js');
+    const { stopMarketHealthScheduler } = await import('./marketHealth/jobs/marketHealthScheduler.js');
     stopScheduler();
     stopIndexDatasetScheduler();
     stopMiningScheduler();
@@ -422,6 +435,7 @@ async function main(): Promise<void> {
     stopMarketNewsScheduler();
     stopMarketOpinionPushScheduler();
     stopFinancialDataScheduler();
+    stopMarketHealthScheduler();
     stopPaperTradingScheduler();
     await agentOrchestrator?.shutdown();
     await app.close();

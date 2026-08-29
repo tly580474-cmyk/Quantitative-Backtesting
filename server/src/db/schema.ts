@@ -293,6 +293,54 @@ export const marketDataCollectorRuns = mysqlTable('market_data_collector_runs', 
   statusStartedIdx: index('idx_mdcr_status_started').on(table.status, table.startedAt),
 }));
 
+export const macroObservations = mysqlTable('macro_observations', {
+  id: bigint('id', { mode: 'number', unsigned: true }).autoincrement().primaryKey(),
+  seriesKey: varchar('series_key', { length: 32 }).notNull(),
+  observationPeriod: date('observation_period', { mode: 'string' }).notNull(),
+  value: double('value').notNull(),
+  publishedAt: datetime('published_at', { mode: 'string' }),
+  availableAt: datetime('available_at', { mode: 'string' }).notNull(),
+  fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+  sourceKey: varchar('source_key', { length: 64 }).notNull(),
+  authorityKey: varchar('authority_key', { length: 64 }).notNull(),
+  sourceUrl: varchar('source_url', { length: 1024 }),
+  sourceChecksum: varchar('source_checksum', { length: 64 }).notNull(),
+  revisionNo: int('revision_no', { unsigned: true }).notNull().default(1),
+  status: varchar('status', { length: 16 }).notNull().default('observed'),
+}, (table) => ({
+  seriesPeriodChecksumUnique: uniqueIndex('idx_mo_series_period_checksum')
+    .on(table.seriesKey, table.observationPeriod, table.sourceChecksum),
+  seriesPeriodIdx: index('idx_mo_series_period')
+    .on(table.seriesKey, table.observationPeriod, table.revisionNo),
+  availableAtIdx: index('idx_mo_available_at').on(table.availableAt),
+}));
+
+export const marketHealthSnapshots = mysqlTable('market_health_snapshots', {
+  id: bigint('id', { mode: 'number', unsigned: true }).autoincrement().primaryKey(),
+  indicatorKey: varchar('indicator_key', { length: 16 }).notNull(),
+  asOfDate: date('as_of_date', { mode: 'string' }).notNull(),
+  periodKey: varchar('period_key', { length: 16 }).notNull(),
+  score: double('score').notNull(),
+  statusLabel: varchar('status_label', { length: 64 }).notNull(),
+  interpretation: text('interpretation').notNull(),
+  direction: varchar('direction', { length: 32 }).notNull(),
+  frequency: varchar('frequency', { length: 16 }).notNull(),
+  modelVersion: varchar('model_version', { length: 32 }).notNull(),
+  components: json('components_json').notNull(),
+  sourcePeriods: json('source_periods_json').notNull(),
+  coveragePct: double('coverage_pct'),
+  sourceSnapshotId: varchar('source_snapshot_id', { length: 128 }),
+  calculatedAt: datetime('calculated_at', { mode: 'string' }).notNull(),
+  publicationStatus: varchar('publication_status', { length: 16 }).notNull().default('pending'),
+  staleAfter: datetime('stale_after', { mode: 'string' }),
+}, (table) => ({
+  indicatorDateVersionUnique: uniqueIndex('idx_mhs_indicator_date_version')
+    .on(table.indicatorKey, table.asOfDate, table.modelVersion),
+  latestIdx: index('idx_mhs_latest')
+    .on(table.indicatorKey, table.publicationStatus, table.asOfDate),
+  periodIdx: index('idx_mhs_period').on(table.periodKey, table.publicationStatus),
+}));
+
 export const referenceDataBackfillItems = mysqlTable('reference_data_backfill_items', {
   taskKey: varchar('task_key', { length: 64 }).notNull(),
   instrumentKey: int('instrument_key', { unsigned: true }).notNull(),

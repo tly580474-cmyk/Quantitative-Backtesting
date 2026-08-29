@@ -81,6 +81,7 @@ import { getMinuteDataCatalog, queryMinuteBars } from '../minuteData/minuteDataS
 import { getMarketBillboard, getStockBillboard } from '../marketData/dragonTigerService.js';
 import { getMarketNews, getMarketOpinionNews, getStockNews } from '../marketData/marketNewsService.js';
 import { getFactorSelectionHistory } from '../marketData/factorStockSelection.js';
+import { getMarketHealthOverview } from '../marketHealth/service.js';
 
 const candlesQuerySchema = z.object({
   startDate: z.string().optional(),
@@ -366,6 +367,16 @@ export function registerMarketDataRoutes(
       return reply.send(await fetchCachedMarketSentimentOverview(req.query.force === 'true'));
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : '市场情绪获取失败' });
+    }
+  });
+
+  app.get<{ Querystring: { force?: string } }>('/api/market-data/market-health', async (req, reply) => {
+    if (!dbOnline) return reply.status(503).send(dbUnavailable());
+    try {
+      return reply.send(await getMarketHealthOverview(req.query.force === 'true'));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({ message: error instanceof Error ? error.message : '大盘健康度获取失败' });
     }
   });
 

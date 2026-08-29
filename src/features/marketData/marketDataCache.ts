@@ -1,4 +1,4 @@
-import type { AgentStatus, KlinePoint, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerSection, StockQuote, StockSearchItem, TradingStyleId } from './types';
+import type { AgentStatus, KlinePoint, MarketHealthOverview, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerSection, StockQuote, StockSearchItem, TradingStyleId } from './types';
 import type { SelectionScoreContext } from './selectionScore';
 
 interface AgentResultCache {
@@ -20,6 +20,8 @@ interface MarketDataPageCache {
   sevenLayer: Record<string, Partial<Record<SevenLayerSection['key'], SevenLayerSection>>>;
   indexQuotes?: StockQuote[];
   marketSentiment?: MarketSentimentOverview;
+  marketHealth?: MarketHealthOverview;
+  marketHealthCachedAt?: number;
   agentStatus?: AgentStatus;
   agentQuestion: string;
   agentModel?: string;
@@ -43,6 +45,8 @@ export const marketDataCache: MarketDataPageCache = {
   sevenLayer: {},
   indexQuotes: undefined,
   marketSentiment: undefined,
+  marketHealth: undefined,
+  marketHealthCachedAt: undefined,
   agentQuestion: '请结合全市场环境、消息面和个股证据，给出可验证的条件式交易计划。',
   agentStyles: ['value'],
   agentResults: {},

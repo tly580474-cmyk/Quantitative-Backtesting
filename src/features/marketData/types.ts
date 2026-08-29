@@ -507,6 +507,43 @@ export interface MarketSentimentOverview {
   notes: string[];
 }
 
+export type MarketHealthIndicatorKey = 'msh' | 'fhi' | 'nec' | 'vpi';
+export type MarketOverviewIndicatorKey = 'msi' | MarketHealthIndicatorKey;
+
+export interface MarketHealthComponent {
+  key: string;
+  label: string;
+  value: number | null;
+  score: number | null;
+  weight: number;
+  source: 'market' | 'financial' | 'macro';
+  description: string;
+}
+
+export interface MarketHealthIndicator {
+  key: MarketHealthIndicatorKey;
+  name: string;
+  score: number;
+  scale: [number, number];
+  direction: 'higher_is_better' | 'higher_is_riskier' | 'cycle_strength';
+  statusLabel: string;
+  interpretation: string;
+  frequency: 'daily' | 'event' | 'monthly';
+  asOfDate: string;
+  periodKey: string;
+  calculatedAt: string;
+  modelVersion: string;
+  coveragePct: number | null;
+  freshness: 'current' | 'preliminary' | 'stale' | 'unavailable';
+  components: MarketHealthComponent[];
+  sourcePeriods: Record<string, string | number | null>;
+}
+
+export interface MarketHealthOverview {
+  generatedAt: string;
+  indicators: Partial<Record<MarketHealthIndicatorKey, MarketHealthIndicator>>;
+}
+
 export type TradingStyleId =
   | 'value'
   | 'growth'

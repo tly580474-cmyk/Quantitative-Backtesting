@@ -19,7 +19,7 @@ import MarketNewsPanel from './MarketNewsPanel';
 import IndexConstituentDrawer from './IndexConstituentDrawer';
 import { klineCacheKey, marketDataCache, readIndexIntradayCache, readIndexKlineCache, writeIndexIntradayCache, writeIndexKlineCache } from './marketDataCache';
 import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
-import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, MarketKlinePeriod, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem, TradingStyleId, TradingStyleOption } from './types';
+import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, MarketHealthIndicator, MarketHealthOverview, MarketKlinePeriod, MarketOverviewIndicatorKey, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem, TradingStyleId, TradingStyleOption } from './types';
 import type { ImportResult } from '@/models';
 import { useCardDragReorder } from './useCardDragReorder';
 import { buildMarketIndexCards, buildMarketIndexDetailTarget, resolveMarketIndexSnapshot, type MarketIndexOption } from './marketIndexCards';
@@ -34,7 +34,16 @@ const { Text, Title } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
 const PINNED_WATCHLIST_KEY = 'quant-market-watchlist-pinned-v1';
 const MARKET_INDEX_SELECTION_KEY = 'quant-market-index-selection-v1';
+const MARKET_OVERVIEW_INDICATOR_KEY = 'quant-market-overview-indicator-v1';
 const MARKET_SENTIMENT_REFRESH_MS = 5 * 60_000;
+const MARKET_HEALTH_CACHE_MS = 30 * 60_000;
+const MARKET_OVERVIEW_INDICATOR_OPTIONS = [
+  { value: 'msi', label: 'MSI · 大盘情绪 · 实时' },
+  { value: 'msh', label: 'MSH · 市场结构 · 日频' },
+  { value: 'fhi', label: 'FHI · 盈利承载 · 公告驱动' },
+  { value: 'nec', label: 'NEC · 名义盈利周期 · 月度' },
+  { value: 'vpi', label: 'VPI · 估值压力 · 日频' },
+] satisfies Array<{ value: MarketOverviewIndicatorKey; label: string }>;
 const DEFAULT_TRADING_STYLES: TradingStyleOption[] = [
   { value: 'value', label: '价值投资派', riskLevel: 1, riskLabel: '稳健', description: '估值、盈利质量与安全边际' },
   { value: 'growth', label: '成长赛道流', riskLevel: 2, riskLabel: '稳中进取', description: '业绩增速、产业空间与预期差' },
@@ -196,6 +205,12 @@ function readMarketIndexSelection(): string[] {
     const selected = Array.isArray(stored) ? stored.filter((key) => valid.includes(key)).slice(0, 5) : [];
     return selected.length ? selected : DEFAULT_MARKET_INDEX_KEYS;
   } catch { return DEFAULT_MARKET_INDEX_KEYS; }
+}
+function readMarketOverviewIndicator(): MarketOverviewIndicatorKey {
+  const stored = localStorage.getItem(MARKET_OVERVIEW_INDICATOR_KEY);
+  return MARKET_OVERVIEW_INDICATOR_OPTIONS.some((item) => item.value === stored)
+    ? stored as MarketOverviewIndicatorKey
+    : 'msi';
 }
 function marketIndexKey(item: Pick<StockQuote, 'market' | 'code'>) {
   return `${item.market}:${item.code}`;
@@ -436,9 +451,78 @@ function MarketBreadthChart({
   </>;
 }
 
-function MarketThermometer({ overview }: { overview: MarketSentimentOverview }) {
+function healthFrequencyLabel(frequency: MarketHealthIndicator['frequency']) {
+  return frequency === 'monthly' ? '月度' : frequency === 'event' ? '事件驱动' : '日度';
+}
+
+function healthFreshnessTag(indicator: MarketHealthIndicator) {
+  if (indicator.freshness === 'preliminary') return <Tag color="gold">初值</Tag>;
+  if (indicator.freshness === 'stale') return <Tag color="red">待更新</Tag>;
+  return <Tag color="green">已发布</Tag>;
+}
+
+function HealthIndicatorContent({ indicator }: { indicator: MarketHealthIndicator }) {
+  const tone = indicator.direction === 'higher_is_riskier' ? 'risk' : indicator.direction === 'cycle_strength' ? 'cycle' : 'health';
+  return <>
+    <div className="market-thermometer-head">
+      <div>
+        <Text type="secondary"><DashboardOutlined /> {indicator.name}</Text>
+        <strong>{indicator.statusLabel}</strong>
+      </div>
+      <b>{fmt(indicator.score, 1)}</b>
+    </div>
+    <div className={`market-thermometer-track is-${tone}`}>
+      <span style={{ left: `${Math.min(100, Math.max(0, indicator.score))}%` }} />
+    </div>
+    <div className="market-thermometer-axis"><span>0</span><span>20</span><span>40</span><span>60</span><span>80</span><span>100</span></div>
+    <div className="market-health-meta">
+      {healthFreshnessTag(indicator)}
+      <Tag>{healthFrequencyLabel(indicator.frequency)}</Tag>
+      <span>数据期 {indicator.periodKey}</span>
+      <span>截至 {indicator.asOfDate}</span>
+      <span>计算 {indicator.calculatedAt.slice(0, 10)}</span>
+    </div>
+    <div className="market-structure-callout">
+      <strong>{indicator.direction === 'higher_is_riskier' ? '高分表示压力更高' : indicator.direction === 'cycle_strength' ? '高分表示周期更强' : '高分表示健康度更高'}</strong>
+      <span>{indicator.interpretation}</span>
+      {indicator.coveragePct != null && <small>覆盖率 {fmt(indicator.coveragePct, 0)}%</small>}
+    </div>
+    <div className="market-factor-list">
+      {indicator.components.map((component) => <Tooltip key={component.key} title={component.description}>
+        <div className="market-factor-row">
+          <span><b>{component.source === 'macro' ? '宏' : component.source === 'financial' ? '财' : '市'}</b>{component.label}<small>{Math.round(component.weight * 100)}%</small></span>
+          <Tag>{component.source === 'macro' ? '宏观' : component.source === 'financial' ? '财务' : '市场'}</Tag>
+          <strong>{component.score == null ? '—' : fmt(component.score, 1)}</strong>
+        </div>
+      </Tooltip>)}
+    </div>
+  </>;
+}
+
+function MarketIndicatorCard({
+  overview,
+  healthOverview,
+  selected,
+  onSelectedChange,
+  healthLoading,
+}: {
+  overview: MarketSentimentOverview;
+  healthOverview: MarketHealthOverview | null;
+  selected: MarketOverviewIndicatorKey;
+  onSelectedChange: (value: MarketOverviewIndicatorKey) => void;
+  healthLoading: boolean;
+}) {
   const position = ((overview.msi + 100) / 200) * 100;
-  return <div className={`market-thermometer is-${overview.status}`}>
+  const healthIndicator = selected === 'msi' ? null : healthOverview?.indicators[selected];
+  return <div className={`market-thermometer ${selected === 'msi' ? `is-${overview.status}` : 'is-health'}`}>
+    <Select
+      className="market-indicator-select"
+      aria-label="选择市场指标"
+      value={selected}
+      options={MARKET_OVERVIEW_INDICATOR_OPTIONS}
+      onChange={onSelectedChange}
+    />
+    {selected === 'msi' ? <>
     <div className="market-thermometer-head">
       <div>
         <Text type="secondary"><DashboardOutlined /> 大盘情绪温度计</Text>
@@ -465,10 +549,13 @@ function MarketThermometer({ overview }: { overview: MarketSentimentOverview }) 
         </div>
       </Tooltip>)}
     </div>
+    </> : healthIndicator
+      ? <HealthIndicatorContent indicator={healthIndicator} />
+      : <div className="market-health-empty"><Spin spinning={healthLoading}><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`${selected.toUpperCase()} 尚无已发布数据`} /></Spin></div>}
   </div>;
 }
 
-function MarketSentimentPanel({ overview, loading, onSelectStock }: { overview: MarketSentimentOverview | null; loading: boolean; onSelectStock: (stock: StockSearchItem) => void }) {
+function MarketSentimentPanel({ overview, healthOverview, loading, healthLoading, selectedIndicator, onSelectedIndicatorChange, onSelectStock }: { overview: MarketSentimentOverview | null; healthOverview: MarketHealthOverview | null; loading: boolean; healthLoading: boolean; selectedIndicator: MarketOverviewIndicatorKey; onSelectedIndicatorChange: (value: MarketOverviewIndicatorKey) => void; onSelectStock: (stock: StockSearchItem) => void }) {
   return <div className="market-sentiment-panel">
     <Skeleton loading={loading && !overview} active paragraph={{ rows: 6 }}>
       {overview ? <div className="market-sentiment-layout">
@@ -476,9 +563,11 @@ function MarketSentimentPanel({ overview, loading, onSelectStock }: { overview: 
           <SentimentMetricStrip overview={overview} />
           <MarketBreadthChart overview={overview} onSelectStock={onSelectStock} />
         </div>
-        <MarketThermometer overview={overview} />
+        <MarketIndicatorCard overview={overview} healthOverview={healthOverview} selected={selectedIndicator} onSelectedChange={onSelectedIndicatorChange} healthLoading={healthLoading} />
         <div className="market-sentiment-notes">
-          {overview.notes.map((note) => <Text key={note} type="secondary">{note}</Text>)}
+          {selectedIndicator === 'msi'
+            ? overview.notes.map((note) => <Text key={note} type="secondary">{note}</Text>)
+            : <Text type="secondary">低频健康指标为离线物化结果；切换和刷新只读取已发布快照，不触发现场计算。</Text>}
         </div>
       </div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无市场情绪数据" />}
     </Skeleton>
@@ -794,6 +883,9 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [indexLoading, setIndexLoading] = useState(false);
   const [marketSentiment, setMarketSentiment] = useState<MarketSentimentOverview | null>(() => marketDataCache.marketSentiment ?? null);
   const [marketSentimentLoading, setMarketSentimentLoading] = useState(false);
+  const [marketHealth, setMarketHealth] = useState<MarketHealthOverview | null>(() => marketDataCache.marketHealth ?? null);
+  const [marketHealthLoading, setMarketHealthLoading] = useState(false);
+  const [selectedMarketIndicator, setSelectedMarketIndicator] = useState<MarketOverviewIndicatorKey>(readMarketOverviewIndicator);
   const [overviewTab, setOverviewTab] = useState<'sentiment' | 'hotSector' | 'dragonTiger' | 'news'>('sentiment');
   const [exporting, setExporting] = useState<'analysis' | 'excel' | null>(null);
   const [reports, setReports] = useState<ResearchReport[]>(() => marketDataCache.reports[initialSelectedCode] ?? []);
@@ -820,6 +912,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   useEffect(() => { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist)); marketDataCache.watchlist = watchlist; }, [watchlist]);
   useEffect(() => { localStorage.setItem(PINNED_WATCHLIST_KEY, JSON.stringify(pinnedCodes)); }, [pinnedCodes]);
   useEffect(() => { localStorage.setItem(MARKET_INDEX_SELECTION_KEY, JSON.stringify(selectedIndexKeys)); }, [selectedIndexKeys]);
+  useEffect(() => { localStorage.setItem(MARKET_OVERVIEW_INDICATOR_KEY, selectedMarketIndicator); }, [selectedMarketIndicator]);
   useEffect(() => {
     selectedCodeRef.current = selectedCode;
     marketDataCache.selectedCode = selectedCode;
@@ -946,6 +1039,26 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       if (!silent) message.warning(e instanceof Error ? e.message : '市场情绪获取失败');
     } finally {
       if (!silent) setMarketSentimentLoading(false);
+    }
+  }, [message]);
+  const loadMarketHealth = useCallback(async (silent = false, force = false) => {
+    if (!force && marketDataCache.marketHealth && marketDataCache.marketHealthCachedAt
+      && Date.now() - marketDataCache.marketHealthCachedAt < MARKET_HEALTH_CACHE_MS) {
+      setMarketHealth(marketDataCache.marketHealth);
+      return;
+    }
+    const showLoading = !silent || !marketDataCache.marketHealth;
+    if (showLoading) setMarketHealthLoading(true);
+    try {
+      const path = `/api/market-data/market-health${force ? '?force=true' : ''}`;
+      const next = await apiFetch<MarketHealthOverview>(path);
+      marketDataCache.marketHealth = next;
+      marketDataCache.marketHealthCachedAt = Date.now();
+      setMarketHealth(next);
+    } catch (e) {
+      if (!silent) message.warning(e instanceof Error ? e.message : '大盘健康指标获取失败');
+    } finally {
+      if (showLoading) setMarketHealthLoading(false);
     }
   }, [message]);
   const loadReports = useCallback(async (code: string) => {
@@ -1154,9 +1267,10 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   useEffect(() => {
     if (isResearchView) return undefined;
     void loadMarketSentiment(true);
+    void loadMarketHealth(true);
     const timer = window.setInterval(() => void loadMarketSentiment(true, true), MARKET_SENTIMENT_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [isResearchView, loadMarketSentiment]);
+  }, [isResearchView, loadMarketHealth, loadMarketSentiment]);
   useEffect(() => {
     if (isResearchView) return undefined;
     if (marketSentimentLoading || (marketSentiment?.total ?? 0) > 0) return undefined;
@@ -1417,7 +1531,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       </AutoComplete>
       <Space size={6}>
         <Tooltip title="设置展示的指数"><Button icon={<SettingOutlined />} aria-label="设置展示的指数" onClick={openIndexConfig} /></Tooltip>
-        <Tooltip title="刷新指数与市场概况"><Button icon={<ReloadOutlined />} loading={indexLoading || marketSentimentLoading} aria-label="刷新市场总览" onClick={() => { void loadIndexQuotes(); void refreshIndexPreviewKlines(); void loadMarketSentiment(false, true); }} /></Tooltip>
+        <Tooltip title="刷新指数与市场概况"><Button icon={<ReloadOutlined />} loading={indexLoading || marketSentimentLoading || marketHealthLoading} aria-label="刷新市场总览" onClick={() => { void loadIndexQuotes(); void refreshIndexPreviewKlines(); void loadMarketSentiment(false, true); void loadMarketHealth(false, true); }} /></Tooltip>
       </Space>
     </section>
     <section className={`market-index-grid is-count-${visibleIndexCards.length}${isReordering ? ' is-reordering' : ''}`} aria-label="当前交易日主要指数">
@@ -1479,8 +1593,8 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         />
       </div>
       {overviewTab === 'sentiment' && <section className="market-sentiment-section is-embedded" aria-label="市场情绪与涨跌分布">
-        <div className="market-dashboard-panel-head"><span><DashboardOutlined />市场概况</span><Tooltip title="刷新市场情绪"><Button size="small" type="text" icon={<ReloadOutlined />} loading={marketSentimentLoading} aria-label="刷新市场概况" onClick={() => void loadMarketSentiment(false, true)} /></Tooltip></div>
-        <MarketSentimentPanel overview={marketSentiment} loading={marketSentimentLoading} onSelectStock={openInstrumentDetail} />
+        <div className="market-dashboard-panel-head"><span><DashboardOutlined />市场概况</span><Tooltip title="刷新市场概况"><Button size="small" type="text" icon={<ReloadOutlined />} loading={marketSentimentLoading || marketHealthLoading} aria-label="刷新市场概况" onClick={() => { void loadMarketSentiment(false, true); void loadMarketHealth(false, true); }} /></Tooltip></div>
+        <MarketSentimentPanel overview={marketSentiment} healthOverview={marketHealth} loading={marketSentimentLoading} healthLoading={marketHealthLoading} selectedIndicator={selectedMarketIndicator} onSelectedIndicatorChange={setSelectedMarketIndicator} onSelectStock={openInstrumentDetail} />
       </section>}
       {overviewTab === 'hotSector' && <HotSectorPanel onSelectStock={openInstrumentDetail} />}
       {overviewTab === 'dragonTiger' && <DragonTigerPanel onSelectStock={openInstrumentDetail} />}

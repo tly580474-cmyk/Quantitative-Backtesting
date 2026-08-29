@@ -514,6 +514,9 @@ html[data-theme='light'] .market-sense-benchmark-return span { color: #64748b; }
 .market-breadth-scale em { display: block; justify-self: stretch; width: 100%; height: 10px; max-width: 100%; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.7); }
 .market-breadth-scale strong { justify-self: end; }
 .market-thermometer { display: flex; min-height: 100%; flex-direction: column; gap: 10px; padding: 14px 16px; }
+.market-indicator-select { width: 100%; }
+.market-indicator-select .ant-select-selector { min-height: 44px !important; align-items: center; border-color: #cbd5e1 !important; font-weight: 650; }
+.market-indicator-select.ant-select-focused .ant-select-selector { outline: 2px solid #93c5fd; outline-offset: 1px; }
 .market-thermometer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .market-thermometer-head div { display: flex; flex-direction: column; gap: 2px; }
 .market-thermometer-head div .ant-typography { display: inline-flex; align-items: center; gap: 8px; color: #0f172a; font-size: 14px; font-weight: 700; }
@@ -523,8 +526,15 @@ html[data-theme='light'] .market-sense-benchmark-return span { color: #64748b; }
 .market-thermometer.is-euphoria .market-thermometer-head > b, .market-thermometer.is-bullish .market-thermometer-head > b { color: #dc2626; }
 .market-thermometer.is-panic .market-thermometer-head > b, .market-thermometer.is-bearish .market-thermometer-head > b { color: #16a34a; }
 .market-thermometer-track { position: relative; height: 18px; margin-top: 2px; border-radius: 6px; background: linear-gradient(90deg, #16a34a 0%, #86efac 28%, #edf2f7 50%, #fecaca 73%, #ef4444 100%); box-shadow: inset 0 0 0 1px rgba(15,23,42,.08); }
+.market-thermometer-track.is-health { background: linear-gradient(90deg, #e2e8f0 0%, #bae6fd 45%, #22c55e 100%); }
+.market-thermometer-track.is-risk { background: linear-gradient(90deg, #22c55e 0%, #fde68a 55%, #ef4444 100%); }
+.market-thermometer-track.is-cycle { background: linear-gradient(90deg, #64748b 0%, #93c5fd 50%, #2563eb 100%); }
 .market-thermometer-track span { position: absolute; top: 50%; width: 16px; height: 30px; border: 3px solid #fff; border-radius: 999px; background: #0f172a; box-shadow: 0 4px 10px rgba(15,23,42,.22); transform: translate(-50%, -50%); }
 .market-thermometer-axis { display: flex; justify-content: space-between; color: #64748b; font-size: 12px; font-variant-numeric: tabular-nums; }
+.market-health-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: #64748b; font-size: 11px; }
+.market-health-meta > span:not(.ant-tag) { margin-left: auto; font-variant-numeric: tabular-nums; }
+.market-health-meta > span:not(.ant-tag) + span { margin-left: 0; }
+.market-health-empty { display: grid; flex: 1; min-height: 260px; place-items: center; }
 .market-structure-callout { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 10px 12px; border: 1px solid #dbeafe; border-left: 4px solid #3b82f6; border-radius: 8px; background: #f8fbff; }
 .market-structure-callout strong { color: #1e3a8a; font-size: 13px; }
 .market-structure-callout span { grid-column: 1 / -1; color: #475569; font-size: 12px; line-height: 1.55; }
@@ -5173,6 +5183,16 @@ html[data-theme='dark'] .market-structure-callout.is-broad-decline strong {
 html[data-theme='dark'] .market-factor-row {
   border-color: #26364d;
   background: #111c2e;
+}
+
+html[data-theme='dark'] .market-indicator-select .ant-select-selector {
+  border-color: #334155 !important;
+  background: #111c2e !important;
+  color: #e2e8f0 !important;
+}
+
+html[data-theme='dark'] .market-health-meta {
+  color: #94a3b8;
 }
 
 html[data-theme='dark'] .market-factor-row span {
