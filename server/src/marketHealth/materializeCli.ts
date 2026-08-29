@@ -11,6 +11,7 @@ import {
 } from './jobs/fundamentalValuationJob.js';
 import { queryMarketStructureRawPoints, refreshMarketStructure } from './jobs/marketStructureJob.js';
 import { calculateMarketStructure } from './calculation/marketStructure.js';
+import { refreshNominalEarningsCycle } from './jobs/nominalCycleJob.js';
 
 async function main(): Promise<void> {
   const apply = process.argv.includes('--apply');
@@ -20,9 +21,10 @@ async function main(): Promise<void> {
     const pool = createPool(config);
     initDb(pool);
     try {
+      const nominalCycle = await refreshNominalEarningsCycle(config.MARKET_HEALTH_PYTHON);
       const fundamentalValuation = await refreshFundamentalValuation(snapshotRoot);
       const marketStructure = await refreshMarketStructure(snapshotRoot);
-      console.log(JSON.stringify({ mode: 'apply', fundamentalValuation, marketStructure }));
+      console.log(JSON.stringify({ mode: 'apply', nominalCycle, fundamentalValuation, marketStructure }));
     } finally {
       closeDb();
       await closePool(pool);
