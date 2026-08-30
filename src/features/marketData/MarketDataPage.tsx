@@ -30,6 +30,7 @@ import {
   type WatchlistMetrics,
 } from './watchlistMetrics';
 import { useMobileLayout } from '@/components/mobile/useMobileLayout';
+import MobileWatchlist from './MobileWatchlist';
 import './mobile.css';
 
 const { Text, Title } = Typography;
@@ -1033,7 +1034,9 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const isMobileLayout = useMobileLayout();
   const isWatchlistView = view === 'watchlist';
   const isDetailView = view === 'detail';
-  const isResearchView = isWatchlistView || isDetailView;
+  const isMobileWatchlist = isWatchlistView && isMobileLayout;
+  const isOverviewView = view === 'overview';
+  const isResearchView = (isWatchlistView && !isMobileWatchlist) || isDetailView;
   const isEnhancedStockView = isWatchlistView || isDetailView;
   const initial = marketDataCache.watchlist ?? readWatchlist();
   const initialSelectedCode = instrumentCode || marketDataCache.selectedCode || initial[0]?.code || '600519';
@@ -1119,7 +1122,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   useEffect(() => { marketDataCache.agentModel = agentModel; }, [agentModel]);
   useEffect(() => { marketDataCache.agentStyles = agentStyles; }, [agentStyles]);
   useEffect(() => {
-    if (!isWatchlistView || watchlist.length === 0) return undefined;
+    if (!isWatchlistView || isMobileWatchlist || watchlist.length === 0) return undefined;
     let cancelled = false;
     setWatchlistMetricsLoading(true);
 
@@ -1178,7 +1181,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     });
 
     return () => { cancelled = true; };
-  }, [isWatchlistView, watchlist]);
+  }, [isWatchlistView, isMobileWatchlist, watchlist]);
 
   const loadQuote = useCallback(async (code: string) => {
     setQuoteLoading(true);
@@ -1376,13 +1379,13 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     }).catch(() => undefined);
   }, [isResearchView]);
   useEffect(() => {
-    if (isResearchView) return undefined;
-    if (!marketDataCache.indexQuotes) void loadIndexQuotes();
+    if (!isOverviewView && !isMobileWatchlist) return undefined;
+    if (isMobileWatchlist || !marketDataCache.indexQuotes) void loadIndexQuotes();
     const timer = window.setInterval(() => void loadIndexQuotes(true), 15000);
     return () => window.clearInterval(timer);
-  }, [isResearchView, loadIndexQuotes]);
+  }, [isOverviewView, isMobileWatchlist, loadIndexQuotes]);
   useEffect(() => {
-    if (isResearchView) return undefined;
+    if (!isOverviewView) return undefined;
     let cancelled = false;
     void Promise.all(selectedIndexKeys.map(async (key) => {
       const option = MARKET_INDEX_OPTIONS.find((item) => item.key === key);
@@ -1426,11 +1429,11 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       if (!cancelled) setIndexPreviewKlines((current) => ({ ...current, ...Object.fromEntries(entries) }));
     });
     return () => { cancelled = true; };
-  }, [isResearchView, selectedIndexKeys]);
+  }, [isOverviewView, selectedIndexKeys]);
 
   /** 强制刷新指数预览（分时优先，日线回退） */
   const refreshIndexPreviewKlines = useCallback(async () => {
-    if (isResearchView) return;
+    if (!isOverviewView) return;
     const entries = await Promise.all(selectedIndexKeys.map(async (key) => {
       const option = MARKET_INDEX_OPTIONS.find((item) => item.key === key);
       if (!option) return [key, []] as const;
@@ -1459,20 +1462,20 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       }
     }));
     setIndexPreviewKlines((current) => ({ ...current, ...Object.fromEntries(entries) }));
-  }, [isResearchView, selectedIndexKeys]);
+  }, [isOverviewView, selectedIndexKeys]);
   useEffect(() => {
-    if (isResearchView) return undefined;
+    if (!isOverviewView) return undefined;
     void loadMarketSentiment(true);
     void loadMarketHealth(true);
     const timer = window.setInterval(() => void loadMarketSentiment(true, true), MARKET_SENTIMENT_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [isResearchView, loadMarketHealth, loadMarketSentiment]);
+  }, [isOverviewView, loadMarketHealth, loadMarketSentiment]);
   useEffect(() => {
-    if (isResearchView) return undefined;
+    if (!isOverviewView) return undefined;
     if (marketSentimentLoading || (marketSentiment?.total ?? 0) > 0) return undefined;
     const timer = window.setInterval(() => void loadMarketSentiment(true), 5000);
     return () => window.clearInterval(timer);
-  }, [isResearchView, loadMarketSentiment, marketSentiment?.total, marketSentimentLoading]);
+  }, [isOverviewView, loadMarketSentiment, marketSentiment?.total, marketSentimentLoading]);
   useEffect(() => {
     if (!isResearchView) return undefined;
     if (period !== 'intraday') return undefined;
@@ -1493,13 +1496,12 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       finally { setSearching(false); }
     }, 280);
   };
-  const addStock = (stock: StockSearchItem) => {
+  const addStockWithPrice = (stock: StockSearchItem, capturedPrice: number | null | undefined) => {
     setWatchlist((all) => {
-      const cachedPrice = marketDataCache.quotes[stock.code]?.price;
       const nextItem: StockSearchItem = {
         ...stock,
         addedAt: new Date().toISOString(),
-        addedPrice: cachedPrice != null && cachedPrice > 0 ? cachedPrice : undefined,
+        addedPrice: capturedPrice != null && capturedPrice > 0 ? capturedPrice : undefined,
       };
       const next = all.some((x) => x.code === stock.code) ? all : [...all, nextItem];
       localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next));
@@ -1509,6 +1511,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     marketDataCache.selectedCode = stock.code;
     setSelectedCode(stock.code); setSearchText(''); setSearchItems([]);
   };
+  const addStock = (stock: StockSearchItem) => addStockWithPrice(stock, marketDataCache.quotes[stock.code]?.price);
   const openInstrumentDetail = (stock: StockSearchItem) => {
     marketDataCache.selectedCode = stock.code;
     if (onOpenDetail) {
@@ -1714,6 +1717,30 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const advanceRatio = marketSentiment
     ? (marketSentiment.advancers / Math.max(1, marketSentiment.advancers + marketSentiment.decliners)) * 100
     : null;
+
+  if (isMobileWatchlist) return <MobileWatchlist
+    watchlist={orderedWatchlist}
+    indexCards={visibleIndexCards}
+    indexLoading={indexLoading}
+    onRefreshIndices={() => loadIndexQuotes()}
+    onOpenDetail={openInstrumentDetail}
+    onRemove={removeStock}
+    pinnedCodes={pinnedCodes}
+    onTogglePin={togglePinnedStock}
+    addSearch={<AutoComplete value={searchText} options={options} onSearch={search}
+      onSelect={(code) => {
+        const item = searchItems.find((stock) => stock.code === code);
+        if (!item) return;
+        // Capture a fresh add-time price. Historical entries without a baseline
+        // stay unknown; opening the list must not invent a zero return for them.
+        void apiFetch<StockQuote>(`/api/market-data/stocks/${item.code}/quote`)
+          .then((value) => { marketDataCache.quotes[item.code] = value; addStockWithPrice(item, value.price); })
+          .catch(() => { addStockWithPrice(item, null); message.warning('已加入自选，未取得加入时价格，自选后收益暂不计算'); });
+      }}
+      notFoundContent={searching ? <Spin size="small" /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入代码、简称或拼音" />}>
+      <Input prefix={<SearchOutlined />} placeholder="搜索证券并加入自选" aria-label="搜索并加入自选" />
+    </AutoComplete>}
+  />;
 
   return <main className={`market-page${isWatchlistView ? ' market-watchlist-page' : ''}${isDetailView ? ' market-detail-page' : ''}${isMobileLayout ? ' mobile-market-page' : ''}`} tabIndex={0} aria-label={`${isWatchlistView ? '我的自选' : isDetailView ? '行情详情' : '市场数据'}内容，可上下滚动`} onKeyDown={handleScrollKeys}>
     {view === 'overview' && <>

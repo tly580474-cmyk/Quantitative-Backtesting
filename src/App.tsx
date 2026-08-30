@@ -25,6 +25,7 @@ import {
 import dayjs from 'dayjs';
 import zhCN from 'antd/locale/zh_CN';
 import AppLayout from './components/AppLayout';
+import { useMobileLayout } from './components/mobile/useMobileLayout';
 import FileUploader from './components/FileUploader';
 import StockInfoBar from './components/StockInfoBar';
 import ImportResultPanel from './components/ImportResultPanel';
@@ -738,13 +739,15 @@ function MarketDataRoute() {
 
 function WatchlistRoute() {
   const navigate = useNavigate();
+  const mobileLayout = useMobileLayout();
   const handleOpenInAnalysis = useCallback((result: ImportResult) => {
     useCandleStore.getState().setCandles(result.candles);
     useCandleStore.getState().setImportResult(result);
     navigate('/analysis');
   }, [navigate]);
 
-  return <MarketDataPage view="watchlist" onOpenInAnalysis={handleOpenInAnalysis} />;
+  return <MarketDataPage view="watchlist" onOpenInAnalysis={handleOpenInAnalysis}
+    onOpenDetail={mobileLayout ? (stock) => navigate(`/market-detail/${stock.code}`) : undefined} />;
 }
 
 export function MarketDetailRoute() {
