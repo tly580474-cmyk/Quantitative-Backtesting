@@ -23,7 +23,6 @@ interface AppLayoutProps {
   onBack?: () => void;
   topBar: ReactNode;
   headerNav?: ReactNode;
-  navigationContext?: ReactNode;
   hidePageIdentity?: boolean;
   leftPanel?: ReactNode;
   center: ReactNode;
@@ -40,7 +39,6 @@ export default function AppLayout({
   onBack,
   topBar,
   headerNav,
-  navigationContext,
   hidePageIdentity = false,
   leftPanel,
   center,
@@ -77,11 +75,6 @@ export default function AppLayout({
             </div>
           )}
         </div>
-        {navigationContext && (
-          <div className="app-nav-context">
-            {navigationContext}
-          </div>
-        )}
         <Menu
           className="app-nav-menu"
           mode="inline"
@@ -194,11 +187,6 @@ export default function AppLayout({
               onClick={() => setMobileNavOpen(false)}
             />
           </div>
-          {navigationContext && (
-            <div className="app-nav-context">
-              {navigationContext}
-            </div>
-          )}
           <Menu
             className="app-nav-menu"
             mode="inline"

@@ -55,7 +55,6 @@ import {
   setCandidateAutomationEnabled,
 } from '../factorResearch/candidates/candidateAutomationRepository.js';
 import { evaluateAutoCandidateGate } from '../factorResearch/candidates/autoCandidateGate.js';
-import { registerFactorStrategyRoutes } from './factorStrategies.js';
 
 interface FactorResearchRouteConfig {
   snapshotRoot: string;
@@ -230,18 +229,9 @@ export function registerFactorResearchRoutes(
     app.post('/api/factor-candidates/:id/approve', stub);
     app.post('/api/factor-candidates/:id/reject', stub);
     app.post('/api/factor-candidates/:id/publish', stub);
-    app.get('/api/factor-strategies', stub);
-    app.post('/api/factor-strategies', stub);
-    app.post('/api/factor-strategies/optimize', stub);
-    app.post('/api/factor-strategies/:id/evaluate', stub);
-    app.post('/api/factor-strategies/:id/start-paper', stub);
-    app.post('/api/factor-strategies/:id/observations', stub);
-    app.get('/api/factor-strategies/:id/performance', stub);
-    app.post('/api/factor-strategies/:id/promote', stub);
     return;
   }
 
-  registerFactorStrategyRoutes(app, config.pool, config.miningWorker);
   let candidateAutomationBusy = false;
   const processCandidateAutomation = async (): Promise<void> => {
     if (candidateAutomationBusy) return;

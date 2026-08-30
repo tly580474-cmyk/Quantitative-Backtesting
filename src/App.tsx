@@ -1,5 +1,5 @@
 import { useState, useCallback, lazy, Suspense, useMemo, useEffect, useRef } from 'react';
-import { HashRouter, Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { HashRouter, Navigate, Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Checkbox, ConfigProvider, App as AntApp, Button, DatePicker, Dropdown, Modal, Popover, Segmented, Space, Tag, theme as antdTheme } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -21,7 +21,6 @@ import {
   SettingOutlined,
   StarOutlined,
   SwapOutlined,
-  TrophyOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import zhCN from 'antd/locale/zh_CN';
@@ -72,7 +71,6 @@ const MarketDataPage = lazy(() => import('./features/marketData/MarketDataPage')
 const FactorResearchPage = lazy(() => import('./features/factorResearch/FactorResearchPage'));
 const AutomatedFactorMiningPage = lazy(
   () => import('./features/factorResearch/AutomatedFactorMiningPage'));
-const FactorStrategyPage = lazy(() => import('./features/factorResearch/FactorStrategyPage'));
 const PaperTradingPage = lazy(() => import('./features/paperTrading/PaperTradingPage'));
 const MarketSenseTrainingPage = lazy(
   () => import('./features/marketSenseTraining/MarketSenseTrainingPage'));
@@ -776,7 +774,7 @@ function AppContent() {
   const navigate = useNavigate();
   const factorNavRef = useRef<HTMLElement | null>(null);
   const [colorMode, setColorMode] = useState<ColorMode>(() => readColorMode());
-  const factorWorkspaceActive = ['/factors', '/factor-mining', '/factor-strategies']
+  const factorWorkspaceActive = ['/factors', '/factor-mining']
     .includes(location.pathname);
   const activeKey = location.pathname === '/'
     ? '/market-data'
@@ -888,12 +886,6 @@ function AppContent() {
         onClick={() => navigate('/factor-mining')}>
         自动因子挖掘
       </Button>
-      <Button type={location.pathname === '/factor-strategies' ? 'primary' : 'text'}
-        icon={<TrophyOutlined />}
-        aria-current={location.pathname === '/factor-strategies' ? 'page' : undefined}
-        onClick={() => navigate('/factor-strategies')}>
-        冠军 / 挑战者策略
-      </Button>
     </nav>
   ) : undefined;
 
@@ -921,12 +913,6 @@ function AppContent() {
           topBar={topBar}
           headerNav={factorHeaderNav}
           hidePageIdentity={factorWorkspaceActive}
-          navigationContext={factorWorkspaceActive ? (
-            <>
-              <span>第六阶段</span>
-              <strong>因子研究</strong>
-            </>
-          ) : undefined}
           center={
             <Suspense
               key={location.pathname === '/market-sense-training' ? 'market-sense-training' : colorMode}
@@ -946,11 +932,11 @@ function AppContent() {
                 <Route path="/results" element={<BacktestResultsPage />} />
                 <Route path="/factors" element={<FactorResearchPage />} />
                 <Route path="/factor-mining" element={<AutomatedFactorMiningPage />} />
-                <Route path="/factor-strategies" element={<FactorStrategyPage />} />
                 <Route path="/studio" element={<StrategyStudioPage />} />
                 <Route path="/agent" element={<AgentRunner />} />
                 <Route path="/agent-reports" element={<AgentReportHistory />} />
                 <Route path="/agent-runs" element={<AgentRunHistory />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>
           }
