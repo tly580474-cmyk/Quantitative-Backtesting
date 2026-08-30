@@ -29,6 +29,8 @@ import { createTradeMarkers } from './tradeMarkers';
 import { getAllStrategies } from '@/features/strategies/registry';
 import { getResultStrategyName } from './resultLabel';
 import type { SeriesMarker, Time } from 'lightweight-charts';
+import { useMobileLayout } from '@/components/mobile/useMobileLayout';
+import './backtestResults.mobile.css';
 
 const { Text } = Typography;
 
@@ -58,6 +60,7 @@ export default function BacktestResultsPage() {
   const removeResults = useBacktestStore((s) => s.removeResults);
 
   const [activeResultId, setActiveResultId] = useState<string | null>(null);
+  const [mobileResultsView, setMobileResultsView] = useState<'history' | 'review'>('history');
   const [compareMode, setCompareMode] = useState(false);
   const [sortOrder, setSortOrder] = useState<'time' | 'profitDesc' | 'profitAsc'>('time');
   const [showBenchmark, setShowBenchmark] = useState(false);
@@ -69,6 +72,7 @@ export default function BacktestResultsPage() {
     dca: '定投策略',
     ...Object.fromEntries(getAllStrategies().map((strategy) => [strategy.id, strategy.name])),
   }));
+  const isMobile = useMobileLayout();
 
   useEffect(() => {
     loadResults();
@@ -93,6 +97,7 @@ export default function BacktestResultsPage() {
 
   const handleView = (r: BacktestResult) => {
     setActiveResultId(r.id);
+    if (isMobile) setMobileResultsView('review');
     setCompareMode(false);
     setShowBenchmark(false);
     setBenchmarkCandles([]);
@@ -118,11 +123,15 @@ export default function BacktestResultsPage() {
     if (sortedResults.length === 0) {
       setActiveResultId(null);
       setCompareMode(false);
+      setMobileResultsView('history');
       return;
     }
     if (activeResultId && sortedResults.some((result) => result.id === activeResultId)) return;
     setActiveResultId(sortedResults.find((result) => result.status === 'completed')?.id ?? sortedResults[0].id);
-  }, [activeResultId, sortedResults]);
+    // A result can be deleted while its review is open. Return to the queue
+    // together with the new selection instead of leaving a blank mobile view.
+    if (isMobile) setMobileResultsView('history');
+  }, [activeResultId, isMobile, sortedResults]);
 
   useEffect(() => {
     if (compareMode && selectedResults.length < 2) {
@@ -133,6 +142,7 @@ export default function BacktestResultsPage() {
   const handleCompare = () => {
     if (selectedResults.length >= 2) {
       setCompareMode(true);
+      if (isMobile) setMobileResultsView('review');
     }
   };
 
@@ -140,8 +150,59 @@ export default function BacktestResultsPage() {
     getResultStrategyName(result, strategyNames);
 
   return (
-    <div className="results-page">
-      <div className="results-toolbar">
+    <div className={isMobile ? 'results-page results-page-mobile' : 'results-page'}>
+      {isMobile && (
+        <div className="results-mobile-toolbar">
+          <div className="results-mobile-toolbar-head">
+            <Text strong>回测结果复盘</Text>
+            <Text type="secondary">{results.length} 条记录</Text>
+          </div>
+          <Space wrap className="results-mobile-toolbar-actions">
+            {mobileResultsView === 'review' && (
+              <Button onClick={() => setMobileResultsView('history')}>返回结果队列</Button>
+            )}
+            {mobileResultsView === 'review' && compareMode && (
+              <Button onClick={() => setCompareMode(false)}>返回单项复盘</Button>
+            )}
+            {mobileResultsView === 'history' && (
+              <>
+                <Select
+                  aria-label="回测结果排序"
+                  value={sortOrder}
+                  onChange={setSortOrder}
+                  className="results-mobile-sort"
+                  options={[{ label: '按时间排序', value: 'time' }, { label: '收益金额从高到低', value: 'profitDesc' }, { label: '收益金额从低到高', value: 'profitAsc' }]}
+                />
+                <Checkbox
+                  checked={results.length > 0 && selectedIds.length === results.length}
+                  indeterminate={selectedIds.length > 0 && selectedIds.length < results.length}
+                  onChange={(event) => event.target.checked ? selectAll() : clearSelection()}
+                >
+                  全选
+                </Checkbox>
+                {selectedResults.length >= 2 && (
+                  <Button icon={<SwapOutlined />} onClick={handleCompare}>
+                    对比 ({selectedResults.length})
+                  </Button>
+                )}
+                {selectedIds.length > 0 && (
+                  <Button onClick={clearSelection}>清除选择</Button>
+                )}
+                <Popconfirm
+                  title={`确定删除选中的 ${selectedIds.length} 条结果？`}
+                  onConfirm={() => removeResults(selectedIds)}
+                  disabled={selectedIds.length === 0}
+                >
+                  <Button danger icon={<DeleteOutlined />} disabled={selectedIds.length === 0}>
+                    删除所选
+                  </Button>
+                </Popconfirm>
+              </>
+            )}
+          </Space>
+        </div>
+      )}
+      {!isMobile && <div className="results-toolbar">
         <div className="results-toolbar-title">
           <Text strong>回测结果复盘</Text>
           <Text type="secondary">{results.length} 条历史记录 · {selectedResults.length} 条可对比</Text>
@@ -181,9 +242,12 @@ export default function BacktestResultsPage() {
             </Button>
           </Popconfirm>
         </Space>
-      </div>
+      </div>}
 
-      <div className="results-workbench">
+      <div className={[
+        'results-workbench',
+        isMobile ? `results-mobile-show-${mobileResultsView}` : '',
+      ].filter(Boolean).join(' ')}>
         <aside className="results-history-panel">
           <WorkbenchPanel
             title="结果队列"

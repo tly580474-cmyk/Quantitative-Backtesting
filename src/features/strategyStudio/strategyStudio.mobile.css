@@ -1,0 +1,122 @@
+/* Mobile strategy editing keeps the rule canvas in the page and opens
+   supporting material/feedback in drawers. */
+.strategy-studio-mobile {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.strategy-studio-mobile .strategy-studio-header {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.strategy-studio-mobile .strategy-studio-identity {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+
+.strategy-studio-mobile .strategy-studio-name {
+  width: 100%;
+  font-size: 18px;
+}
+
+.strategy-studio-mobile .strategy-studio-description {
+  width: 100%;
+  max-width: none;
+  margin-bottom: 4px;
+}
+
+.strategy-studio-mobile .strategy-studio-actions {
+  width: 100%;
+  min-width: 0;
+  flex: none;
+}
+
+.strategy-studio-mobile-actions {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.strategy-studio-mobile-actions > .ant-badge,
+.strategy-studio-mobile-actions > .ant-tooltip-open,
+.strategy-studio-mobile-actions > .ant-dropdown-trigger {
+  min-width: 0;
+}
+
+.strategy-studio-mobile-actions > .ant-badge {
+  grid-column: span 2;
+}
+
+.strategy-studio-mobile-actions .ant-btn {
+  width: 100%;
+  min-height: 44px;
+  padding-inline: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.strategy-studio-mobile-actions .ant-badge .ant-btn,
+.strategy-studio-mobile-actions .ant-tooltip-open .ant-btn,
+.strategy-studio-mobile-actions .ant-dropdown-trigger {
+  width: 100%;
+}
+
+.strategy-studio-mobile .strategy-studio-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.strategy-studio-mobile .strategy-studio-canvas {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 8px max(16px, env(safe-area-inset-bottom));
+  overscroll-behavior: contain;
+}
+
+.strategy-studio-mobile .strategy-panel-heading {
+  min-height: 36px;
+}
+
+.strategy-studio-mobile .strategy-rule-sections {
+  min-width: 0;
+}
+
+.strategy-studio-mobile .strategy-condition-row {
+  align-items: stretch;
+}
+
+html[data-theme='dark'] .strategy-studio-mobile .strategy-studio-header {
+  border-color: #26364d;
+  background: #0f172a;
+}
+
+@media (max-width: 374px) {
+  .strategy-studio-mobile .strategy-studio-header {
+    padding-inline: 8px;
+  }
+
+  .strategy-studio-mobile .strategy-studio-canvas {
+    padding-inline: 6px;
+  }
+
+  .strategy-studio-mobile-actions {
+    gap: 4px;
+  }
+
+  .strategy-studio-mobile-actions .ant-btn {
+    padding-inline: 4px;
+    font-size: 12px;
+  }
+}

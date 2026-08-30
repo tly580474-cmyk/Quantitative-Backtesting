@@ -26,6 +26,8 @@ import { getRepository } from '@/api/useRepository';
 import { computeChecksum } from '@/db/marketDataRepository';
 import { getStrategyById } from '@/features/strategies/registry';
 import type { MarketDataset } from '@/models';
+import { useMobileLayout } from '@/components/mobile/useMobileLayout';
+import './backtest.mobile.css';
 
 const { Text } = Typography;
 
@@ -45,6 +47,7 @@ export default function BacktestRunner() {
   const [loadingDatasets, setLoadingDatasets] = useState(false);
   const [settingsDockOpen, setSettingsDockOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const isMobile = useMobileLayout();
   const screens = Grid.useBreakpoint();
   const useSettingsDrawer = !screens.lg;
   const { message } = AntdApp.useApp();
@@ -177,6 +180,103 @@ export default function BacktestRunner() {
     }
     setSettingsDockOpen((value) => !value);
   };
+
+  if (isMobile) {
+    return (
+      <div className="backtest-page backtest-page-mobile">
+        <header className="backtest-mobile-header">
+          <div className="backtest-mobile-heading">
+            <Text strong>回测实验</Text>
+            <Text type="secondary">选择数据集，配置参数后运行</Text>
+          </div>
+          <Button
+            icon={<SettingOutlined />}
+            onClick={() => setSettingsOpen(true)}
+            aria-label="打开回测参数"
+          >
+            参数
+          </Button>
+        </header>
+
+        <div className="backtest-mobile-controls">
+          <div className="backtest-mobile-dataset">
+            <Text type="secondary">数据集</Text>
+            <Select
+              value={selectedDatasetId}
+              onChange={handleSelectDataset}
+              loading={loadingDatasets}
+              className="backtest-dataset-select"
+              placeholder="选择数据集"
+              options={datasets.map((ds) => ({
+                label: `${ds.name} (${ds.symbol})`,
+                value: ds.id,
+              }))}
+            />
+          </div>
+          <div className="backtest-mobile-actions">
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              onClick={handleRun}
+              loading={isRunning}
+              disabled={!selectedDatasetId || candles.length === 0}
+              block
+            >
+              运行回测
+            </Button>
+            {isRunning && (
+              <Button danger icon={<StopOutlined />} onClick={cancel}>
+                取消
+              </Button>
+            )}
+            {status === 'completed' && result && <Tag color="success">完成</Tag>}
+            {status === 'failed' && <Tag color="error">失败</Tag>}
+            {status === 'cancelled' && <Tag color="warning">已取消</Tag>}
+          </div>
+        </div>
+
+        {isRunning && progress && (
+          <div className="backtest-mobile-progress">
+            <Progress percent={progressPercent} size="small" />
+            <Text type="secondary">{progress.message}</Text>
+          </div>
+        )}
+
+        {error && (
+          <Alert
+            type="error"
+            message="回测失败"
+            description={error}
+            closable
+            className="backtest-mobile-error"
+          />
+        )}
+
+        <main className="backtest-chart-area backtest-mobile-chart-area">
+          {candles.length > 0 ? (
+            <ChartContainer />
+          ) : (
+            <div className="backtest-empty-state">
+              <Text type="secondary">
+                {datasets.length === 0
+                  ? '请先在数据管理中导入并保存行情数据'
+                  : '请选择数据集以查看行情'}
+              </Text>
+            </div>
+          )}
+        </main>
+
+        <WorkbenchDrawer
+          title="策略和回测参数"
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          styles={{ body: { padding: 8 } }}
+        >
+          <BacktestSettings maximumTradingDays={candles.length} />
+        </WorkbenchDrawer>
+      </div>
+    );
+  }
 
   return (
     <div className="backtest-page">

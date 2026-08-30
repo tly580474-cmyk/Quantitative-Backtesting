@@ -19,6 +19,7 @@ import {
   uploadAgentAttachment, deleteAgentAttachment,
 } from './api';
 import { useAgentTheme } from '@/theme';
+import { useMobileLayout } from '@/components/mobile/useMobileLayout';
 import type {
   AgentAttachment, AgentAttachmentConfig, AgentRun, AgentEvent, AgentConversationTurn, AgentProviderHealth, AgentProviderId,
 } from './types';
@@ -182,6 +183,7 @@ export default function AgentRunner() {
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [compactLayout, setCompactLayout] = useState(false);
+  const mobileLayout = useMobileLayout();
   const [historyRuns, setHistoryRuns] = useState<AgentRun[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -200,13 +202,13 @@ export default function AgentRunner() {
   useEffect(() => {
     const media = window.matchMedia('(max-width: 900px)');
     const syncLayout = () => {
-      setCompactLayout(media.matches);
-      if (media.matches) setSidebarCollapsed(true);
+      setCompactLayout(media.matches || mobileLayout);
+      if (media.matches || mobileLayout) setSidebarCollapsed(true);
     };
     syncLayout();
     media.addEventListener('change', syncLayout);
     return () => media.removeEventListener('change', syncLayout);
-  }, []);
+  }, [mobileLayout]);
 
   useEffect(() => {
     let active = true;
@@ -658,6 +660,7 @@ export default function AgentRunner() {
 
   return (
     <div
+      className={mobileLayout ? 'mobile-agent-workspace' : undefined}
       style={{
         height: '100%',
         display: 'flex',
@@ -705,6 +708,7 @@ export default function AgentRunner() {
         {/* 对话流（ChatGPT同款：纯白带日期分隔线居中） */}
         <div
           ref={scrollContainerRef}
+          className={mobileLayout ? 'mobile-agent-messages' : undefined}
           onScroll={handleScroll}
           style={{
             flex: 1,
@@ -782,6 +786,7 @@ export default function AgentRunner() {
 
         {/* 底部固定输入区（ChatGPT同款：输入框悬浮居中，大圆角内嵌按钮） */}
         <div
+          className={mobileLayout ? 'mobile-agent-composer' : undefined}
           style={{
             position: 'absolute',
             bottom: 0,
@@ -991,7 +996,7 @@ export default function AgentRunner() {
                     ? '输入继续指令，万行智研将接着上次对话工作…'
                     : '向万行智研提问，或描述你的策略研究需求…'
                 }
-                autoSize={{ minRows: 1, maxRows: 8 }}
+                autoSize={{ minRows: 1, maxRows: mobileLayout ? 4 : 8 }}
                 disabled={isRunning || currentConversationReadOnly}
                 onPressEnter={(e) => {
                   if (e.ctrlKey || e.metaKey) {

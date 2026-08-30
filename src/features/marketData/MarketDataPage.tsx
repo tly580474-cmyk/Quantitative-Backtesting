@@ -29,6 +29,8 @@ import {
   resolveWatchlistBaselinePrice,
   type WatchlistMetrics,
 } from './watchlistMetrics';
+import { useMobileLayout } from '@/components/mobile/useMobileLayout';
+import './mobile.css';
 
 const { Text, Title } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
@@ -1028,6 +1030,7 @@ function handleScrollKeys(event: KeyboardEvent<HTMLElement>) {
 
 export default function MarketDataPage({ view = 'overview', instrumentCode, onOpenInAnalysis, onOpenDetail }: MarketDataPageProps) {
   const { message } = App.useApp();
+  const isMobileLayout = useMobileLayout();
   const isWatchlistView = view === 'watchlist';
   const isDetailView = view === 'detail';
   const isResearchView = isWatchlistView || isDetailView;
@@ -1712,7 +1715,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     ? (marketSentiment.advancers / Math.max(1, marketSentiment.advancers + marketSentiment.decliners)) * 100
     : null;
 
-  return <main className={`market-page${isWatchlistView ? ' market-watchlist-page' : ''}${isDetailView ? ' market-detail-page' : ''}`} tabIndex={0} aria-label={`${isWatchlistView ? '我的自选' : isDetailView ? '行情详情' : '市场数据'}内容，可上下滚动`} onKeyDown={handleScrollKeys}>
+  return <main className={`market-page${isWatchlistView ? ' market-watchlist-page' : ''}${isDetailView ? ' market-detail-page' : ''}${isMobileLayout ? ' mobile-market-page' : ''}`} tabIndex={0} aria-label={`${isWatchlistView ? '我的自选' : isDetailView ? '行情详情' : '市场数据'}内容，可上下滚动`} onKeyDown={handleScrollKeys}>
     {view === 'overview' && <>
     <section className="market-overview-header" aria-label="市场总览工具栏">
       <div className="market-overview-heading">
@@ -1738,14 +1741,14 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
           className={`market-index-card${snapshot.source === 'unavailable' ? ' is-unavailable' : ''}${isDragging ? ' is-dragging' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
           key={key}
           data-index-key={key}
-          onPointerDown={(e) => handlePointerDown(key, e)}
-          onPointerLeave={cancelLongPress}
+          onPointerDown={isMobileLayout ? undefined : (e) => handlePointerDown(key, e)}
+          onPointerLeave={isMobileLayout ? undefined : cancelLongPress}
           onClick={() => {
-            if (shouldSuppressClick()) return;
+            if (!isMobileLayout && shouldSuppressClick()) return;
             openInstrumentDetail(buildMarketIndexDetailTarget(option, item));
           }}
           aria-label={`查看${option.name}行情`}
-          style={{ touchAction: 'none' }}
+          style={{ touchAction: isMobileLayout ? 'auto' : 'none' }}
         >
           <span>{option.name}<small>{option.market}</small></span>
           <strong className={direction && `market-${direction}`}>{fmt(snapshot.price)}</strong>

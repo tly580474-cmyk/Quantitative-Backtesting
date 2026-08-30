@@ -11,11 +11,13 @@ import {
 } from '@ant-design/icons';
 import { BrandLogo } from './BrandLogo';
 import type { ColorMode } from '../theme';
+import MobileAppLayout from './mobile/MobileAppLayout';
+import { useMobileLayout } from './mobile/useMobileLayout';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
-interface AppLayoutProps {
+export interface AppLayoutProps {
   activeKey: string;
   activeTitle: string;
   navigationItems: MenuProps['items'];
@@ -31,7 +33,7 @@ interface AppLayoutProps {
   onToggleColorMode: () => void;
 }
 
-export default function AppLayout({
+function DesktopAppLayout({
   activeKey,
   activeTitle,
   navigationItems,
@@ -207,4 +209,9 @@ export default function AppLayout({
       </Drawer>
     </Layout>
   );
+}
+
+export default function AppLayout(props: AppLayoutProps) {
+  const mobile = useMobileLayout();
+  return mobile ? <MobileAppLayout {...props} /> : <DesktopAppLayout {...props} />;
 }

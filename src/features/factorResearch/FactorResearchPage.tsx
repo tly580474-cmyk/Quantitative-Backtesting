@@ -40,6 +40,8 @@ import dayjs from 'dayjs';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { WorkbenchPanel } from '@/components/WorkbenchPanel';
+import { useMobileLayout } from '@/components/mobile/useMobileLayout';
+import './mobile.css';
 import {
   cancelFactorRun,
   fetchFactorRuns,
@@ -160,6 +162,7 @@ function writeCachedSnapshotFreshness(freshness: ResearchSnapshotFreshness): voi
 
 export default function FactorResearchPage() {
   const { message } = App.useApp();
+  const isMobileLayout = useMobileLayout();
   const [form] = Form.useForm<FormValues>();
   const [compositeForm] = Form.useForm<CompositeFormValues>();
   const [factors, setFactors] = useState<FactorCatalogItem[]>([]);
@@ -185,6 +188,7 @@ export default function FactorResearchPage() {
   const [interpretationModel, setInterpretationModel] = useState<string>();
   const [error, setError] = useState<string | null>(null);
   const [topPanePercent, setTopPanePercent] = useState(54);
+  const [mobileTab, setMobileTab] = useState('research');
   const splitPaneRef = useRef<HTMLElement | null>(null);
 
   const selectedFactor = useMemo(
@@ -312,6 +316,7 @@ export default function FactorResearchPage() {
       setDailyPage(1);
       setDailyPageSize(10);
       setDailyTotal(result.report.daily.length);
+      setMobileTab('report');
       message.success(`因子报告已保存：${result.runId.slice(0, 8)}`);
       await loadRuns();
     } catch (err) {
@@ -345,6 +350,7 @@ export default function FactorResearchPage() {
       setDailyPage(1);
       setDailyPageSize(10);
       setDailyTotal(result.report.daily.length);
+      setMobileTab('report');
       message.success(`多因子报告已保存：${result.runId.slice(0, 8)}`);
       await loadRuns();
     } catch (err) {
@@ -378,6 +384,7 @@ export default function FactorResearchPage() {
       setDailyPage(dailySeries.page);
       setDailyPageSize(dailySeries.pageSize);
       setDailyTotal(dailySeries.total);
+      setMobileTab('report');
       message.success(`报告已打开，已加载 ${dailySeries.items.length}/${dailySeries.total} 条 IC 序列`);
     } catch (err) {
       setError(err instanceof Error ? err.message : '报告读取失败');
@@ -434,6 +441,7 @@ export default function FactorResearchPage() {
       setDailyPage(1);
       setDailyPageSize(10);
       setDailyTotal(result.report.daily.length);
+      setMobileTab('report');
       message.success(`重试成功：${result.runId.slice(0, 8)}`);
       await loadRuns();
     } catch (err) {
@@ -597,6 +605,304 @@ export default function FactorResearchPage() {
     event.preventDefault();
     setTopPanePercent(Math.min(72, Math.max(32, next)));
   }, [topPanePercent]);
+
+  if (isMobileLayout) {
+    return (
+      <div className="factor-page factor-mobile-page factor-mobile-research-page">
+        <header className="factor-mobile-header">
+          <div>
+            <Text type="secondary">研究工作流</Text>
+            <Title level={2}><DatabaseOutlined /> 因子研究</Title>
+          </div>
+          <Button
+            aria-label="刷新因子、任务与快照"
+            icon={<ReloadOutlined />}
+            loading={loadingFactors || loadingRuns || loadingSnapshot}
+            onClick={() => { void loadFactors(); void loadRuns(); void loadSnapshotFreshness(true); }}
+          />
+        </header>
+
+        {error && <Alert className="factor-alert" type="error" showIcon message={error} />}
+        <details className="factor-mobile-snapshot">
+          <summary>研究快照 · {snapshotFreshness?.status === 'current' ? '已追平' : '查看状态与更新'}</summary>
+          <SnapshotFreshnessBanner
+            freshness={snapshotFreshness}
+            loading={loadingSnapshot}
+            updating={updatingSnapshot}
+            onRefresh={() => { void loadSnapshotFreshness(true); }}
+            onUpdate={() => { void handleUpdateSnapshot(); }}
+          />
+        </details>
+
+        <Tabs
+          className="factor-mobile-tabs"
+          activeKey={mobileTab}
+          onChange={setMobileTab}
+          destroyOnHidden={false}
+          items={[
+            {
+              key: 'research',
+              label: '因子',
+              forceRender: true,
+              children: (
+                <div className="factor-mobile-stack">
+                  <section className="factor-mobile-section">
+                    <div className="factor-mobile-section-head">
+                      <div>
+                        <Title level={4}>选择因子</Title>
+                        <Text type="secondary">点击因子后可直接用于单因子研究</Text>
+                      </div>
+                      <Tag color="blue">{factors.length} 个</Tag>
+                    </div>
+                    <div className="factor-mobile-factor-list">
+                      {factors.map((item) => (
+                        <button
+                          type="button"
+                          key={item.versionId}
+                          className={`factor-mobile-factor-card${item.definition.id === selectedFactorId ? ' is-active' : ''}`}
+                          aria-pressed={item.definition.id === selectedFactorId}
+                          onClick={() => {
+                            setSelectedFactorId(item.definition.id);
+                            form.setFieldValue('factorId', item.definition.id);
+                            setMobileTab('config');
+                          }}
+                        >
+                          <span className="factor-mobile-factor-card-head">
+                            <strong>{item.definition.name}</strong>
+                            {directionLabel(item.definition.direction)}
+                          </span>
+                          <span className="factor-mobile-factor-card-id">{item.definition.id}</span>
+                          <span className="factor-mobile-factor-card-description">{item.definition.description}</span>
+                          <span className="factor-mobile-factor-card-meta">预热 {item.definition.warmupDays} 日 · v{item.version}</span>
+                        </button>
+                      ))}
+                      {factors.length === 0 && !loadingFactors && <Empty description="暂无可用因子" />}
+                    </div>
+                  </section>
+
+                </div>
+              ),
+            },
+            {
+              key: 'config',
+              label: '参数',
+              forceRender: true,
+              children: (
+                <div className="factor-mobile-stack">
+                  <section className="factor-mobile-section">
+                    <div className="factor-mobile-section-head">
+                      <div>
+                        <Title level={4}>运行参数</Title>
+                        <Text type="secondary">保留表单状态，切换研究方式不会丢失输入</Text>
+                      </div>
+                      {selectedFactor && <Tag>{selectedFactor.versionId}</Tag>}
+                    </div>
+                    <Tabs
+                      className="factor-mobile-mode-tabs"
+                      size="small"
+                      destroyOnHidden={false}
+                      items={[
+                        {
+                          key: 'single',
+                          label: '单因子',
+                          forceRender: true,
+                          children: (
+                            <Form form={form} layout="vertical" onFinish={handleRun} className="factor-run-form">
+                              <Form.Item name="factorId" label="因子" rules={[{ required: true }]}>
+                                <Select options={factorOptions(factors)} onChange={setSelectedFactorId} />
+                              </Form.Item>
+                              <SharedRunFields />
+                              <Button type="primary" htmlType="submit" loading={running} icon={<CalculatorOutlined />}>
+                                运行单因子
+                              </Button>
+                            </Form>
+                          ),
+                        },
+                        {
+                          key: 'composite',
+                          label: '多因子合成',
+                          forceRender: true,
+                          children: (
+                            <Form form={compositeForm} layout="vertical" onFinish={handleCompositeRun} className="factor-run-form">
+                              <Form.Item name="factorIds" label="因子组合" rules={[{ required: true }]}>
+                                <Select mode="multiple" options={factorOptions(factors)} />
+                              </Form.Item>
+                              <Form.Item name="range" label="研究区间" rules={[{ required: true }]}>
+                                <RangePicker allowClear={false} />
+                              </Form.Item>
+                              <Form.Item name="validationStartDate" label="验证区间起点">
+                                <DatePicker />
+                              </Form.Item>
+                              <div className="factor-form-grid">
+                                <Form.Item name="horizonDays" label="持有期" rules={[{ required: true }]}>
+                                  <InputNumber min={1} max={60} suffix="日" />
+                                </Form.Item>
+                                <Form.Item name="layers" label="分层数" rules={[{ required: true }]}>
+                                  <InputNumber min={2} max={20} />
+                                </Form.Item>
+                              </div>
+                              <Form.Item name="weighting" label="权重方式" rules={[{ required: true }]}>
+                                <Select options={[
+                                  { value: 'equal', label: '等权' },
+                                  { value: 'ic', label: 'IC 加权' },
+                                  { value: 'rankIc', label: 'RankIC 加权' },
+                                  { value: 'manual', label: '手动权重' },
+                                ]} />
+                              </Form.Item>
+                              <Form.Item shouldUpdate={(prev, current) => prev.weighting !== current.weighting} noStyle>
+                                {({ getFieldValue }) => getFieldValue('weighting') === 'manual' && (
+                                  <Form.Item
+                                    name="manualWeights"
+                                    label="手动权重"
+                                    rules={[{ required: true, message: '请输入 factor:weight 列表' }]}
+                                  >
+                                    <Input placeholder="momentum_20:2,reversal_5:-1" />
+                                  </Form.Item>
+                                )}
+                              </Form.Item>
+                              <Form.Item name="markets" label="市场"><MarketSelect /></Form.Item>
+                              <Form.Item name="minDailyAmount" label="成交额下限">
+                                <InputNumber min={0} step={10000000} suffix="元" />
+                              </Form.Item>
+                              <Button type="primary" htmlType="submit" loading={running} icon={<CalculatorOutlined />}>
+                                运行多因子
+                              </Button>
+                            </Form>
+                          ),
+                        },
+                      ]}
+                    />
+                    {selectedFactor && (
+                      <div className="factor-definition-note">
+                        <Text strong>{selectedFactor.definition.name}</Text>
+                        <Text type="secondary">{selectedFactor.definition.description}</Text>
+                      </div>
+                    )}
+                  </section>
+                </div>
+              ),
+            },
+            {
+              key: 'report',
+              label: `报告${report || compositeReport ? '' : ' (空)'}`,
+              forceRender: true,
+              children: (
+                <div className="factor-mobile-stack">
+                  <section className="factor-panel factor-mobile-report-panel">
+                    <WorkbenchPanel
+                      title="研究报告"
+                      subtitle={(report || compositeReport) ? `${(report ?? compositeReport)?.summary.tradingDays} 个交易日` : '运行或打开报告后展示'}
+                    >
+                      {compositeReport ? (
+                        <CompositeReportView report={compositeReport} />
+                      ) : report ? (
+                        <FactorReportView
+                          report={report}
+                          dailyPagination={{
+                            current: dailyPage,
+                            pageSize: dailyPageSize,
+                            total: dailyTotal,
+                            loading: dailyLoading,
+                            onChange: handleDailyPageChange,
+                          }}
+                        />
+                      ) : (
+                        <Empty description="暂无报告，请先运行研究或从任务中打开报告" />
+                      )}
+                    </WorkbenchPanel>
+                  </section>
+                  <section className="factor-panel factor-mobile-interpretation-panel">
+                    <ReportInterpretationPanel
+                      runId={reportRunId}
+                      interpretation={interpretation}
+                      loading={interpreting}
+                      disabled={!reportRunId || (!report && !compositeReport) || !aiModelStatus?.configured}
+                      model={interpretationModel}
+                      availableModels={aiModelStatus?.availableModels ?? []}
+                      onModelChange={setInterpretationModel}
+                      onInterpret={() => { void handleInterpretReport(); }}
+                    />
+                  </section>
+                </div>
+              ),
+            },
+            {
+              key: 'tasks',
+              label: `任务 (${runs.length})`,
+              forceRender: true,
+              children: (
+                <div className="factor-mobile-stack">
+                  <section className="factor-panel factor-mobile-task-panel">
+                    <div className="factor-mobile-section-head">
+                      <div>
+                        <Title level={4}>运行历史任务</Title>
+                        <Text type="secondary">选择已完成任务查看报告</Text>
+                      </div>
+                      <Button
+                        aria-label="刷新任务"
+                        icon={<ReloadOutlined />}
+                        loading={loadingRuns}
+                        onClick={() => { void loadRuns(); }}
+                      />
+                    </div>
+                    {loadingRuns ? <div className="factor-mobile-loading">正在加载任务…</div> : runs.length === 0 ? (
+                      <Empty description="暂无运行任务" />
+                    ) : (
+                      <div className="factor-mobile-task-list">
+                        {runs.map((run) => (
+                          <article className="factor-mobile-task-card" key={run.id}>
+                            <div className="factor-mobile-task-head">
+                              <Text code>{run.factorVersionId}</Text>
+                              <Tag color={statusColor(run.status)}>{statusText(run.status)}</Tag>
+                            </div>
+                            <dl className="factor-mobile-task-meta">
+                              <div><dt>研究区间</dt><dd>{run.dateStart} ~ {run.dateEnd}</dd></div>
+                              <div><dt>交易日</dt><dd>{run.completedDates} / {run.totalDates}</dd></div>
+                              <div><dt>创建时间</dt><dd>{new Date(run.createdAt).toLocaleString('zh-CN')}</dd></div>
+                            </dl>
+                            <div className="factor-mobile-task-actions">
+                              <Button
+                                disabled={run.status !== 'completed'}
+                                onClick={() => { void handleOpenRunReport(run.id); }}
+                              >
+                                查看报告
+                              </Button>
+                              {['failed', 'canceled', 'cancelled'].includes(run.status) && (
+                                <Button loading={actionRunId === run.id} onClick={() => { void handleRetryRun(run.id); }}>
+                                  重试
+                                </Button>
+                              )}
+                              {['pending', 'running'].includes(run.status) && (
+                                <Button danger loading={actionRunId === run.id} onClick={() => { void handleCancelRun(run.id); }}>
+                                  取消
+                                </Button>
+                              )}
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                  <section className="factor-panel factor-mobile-interpretation-panel">
+                    <ReportInterpretationPanel
+                      runId={reportRunId}
+                      interpretation={interpretation}
+                      loading={interpreting}
+                      disabled={!reportRunId || (!report && !compositeReport) || !aiModelStatus?.configured}
+                      model={interpretationModel}
+                      availableModels={aiModelStatus?.availableModels ?? []}
+                      onModelChange={setInterpretationModel}
+                      onInterpret={() => { void handleInterpretReport(); }}
+                    />
+                  </section>
+                </div>
+              ),
+            },
+          ]}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="factor-page factor-research-page">

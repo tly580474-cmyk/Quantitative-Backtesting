@@ -32,6 +32,7 @@ import {
 import { apiFetch } from '@/api/client';
 import type { StockSearchItem } from '@/features/marketData/types';
 import PaperSecurityLink from './PaperSecurityLink';
+import { useMobileLayout } from '@/components/mobile/useMobileLayout';
 
 const { Text, Title } = Typography;
 
@@ -115,6 +116,8 @@ interface PaperOrderPreview {
 const ACTIVE_ORDER_STATUSES = new Set(['accepted', 'partially_filled']);
 
 export default function PaperTradingPage() {
+  const mobileLayout = useMobileLayout();
+  const [mobileView, setMobileView] = useState<'account' | 'order'>('account');
   const [accounts, setAccounts] = useState<PaperAccountSummary[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>();
   const [detail, setDetail] = useState<PaperAccountDetail | null>(null);
@@ -390,11 +393,17 @@ export default function PaperTradingPage() {
         </Space>
       </div>
 
+      {mobileLayout && detail && <nav className="mobile-paper-tabs" aria-label="模拟交易视图">
+        <Button type={mobileView === 'account' ? 'primary' : 'default'} aria-pressed={mobileView === 'account'}
+          onClick={() => setMobileView('account')}>账户与记录</Button>
+        <Button type={mobileView === 'order' ? 'primary' : 'default'} aria-pressed={mobileView === 'order'}
+          onClick={() => setMobileView('order')}>模拟委托</Button>
+      </nav>}
       {!selectedAccount || !detail ? (
         <Card><Empty description="请先创建模拟账户" /></Card>
       ) : (
         <>
-          <Row gutter={[16, 16]} className="paper-trading-statistics">
+          <Row gutter={[16, 16]} className="paper-trading-statistics" style={mobileLayout && mobileView !== 'account' ? { display: 'none' } : undefined}>
             <Col xs={24} sm={12} xl={8} xxl={4}><Card><Statistic title="总权益" value={detail.totalEquity} precision={2} suffix="元" /></Card></Col>
             <Col xs={24} sm={12} xl={8} xxl={4}><Card><Statistic title="可用现金" value={detail.availableCash} precision={2} suffix="元" /></Card></Col>
             <Col xs={24} sm={12} xl={8} xxl={4}><Card><Statistic title="冻结资金" value={detail.frozenCash} precision={2} suffix="元" /></Card></Col>
@@ -403,7 +412,8 @@ export default function PaperTradingPage() {
             <Col xs={24} sm={12} xl={8} xxl={4}><Card><Statistic title="收益率" value={(detail.totalEquity / detail.initialCash - 1) * 100} precision={2} suffix="%" /></Card></Col>
           </Row>
 
-          <Card title={<Space><SwapOutlined />手工委托</Space>} className="paper-trading-order-card">
+          <Card title={<Space><SwapOutlined />手工委托</Space>} className="paper-trading-order-card"
+            style={mobileLayout && mobileView !== 'order' ? { display: 'none' } : undefined}>
             <Form
               form={orderForm}
               layout="vertical"
@@ -541,7 +551,7 @@ export default function PaperTradingPage() {
             </Form>
           </Card>
 
-          <Card>
+          <Card style={mobileLayout && mobileView !== 'account' ? { display: 'none' } : undefined}>
             <Tabs
               items={[
                 {

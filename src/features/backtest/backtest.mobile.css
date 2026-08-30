@@ -1,0 +1,138 @@
+/* Mobile-only backtest workflow. The desktop panel and toolbar rules remain in
+   index.css; this file is activated by BacktestRunner's mobile root class. */
+.backtest-page-mobile {
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.backtest-mobile-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.backtest-mobile-heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.backtest-mobile-heading .ant-typography:first-child {
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.backtest-mobile-heading .ant-typography:last-child {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backtest-mobile-header > .ant-btn {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+
+.backtest-mobile-controls {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.backtest-mobile-dataset {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.backtest-mobile-dataset > .ant-typography {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.backtest-mobile-dataset .backtest-dataset-select {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.backtest-mobile-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.backtest-mobile-actions > .ant-btn-primary {
+  flex: 1 1 auto;
+}
+
+.backtest-mobile-actions > .ant-tag {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+}
+
+.backtest-mobile-progress {
+  flex: 0 0 auto;
+  padding: 4px 12px 8px;
+  background: #fff;
+}
+
+.backtest-mobile-progress .ant-progress {
+  margin-bottom: 0;
+}
+
+.backtest-mobile-progress .ant-typography {
+  display: block;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backtest-mobile-error {
+  flex: 0 0 auto;
+  margin: 8px;
+}
+
+.backtest-mobile-chart-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+html[data-theme='dark'] .backtest-page-mobile,
+html[data-theme='dark'] .backtest-mobile-controls,
+html[data-theme='dark'] .backtest-mobile-header,
+html[data-theme='dark'] .backtest-mobile-progress {
+  border-color: #26364d;
+  background: #0f172a;
+}
+
+html[data-theme='dark'] .backtest-mobile-heading .ant-typography:first-child {
+  color: #f1f5f9;
+}
+
+@media (max-width: 374px) {
+  .backtest-mobile-header,
+  .backtest-mobile-controls {
+    padding-inline: 8px;
+  }
+
+  .backtest-mobile-dataset {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 4px;
+  }
+}

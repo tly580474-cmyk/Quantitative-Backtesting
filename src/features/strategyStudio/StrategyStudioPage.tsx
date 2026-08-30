@@ -33,6 +33,8 @@ import type {
 import GenerateStrategyDrawer from '@/features/aiStrategy/GenerateStrategyDrawer';
 import { useStrategyPreview } from './useStrategyPreview';
 import { useCandleStore } from '@/stores/useCandleStore';
+import { useMobileLayout } from '@/components/mobile/useMobileLayout';
+import './strategyStudio.mobile.css';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -1076,8 +1078,9 @@ export default function StrategyStudioPage() {
   const [libraryDrawerOpen, setLibraryDrawerOpen] = useState(false);
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isMobile = useMobileLayout();
   const screens = Grid.useBreakpoint();
-  const usePanelDrawer = !screens.lg;
+  const usePanelDrawer = isMobile || !screens.lg;
 
   const candles = useCandleStore((s) => s.candles);
   const preview = useStrategyPreview();
@@ -1103,6 +1106,15 @@ export default function StrategyStudioPage() {
     createNew();
     message.success('已新建空白策略');
   }, [createNew]);
+
+  const handleMobileSave = useCallback(async () => {
+    try {
+      await save();
+      message.success('策略已保存');
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '策略保存失败');
+    }
+  }, [save]);
 
   const handleNewRequest = useCallback(() => {
     if (!isDirty) {
@@ -1194,6 +1206,13 @@ export default function StrategyStudioPage() {
     setInspectorOpen((value) => !value);
   }, [usePanelDrawer]);
 
+  const handleNodeSelect = useCallback((nodeId: string) => {
+    selectNode(nodeId);
+    // On a phone the inspector is a drawer, so make a selected condition
+    // immediately editable instead of requiring a second tap on 属性.
+    if (isMobile) setInspectorDrawerOpen(true);
+  }, [isMobile, selectNode]);
+
   if (!document) {
     return (
       <div style={{ padding: 24, textAlign: 'center' }}>
@@ -1243,8 +1262,27 @@ export default function StrategyStudioPage() {
     />
   );
 
+  const mobileMoreItems = [
+    { key: 'list', icon: <SaveOutlined />, label: '策略列表', onClick: () => setListOpen(true) },
+    { key: 'new', icon: <PlusOutlined />, label: '新建策略', onClick: handleNewRequest },
+    { type: 'divider' as const },
+    { key: 'publish', icon: <CheckCircleOutlined />, label: '发布策略', disabled: !validationResult?.valid, onClick: () => {
+      void publish()
+        .then(() => message.success('策略版本已发布'))
+        .catch((error: unknown) => message.error(error instanceof Error ? error.message : '发布失败'));
+    } },
+    { key: 'undo', icon: <UndoOutlined />, label: '撤销', disabled: undoStack.length === 0, onClick: undo },
+    { key: 'redo', icon: <RedoOutlined />, label: '重做', disabled: redoStack.length === 0, onClick: redo },
+    { type: 'divider' as const },
+    { key: 'ai', icon: <BulbOutlined />, label: 'AI 生成策略', onClick: () => setAiDrawerOpen(true) },
+    { key: 'summary', icon: <ThunderboltOutlined />, label: '查看策略摘要', onClick: () => setSummaryOpen(true) },
+    { type: 'divider' as const },
+    { key: 'import', icon: <ImportOutlined />, label: '导入 JSON', onClick: handleImport },
+    { key: 'export', icon: <ExportOutlined />, label: '导出 JSON', onClick: handleExport },
+  ];
+
   return (
-    <div className="strategy-studio">
+    <div className={isMobile ? 'strategy-studio strategy-studio-mobile' : 'strategy-studio'}>
       <header className="strategy-studio-header">
         <div className="strategy-studio-identity">
           <Input
@@ -1276,6 +1314,54 @@ export default function StrategyStudioPage() {
         </div>
 
         <div className="strategy-studio-actions">
+          {isMobile ? (
+            <div className="strategy-studio-mobile-actions">
+              <Badge dot={isDirty}>
+                <Button
+                  className="strategy-mobile-save"
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  onClick={() => void handleMobileSave()}
+                >
+                  保存
+                </Button>
+              </Badge>
+              <Tooltip title={candles.length === 0 ? '请先在行情分析中加载数据' : '计算当前数据上的买卖信号'}>
+                <Button
+                  className="strategy-mobile-preview"
+                  icon={<PlayCircleOutlined />}
+                  disabled={candles.length === 0}
+                  loading={preview.status === 'running'}
+                  onClick={() => {
+                    setPreviewOpen(true);
+                    preview.run(candles, document, {});
+                  }}
+                >
+                  预览
+                </Button>
+              </Tooltip>
+              <Button
+                className="strategy-mobile-library"
+                icon={<CopyOutlined />}
+                onClick={handleLibraryToggle}
+              >
+                素材
+              </Button>
+              <Button
+                className="strategy-mobile-inspector"
+                icon={<EditOutlined />}
+                onClick={handleInspectorToggle}
+              >
+                属性
+              </Button>
+              <Dropdown trigger={['click']} menu={{ items: mobileMoreItems }}>
+                <Button className="strategy-mobile-more" icon={<MoreOutlined />} aria-label="更多策略操作">
+                  更多
+                </Button>
+              </Dropdown>
+            </div>
+          ) : (
+            <>
           <Space.Compact className="strategy-studio-panel-toggles">
             <Button
               type={!usePanelDrawer && libraryOpen ? 'primary' : 'default'}
@@ -1358,6 +1444,8 @@ export default function StrategyStudioPage() {
           >
             <Button icon={<MoreOutlined />} aria-label="更多策略操作">更多</Button>
           </Dropdown>
+            </>
+          )}
         </div>
         <input
           ref={fileInputRef}
@@ -1421,7 +1509,7 @@ export default function StrategyStudioPage() {
                     doc={document}
                     onChange={(entry) => updateDocument((d) => { d.entry = entry; })}
                     selectedNodeId={selectedNodeId}
-                    onSelectNode={selectNode}
+                    onSelectNode={handleNodeSelect}
                   />
                 ),
               },
@@ -1441,7 +1529,7 @@ export default function StrategyStudioPage() {
                     doc={document}
                     onChange={(exit) => updateDocument((d) => { d.exit = exit; })}
                     selectedNodeId={selectedNodeId}
-                    onSelectNode={selectNode}
+                    onSelectNode={handleNodeSelect}
                   />
                 ),
               },
@@ -1476,6 +1564,11 @@ export default function StrategyStudioPage() {
         open={usePanelDrawer && libraryDrawerOpen}
         onClose={() => setLibraryDrawerOpen(false)}
         size="default"
+        extra={isMobile ? (
+          <Button type="primary" icon={<SaveOutlined />} onClick={() => void handleMobileSave()}>
+            保存
+          </Button>
+        ) : undefined}
         styles={{ body: { padding: 10, background: '#f8fafc' } }}
         destroyOnHidden
       >
@@ -1488,6 +1581,11 @@ export default function StrategyStudioPage() {
         open={usePanelDrawer && inspectorDrawerOpen}
         onClose={() => setInspectorDrawerOpen(false)}
         size="default"
+        extra={isMobile ? (
+          <Button type="primary" icon={<SaveOutlined />} onClick={() => void handleMobileSave()}>
+            保存
+          </Button>
+        ) : undefined}
         styles={{ body: { padding: 10, background: '#f8fafc' } }}
         destroyOnHidden
       >

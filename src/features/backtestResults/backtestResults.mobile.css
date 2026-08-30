@@ -1,0 +1,148 @@
+/* Mobile results use one task at a time: browse the queue, then open a review.
+   The desktop two column workbench remains unchanged. */
+.results-page-mobile {
+  height: auto;
+  min-height: 100%;
+  padding: 8px;
+  overflow: visible;
+}
+
+.results-mobile-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.results-mobile-toolbar-head {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.results-mobile-toolbar-head .ant-typography:first-child {
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.results-mobile-toolbar-head .ant-typography:last-child {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.results-mobile-toolbar-actions {
+  width: 100%;
+}
+
+.results-mobile-toolbar-actions .ant-space-item {
+  max-width: 100%;
+}
+
+.results-mobile-toolbar-actions .ant-btn,
+.results-mobile-toolbar-actions .ant-checkbox-wrapper,
+.results-mobile-sort {
+  min-height: 44px;
+}
+
+.results-mobile-sort {
+  min-width: 132px;
+}
+
+.results-page-mobile .results-workbench {
+  display: block;
+  gap: 0;
+  overflow: visible;
+}
+
+.results-page-mobile .results-history-panel,
+.results-page-mobile .results-review-panel {
+  min-height: 0;
+  height: auto;
+  overflow: visible;
+}
+
+.results-page-mobile .results-history-panel {
+  padding: 8px;
+}
+
+.results-page-mobile .results-history-panel .workbench-panel {
+  height: auto;
+}
+
+.results-page-mobile .results-review-panel {
+  padding: 0;
+  background: transparent;
+}
+
+.results-page-mobile .results-review-card {
+  min-height: 0;
+  padding: 10px;
+}
+
+.results-page-mobile .results-mobile-show-history .results-review-panel,
+.results-page-mobile .results-mobile-show-review .results-history-panel {
+  display: none;
+}
+
+.results-page-mobile .results-review-head {
+  gap: 8px;
+}
+
+.results-page-mobile .results-review-head > div {
+  width: 100%;
+}
+
+.results-page-mobile .results-review-head .ant-space {
+  width: 100%;
+}
+
+.results-page-mobile .results-review-head .ant-space-item {
+  max-width: 100%;
+}
+
+.results-page-mobile .results-review-card > .ant-tabs {
+  min-width: 0;
+}
+
+.results-page-mobile .results-review-card .ant-tabs-nav-list {
+  max-width: 100%;
+}
+
+.results-page-mobile .results-comparison-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.results-page-mobile .result-list-item {
+  min-height: 64px;
+  margin-bottom: 8px;
+  padding: 10px 8px !important;
+}
+
+.results-page-mobile .result-list-actions .ant-btn {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.results-page-mobile .result-list-actions .ant-checkbox-wrapper {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+html[data-theme='dark'] .results-page-mobile .results-mobile-toolbar {
+  border-color: #26364d;
+  background: #0f172a;
+}
+
+html[data-theme='dark'] .results-mobile-toolbar-head .ant-typography:first-child {
+  color: #f1f5f9;
+}

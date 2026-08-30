@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, App, Button, Dropdown, Form, Input, InputNumber, Modal, Progress, Space, Switch, Table, Tag, Tooltip, Typography } from 'antd';
+import { Alert, App, Button, Dropdown, Empty, Form, Input, InputNumber, Modal, Progress, Space, Switch, Table, Tabs, Tag, Tooltip, Typography } from 'antd';
 import { DeleteOutlined, InboxOutlined, MoreOutlined, ReloadOutlined, RollbackOutlined } from '@ant-design/icons';
+import { useMobileLayout } from '@/components/mobile/useMobileLayout';
 import type { ColumnsType } from 'antd/es/table';
 import {
   approveFactorCandidate, archiveMiningTask, cancelMiningTask, createMiningTask, deleteMiningTask,
@@ -26,6 +27,7 @@ function generateRandomSeeds(count = 3): string {
 
 export default function AutomatedMiningPanel() {
   const { message, modal } = App.useApp();
+  const isMobileLayout = useMobileLayout();
   const [form] = Form.useForm();
   const initialFormValues = useMemo(() => ({
     generations: 40,
@@ -48,6 +50,8 @@ export default function AutomatedMiningPanel() {
   const [showArchivedTasks, setShowArchivedTasks] = useState(false);
   const [autoTestingEnabled, setAutoTestingEnabled] = useState(false);
   const [automationLoading, setAutomationLoading] = useState(false);
+  const [mobileTab, setMobileTab] = useState('new');
+  const [expandedCandidateId, setExpandedCandidateId] = useState<string>();
 
   const refresh = useCallback(async () => {
     const [taskResult, candidateResult, automationResult] = await Promise.all([
@@ -120,6 +124,7 @@ export default function AutomatedMiningPanel() {
           totalGenerations: values.generations * Math.max(1, seeds.length), config });
       }
       setSelectedTaskId(result.task.id);
+      setMobileTab('tasks');
       message.success('自动挖掘任务已启动');
       await refresh();
     } catch (error) { message.error(error instanceof Error ? error.message : '任务启动失败'); }
@@ -207,6 +212,239 @@ export default function AutomatedMiningPanel() {
       </Space>
     ) },
   ], [actionId, modal]);
+
+  const mobileMiningForm = (
+    <Form form={form} layout="vertical" initialValues={initialFormValues} onFinish={createAndStart}
+      className="factor-mobile-mining-form">
+      <div className="factor-form-grid">
+        <Form.Item name="generations" label="每种子代数" rules={[{ required: true }]}>
+          <InputNumber min={2} max={1000} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item name="population" label="种群规模" rules={[{ required: true }]}>
+          <InputNumber min={20} max={5000} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item name="sampleSymbols" label="股票池抽样" rules={[{ required: true }]}>
+          <InputNumber min={20} max={6000} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item name="maxMemoryMb" label="内存上限" rules={[{ required: true }]}>
+          <InputNumber min={256} max={32768} suffix="MB" style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item name="cpuWorkers" label="CPU 并行进程/任务" rules={[{ required: true }]}>
+          <InputNumber min={1} max={4} suffix="个" style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item name="timeoutMinutes" label="最长运行" rules={[{ required: true }]}>
+          <InputNumber min={1} max={1440} suffix="分钟" style={{ width: '100%' }} />
+        </Form.Item>
+      </div>
+      <Form.Item label="随机种子（逗号分隔）" required>
+        <Space.Compact block>
+          <Form.Item name="seeds" noStyle rules={[{ required: true, message: '请输入或生成随机种子' }]}>
+            <Input aria-label="随机种子" />
+          </Form.Item>
+          <Button
+            icon={<ReloadOutlined />}
+            aria-label="随机生成种子"
+            onClick={() => form.setFieldValue('seeds', generateRandomSeeds())}
+          >随机生成</Button>
+        </Space.Compact>
+      </Form.Item>
+      <Form.Item name="scheduleOnSnapshot" label="新快照发布后自动创建新实验" valuePropName="checked">
+        <Switch aria-label="新快照自动挖掘" />
+      </Form.Item>
+      <Button type="primary" htmlType="submit" loading={loading}>创建并启动</Button>
+    </Form>
+  );
+
+  const mobileTaskCards = tasks.map((task) => {
+    const percent = Math.min(100, Math.round(task.completedGenerations / Math.max(1, task.totalGenerations) * 100));
+    return (
+      <article className="factor-mobile-task-card" key={task.id}>
+        <div className="factor-mobile-task-head">
+          <div>
+            <Text code>{task.id.slice(0, 8)}</Text>
+            <Text type="secondary">快照 {task.snapshotId.slice(0, 12)}</Text>
+          </div>
+          <Space size={4} wrap>
+            <Tag color={task.status === 'completed' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>
+              {taskStatusText(task.status)}
+            </Tag>
+            {task.archivedAt && <Tag color="default">已归档</Tag>}
+          </Space>
+        </div>
+        <div className="factor-mobile-task-progress">
+          <span>进度</span><strong>{percent}%</strong>
+        </div>
+        <Progress percent={percent} size="small" showInfo={false} />
+        <dl className="factor-mobile-task-meta">
+          <div><dt>代数</dt><dd>{task.completedGenerations} / {task.totalGenerations}</dd></div>
+          <div><dt>创建时间</dt><dd>{new Date(task.createdAt).toLocaleString('zh-CN')}</dd></div>
+          {task.errorMessage && <div><dt>错误</dt><dd title={task.errorMessage}>{task.errorMessage}</dd></div>}
+        </dl>
+        <div className="factor-mobile-task-actions">
+          <Button type={selectedTaskId === task.id ? 'primary' : 'default'} onClick={() => setSelectedTaskId(task.id)}>
+            {selectedTaskId === task.id ? '已选任务' : '查看轨迹'}
+          </Button>
+          {task.status === 'running' && <Button danger loading={actionId === task.id}
+            onClick={() => void runAction(task.id, () => cancelMiningTask(task.id), '任务已取消')}>取消</Button>}
+          {!task.archivedAt && ['failed', 'canceled'].includes(task.status) && <Button loading={actionId === task.id}
+            onClick={() => void runAction(task.id, () => startMiningTask(task.id, true), '任务已恢复')}>恢复</Button>}
+          {['completed', 'failed', 'canceled'].includes(task.status) && <Dropdown trigger={['click']} menu={{
+            onClick: ({ key }) => {
+              if (key === 'archive') void updateTaskArchive(task, true);
+              if (key === 'restore') void updateTaskArchive(task, false);
+              if (key === 'delete') confirmTaskDelete(task);
+            },
+            items: [
+              task.archivedAt
+                ? { key: 'restore', icon: <RollbackOutlined />, label: '取消归档' }
+                : { key: 'archive', icon: <InboxOutlined />, label: '归档' },
+              { type: 'divider' },
+              { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true },
+            ],
+          }}>
+            <Button icon={<MoreOutlined />} aria-label={`任务 ${task.id.slice(0, 8)} 更多操作`} loading={actionId === task.id} />
+          </Dropdown>}
+        </div>
+      </article>
+    );
+  });
+
+  const mobileCandidateCards = candidates.map((candidate) => {
+    const expanded = expandedCandidateId === candidate.id;
+    return (
+      <article className="factor-mobile-candidate-card" key={candidate.id}>
+        <div className="factor-mobile-candidate-head">
+          <div>
+            <span className="factor-mobile-candidate-name">{candidate.name || candidate.id.slice(0, 8)}</span>
+            <Text type="secondary">{candidate.id.slice(0, 12)}</Text>
+          </div>
+          <CandidateStatus status={candidate.status} />
+        </div>
+        <div className="factor-mobile-candidate-formula"><Text code>{candidate.formula}</Text></div>
+        <dl className="factor-mobile-candidate-summary">
+          <div><dt>验证 RankIC</dt><dd>{metric(candidate.validationMetrics, 'test_rankic')}</dd></div>
+          <div><dt>锁定 RankIC</dt><dd>{metric(candidate.lockedTestMetrics, 'averageRankIc')}</dd></div>
+          <div><dt>压力夏普</dt><dd>{nestedMetric(candidate.lockedTestMetrics, 'portfolio', 'stressedCostSharpe')}</dd></div>
+          <div><dt>复杂度</dt><dd>{metric(candidate.validationMetrics, 'complexity_nodes')} 节点</dd></div>
+        </dl>
+        {expanded && <div className="factor-mobile-candidate-details">
+          <dl>
+            <div><dt>方向</dt><dd>{candidate.direction === 'higher-is-better' ? '高值优先' : candidate.direction === 'lower-is-better' ? '低值优先' : '研究观察'}</dd></div>
+            <div><dt>依赖</dt><dd>{candidate.dependencies.join(', ') || '—'}</dd></div>
+            <div><dt>预热</dt><dd>{candidate.warmupDays} 日</dd></div>
+            <div><dt>正式因子相关</dt><dd>{metric(candidate.lockedTestMetrics, 'maxPublishedFactorCorrelation')}</dd></div>
+            <div><dt>规模 / 流动性暴露</dt><dd>{nestedMetric(candidate.lockedTestMetrics, 'robustness', 'sizeExposure')} / {nestedMetric(candidate.lockedTestMetrics, 'robustness', 'liquidityExposure')}</dd></div>
+            {candidate.rejectionReason && <div><dt>失败原因</dt><dd>{candidate.rejectionReason}</dd></div>}
+          </dl>
+        </div>}
+        <div className="factor-mobile-candidate-actions">
+          <Button onClick={() => setExpandedCandidateId(expanded ? undefined : candidate.id)} aria-expanded={expanded}>
+            {expanded ? '收起详情' : '查看详情'}
+          </Button>
+          {candidate.status === 'draft' && <Button loading={actionId === candidate.id}
+            onClick={() => void runAction(candidate.id, () => freezeFactorCandidate(candidate.id), '候选已冻结')}>冻结</Button>}
+          {candidate.status === 'frozen' && <Button type="primary" loading={actionId === candidate.id}
+            onClick={() => testCandidate(candidate)}>锁定测试</Button>}
+          {candidate.status === 'tested' && <Button type="primary" loading={actionId === candidate.id}
+            onClick={() => { setApprovalCandidate(candidate); setApprovedBy(''); }}>提交批准</Button>}
+          {candidate.status === 'approved' && !candidate.publishedFactorVersionId && <Button type="primary" loading={actionId === candidate.id}
+            onClick={() => modal.confirm({
+              title: '发布正式因子版本？', content: '发布后该因子会进入正式因子目录，此操作保留完整审批记录。',
+              okText: '确认发布', cancelText: '取消',
+              onOk: () => runAction(candidate.id, () => publishFactorCandidate(candidate.id), '正式因子版本已发布'),
+            })}>发布</Button>}
+          {['draft', 'frozen', 'tested'].includes(candidate.status) && <Button danger loading={actionId === candidate.id}
+            onClick={() => modal.confirm({
+              title: '拒绝候选？', content: '该状态不可恢复。', okText: '拒绝', okButtonProps: { danger: true },
+              onOk: () => runAction(candidate.id, () => rejectFactorCandidate(candidate.id, '研究人员在候选审查页拒绝'), '候选已拒绝'),
+            })}>拒绝</Button>}
+        </div>
+      </article>
+    );
+  });
+
+  // The modal is rendered outside the desktop/mobile branches so candidate
+  // approval remains available from the mobile card actions too.
+  const approvalModal = (
+    <Modal title="人工批准" open={Boolean(approvalCandidate)} okText="确认批准" cancelText="取消"
+      okButtonProps={{ disabled: !approvedBy.trim(), loading: actionId === approvalCandidate?.id }}
+      onCancel={() => setApprovalCandidate(undefined)} onOk={() => {
+        if (!approvalCandidate) return;
+        void runAction(approvalCandidate.id,
+          () => approveFactorCandidate(approvalCandidate.id, approvedBy), '候选已批准')
+          .then(() => setApprovalCandidate(undefined));
+      }}>
+      <Alert type="warning" showIcon title="批准不等于发布" description="系统会再次校验锁定测试硬门槛；批准后仍需单独点击发布。" />
+      {approvalCandidate && <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
+        <Text><Text strong>公式：</Text><Text code>{approvalCandidate.formula}</Text></Text>
+        <Text><Text strong>方向：</Text>{approvalCandidate.direction}</Text>
+        <Text><Text strong>依赖：</Text>{approvalCandidate.dependencies.join(', ')}</Text>
+        <Text><Text strong>预热：</Text>{approvalCandidate.warmupDays} 日</Text>
+        <Text><Text strong>锁定 RankIC：</Text>{metric(approvalCandidate.lockedTestMetrics, 'averageRankIc')}</Text>
+        <Text><Text strong>双倍成本夏普：</Text>{nestedMetric(approvalCandidate.lockedTestMetrics,
+          'portfolio', 'stressedCostSharpe')}</Text>
+        <Text><Text strong>最相关正式因子：</Text>{String(
+          approvalCandidate.lockedTestMetrics?.closestPublishedFactorId ?? 'N/A')}（{
+          metric(approvalCandidate.lockedTestMetrics, 'maxPublishedFactorCorrelation')}）</Text>
+      </div>}
+      <Input style={{ marginTop: 16 }} value={approvedBy} onChange={(event) => setApprovedBy(event.target.value)}
+        placeholder="输入审批人姓名或账号" aria-label="审批人" />
+    </Modal>
+  );
+
+  if (isMobileLayout) {
+    return (
+      <div className="factor-automated-mining-mobile">
+        <Alert type="info" showIcon title="自动挖掘只生成候选，不会自动上线"
+          description="训练和验证用于搜索；锁定测试只执行一次；通过硬门槛后仍需人工批准并单独发布。" />
+        <Tabs
+          className="factor-mobile-mining-tabs"
+          activeKey={mobileTab}
+          onChange={setMobileTab}
+          destroyOnHidden={false}
+          items={[
+            {
+              key: 'new', label: '新建任务', forceRender: true,
+              children: <section className="factor-mobile-section">
+                <div className="factor-mobile-section-head"><div><Title level={4}>新建挖掘任务</Title><Text type="secondary">设置搜索规模后启动一项新实验</Text></div></div>
+                {mobileMiningForm}
+              </section>,
+            },
+            {
+              key: 'tasks', label: `任务 (${tasks.length})`, forceRender: true,
+              children: <section className="factor-mobile-section factor-mobile-task-panel">
+                <div className="factor-mobile-section-head">
+                  <div><Title level={4}>任务进度</Title><Text type="secondary">点击任务查看进化轨迹</Text></div>
+                  <Space size={8}><Text type="secondary">显示归档</Text><Switch size="small" checked={showArchivedTasks} aria-label="显示归档任务" onChange={setShowArchivedTasks} /></Space>
+                </div>
+                {tasks.length === 0 ? <Empty description="暂无挖掘任务" /> : <div className="factor-mobile-task-list">{mobileTaskCards}</div>}
+                {selectedTaskId && <div className="factor-mobile-trace">
+                  <div className="factor-mobile-section-head"><div><Title level={5}>进化轨迹</Title><Text type="secondary">任务 {selectedTaskId.slice(0, 8)}</Text></div></div>
+                  {trace.length === 0 ? <div className="factor-mobile-loading">任务运行后显示进化轨迹</div> : <div className="factor-mobile-trace-list">{trace.map((point, index) => (
+                    <div key={`${point.seed ?? 'seed'}-${point.generation}-${index}`} className="factor-mobile-trace-row">
+                      <span>第 {point.generation} 代</span><span>训练 {decimalText(point.best_train_fitness)}</span><span>验证 {decimalText(point.best_val_fitness)}</span>
+                    </div>
+                  ))}</div>}
+                </div>}
+              </section>,
+            },
+            {
+              key: 'candidates', label: `候选 (${candidates.length})`, forceRender: true,
+              children: <section className="factor-mobile-section factor-mobile-candidate-panel">
+                <div className="factor-mobile-section-head">
+                  <div><Title level={4}>候选审查</Title><Text type="secondary">摘要默认收起，展开查看完整指标</Text></div>
+                  <Space size={8}><Text type="secondary">自动锁定测试</Text><Switch checked={autoTestingEnabled} loading={automationLoading} aria-label="自动锁定测试" onChange={(enabled) => void toggleCandidateAutomation(enabled)} /></Space>
+                </div>
+                {selectedTaskId && <Tag color="blue">任务 {selectedTaskId.slice(0, 8)}</Tag>}
+                {candidates.length === 0 ? <Empty description="暂无候选" /> : <div className="factor-mobile-candidate-list">{mobileCandidateCards}</div>}
+              </section>,
+            },
+          ]}
+        />
+        {approvalModal}
+      </div>
+    );
+  }
 
   return (
     <div className="factor-automated-mining">
@@ -327,30 +565,7 @@ export default function AutomatedMiningPanel() {
         <Table rowKey="id" size="small" scroll={{ x: 1100 }} columns={candidateColumns}
           dataSource={candidates} pagination={{ pageSize: 10 }} />
       </section>
-      <Modal title="人工批准" open={Boolean(approvalCandidate)} okText="确认批准" cancelText="取消"
-        okButtonProps={{ disabled: !approvedBy.trim(), loading: actionId === approvalCandidate?.id }}
-        onCancel={() => setApprovalCandidate(undefined)} onOk={() => {
-          if (!approvalCandidate) return;
-          void runAction(approvalCandidate.id,
-            () => approveFactorCandidate(approvalCandidate.id, approvedBy), '候选已批准')
-            .then(() => setApprovalCandidate(undefined));
-        }}>
-        <Alert type="warning" showIcon title="批准不等于发布" description="系统会再次校验锁定测试硬门槛；批准后仍需单独点击发布。" />
-        {approvalCandidate && <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
-          <Text><Text strong>公式：</Text><Text code>{approvalCandidate.formula}</Text></Text>
-          <Text><Text strong>方向：</Text>{approvalCandidate.direction}</Text>
-          <Text><Text strong>依赖：</Text>{approvalCandidate.dependencies.join(', ')}</Text>
-          <Text><Text strong>预热：</Text>{approvalCandidate.warmupDays} 日</Text>
-          <Text><Text strong>锁定 RankIC：</Text>{metric(approvalCandidate.lockedTestMetrics, 'averageRankIc')}</Text>
-          <Text><Text strong>双倍成本夏普：</Text>{nestedMetric(approvalCandidate.lockedTestMetrics,
-            'portfolio', 'stressedCostSharpe')}</Text>
-          <Text><Text strong>最相关正式因子：</Text>{String(
-            approvalCandidate.lockedTestMetrics?.closestPublishedFactorId ?? 'N/A')}（{
-            metric(approvalCandidate.lockedTestMetrics, 'maxPublishedFactorCorrelation')}）</Text>
-        </div>}
-        <Input style={{ marginTop: 16 }} value={approvedBy} onChange={(event) => setApprovedBy(event.target.value)}
-          placeholder="输入审批人姓名或账号" aria-label="审批人" />
-      </Modal>
+      {approvalModal}
     </div>
   );
 }
@@ -359,6 +574,14 @@ function CandidateStatus({ status }: { status: FactorCandidate['status'] }) {
   const color = { draft: 'default', frozen: 'blue', testing: 'processing', tested: 'gold', rejected: 'error', approved: 'success' }[status];
   const text = { draft: '草稿', frozen: '已冻结', testing: '测试中', tested: '已测试', rejected: '已拒绝', approved: '已批准' }[status];
   return <Tag color={color}>{text}</Tag>;
+}
+
+function taskStatusText(status: FactorMiningTask['status']) {
+  if (status === 'completed') return '已完成';
+  if (status === 'failed') return '失败';
+  if (status === 'running') return '运行中';
+  if (status === 'pending') return '等待中';
+  return '已取消';
 }
 
 function metric(metrics: Record<string, unknown> | null | undefined, key: string) {

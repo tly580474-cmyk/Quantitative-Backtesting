@@ -1,0 +1,775 @@
+/* Mobile research views are rendered by the feature components when the shared
+   mobile layout hook is active.  Keep these rules scoped so desktop output is
+   unaffected. */
+.factor-mobile-page {
+  height: auto;
+  min-height: 100%;
+  padding: 10px 10px calc(24px + env(safe-area-inset-bottom));
+  overflow: visible;
+  overscroll-behavior-y: auto;
+  scrollbar-gutter: auto;
+}
+
+.factor-mobile-header {
+  min-height: 52px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.factor-mobile-snapshot { margin-bottom: 8px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); }
+.factor-mobile-snapshot > summary { min-height: 44px; padding: 12px; color: var(--mobile-muted); cursor: pointer; }
+.factor-mobile-snapshot[open] > .snapshot-freshness-banner { margin: 0 10px 10px; }
+.factor-mobile-page .snapshot-freshness-banner {
+  flex-direction: column;
+  align-items: stretch;
+  color: var(--mobile-text);
+  border-color: var(--mobile-border);
+  background: var(--mobile-surface);
+}
+.factor-mobile-page .snapshot-freshness-meta { flex-direction: column; overflow-wrap: anywhere; }
+
+.factor-mobile-header h2 {
+  margin: 2px 0 0 !important;
+  font-size: 20px !important;
+}
+
+.factor-mobile-header h2 .anticon {
+  margin-inline-end: 5px;
+  color: #1677ff;
+}
+
+.factor-mobile-header > .ant-btn,
+.factor-mobile-section-head > .ant-btn {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+}
+
+.factor-mobile-page > .snapshot-freshness-banner {
+  margin-bottom: 10px;
+}
+
+.factor-mobile-tabs {
+  min-width: 0;
+}
+
+.factor-mobile-tabs > .ant-tabs-nav {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  margin-bottom: 10px;
+  padding: 0 4px;
+  background: #f8fafc;
+}
+
+.factor-mobile-tabs > .ant-tabs-nav .ant-tabs-tab {
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 12px;
+}
+.factor-mobile-page .ant-tabs-tab-active .ant-tabs-tab-btn { color: var(--mobile-primary); }
+.factor-mobile-page .ant-tabs-ink-bar { background: var(--mobile-primary); }
+
+.factor-mobile-tabs > .ant-tabs-content-holder,
+.factor-mobile-tabs .ant-tabs-content,
+.factor-mobile-tabs .ant-tabs-tabpane {
+  min-width: 0;
+  overflow: visible;
+}
+
+.factor-mobile-stack {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.factor-mobile-section,
+.factor-mobile-page .factor-panel {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, .04);
+}
+
+.factor-mobile-section-head {
+  min-width: 0;
+  min-height: 44px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.factor-mobile-section-head > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.factor-mobile-section-head > .ant-tag { min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+
+.factor-mobile-section-head h4 {
+  margin: 0 !important;
+  font-size: 16px !important;
+}
+
+.factor-mobile-section-head .ant-typography-secondary {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.factor-mobile-factor-list,
+.factor-mobile-task-list {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.factor-mobile-factor-card {
+  width: 100%;
+  min-height: 88px;
+  padding: 10px 11px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: inherit;
+  background: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.factor-mobile-factor-card:hover,
+.factor-mobile-factor-card:focus-visible,
+.factor-mobile-factor-card.is-active {
+  border-color: #91caff;
+  background: #f5f9ff;
+  box-shadow: 0 2px 8px rgba(22, 119, 255, .08);
+}
+
+.factor-mobile-factor-card:focus-visible {
+  outline: 3px solid rgba(22, 119, 255, .24);
+  outline-offset: 1px;
+}
+
+.factor-mobile-factor-card-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.factor-mobile-factor-card-head strong,
+.factor-mobile-factor-card-id,
+.factor-mobile-factor-card-description,
+.factor-mobile-factor-card-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.factor-mobile-factor-card-head strong {
+  color: #0f172a;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.factor-mobile-factor-card-head .ant-tag {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+}
+
+.factor-mobile-factor-card-id {
+  color: #64748b;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: nowrap;
+}
+
+.factor-mobile-factor-card-description {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.factor-mobile-factor-card-meta {
+  color: #64748b;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.factor-mobile-mode-tabs {
+  min-width: 0;
+}
+
+.factor-mobile-mode-tabs > .ant-tabs-nav {
+  margin-bottom: 12px;
+}
+
+.factor-mobile-mode-tabs .ant-tabs-tab {
+  min-height: 40px;
+  padding: 8px 10px;
+}
+
+.factor-mobile-mode-tabs .ant-tabs-content-holder,
+.factor-mobile-mode-tabs .ant-tabs-content,
+.factor-mobile-mode-tabs .ant-tabs-tabpane {
+  min-width: 0;
+  overflow: visible;
+}
+
+.factor-mobile-page .factor-run-form .ant-form-item {
+  margin-bottom: 12px;
+}
+
+.factor-mobile-page .factor-run-form .ant-btn[type='submit'] {
+  min-height: 44px;
+}
+
+.factor-mobile-page .factor-run-form .ant-picker,
+.factor-mobile-page .factor-run-form .ant-input-number,
+.factor-mobile-page .factor-run-form .ant-select,
+.factor-mobile-page .factor-run-form .ant-select-selector,
+.factor-mobile-page .factor-run-form .ant-input {
+  min-height: 44px;
+}
+
+.factor-mobile-page .factor-run-form .ant-input-number-input {
+  height: 42px;
+}
+
+.factor-mobile-page .factor-run-form .ant-select-single .ant-select-selector {
+  height: 44px;
+  align-items: center;
+}
+
+.factor-mobile-page .factor-definition-note {
+  margin-top: 8px;
+}
+
+.factor-mobile-report-panel,
+.factor-mobile-task-panel,
+.factor-mobile-interpretation-panel {
+  overflow: visible;
+}
+
+.factor-mobile-report-panel .workbench-panel-head {
+  margin-bottom: 10px;
+}
+
+.factor-mobile-report-panel .factor-kpi-strip,
+.factor-mobile-report-panel .factor-chart-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.factor-mobile-report-panel .factor-metric-box {
+  min-height: 64px;
+  padding: 8px 9px;
+}
+
+.factor-mobile-report-panel .factor-metric-box strong {
+  font-size: 16px;
+}
+
+.factor-mobile-report-panel .factor-chart-box {
+  min-height: 170px;
+  padding: 10px;
+}
+
+.factor-mobile-report-panel .factor-report > .ant-table-wrapper,
+.factor-mobile-report-panel .factor-chart-box .ant-table-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.factor-mobile-report-panel .factor-report > .ant-table-wrapper .ant-table,
+.factor-mobile-report-panel .factor-chart-box .ant-table-wrapper .ant-table {
+  min-width: 420px;
+}
+
+.factor-mobile-report-panel .factor-ic-chart {
+  min-width: 0;
+  width: 100%;
+  height: auto;
+}
+
+.factor-mobile-report-panel .factor-layer-bars {
+  min-height: 122px;
+}
+
+.factor-mobile-report-panel .factor-correlation-matrix {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.factor-mobile-interpretation-panel .factor-agent-panel {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.factor-mobile-interpretation-panel .factor-agent-head {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.factor-mobile-interpretation-panel .factor-agent-actions {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.factor-mobile-interpretation-panel .factor-agent-actions .ant-select,
+.factor-mobile-interpretation-panel .factor-agent-actions .ant-btn {
+  width: 100%;
+  min-height: 44px;
+}
+
+.factor-mobile-interpretation-panel .factor-agent-actions .ant-select-selector {
+  min-height: 44px;
+}
+
+.factor-mobile-loading {
+  min-height: 80px;
+  display: grid;
+  place-items: center;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.factor-mobile-task-panel {
+  padding-bottom: 10px;
+}
+
+.factor-mobile-task-card {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.factor-mobile-task-head,
+.factor-mobile-task-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.factor-mobile-task-head {
+  justify-content: space-between;
+}
+
+.factor-mobile-task-head .ant-tag {
+  margin-inline-end: 0;
+}
+
+.factor-mobile-task-meta {
+  margin: 10px 0;
+  display: grid;
+  gap: 7px;
+}
+
+.factor-mobile-task-meta > div {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.factor-mobile-task-meta dt {
+  flex: 0 0 auto;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.factor-mobile-task-meta dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #334155;
+  font-size: 12px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.factor-mobile-task-actions .ant-btn {
+  min-height: 40px;
+}
+
+/* Automated factor mining */
+.factor-automated-mining-mobile {
+  min-width: 0;
+}
+
+.factor-mobile-mining-page {
+  min-height: 100%;
+}
+
+.factor-mobile-mining-page > .factor-mobile-header {
+  padding-inline: 2px;
+}
+
+.factor-automated-mining-mobile > .ant-alert {
+  margin-bottom: 10px;
+}
+
+.factor-automated-mining-mobile .factor-mobile-section-head {
+  margin-bottom: 10px;
+}
+
+.factor-automated-mining-mobile .factor-mobile-mining-form .ant-form-item {
+  margin-bottom: 12px;
+}
+
+.factor-automated-mining-mobile .factor-mobile-mining-form .ant-input-number,
+.factor-automated-mining-mobile .factor-mobile-mining-form .ant-input,
+.factor-automated-mining-mobile .factor-mobile-mining-form .ant-btn {
+  min-height: 44px;
+}
+
+.factor-automated-mining-mobile .factor-mobile-mining-form .ant-input-number-input {
+  height: 42px;
+}
+
+.factor-automated-mining-mobile .factor-mobile-mining-form > .ant-btn[type='submit'] {
+  width: 100%;
+}
+
+.factor-mobile-mining-tabs > .ant-tabs-nav {
+  margin-bottom: 10px;
+}
+
+.factor-mobile-mining-tabs > .ant-tabs-nav .ant-tabs-tab {
+  min-height: 44px;
+  padding: 10px 12px;
+}
+
+.factor-mobile-mining-tabs .ant-tabs-content-holder,
+.factor-mobile-mining-tabs .ant-tabs-content,
+.factor-mobile-mining-tabs .ant-tabs-tabpane {
+  min-width: 0;
+  overflow: visible;
+}
+
+.factor-mobile-mining-task-card .ant-progress {
+  margin: 2px 0 8px;
+}
+
+.factor-mobile-task-progress {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.factor-mobile-task-head > div:first-child {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.factor-mobile-task-head > div:first-child .ant-typography-secondary {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.factor-mobile-trace {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #edf2f7;
+}
+
+.factor-mobile-trace .factor-mobile-section-head {
+  min-height: 36px;
+  margin-bottom: 6px;
+}
+
+.factor-mobile-trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.factor-mobile-trace-row {
+  min-width: 0;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr;
+  gap: 6px;
+  border-radius: 6px;
+  color: #475569;
+  background: #f8fafc;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.factor-mobile-trace-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.factor-mobile-candidate-panel > .ant-tag {
+  margin-bottom: 10px;
+}
+
+.factor-mobile-candidate-list {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.factor-mobile-candidate-card {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.factor-mobile-candidate-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.factor-mobile-candidate-head > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.factor-mobile-candidate-name {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.factor-mobile-candidate-formula {
+  margin: 10px 0;
+  padding: 8px 9px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: #f8fafc;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.factor-mobile-candidate-summary {
+  margin: 0 0 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.factor-mobile-candidate-summary > div {
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.factor-mobile-candidate-summary dt {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.factor-mobile-candidate-summary dd {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: #334155;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.factor-mobile-candidate-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.factor-mobile-candidate-actions .ant-btn {
+  min-height: 40px;
+}
+
+.factor-mobile-candidate-details {
+  margin: 10px 0;
+  padding-top: 10px;
+  border-top: 1px solid #edf2f7;
+}
+
+.factor-mobile-candidate-details dl {
+  margin: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.factor-mobile-candidate-details dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.factor-mobile-candidate-details dt {
+  flex: 0 0 auto;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.factor-mobile-candidate-details dd {
+  min-width: 0;
+  margin: 0;
+  color: #334155;
+  font-size: 12px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+html[data-theme='dark'] .factor-mobile-tabs > .ant-tabs-nav {
+  background: #08111f;
+}
+
+html[data-theme='dark'] :is(
+  .factor-mobile-section,
+  .factor-mobile-page .factor-panel,
+  .factor-mobile-factor-card,
+  .factor-mobile-task-card,
+  .factor-mobile-candidate-card
+) {
+  border-color: #26364d;
+  background: #0f172a;
+  box-shadow: none;
+}
+
+html[data-theme='dark'] :is(
+  .factor-mobile-factor-card:hover,
+  .factor-mobile-factor-card:focus-visible,
+  .factor-mobile-factor-card.is-active
+) {
+  border-color: #3b82f6;
+  background: #13294b;
+}
+
+html[data-theme='dark'] :is(
+  .factor-mobile-factor-card-head strong,
+  .factor-mobile-candidate-name
+) {
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] :is(
+  .factor-mobile-factor-card-id,
+  .factor-mobile-factor-card-description,
+  .factor-mobile-factor-card-meta,
+  .factor-mobile-task-meta dt,
+  .factor-mobile-task-progress,
+  .factor-mobile-candidate-summary dt,
+  .factor-mobile-candidate-details dt,
+  .factor-mobile-loading
+) {
+  color: #9aa9bd;
+}
+
+html[data-theme='dark'] :is(
+  .factor-mobile-task-meta dd,
+  .factor-mobile-candidate-summary dd,
+  .factor-mobile-candidate-details dd
+) {
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] :is(
+  .factor-mobile-candidate-formula,
+  .factor-mobile-candidate-summary > div
+) {
+  background: #111c2e;
+}
+
+html[data-theme='dark'] .factor-mobile-candidate-details {
+  border-color: #26364d;
+}
+
+html[data-theme='dark'] :is(
+  .factor-mobile-task-head > div:first-child .ant-typography-secondary,
+  .factor-mobile-trace-row
+) {
+  color: #9aa9bd;
+}
+
+html[data-theme='dark'] .factor-mobile-trace {
+  border-color: #26364d;
+}
+
+html[data-theme='dark'] .factor-mobile-trace-row {
+  background: #111c2e;
+}
+
+@media (max-width: 430px) {
+  .factor-mobile-page {
+    padding-inline: 8px;
+  }
+
+  .factor-mobile-section,
+  .factor-mobile-page .factor-panel {
+    padding: 10px;
+  }
+
+  .factor-mobile-report-panel .factor-chart-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .factor-mobile-factor-card-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .factor-mobile-task-meta > div,
+  .factor-mobile-candidate-details dl > div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .factor-mobile-task-meta dd,
+  .factor-mobile-candidate-details dd {
+    text-align: left;
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .factor-mobile-factor-card {
+    transition: none;
+  }
+}

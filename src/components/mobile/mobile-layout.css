@@ -1,0 +1,123 @@
+/* This file is opt-in. No desktop selectors or existing layout rules change. */
+body.mobile-layout-active {
+  --mobile-bg: #f5f7fb;
+  --mobile-surface: #fff;
+  --mobile-text: #18243b;
+  --mobile-muted: #62718a;
+  --mobile-border: #e2e8f0;
+  --mobile-primary: #1677ff;
+}
+html[data-theme='dark'] body.mobile-layout-active {
+  --mobile-bg: #08111f;
+  --mobile-surface: #0f172a;
+  --mobile-text: #e2e8f0;
+  --mobile-muted: #94a3b8;
+  --mobile-border: #26354a;
+  --mobile-primary: #60a5fa;
+}
+.mobile-app-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: var(--mobile-viewport-height, 100dvh);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mobile-text);
+  background: var(--mobile-bg);
+}
+.mobile-app-header {
+  flex: none;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: max(4px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 4px max(12px, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--mobile-border);
+  background: var(--mobile-surface);
+}
+.mobile-app-header > strong { flex: 1; min-width: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-header-nav { flex: none; padding: 6px 10px; background: var(--mobile-surface); border-bottom: 1px solid var(--mobile-border); }
+.mobile-header-nav .factor-section-nav { width: 100%; padding: 0; gap: 8px; }
+.mobile-header-nav .factor-section-nav .ant-btn { flex: 1; padding-inline: 8px; font-size: 14px; }
+.mobile-layout-active .mobile-header-nav .ant-btn-text { color: var(--mobile-text); }
+.mobile-app-scroll { flex: 1; min-height: 0; min-width: 0; overflow: hidden auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
+.mobile-page-content { width: 100%; min-width: 0; min-height: 100%; }
+.mobile-app-scroll--canvas { display: flex; overflow: hidden; }
+.mobile-page-content--canvas { height: 100%; flex: 1; min-height: 0; overflow: hidden; }
+.mobile-inline-panel { padding: 12px; background: var(--mobile-surface); }
+.mobile-inline-panel summary { min-height: 44px; display: flex; align-items: center; }
+.mobile-bottom-nav { flex: none; display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); padding: 3px max(4px,env(safe-area-inset-right)) max(4px,env(safe-area-inset-bottom)) max(4px,env(safe-area-inset-left)); border-top: 1px solid var(--mobile-border); background: var(--mobile-surface); }
+.mobile-bottom-nav > button { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 3px; min-width: 0; min-height: 56px; padding: 5px 0; border: 0; border-radius: 8px; font: inherit; font-size: 12px; color: var(--mobile-muted); background: transparent; cursor: pointer; }
+.mobile-bottom-nav > button > .anticon { font-size: 21px; }
+.mobile-bottom-nav > button[aria-current='page'] { color: var(--mobile-primary); background: color-mix(in srgb, var(--mobile-primary) 10%, transparent); font-weight: 600; }
+.mobile-bottom-nav button:focus-visible { outline: 2px solid var(--mobile-primary); outline-offset: -3px; }
+.mobile-keyboard-open .mobile-bottom-nav { display: none; }
+
+/* Ant Design portals live outside the page. Touch sizing must cover them too. */
+body.mobile-layout-active .ant-btn { min-height: 44px; }
+body.mobile-layout-active button[aria-label]:not(.ant-switch):not(.ant-input-number-handler) { min-width: 44px; min-height: 44px; }
+body.mobile-layout-active :where(.ant-input-affix-wrapper,.ant-picker,.ant-select-single,.ant-input-number) { min-height: 44px; }
+body.mobile-layout-active .ant-select-single .ant-select-selector { min-height: 44px; align-items: center; }
+body.mobile-layout-active :where(input,textarea,.ant-select-selection-search-input) { font-size: 16px !important; }
+body.mobile-layout-active .ant-input-number-input { min-height: 42px; }
+body.mobile-layout-active .ant-drawer-content-wrapper { max-width: 100vw; }
+body.mobile-layout-active :where(.ant-drawer-left,.ant-drawer-right) > .ant-drawer-content-wrapper { width: 100% !important; }
+body.mobile-layout-active .ant-drawer-bottom > .ant-drawer-content-wrapper { width: 100%; max-height: var(--mobile-viewport-height,100dvh); }
+body.mobile-layout-active .ant-drawer-header { padding: 8px 12px; }
+body.mobile-layout-active .ant-drawer-body { padding: 12px; overscroll-behavior-y: contain; background: var(--mobile-bg) !important; }
+body.mobile-layout-active .ant-drawer-footer { padding-bottom: max(12px,env(safe-area-inset-bottom)); }
+body.mobile-layout-active .ant-modal { top: 8px; max-width: calc(100vw - 16px); margin: 0 auto; padding-bottom: 16px; }
+body.mobile-layout-active .ant-modal-body { max-height: calc(var(--mobile-viewport-height,100dvh) - 180px); overflow: auto; }
+body.mobile-layout-active .ant-modal-close { top: 4px; right: 4px; }
+/* RangePicker normally opens two months side by side (over 570px). Keep both
+   months and navigation available in a vertically scrollable phone popup. */
+body.mobile-layout-active .ant-picker-dropdown {
+  position: fixed !important;
+  inset: 64px 8px auto !important;
+  max-width: calc(100vw - 16px);
+  padding: 0;
+}
+body.mobile-layout-active .ant-picker-dropdown .ant-picker-range-arrow { display: none; }
+body.mobile-layout-active .ant-picker-dropdown .ant-picker-panel-container {
+  max-width: calc(100vw - 16px);
+  max-height: calc(var(--mobile-viewport-height,100dvh) - 156px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+body.mobile-layout-active .ant-picker-dropdown .ant-picker-panel-layout,
+body.mobile-layout-active .ant-picker-dropdown .ant-picker-panels { flex-direction: column; }
+body.mobile-layout-active .ant-picker-dropdown .ant-picker-date-panel { width: min(288px,calc(100vw - 32px)); }
+body.mobile-layout-active .ant-picker-dropdown .ant-picker-cell-inner { min-height: 36px; line-height: 36px; }
+body.mobile-layout-active .ant-pagination { flex-wrap: wrap; gap: 4px; }
+body.mobile-layout-active :where(.ant-pagination-item,.ant-pagination-prev,.ant-pagination-next) { min-width: 44px; height: 44px; line-height: 42px; }
+body.mobile-layout-active .ant-table-wrapper { min-width: 0; max-width: 100%; overflow-x: auto; }
+body.mobile-layout-active .ant-tabs-tab-active .ant-tabs-tab-btn { color: var(--mobile-primary); }
+body.mobile-layout-active .ant-tabs-ink-bar { background: var(--mobile-primary); }
+.mobile-navigation-sheet .ant-menu { background: transparent; border: 0 !important; }
+.mobile-navigation-sheet .ant-menu-item { height: 48px; line-height: 48px; }
+.mobile-import-tools { display: flex; flex-direction: column; gap: 16px; }
+.mobile-import-tools > * { min-width: 0; max-width: 100%; }
+
+/* Remaining document-style workspaces share the shell's single page scroll. */
+.mobile-app-shell :where(.data-library-page,.agent-history-page,.paper-trading-page,.stock-selection-page) { height: auto; min-height: 100%; overflow: visible; padding: 12px; }
+.mobile-app-shell .data-library-workbench { display: flex; flex-direction: column; overflow: visible; }
+.mobile-app-shell :where(.data-library-sidebar,.data-library-content-panel) { overflow: visible; }
+.mobile-app-shell .paper-trading-header { flex-direction: column; align-items: stretch; gap: 12px; }
+.mobile-app-shell .paper-trading-header > .ant-space { display: flex; flex-wrap: wrap; gap: 8px !important; }
+.mobile-app-shell .paper-trading-header > div:first-child > .ant-space { flex-wrap: wrap; }
+.mobile-app-shell .paper-trading-statistics > .ant-col { flex: 0 0 50%; max-width: 50%; }
+.mobile-app-shell .paper-trading-statistics .ant-card-body { padding: 12px; }
+.mobile-app-shell .paper-trading-statistics .ant-statistic-content { font-size: 20px; overflow-wrap: anywhere; }
+.mobile-app-shell .paper-trading-order-grid { grid-template-columns: minmax(0,1fr); }
+.mobile-app-shell .paper-trading-page .ant-table { min-width: 700px; }
+.mobile-app-shell .paper-trading-page .ant-card-body { padding: 12px; }
+.mobile-app-shell .stock-selection-page-header { flex-wrap: wrap; }
+.mobile-app-shell .stock-selection-page-status { flex-wrap: wrap; }
+.mobile-paper-tabs { display: flex; gap: 8px; }
+.mobile-paper-tabs > .ant-btn { flex: 1; }
+.mobile-agent-workspace { min-height: 0; }
+.mobile-agent-workspace .mobile-agent-messages { padding: 56px 12px 12px !important; overscroll-behavior-y: contain; }
+.mobile-agent-workspace .mobile-agent-composer { position: relative !important; flex: none; padding: 8px 10px 10px !important; background: var(--mobile-surface) !important; }
+.mobile-agent-workspace .mobile-agent-composer textarea { min-width: 0; }
+.mobile-agent-workspace .mobile-agent-composer button { min-width: 44px; min-height: 44px; }
+.mobile-agent-workspace .mobile-agent-composer .ant-select { max-width: 100%; }
