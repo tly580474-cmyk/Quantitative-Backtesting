@@ -29,6 +29,7 @@ class FinancialUpdateTest(unittest.TestCase):
         self.assertEqual(sina_indicator_start_year(target, date(2026, 8, 10), True), "2010")
         self.assertEqual(sina_indicator_start_year({}, date(2026, 8, 10), False), "2010")
         self.assertEqual(sina_indicator_start_year({"latest_fetched_at": "2023-01-01"}, date(2026, 8, 10), False), "2022")
+        self.assertEqual(sina_indicator_start_year({"latest_fetched_at": "2026-08-31", "retry_indicator_start_year": "2010"}, date(2026, 8, 31), False), "2010")
 
     def test_sina_requests_have_bounded_timeout_and_retries(self) -> None:
         import requests
@@ -57,6 +58,9 @@ class FinancialUpdateTest(unittest.TestCase):
         with patch.object(financial_update, 'parse_args', return_value=args), \
              patch.object(financial_update, 'load_env'), \
              patch.object(financial_update, 'connect_db', return_value=MagicMock()), \
+             patch.object(financial_update, 'acquire_financial_lock'), \
+             patch.object(financial_update, 'load_sina_retries', return_value={}), \
+             patch.object(financial_update, 'save_sina_retries'), \
              patch.object(financial_update, 'configure_sina_runtime'), \
              patch.object(financial_update, 'load_sina_targets', return_value=targets), \
              patch.object(financial_update, 'ThreadPoolExecutor', return_value=executor), \
@@ -80,6 +84,36 @@ class FinancialUpdateTest(unittest.TestCase):
         self.assertEqual(result_status(False, 0), "completed")
         self.assertEqual(result_status(False, 2), "partial")
         self.assertEqual(result_status(True, 2), "dry-run")
+
+    def test_partial_records_commit_and_keep_retry_window(self) -> None:
+        args = SimpleNamespace(end_date='2026-08-31', start_date=None, lookback_days=21,
+                               provider='sina', symbol='000001', full=False, batch_size=1,
+                               workers=1, dry_run=False, request_interval=0)
+        target = {'instrument_key': 1, 'symbol': '000001', 'latest_fetched_at': '2026-08-31'}
+        row = {'instrument_key': 1, 'report_period': '2026-06-30', 'announcement_date': '2026-08-20'}
+        future, executor = MagicMock(), MagicMock()
+        future.result.return_value = financial_update.FinancialRecords([row], [{'stage': 'indicators', 'error': 'offline'}])
+        executor.__enter__.return_value.submit.return_value = future
+        output = io.StringIO()
+        with patch.object(financial_update, 'parse_args', return_value=args), \
+             patch.object(financial_update, 'load_env'), \
+             patch.object(financial_update, 'connect_db', return_value=MagicMock()), \
+             patch.object(financial_update, 'acquire_financial_lock'), \
+             patch.object(financial_update, 'configure_sina_runtime'), \
+             patch.object(financial_update, 'load_sina_targets', return_value=[target]), \
+             patch.object(financial_update, 'load_sina_retries', return_value={'000001': [{'indicatorStartYear': '2010'}]}), \
+             patch.object(financial_update, 'save_sina_retries') as save, \
+             patch.object(financial_update, 'ThreadPoolExecutor', return_value=executor), \
+             patch.object(financial_update, 'as_completed', side_effect=lambda futures: list(futures)), \
+             patch.object(financial_update, 'upsert_records', return_value=1) as write, \
+             redirect_stdout(output):
+            self.assertEqual(financial_update.main(), 1)
+        write.assert_called_once()
+        self.assertEqual(save.call_args.args[0]['000001'][0]['indicatorStartYear'], '2010')
+        result = json.loads(output.getvalue().splitlines()[-1])
+        self.assertEqual(result['status'], 'partial')
+        self.assertEqual(result['writtenReports'], 1)
+        self.assertEqual(result['apiRows']['partialSymbols'], 1)
 
     def test_normalize_date(self) -> None:
         self.assertEqual(normalize_date("20260726"), "2026-07-26")
@@ -138,6 +172,75 @@ class FinancialUpdateTest(unittest.TestCase):
         ]
         carry_forward_publications(rows)
         self.assertEqual(rows[1]["revenue"], 100.0)
+
+    def test_indicator_failure_preserves_statements_and_bank_aliases(self) -> None:
+        import pandas as pd
+        rows = [
+            pd.DataFrame([{"报告日": "2026-06-30", "公告日期": "2026-08-15", "营业收入": 100,
+                           "归属于母公司的净利润": 0, "净利润": 7}]),
+            pd.DataFrame([{"报告日": "2026-06-30", "公告日期": "2026-08-15", "资产总计": 200,
+                           "股东权益合计": 80, "归属于母公司股东的权益": 70}]),
+            pd.DataFrame([{"报告日": "2026-06-30", "公告日期": "2026-08-15", "经营活动产生的现金流量净额": 10}]),
+        ]
+        with patch('akshare.stock_financial_report_sina', side_effect=rows), \
+             patch('akshare.stock_financial_analysis_indicator', side_effect=TimeoutError('indicator down')):
+            result = financial_update.fetch_sina_symbol({'symbol': '000001', 'market': 'SZ', 'instrument_key': 1})
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.issues[0]['stage'], 'indicators')
+        self.assertEqual(result[0]['net_operating_cash_flow'], 10)
+        self.assertEqual(result[0]['equity_parent'], 70)
+        self.assertEqual(result[0]['total_equity'], 80)
+        derive_metrics(result[0])
+        self.assertEqual(result[0]['net_margin_pct'], 0)  # Zero parent profit is not missing.
+
+    def test_failed_statement_does_not_skip_later_statements(self) -> None:
+        import pandas as pd
+        balance = pd.DataFrame([{'报告日': '2026-06-30', '公告日期': '2026-08-15', '资产总计': 200}])
+        cash = pd.DataFrame([{'报告日': '2026-06-30', '公告日期': '2026-08-15', '经营活动产生的现金流量净额': 5}])
+        with patch('akshare.stock_financial_report_sina', side_effect=[TimeoutError('income'), balance, cash]), \
+             patch('akshare.stock_financial_analysis_indicator', return_value=pd.DataFrame()):
+            result = financial_update.fetch_sina_symbol({'symbol': '000001', 'market': 'SZ', 'instrument_key': 1})
+        self.assertEqual(result[0]['total_assets'], 200)
+        self.assertEqual(result[0]['net_operating_cash_flow'], 5)
+        self.assertEqual([issue['stage'] for issue in result.issues], ['income', 'indicators'])
+
+    def test_merge_preserves_old_fields_and_labels_mixed_source(self) -> None:
+        incoming = {'source_key': 'eastmoney', 'net_profit_parent': 0, 'revenue': 100}
+        financial_update.merge_existing_record(incoming, {'source_key': 'sina', 'net_profit_parent': 9,
+                                                         'revenue': 99, 'asset_turnover': .4})
+        self.assertEqual(incoming['net_profit_parent'], 0)
+        self.assertEqual(incoming['revenue'], 100)
+        self.assertEqual(incoming['asset_turnover'], .4)
+        self.assertEqual(incoming['source_key'], 'eastmoney+sina')
+
+    def test_later_write_failure_reports_already_committed_batches(self) -> None:
+        connection = MagicMock()
+        with patch.object(financial_update, '_upsert_batch', side_effect=[100, RuntimeError('write failed')]):
+            with self.assertRaises(financial_update.PartialWriteError) as failure:
+                financial_update.upsert_records(connection, [{} for _ in range(120)])
+        self.assertEqual(failure.exception.written_reports, 100)
+        connection.rollback.assert_called_once()
+
+    def test_calculated_roe_uses_only_annual_versions_known_at_notice(self) -> None:
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value.fetchall.return_value = [
+            {'instrument_key': 1, 'report_period': date(2025, 12, 31), 'announcement_date': date(2026, 4, 1), 'equity_parent': 80},
+            {'instrument_key': 1, 'report_period': date(2025, 12, 31), 'announcement_date': date(2026, 9, 1), 'equity_parent': 500},
+        ]
+        row = {'instrument_key': 1, 'announcement_date': '2026-08-01', 'fiscal_year': 2026,
+               'fiscal_quarter': 2, 'net_profit_parent': 9, 'equity_parent': 100}
+        self.assertEqual(financial_update.fill_calculated_roe(connection, [row]), 1)
+        self.assertEqual(row['roe_calculated_pct'], 20)
+        connection.commit.assert_not_called()
+        for call in connection.cursor.return_value.__enter__.return_value.execute.call_args_list:
+            self.assertNotIn('UPDATE', call.args[0])
+
+    def test_later_values_do_not_leak_into_earlier_publication(self) -> None:
+        rows = [{'instrument_key': 1, 'report_period': '2026-06-30', 'announcement_date': '2026-08-01', 'revenue': 10},
+                {'instrument_key': 1, 'report_period': '2026-06-30', 'announcement_date': '2026-08-15', 'total_assets': 20}]
+        carry_forward_publications(rows)
+        self.assertIsNone(rows[0].get('total_assets'))
+        self.assertEqual(rows[1]['revenue'], 10)
 
 
 if __name__ == "__main__":

@@ -28,8 +28,11 @@ export function cleanFinancialStderr(stderr: string): string {
 
 export function summarizeFinancialFailure(error: unknown, details: Record<string, unknown> = {}): string {
   const failure = error as { code?: string | number; killed?: boolean; signal?: string; stderr?: string } | null;
-  const rows = details.apiRows as { symbols?: number; failedSymbols?: number } | undefined;
-  const counts = `成功 ${rows?.symbols ?? 0} 只、失败 ${rows?.failedSymbols ?? 0} 只`;
+  const rows = details.apiRows as { symbols?: number; failedSymbols?: number; partialSymbols?: number; failedStages?: number } | undefined;
+  const unit = details.unit === 'stock-period' ? '项（股票×报告期）' : '只';
+  const counts = `成功 ${rows?.symbols ?? 0} ${unit}、失败 ${rows?.failedSymbols ?? 0} ${unit}`
+    + (rows?.partialSymbols ? `、部分完成 ${rows.partialSymbols} ${unit}` : '')
+    + (rows?.failedStages ? `、接口阶段失败 ${rows.failedStages} 个` : '');
   if (failure?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
     return `财务报表日志超过缓冲区上限，任务已终止；${counts}。请检查详细日志。`;
   }
@@ -87,7 +90,7 @@ async function tick(): Promise<void> {
     const script = fileURLToPath(new URL('../../referenceData/financial_update.py', import.meta.url));
     const execution = execFileAsync(runConfig.pythonExecutable || 'python', [
       script,
-      '--provider', 'sina',
+      '--provider', 'eastmoney',
       '--lookback-days', String(Math.max(7, runConfig.lookbackDays)),
       '--batch-size', '200',
       '--workers', '4',
@@ -98,7 +101,7 @@ async function tick(): Promise<void> {
       maxBuffer: 4 * 1024 * 1024,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1', TQDM_DISABLE: '1' },
     });
-    let details: Record<string, unknown> = { source: 'sina' };
+    let details: Record<string, unknown> = { source: 'eastmoney' };
     let progressWrites = Promise.resolve();
     const reader = execution.child.stdout ? createInterface({ input: execution.child.stdout }) : null;
     reader?.on('line', (line) => {

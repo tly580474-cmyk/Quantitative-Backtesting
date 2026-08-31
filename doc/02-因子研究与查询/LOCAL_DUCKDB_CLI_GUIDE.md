@@ -976,7 +976,7 @@ Windows 计划任务运行的是数据导入命令，不是 DuckDB 数据库刷�
 npm run minute:schedule:register
 ```
 
-默认任务名为 `QuantBacktest-MinuteUpdate`，每天 16:30 自动在线拉取、校验和发布，17:30 再自动重试一次。在线主源失败时才尝试本地 TDX 回补；正常日更不再依赖人工下载 `.lc1`。发布成功后，基于通配符的 DuckDB 视图会在下一次查询时自然看到新文件。
+默认任务名为 `QuantBacktest-MinuteUpdate`，每天 16:30 自动使用 TDX TCP 拉取、校验和发布，17:30 再自动重试一次。TDX TCP 失败时降级到新浪在线源，再失败才尝试本地 TDX 回补；正常日更不依赖人工下载 `.lc1`。发布成功后，基于通配符的 DuckDB 视图会在下一次查询时自然看到新文件。
 
 任务执行日志保存在：
 

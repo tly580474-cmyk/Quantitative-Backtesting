@@ -42,7 +42,7 @@
     "dividend:current:update": "python src/referenceData/dividend_current_update.py",
     "dividend:update": "python src/referenceData/dividend_update.py --batch-size 200 --retry-size 20 --refresh-size 20 --workers 8",
     "dividend:probe": "python src/referenceData/dividend_update.py --symbol 002155",
-    "financial:update": "python src/referenceData/financial_update.py",
+    "financial:update": "python src/referenceData/financial_update.py --provider eastmoney",
     "financial:backfill": "python src/referenceData/financial_update.py --provider sina --batch-size 200 --workers 4",
     "financial:probe": "python src/referenceData/financial_update.py --symbol 002155 --lookback-days 730",
     "fund-flow:backfill": "python src/fundFlow/update.py backfill --start-date 2010-01-01 --continue-on-error",

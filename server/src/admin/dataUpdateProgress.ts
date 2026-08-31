@@ -246,8 +246,11 @@ export function normalizeFinancialProgress(run: CollectorRun | null): DataUpdate
   const details = run.details ?? {};
   const apiRows = isRecord(details.apiRows) ? details.apiRows : {};
   const completed = positiveInteger(apiRows.symbols);
-  const failed = positiveInteger(apiRows.failedSymbols);
-  const total = Math.max(positiveInteger(details.totalSymbols), completed + failed);
+  const partialSymbols = positiveInteger(apiRows.partialSymbols);
+  const undisclosed = positiveInteger(apiRows.undisclosedSymbols);
+  const failed = positiveInteger(apiRows.failedSymbols) + partialSymbols;
+  const total = Math.max(positiveInteger(details.totalSymbols), completed + failed + undisclosed);
+  const unit = details.unit === 'stock-period' ? '项（股票×报告期）' : '只';
   const reports = positiveInteger(details.normalizedReports);
   const written = positiveInteger(details.writtenReports);
   const partial = details.status === 'partial' || (run.status === 'succeeded' && failed > 0);
@@ -256,12 +259,13 @@ export function normalizeFinancialProgress(run: CollectorRun | null): DataUpdate
     ? details.source.trim()
     : null;
   const summary = status === 'failed'
-    ? partial ? `财务报表部分失败：成功 ${completed} 只、失败 ${failed} 只，写入 ${written} 期。`
+    ? partial ? `财务报表部分失败：成功 ${completed} ${unit}、失败或部分完成 ${failed} ${unit}，写入 ${written} 期。`
       : summarizeLegacyFinancialError(run)
     : [
       source ? `来源 ${source}` : null,
       reports > 0 ? `标准化 ${reports} 期` : null,
       written > 0 ? `写入 ${written} 期` : null,
+      undisclosed > 0 ? `${undisclosed} ${unit}尚未披露，已跳过` : null,
       failed > 0 ? `${failed} 只股票失败` : null,
     ].filter(Boolean).join(' · ') || null;
   return {
@@ -273,7 +277,7 @@ export function normalizeFinancialProgress(run: CollectorRun | null): DataUpdate
     total,
     failed,
     percent: total > 0
-      ? clampPercent((completed + failed) / total * 100)
+      ? clampPercent((completed + failed + undisclosed) / total * 100)
       : status === 'completed' ? 100 : null,
     startedAt: validTimestamp(run.startedAt),
     updatedAt: validTimestamp(run.finishedAt ?? details.updatedAt ?? run.startedAt),

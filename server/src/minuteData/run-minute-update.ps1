@@ -114,7 +114,7 @@ if ($configuredDependencyWait -and [int]::TryParse($configuredDependencyWait, [r
 }
 $dependencyDeadline = (Get-Date).AddMinutes($dependencyWaitMinutes)
 $dependencyTimedOut = $false
-$tdxTcpEnabled = Resolve-MinuteFeatureFlag 'MINUTE_TDX_TCP_ENABLED' $false
+$tdxTcpEnabled = Resolve-MinuteFeatureFlag 'MINUTE_TDX_TCP_ENABLED' $true
 $primaryScript = if ($tdxTcpEnabled) { 'minute:tdx-online:update' } else { 'minute:online:update' }
 do {
   $exitCode = Invoke-MinuteUpdateCommand -ScriptName $primaryScript

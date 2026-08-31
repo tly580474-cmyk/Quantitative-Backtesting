@@ -129,7 +129,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--full", action="store_true", help="Backfill by all reporting periods")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--request-interval", type=float, default=0.15)
-    parser.add_argument("--provider", choices=("auto", "tushare", "sina"), default="auto")
+    parser.add_argument("--provider", choices=("auto", "tushare", "sina", "eastmoney"), default="auto")
+    parser.add_argument("--report-period", action="append", help="Eastmoney reporting period, YYYY-MM-DD; repeatable")
+    parser.add_argument("--resume", action="store_true", help="Reuse today's successfully cached Eastmoney stages")
     parser.add_argument("--batch-size", type=int, default=200)
     parser.add_argument("--workers", type=int, default=4)
     return parser.parse_args()
@@ -174,13 +176,15 @@ def result_status(dry_run: bool, failed_symbols: int) -> str:
 
 
 def derive_metrics(record: dict[str, Any]) -> None:
-    revenue = finite_number(record.get("revenue")) or finite_number(record.get("total_revenue"))
+    revenue = first_value(record, "revenue", "total_revenue")
     cost = finite_number(record.get("operating_cost"))
-    net_profit = finite_number(record.get("net_profit_parent")) or finite_number(record.get("net_profit"))
+    net_profit = first_value(record, "net_profit_parent", "net_profit")
     assets = finite_number(record.get("total_assets"))
     liabilities = finite_number(record.get("total_liabilities"))
     ocf = finite_number(record.get("net_operating_cash_flow"))
     capex = finite_number(record.get("capital_expenditure"))
+    if record.get("total_equity") is None and assets is not None and liabilities is not None:
+        record["total_equity"] = assets - liabilities
     if record.get("gross_margin_pct") is None and revenue and cost is not None:
         record["gross_margin_pct"] = (revenue - cost) / revenue * 100
     if record.get("net_margin_pct") is None and revenue and net_profit is not None:
@@ -287,8 +291,20 @@ def connect_db() -> pymysql.Connection:
         database=os.getenv("DB_NAME", "quant_backtest"),
         charset="utf8mb4",
         autocommit=False,
+        connect_timeout=5,
+        read_timeout=30,
+        write_timeout=30,
         cursorclass=pymysql.cursors.DictCursor,
     )
+
+
+def acquire_financial_lock(connection: pymysql.Connection) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute("SET SESSION innodb_lock_wait_timeout=5")
+        cursor.execute("SET SESSION max_execution_time=10000")
+        cursor.execute("SELECT GET_LOCK('quant_financial_update', 0) AS acquired")
+        if cursor.fetchone()["acquired"] != 1:
+            raise RuntimeError("Another financial update is running")
 
 
 def load_instruments(connection: pymysql.Connection) -> dict[str, int]:
@@ -346,74 +362,116 @@ def fingerprint(record: dict[str, Any]) -> str:
     ).hexdigest()
 
 
-def upsert_records(connection: pymysql.Connection, records: list[dict[str, Any]]) -> int:
+def merge_existing_record(record: dict[str, Any], previous: dict[str, Any]) -> None:
+    reused = False
+    for field in VALUE_FIELDS:
+        if record.get(field) is None and previous.get(field) is not None:
+            value = previous[field]
+            record[field] = value if isinstance(value, str) else finite_number(value)
+            reused = True
+    if reused and previous.get("source_key"):
+        record["source_key"] = "+".join(sorted(set(
+            str(record["source_key"]).split("+") + str(previous["source_key"]).split("+")
+        )))
+
+
+def fill_calculated_roe(connection: pymysql.Connection, records: list[dict[str, Any]]) -> int:
+    """Calculate only incoming rows, using annual versions known by their notice date."""
+    candidates = [r for r in records if r.get("roe_pct") is None and r.get("roe_weighted_pct") is None
+                  and r.get("net_profit_parent") is not None and r.get("equity_parent") is not None]
+    if not candidates:
+        return 0
+    pairs = sorted({(r["instrument_key"], f"{int(r['fiscal_year']) - 1}-12-31") for r in candidates})
+    previous_rows = []
+    with connection.cursor() as cursor:
+        for offset in range(0, len(pairs), 100):
+            part = pairs[offset:offset + 100]
+            cursor.execute(
+                "SELECT instrument_key, report_period, announcement_date, equity_parent "
+                "FROM financial_reports WHERE (instrument_key, report_period) IN ("
+                + ",".join(["(%s,%s)"] * len(part)) + ")",
+                tuple(value for pair in part for value in pair),
+            )
+            previous_rows.extend(cursor.fetchall())
+    # New annual rows may be in this same batch and not yet committed.
+    previous_rows.extend(r for r in records if r.get("fiscal_quarter") == 4)
+    by_period: dict[tuple[int, str], list[dict[str, Any]]] = {}
+    for previous in previous_rows:
+        by_period.setdefault((previous["instrument_key"], normalize_date(previous["report_period"])), []).append(previous)
+    for record in candidates:
+        eligible = [r for r in by_period.get((record["instrument_key"], f"{int(record['fiscal_year']) - 1}-12-31"), [])
+                    if normalize_date(r["announcement_date"]) <= record["announcement_date"] and r.get("equity_parent") is not None]
+        previous = max(eligible, key=lambda r: normalize_date(r["announcement_date"]), default=None)
+        ending = float(record["equity_parent"])
+        beginning = float(previous["equity_parent"]) if previous else ending
+        if ending <= 0 or beginning <= 0:
+            record["roe_calculated_pct"] = None
+            record["roe_calculation_method"] = "not_applicable_non_positive_parent_equity"
+        else:
+            record["roe_calculated_pct"] = float(record["net_profit_parent"]) / ((beginning + ending) / 2) * (4 / record["fiscal_quarter"]) * 100
+            record["roe_calculation_method"] = ("annualized_profit_over_average_parent_equity" if previous
+                                                else "annualized_profit_over_ending_parent_equity")
+    return len(candidates)
+
+
+class PartialWriteError(RuntimeError):
+    def __init__(self, error: Exception, written_reports: int) -> None:
+        super().__init__(str(error))
+        self.written_reports = written_reports
+
+
+def upsert_records(connection: pymysql.Connection, records: list[dict[str, Any]],
+                   backup_path: Path | None = None) -> int:
+    written = 0
+    for offset in range(0, len(records), 100):
+        try:
+            written += _upsert_batch(connection, records[offset:offset + 100], backup_path)
+        except Exception as error:
+            connection.rollback()
+            raise PartialWriteError(error, written) from error
+    return written
+
+
+def _upsert_batch(connection: pymysql.Connection, records: list[dict[str, Any]],
+                  backup_path: Path | None = None) -> int:
     if not records:
         return 0
     placeholders = ", ".join(["%s"] * len(ALL_FIELDS))
-    updates = ", ".join(
-        f"{field}=COALESCE(VALUES({field}), {field})"
-        for field in VALUE_FIELDS + SOURCE_FIELDS
-        if field not in {"source_fingerprint"}
-    )
-    updates += ", source_fingerprint=VALUES(source_fingerprint)"
+    updates = ", ".join(f"{field}=VALUES({field})" for field in VALUE_FIELDS + SOURCE_FIELDS)
     sql = (
         f"INSERT INTO financial_reports ({', '.join(ALL_FIELDS)}) VALUES ({placeholders}) "
         f"ON DUPLICATE KEY UPDATE {updates}"
     )
-    values = [[record.get(field) for field in ALL_FIELDS] for record in records]
-    with connection.cursor() as cursor:
-        cursor.executemany(sql, values)
-    connection.commit()
+    for offset in range(0, len(records), 100):
+        part = records[offset:offset + 100]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {', '.join(ALL_FIELDS)} FROM financial_reports WHERE "
+                "(instrument_key, report_period, announcement_date) IN ("
+                + ",".join(["(%s,%s,%s)"] * len(part)) + ") FOR UPDATE",
+                tuple(record[field] for record in part for field in IDENTITY_FIELDS),
+            )
+            previous = cursor.fetchall()
+        previous_map = {(r["instrument_key"], normalize_date(r["report_period"]), normalize_date(r["announcement_date"])): r for r in previous}
+        if backup_path is not None:
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            with backup_path.open("a", encoding="utf-8") as backup:
+                backup.write(json.dumps({"keys": [[r[k] for k in IDENTITY_FIELDS] for r in part],
+                                         "before": previous}, ensure_ascii=False, default=str) + "\n")
+                backup.flush()
+                os.fsync(backup.fileno())
+        for record in part:
+            old = previous_map.get(tuple(record[k] for k in IDENTITY_FIELDS))
+            if old:
+                merge_existing_record(record, old)
+            derive_metrics(record)
+        fill_calculated_roe(connection, part)
+        for record in part:
+            record["source_fingerprint"] = fingerprint(record)
+        with connection.cursor() as cursor:
+            cursor.executemany(sql, [[record.get(field) for field in ALL_FIELDS] for record in part])
+        connection.commit()
     return len(records)
-
-
-def fill_calculated_roe(connection: pymysql.Connection) -> int:
-    sql = """
-        UPDATE financial_reports AS current
-        LEFT JOIN (
-          SELECT ranked.instrument_key, ranked.report_period, ranked.equity_parent
-          FROM (
-            SELECT instrument_key, report_period, equity_parent,
-                   ROW_NUMBER() OVER (
-                     PARTITION BY instrument_key, report_period
-                     ORDER BY announcement_date DESC, update_flag DESC
-                   ) AS version_rank
-            FROM financial_reports
-            WHERE fiscal_quarter=4
-          ) AS ranked
-          WHERE ranked.version_rank=1
-        ) AS previous
-          ON previous.instrument_key=current.instrument_key
-         AND previous.report_period=STR_TO_DATE(
-           CONCAT(current.fiscal_year - 1, '-12-31'), '%Y-%m-%d'
-         )
-        SET current.roe_calculated_pct =
-              IF(
-                current.equity_parent > 0
-                AND COALESCE(previous.equity_parent, current.equity_parent) > 0,
-                current.net_profit_parent
-                / NULLIF((current.equity_parent + COALESCE(previous.equity_parent, current.equity_parent)) / 2, 0)
-                * (4 / current.fiscal_quarter) * 100,
-                NULL
-              ),
-            current.roe_calculation_method =
-              IF(
-                current.equity_parent <= 0
-                OR COALESCE(previous.equity_parent, current.equity_parent) <= 0,
-                'not_applicable_non_positive_parent_equity',
-                IF(previous.equity_parent IS NULL,
-                   'annualized_profit_over_ending_parent_equity',
-                   'annualized_profit_over_average_parent_equity')
-              )
-        WHERE current.roe_pct IS NULL
-          AND current.roe_weighted_pct IS NULL
-          AND current.net_profit_parent IS NOT NULL
-          AND current.equity_parent IS NOT NULL
-    """
-    with connection.cursor() as cursor:
-        affected = cursor.execute(sql)
-    connection.commit()
-    return int(affected)
 
 
 def reporting_periods(start_year: int = 1990) -> Iterable[str]:
@@ -502,6 +560,8 @@ def configure_sina_runtime(request_interval: float) -> None:
 
 
 def sina_indicator_start_year(target: dict[str, Any], start_date: date, full: bool) -> str:
+    if not full and target.get("retry_indicator_start_year"):
+        return str(target["retry_indicator_start_year"])
     latest = normalize_date(target.get("latest_fetched_at"))
     if full or not latest:
         return "2010"
@@ -521,6 +581,26 @@ def prepare_records(records: list[dict[str, Any]], provider: str, source_version
     ))
 
 
+class FinancialRecords(list):
+    def __init__(self, records: Iterable[dict[str, Any]], issues: list[dict[str, str]]) -> None:
+        super().__init__(records)
+        self.issues = issues
+
+
+SINA_RETRY_PATH = Path(__file__).resolve().parents[2] / ".cache/financial-data/sina-retry.json"
+
+
+def load_sina_retries() -> dict[str, Any]:
+    return json.loads(SINA_RETRY_PATH.read_text(encoding="utf-8")) if SINA_RETRY_PATH.exists() else {}
+
+
+def save_sina_retries(retries: dict[str, Any]) -> None:
+    SINA_RETRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary = SINA_RETRY_PATH.with_suffix(".tmp")
+    temporary.write_text(json.dumps(retries, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(SINA_RETRY_PATH)
+
+
 def fetch_sina_symbol(target: dict[str, Any], indicator_start_year: str = "2010") -> list[dict[str, Any]]:
     import akshare as ak
 
@@ -529,12 +609,15 @@ def fetch_sina_symbol(target: dict[str, Any], indicator_start_year: str = "2010"
     prefixed = ("sh" if market == "SH" else "bj" if market == "BJ" else "sz") + symbol
     combined: dict[tuple[int, str, str], dict[str, Any]] = {}
 
-    frames = {
-        "income": ak.stock_financial_report_sina(stock=prefixed, symbol="利润表"),
-        "balance": ak.stock_financial_report_sina(stock=prefixed, symbol="资产负债表"),
-        "cashflow": ak.stock_financial_report_sina(stock=prefixed, symbol="现金流量表"),
-    }
-    for kind, frame in frames.items():
+    issues: list[dict[str, str]] = []
+    for kind, label in (("income", "利润表"), ("balance", "资产负债表"), ("cashflow", "现金流量表")):
+        try:
+            frame = ak.stock_financial_report_sina(stock=prefixed, symbol=label)
+            if frame.empty:
+                raise RuntimeError("empty statement")
+        except Exception as error:
+            issues.append({"stage": kind, "error": str(error)[:1000]})
+            continue
         for raw in frame.to_dict(orient="records"):
             report_period = normalize_date(raw.get("报告日"))
             announcement_date = normalize_date(raw.get("公告日期") or raw.get("更新日期"))
@@ -559,7 +642,7 @@ def fetch_sina_symbol(target: dict[str, Any], indicator_start_year: str = "2010"
                     "total_profit": first_value(raw, "利润总额"),
                     "income_tax": first_value(raw, "所得税费用"),
                     "net_profit": first_value(raw, "净利润"),
-                    "net_profit_parent": first_value(raw, "归属于母公司所有者的净利润"),
+                    "net_profit_parent": first_value(raw, "归属于母公司所有者的净利润", "归属于母公司的净利润", "归属于母公司股东的净利润"),
                     "eps": first_value(raw, "基本每股收益"),
                     "diluted_eps": first_value(raw, "稀释每股收益"),
                 })
@@ -567,8 +650,8 @@ def fetch_sina_symbol(target: dict[str, Any], indicator_start_year: str = "2010"
                 record.update({
                     "total_assets": first_value(raw, "资产总计"),
                     "total_liabilities": first_value(raw, "负债合计"),
-                    "total_equity": first_value(raw, "所有者权益(或股东权益)合计", "所有者权益合计"),
-                    "equity_parent": first_value(raw, "归属于母公司股东权益合计", "归属于母公司所有者权益合计"),
+                    "total_equity": first_value(raw, "所有者权益(或股东权益)合计", "所有者权益合计", "股东权益合计", "所有者权益（或股东权益）合计"),
+                    "equity_parent": first_value(raw, "归属于母公司股东权益合计", "归属于母公司所有者权益合计", "归属于母公司股东的权益", "归属于母公司所有者权益", "归属于母公司股东的权益合计"),
                     "total_current_assets": first_value(raw, "流动资产合计"),
                     "total_current_liabilities": first_value(raw, "流动负债合计"),
                     "cash_and_equivalents": first_value(raw, "货币资金"),
@@ -592,7 +675,13 @@ def fetch_sina_symbol(target: dict[str, Any], indicator_start_year: str = "2010"
     # Sina rejects very early start years for some securities with an empty frame.
     # 2010 is accepted consistently; older periods still retain statement values
     # and receive transparently labelled calculated ROE where possible.
-    indicators = ak.stock_financial_analysis_indicator(symbol=symbol, start_year=indicator_start_year)
+    try:
+        indicators = ak.stock_financial_analysis_indicator(symbol=symbol, start_year=indicator_start_year)
+        if indicators.empty:
+            raise RuntimeError("empty financial indicators")
+    except Exception as error:
+        issues.append({"stage": "indicators", "error": str(error)[:1000]})
+        return FinancialRecords(combined.values(), issues)
     by_period: dict[str, dict[str, Any]] = {}
     for raw in indicators.to_dict(orient="records"):
         period = normalize_date(raw.get("日期"))
@@ -603,7 +692,7 @@ def fetch_sina_symbol(target: dict[str, Any], indicator_start_year: str = "2010"
         if not raw:
             continue
         record.update({
-            "eps": first_value(raw, "加权每股收益(元)", "摊薄每股收益(元)") or record.get("eps"),
+            "eps": first_value({**raw, "statement_eps": record.get("eps")}, "加权每股收益(元)", "摊薄每股收益(元)", "statement_eps"),
             "bps": first_value(raw, "每股净资产_调整前(元)", "每股净资产_调整后(元)"),
             "operating_cash_flow_per_share": first_value(raw, "每股经营性现金流(元)"),
             "roe_pct": first_value(raw, "净资产收益率(%)"),
@@ -623,12 +712,15 @@ def fetch_sina_symbol(target: dict[str, Any], indicator_start_year: str = "2010"
             "revenue_yoy_pct": first_value(raw, "主营业务收入增长率(%)"),
             "net_profit_yoy_pct": first_value(raw, "净利润增长率(%)"),
         })
-    return list(combined.values())
+    return FinancialRecords(combined.values(), issues)
 
 
 def main() -> int:
     load_env(Path.cwd() / ".env")
     args = parse_args()
+    if args.provider == "eastmoney":
+        from financial_eastmoney import run
+        return run(args)
     today = date.today()
     end_date = date.fromisoformat(args.end_date) if args.end_date else today
     start_date = (
@@ -637,6 +729,7 @@ def main() -> int:
     )
     connection = connect_db()
     try:
+        acquire_financial_lock(connection)
         combined: dict[tuple[int, str, str], dict[str, Any]] = {}
         fetched_counts: dict[str, int] = {}
         token = os.getenv("TUSHARE_TOKEN", "")
@@ -694,6 +787,16 @@ def main() -> int:
         else:
             configure_sina_runtime(args.request_interval)
             targets = load_sina_targets(connection, args.symbol, args.full, args.batch_size)
+            retries = load_sina_retries()
+            if not args.symbol and not args.full:
+                retry_targets = [row for symbol in list(retries)[:20]
+                                 for row in load_sina_targets(connection, symbol, False, 1)]
+                targets = list({row["symbol"]: row for row in retry_targets + targets}.values())[:max(1, args.batch_size)]
+            for target in targets:
+                saved_years = [issue["indicatorStartYear"] for issue in retries.get(str(target["symbol"]), [])
+                               if issue.get("indicatorStartYear")]
+                if saved_years:
+                    target["retry_indicator_start_year"] = min(saved_years)
             total_symbols = len(targets)
             emit_progress("running")
             with ThreadPoolExecutor(max_workers=max(1, min(8, args.workers))) as executor:
@@ -713,16 +816,31 @@ def main() -> int:
                         # the whole batch. fetched_at also advances the rotation cursor.
                         written += 0 if args.dry_run else upsert_records(connection, records)
                         normalized += len(records)
-                        fetched_counts["symbols"] = fetched_counts.get("symbols", 0) + 1
+                        issues = getattr(records, "issues", [])
+                        if issues:
+                            issues = [{**issue, "indicatorStartYear": sina_indicator_start_year(target, start_date, args.full)} for issue in issues]
+                            fetched_counts["partialSymbols"] = fetched_counts.get("partialSymbols", 0) + 1
+                            failures.append({"symbol": str(target["symbol"]), "error": json.dumps(issues, ensure_ascii=False)})
+                            retries.pop(str(target["symbol"]), None)
+                            retries[str(target["symbol"])] = issues
+                        else:
+                            fetched_counts["symbols"] = fetched_counts.get("symbols", 0) + 1
+                            retries.pop(str(target["symbol"]), None)
                         fetched_counts["reports"] = fetched_counts.get("reports", 0) + len(records)
                     except Exception as error:
                         connection.rollback()
+                        written += getattr(error, "written_reports", 0)
                         fetched_counts["failedSymbols"] = fetched_counts.get("failedSymbols", 0) + 1
                         failures.append({"symbol": str(target["symbol"]), "error": str(error)[:1000]})
+                        retries.pop(str(target["symbol"]), None)
+                        retries[str(target["symbol"])] = [{"stage": "fetch_or_write", "error": str(error)[:1000],
+                            "indicatorStartYear": sina_indicator_start_year(target, start_date, args.full)}]
                         print(
                             f"[financial_update] Sina {target['symbol']} failed: {error}",
                             file=os.sys.stderr,
                         )
+                    if not args.dry_run:
+                        save_sina_retries(retries)
                     emit_progress("running")
 
         if provider == "tushare":
@@ -730,9 +848,8 @@ def main() -> int:
             prepare_records(records, provider, source_version)
             normalized = len(records)
             written = 0 if args.dry_run else upsert_records(connection, records)
-        calculated_roe = 0 if args.dry_run else fill_calculated_roe(connection)
-        failed_symbols = int(fetched_counts.get("failedSymbols", 0))
-        emit_progress(result_status(args.dry_run, failed_symbols), calculated_roe)
+        failed_symbols = int(fetched_counts.get("failedSymbols", 0)) + int(fetched_counts.get("partialSymbols", 0))
+        emit_progress(result_status(args.dry_run, failed_symbols))
         return 1 if failed_symbols and not args.dry_run else 0
     finally:
         connection.close()

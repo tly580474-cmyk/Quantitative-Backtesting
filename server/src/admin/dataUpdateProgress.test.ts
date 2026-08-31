@@ -144,6 +144,24 @@ describe('admin data update progress', () => {
     expect(progress.phase).toBe('等待财报更新');
   });
 
+  it('counts partial writes as failures and undisclosed reports as explicitly skipped', () => {
+    const progress = normalizeFinancialProgress({
+      runKey: 'financial_reports:manual', jobType: 'financial_reports', status: 'succeeded', attempts: 1,
+      startedAt: '2026-08-31T07:00:00Z', details: { status: 'completed', source: 'eastmoney', unit: 'stock-period',
+        totalSymbols: 5551, apiRows: { symbols: 5550, undisclosedSymbols: 1 }, writtenReports: 5557 },
+    });
+    expect(progress.status).toBe('completed');
+    expect(progress.percent).toBe(100);
+    expect(progress.completed).toBe(5550);
+    expect(progress.message).toContain('尚未披露，已跳过');
+    const partial = normalizeFinancialProgress({
+      runKey: 'financial_reports:partial', jobType: 'financial_reports', status: 'succeeded', attempts: 1,
+      startedAt: '2026-08-31T07:00:00Z', details: { totalSymbols: 2, apiRows: { symbols: 1, partialSymbols: 1 } },
+    });
+    expect(partial.status).toBe('failed');
+    expect(partial.failed).toBe(1);
+  });
+
   it('uses the target count and heartbeat while a financial batch is running', () => {
     const progress = normalizeFinancialProgress({
       runKey: 'financial_reports:test', jobType: 'financial_reports', status: 'running',
