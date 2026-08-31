@@ -35,6 +35,10 @@ html[data-theme='dark'] body.mobile-layout-active {
   border-bottom: 1px solid var(--mobile-border);
   background: var(--mobile-surface);
 }
+/* Detail pages use the full-height content area after their bottom navigation
+ * is removed. Keep the app bar stable while the page switches between the
+ * watchlist/overview and a secondary stock route. */
+.mobile-app-shell--detail .mobile-app-header { min-height: 56px; }
 .mobile-app-header > strong { flex: 1; min-width: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-header-nav { flex: none; padding: 6px 10px; background: var(--mobile-surface); border-bottom: 1px solid var(--mobile-border); }
 .mobile-header-nav .factor-section-nav { width: 100%; padding: 0; gap: 8px; }

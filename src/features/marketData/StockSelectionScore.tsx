@@ -11,6 +11,7 @@ import {
 } from './selectionScore';
 import { marketDataCache } from './marketDataCache';
 import type { KlinePoint, StockQuote } from './types';
+import './mobile-detail-score.css';
 
 const { Text, Title } = Typography;
 const SCORE_STYLE_KEY = 'quant-selection-score-style-v1';
@@ -23,18 +24,23 @@ const TIER_COLORS: Record<SelectionScoreTier, string> = {
   blocked: '#262626',
 };
 
+const COMPACT_SCORE_COLOR = '#2563eb';
+
 export default function StockSelectionScore({
   code,
   candles,
   benchmarkCandles,
   loading,
   quote,
+  compact = false,
 }: {
   code: string;
   candles: KlinePoint[];
   benchmarkCandles: KlinePoint[];
   loading: boolean;
   quote?: StockQuote | null;
+  /** Use the condensed, mobile detail presentation without changing scoring. */
+  compact?: boolean;
 }) {
   const [styleId, setStyleId] = useState<SelectionStyleId>(() => {
     const stored = localStorage.getItem(SCORE_STYLE_KEY);
@@ -119,7 +125,7 @@ export default function StockSelectionScore({
 
   if ((loading && candles.length === 0) || (needsFundamentals && contextLoading && contextCode !== code)) {
     return (
-      <section className="stock-selection-score" aria-label="选股评分">
+      <section className={`stock-selection-score${compact ? ' stock-selection-score--compact' : ''}`} aria-label="选股评分">
         <Skeleton active paragraph={{ rows: 3 }} />
       </section>
     );
@@ -127,7 +133,7 @@ export default function StockSelectionScore({
 
   if (result.status === 'insufficient' || result.score == null || result.tier == null) {
     return (
-      <section className="stock-selection-score" aria-label="选股评分">
+      <section className={`stock-selection-score${compact ? ' stock-selection-score--compact' : ''}`} aria-label="选股评分">
         <Alert
           type="info"
           showIcon
@@ -149,6 +155,154 @@ export default function StockSelectionScore({
   }
 
   const tierColor = TIER_COLORS[result.tier];
+
+  const scoreBreakdown = (
+    <Collapse
+      ghost
+      className="stock-score-breakdown"
+      activeKey={activeSections}
+      onChange={(keys) => setActiveSections((Array.isArray(keys) ? keys : [keys]).map(String))}
+      items={result.sections.map((scoreSection) => ({
+        key: scoreSection.key,
+        label: (
+          <div className="stock-score-section-label">
+            <span>{scoreSection.title}</span>
+            <Tag color={scoreSection.score < 0 ? 'error' : 'blue'}>
+              {scoreSection.score > 0 ? '+' : ''}{scoreSection.score}
+              {scoreSection.maxScore == null ? '' : ` / ${scoreSection.maxScore}`}
+            </Tag>
+          </div>
+        ),
+        children: (
+          <div className="stock-score-rules">
+            {scoreSection.items.map((item) => (
+              <div
+                className={`stock-score-rule${item.matched ? ' is-matched' : ''}${item.kind === 'penalty' ? ' is-penalty' : ''}`}
+                key={item.label}
+              >
+                {!item.available
+                  ? <InfoCircleOutlined aria-hidden />
+                  : item.matched
+                  ? item.kind === 'penalty'
+                    ? <WarningOutlined aria-hidden />
+                    : <CheckCircleOutlined aria-hidden />
+                  : <MinusCircleOutlined aria-hidden />}
+                <span>
+                  <b>{item.label}</b>
+                  <small>{item.detail}</small>
+                </span>
+                <Tag color={item.points > 0 ? 'success' : item.points < 0 ? 'error' : 'default'}>
+                  {item.points > 0 ? '+' : ''}{item.points}
+                </Tag>
+              </div>
+            ))}
+          </div>
+        ),
+      }))}
+    />
+  );
+
+  if (compact) {
+    return (
+      <section className="stock-selection-score stock-selection-score--compact" aria-label="选股评分" aria-live="polite">
+        <div className="stock-score-compact-summary">
+          <div className="stock-score-compact-gauge">
+            <Progress
+              type="circle"
+              percent={result.score}
+              size={64}
+              strokeWidth={8}
+              strokeColor={COMPACT_SCORE_COLOR}
+              railColor="var(--stock-score-compact-rail)"
+              format={(value) => (
+                <span className="stock-score-compact-number">
+                  {value?.toFixed(1)}
+                  <small>分</small>
+                </span>
+              )}
+            />
+          </div>
+          <div className="stock-score-compact-copy">
+            <div className="stock-score-compact-title-row">
+              <Title level={5} style={{ margin: 0 }}>{result.styleLabel}评分</Title>
+              <span className="stock-score-compact-tier">{result.tierLabel}</span>
+              <span className="stock-score-compact-risk">{result.riskLabel}</span>
+            </div>
+            <Text className="stock-score-compact-description">{result.tierDescription}</Text>
+            <div className="stock-score-compact-meta">
+              <span>评分日期 {result.asOf ?? '—'}</span>
+              <span>数据覆盖 {result.dataCoveragePct}%</span>
+            </div>
+          </div>
+        </div>
+
+        {contextError && (
+          <Text type="warning" className="stock-score-compact-warning">
+            <WarningOutlined /> 基础数据降级：{contextError}
+          </Text>
+        )}
+
+        <Collapse
+          className="stock-score-compact-settings"
+          activeKey={activeDetails}
+          onChange={(keys) => setActiveDetails((Array.isArray(keys) ? keys : [keys]).map(String))}
+          items={[{
+            key: 'settings',
+            label: (
+              <div className="stock-score-details-label">
+                <span>评分设置与说明</span>
+                <Tag>{result.sections.length} 类评分</Tag>
+              </div>
+            ),
+            children: (
+              <div className="stock-score-compact-settings-content">
+                <div className="stock-score-compact-options">
+                  <label htmlFor={`selection-score-style-${code}`}>评分风格</label>
+                  <Select
+                    id={`selection-score-style-${code}`}
+                    size="small"
+                    value={styleId}
+                    aria-label="选择评分风格"
+                    onChange={(value) => setStyleId(value)}
+                    options={SELECTION_STYLE_OPTIONS.map((item) => ({
+                      value: item.value,
+                      label: `${item.label} · ${item.riskLabel}`,
+                    }))}
+                  />
+                </div>
+                <Space wrap size={[6, 6]} className="stock-score-compact-metadata">
+                  <Tag color="cyan">本地数据优先</Tag>
+                  {result.tradingDayNumber != null && (
+                    <Tag color="processing">上市第 {result.tradingDayNumber} 个交易日</Tag>
+                  )}
+                  <Tag color="blue">{result.styleLabel}复合分 {result.rawPositiveScore}/100</Tag>
+                  <Tag color={result.relativeStrength20d == null ? 'default' : result.relativeStrength20d >= 0 ? 'success' : 'error'}>
+                    相对沪深300 {result.relativeStrength20d == null
+                      ? '—'
+                      : `${result.relativeStrength20d >= 0 ? '+' : ''}${(result.relativeStrength20d * 100).toFixed(2)}%`}
+                  </Tag>
+                  <Tag color={result.riskDeduction > 0 ? 'error' : 'success'}>
+                    风控 -{result.riskDeduction}
+                  </Tag>
+                  {result.forcedCooling && <Tag color="error">流动性强制冷却</Tag>}
+                  <Tag>
+                    {result.asOf ?? '—'} · {result.sampleSize} 根有效日 K
+                    {result.inputSampleSize !== result.sampleSize ? `（原始 ${result.inputSampleSize} 根）` : ''}
+                  </Tag>
+                </Space>
+                {scoreBreakdown}
+                <div className="stock-score-footnote">
+                  <Tooltip title={result.assumptions.map((item) => <div key={item}>{item}</div>)}>
+                    <Text type="secondary"><InfoCircleOutlined /> 评分口径与量化代理</Text>
+                  </Tooltip>
+                </div>
+              </div>
+            ),
+          }]}
+        />
+      </section>
+    );
+  }
 
   return (
     <section className="stock-selection-score" aria-label="选股评分" aria-live="polite">
@@ -229,49 +383,7 @@ export default function StockSelectionScore({
           key: 'details',
           label: <div className="stock-score-details-label"><span>详细数据</span><Tag>{result.sections.length} 类评分</Tag></div>,
           children: <>
-            <Collapse
-              ghost
-              className="stock-score-breakdown"
-              activeKey={activeSections}
-              onChange={(keys) => setActiveSections((Array.isArray(keys) ? keys : [keys]).map(String))}
-              items={result.sections.map((scoreSection) => ({
-                key: scoreSection.key,
-                label: (
-                  <div className="stock-score-section-label">
-                    <span>{scoreSection.title}</span>
-                    <Tag color={scoreSection.score < 0 ? 'error' : 'blue'}>
-                      {scoreSection.score > 0 ? '+' : ''}{scoreSection.score}
-                      {scoreSection.maxScore == null ? '' : ` / ${scoreSection.maxScore}`}
-                    </Tag>
-                  </div>
-                ),
-                children: (
-                  <div className="stock-score-rules">
-                    {scoreSection.items.map((item) => (
-                      <div
-                        className={`stock-score-rule${item.matched ? ' is-matched' : ''}${item.kind === 'penalty' ? ' is-penalty' : ''}`}
-                        key={item.label}
-                      >
-                        {!item.available
-                          ? <InfoCircleOutlined aria-hidden />
-                          : item.matched
-                          ? item.kind === 'penalty'
-                            ? <WarningOutlined aria-hidden />
-                            : <CheckCircleOutlined aria-hidden />
-                          : <MinusCircleOutlined aria-hidden />}
-                        <span>
-                          <b>{item.label}</b>
-                          <small>{item.detail}</small>
-                        </span>
-                        <Tag color={item.points > 0 ? 'success' : item.points < 0 ? 'error' : 'default'}>
-                          {item.points > 0 ? '+' : ''}{item.points}
-                        </Tag>
-                      </div>
-                    ))}
-                  </div>
-                ),
-              }))}
-            />
+            {scoreBreakdown}
             <div className="stock-score-footnote">
               <Tooltip title={result.assumptions.map((item) => <div key={item}>{item}</div>)}>
                 <Text type="secondary"><InfoCircleOutlined /> 评分口径与量化代理</Text>

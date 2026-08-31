@@ -60,8 +60,34 @@ describe('mobile workspace navigation', () => {
     render(<MemoryRouter initialEntries={['/watchlist']}><Fixture /></MemoryRouter>);
     fireEvent.click(screen.getByRole('button', { name: '打开股票详情' }));
     expect(screen.getByTestId('current-path').textContent).toBe('/market-detail/000001');
-    fireEvent.click(screen.getByRole('button', { name: '返回列表' }));
+    expect(screen.queryByRole('navigation', { name: '移动主导航' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '返回自选' }));
     expect(screen.getByTestId('current-path').textContent).toBe('/watchlist');
+  });
+
+  it('uses 行情 as the safe return target for a directly opened detail route', () => {
+    render(<MemoryRouter initialEntries={['/market-detail/000001']}><Fixture /></MemoryRouter>);
+    expect(screen.queryByRole('navigation', { name: '移动主导航' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '返回行情' }));
+    expect(screen.getByTestId('current-path').textContent).toBe('/market-data');
+  });
+
+  it('returns to a non-market workspace when details were opened there', () => {
+    render(<MemoryRouter initialEntries={['/stock-selection']}><Fixture /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: '打开股票详情' }));
+    fireEvent.click(screen.getByRole('button', { name: '返回上一级' }));
+    expect(screen.getByTestId('current-path').textContent).toBe('/stock-selection');
+  });
+
+  it('restores the originating list scroll position after returning from detail', async () => {
+    render(<MemoryRouter initialEntries={['/watchlist']}><Fixture /></MemoryRouter>);
+    const scroller = document.querySelector('.mobile-app-scroll') as HTMLDivElement;
+    scroller.scrollTop = 236;
+    fireEvent.scroll(scroller);
+
+    fireEvent.click(screen.getByRole('button', { name: '打开股票详情' }));
+    fireEvent.click(screen.getByRole('button', { name: '返回自选' }));
+    await waitFor(() => expect(scroller.scrollTop).toBe(236));
   });
 
   it('cleans up mobile-only portal styling when the layout unmounts', () => {

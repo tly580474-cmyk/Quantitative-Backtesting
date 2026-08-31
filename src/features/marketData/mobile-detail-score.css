@@ -1,0 +1,254 @@
+/*
+ * The compact score card is opt-in through StockSelectionScore's `compact`
+ * prop. Keeping the styles on a dedicated class leaves the desktop score
+ * presentation untouched.
+ */
+
+.stock-selection-score--compact {
+  --stock-score-compact-rail: #dbe5f4;
+  margin-top: 12px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.stock-selection-score--compact .stock-score-compact-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #dbe5f4;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.stock-selection-score--compact .stock-score-compact-gauge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+}
+
+.stock-selection-score--compact .stock-score-compact-number {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  color: #2563eb;
+  font-size: 18px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.stock-selection-score--compact .stock-score-compact-number small {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.stock-selection-score--compact .stock-score-compact-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stock-selection-score--compact .stock-score-compact-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.35;
+}
+
+.stock-selection-score--compact .stock-score-compact-title-row .ant-typography {
+  min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stock-selection-score--compact .stock-score-compact-tier,
+.stock-selection-score--compact .stock-score-compact-risk {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.stock-selection-score--compact .stock-score-compact-tier {
+  color: #1d4ed8;
+  background: #e8f0ff;
+}
+
+.stock-selection-score--compact .stock-score-compact-risk {
+  color: #475569;
+  background: #eef2f7;
+}
+
+.stock-selection-score--compact .stock-score-compact-description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.stock-selection-score--compact .stock-score-compact-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: #64748b;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+.stock-selection-score--compact .stock-score-compact-warning {
+  display: block;
+  margin: 8px 2px 0;
+  color: #b45309;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.stock-selection-score--compact .stock-score-compact-settings {
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.stock-selection-score--compact .stock-score-compact-settings > .ant-collapse-item > .ant-collapse-header {
+  min-height: 44px;
+  align-items: center;
+  padding: 9px 12px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.stock-selection-score--compact .stock-score-compact-settings > .ant-collapse-item > .ant-collapse-content {
+  border-top: 1px solid #eef2f7;
+  background: #fff;
+}
+
+.stock-selection-score--compact .stock-score-compact-settings > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+  padding: 10px 12px 12px;
+}
+
+.stock-selection-score--compact .stock-score-compact-settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stock-selection-score--compact .stock-score-compact-options {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  color: #475569;
+  font-size: 12px;
+}
+
+.stock-selection-score--compact .stock-score-compact-options .ant-select {
+  min-width: 0;
+  width: 100%;
+}
+
+.stock-selection-score--compact .stock-score-compact-metadata {
+  display: flex;
+  min-width: 0;
+}
+
+.stock-selection-score--compact .stock-score-compact-metadata .ant-tag {
+  max-width: 100%;
+  margin-inline-end: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stock-selection-score--compact .stock-score-compact-settings .stock-score-breakdown {
+  margin-top: 0;
+  border-top: 1px solid #eef2f7;
+}
+
+.stock-selection-score--compact .stock-score-compact-settings .stock-score-breakdown .ant-collapse-header {
+  min-height: 42px;
+  padding-inline: 0 !important;
+  font-size: 12px;
+}
+
+.stock-selection-score--compact .stock-score-compact-settings .stock-score-rules {
+  grid-template-columns: 1fr;
+}
+
+.stock-selection-score--compact .stock-score-compact-settings .stock-score-rule {
+  padding: 8px;
+}
+
+.stock-selection-score--compact .stock-score-footnote {
+  justify-content: flex-start;
+  margin-top: 0;
+}
+
+@media (max-width: 360px) {
+  .stock-selection-score--compact .stock-score-compact-summary {
+    gap: 9px;
+    padding: 10px;
+  }
+
+  .stock-selection-score--compact .stock-score-compact-title-row {
+    flex-wrap: wrap;
+  }
+
+  .stock-selection-score--compact .stock-score-compact-title-row .ant-typography {
+    flex: 1 1 100%;
+  }
+
+  .stock-selection-score--compact .stock-score-compact-meta {
+    gap: 3px 7px;
+    font-size: 10px;
+  }
+}
+
+html[data-theme='dark'] .stock-selection-score--compact .stock-score-compact-summary {
+  --stock-score-compact-rail: #334155;
+  border-color: #334155;
+  background: #111c2e;
+}
+
+html[data-theme='dark'] .stock-selection-score--compact .stock-score-compact-title-row .ant-typography {
+  color: #e2e8f0;
+}
+
+html[data-theme='dark'] .stock-selection-score--compact .stock-score-compact-tier {
+  color: #bfdbfe;
+  background: #1e3a67;
+}
+
+html[data-theme='dark'] .stock-selection-score--compact .stock-score-compact-risk,
+html[data-theme='dark'] .stock-selection-score--compact .stock-score-compact-meta,
+html[data-theme='dark'] .stock-selection-score--compact .stock-score-compact-description,
+html[data-theme='dark'] .stock-selection-score--compact .stock-score-compact-options {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .stock-selection-score--compact .stock-score-compact-settings,
+html[data-theme='dark'] .stock-selection-score--compact .stock-score-compact-settings > .ant-collapse-item > .ant-collapse-content {
+  border-color: #334155;
+  background: #0f172a;
+}
+
+html[data-theme='dark'] .stock-selection-score--compact .stock-score-compact-settings > .ant-collapse-item > .ant-collapse-content {
+  border-top-color: #334155;
+}

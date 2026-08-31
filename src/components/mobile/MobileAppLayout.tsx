@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Button, Drawer, Menu } from 'antd';
-import { ArrowLeftOutlined, BarChartOutlined, DotChartOutlined, MoreOutlined,
+import { AppstoreOutlined, ArrowLeftOutlined, BarChartOutlined, DotChartOutlined, MoreOutlined,
   MoonOutlined, RobotOutlined, StarOutlined, SunOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import type { AppLayoutProps } from '../AppLayout';
@@ -25,13 +25,17 @@ export default function MobileAppLayout({ activeKey, activeTitle, navigationItem
   const [toolsOpen, setToolsOpen] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const scrollPositions = useRef(new Map<string, number>());
-  const lastMarketList = useRef('/market-data');
+  const detailSource = useRef('/market-data');
   const path = location.pathname;
+  const isMarketDetail = path.startsWith('/market-detail/');
   const canvas = CANVAS_PATHS.has(path);
   const selectedTab = RESEARCH_PATHS.has(path) ? '/factors'
     : path.startsWith('/agent') ? '/agent'
     : path === '/' || path.startsWith('/market-detail/') ? '/market-data' : activeKey;
   const title = path === '/factor-mining' ? '自动因子挖掘' : activeTitle;
+  const detailReturnPath = detailSource.current;
+  const detailReturnLabel = detailReturnPath === '/watchlist' ? '返回自选'
+    : detailReturnPath === '/market-data' || detailReturnPath === '/' ? '返回行情' : '返回上一级';
 
   useLayoutEffect(() => {
     document.body.classList.add('mobile-layout-active');
@@ -55,9 +59,7 @@ export default function MobileAppLayout({ activeKey, activeTitle, navigationItem
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element) return;
-    if (path === '/watchlist' || path === '/market-data' || path === '/') {
-      lastMarketList.current = path;
-    }
+    if (!path.startsWith('/market-detail/')) detailSource.current = path;
     const savedTop = scrollPositions.current.get(path) ?? 0;
     // Lazy pages may not have their content height yet. Restore as it loads,
     // stopping as soon as the user interacts so we never fight their scroll.
@@ -82,17 +84,17 @@ export default function MobileAppLayout({ activeKey, activeTitle, navigationItem
   }, [path, navigationType]);
 
   const handleBack = () => {
-    if (path.startsWith('/market-detail/')) navigate(lastMarketList.current);
+    if (isMarketDetail) navigate(detailReturnPath);
     else onBack?.();
   };
 
   return (
-    <div className="mobile-app-shell" data-page={path}>
+    <div className={`mobile-app-shell${isMarketDetail ? ' mobile-app-shell--detail' : ''}`} data-page={path}>
       <header className="mobile-app-header">
-        {onBack && <Button type="text" icon={<ArrowLeftOutlined />} aria-label="返回列表" onClick={handleBack} />}
+        {(onBack || isMarketDetail) && <Button type="text" icon={<ArrowLeftOutlined />} aria-label={isMarketDetail ? detailReturnLabel : '返回列表'} title={isMarketDetail ? detailReturnLabel : '返回列表'} onClick={handleBack} />}
         <strong>{title}</strong>
         {topBar && <Button type="text" onClick={() => setToolsOpen(true)}>导入数据</Button>}
-        <Button type="text" icon={<MoreOutlined />} aria-label="打开全部功能" onClick={() => setMoreOpen(true)} />
+        <Button type="text" icon={isMarketDetail ? <AppstoreOutlined /> : <MoreOutlined />} aria-label="打开全部功能" title="全部功能" onClick={() => setMoreOpen(true)} />
       </header>
       {headerNav && <div className="mobile-header-nav">{headerNav}</div>}
       <div ref={scroller} className={`mobile-app-scroll${canvas ? ' mobile-app-scroll--canvas' : ''}`}>
@@ -102,14 +104,14 @@ export default function MobileAppLayout({ activeKey, activeTitle, navigationItem
           {bottom}
         </div>
       </div>
-      <nav className="mobile-bottom-nav" aria-label="移动主导航">
+      {!isMarketDetail && <nav className="mobile-bottom-nav" aria-label="移动主导航">
         {TABS.map(tab => <button key={tab.key} type="button" aria-label={tab.label}
           aria-current={!moreOpen && selectedTab === tab.key ? 'page' : undefined}
           onClick={() => onNavigate(tab.key)}>{tab.icon}<span>{tab.label}</span></button>)}
         <button type="button" aria-label="更多功能" aria-expanded={moreOpen}
           aria-current={moreOpen || !TABS.some(tab => tab.key === selectedTab) ? 'page' : undefined}
           onClick={() => setMoreOpen(true)}><MoreOutlined /><span>更多</span></button>
-      </nav>
+      </nav>}
       <Drawer title="全部功能" placement="bottom" size="85dvh" open={moreOpen}
         onClose={() => setMoreOpen(false)} rootClassName="mobile-navigation-sheet">
         <Menu mode="inline" selectedKeys={[activeKey]} items={navigationItems}

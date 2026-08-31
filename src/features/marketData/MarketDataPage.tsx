@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { App, AutoComplete, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, Modal, Popover, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
+import { App, AutoComplete, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, Modal, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
 import { ApartmentOutlined, ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CheckOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, FundProjectionScreenOutlined, LineChartOutlined, NotificationOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SettingOutlined, SlidersOutlined, StarFilled, StarOutlined, ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
@@ -8,7 +8,6 @@ import remarkGfm from 'remark-gfm';
 import { apiFetch } from '../../api/client';
 import MarketKlineChart, {
   type MarketChanVisibility,
-  type MarketIndicatorVisibility,
 } from './MarketKlineChart';
 import StockSelectionScore from './StockSelectionScore';
 import { getChartSurfaceColors } from '@/theme';
@@ -31,7 +30,14 @@ import {
 } from './watchlistMetrics';
 import { useMobileLayout } from '@/components/mobile/useMobileLayout';
 import MobileWatchlist from './MobileWatchlist';
+import MobileDetailQuote from './MobileDetailQuote';
+import MobileDetailTabs from './MobileDetailTabs';
+import MobileAnalysisSetup from './MobileAnalysisSetup';
+import MobileResearchReports from './MobileResearchReports';
+import MarketLayerControl from './MarketLayerControl';
+import { useDetailIndicators } from './useDetailIndicators';
 import './mobile.css';
+import './mobile-detail.css';
 
 const { Text, Title } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
@@ -1035,6 +1041,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const isWatchlistView = view === 'watchlist';
   const isDetailView = view === 'detail';
   const isMobileWatchlist = isWatchlistView && isMobileLayout;
+  const isMobileDetail = isDetailView && isMobileLayout;
   const isOverviewView = view === 'overview';
   const isResearchView = (isWatchlistView && !isMobileWatchlist) || isDetailView;
   const isEnhancedStockView = isWatchlistView || isDetailView;
@@ -1054,11 +1061,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [period, setPeriod] = useState<MarketKlinePeriod>(marketDataCache.period);
   const [showChipProfile, setShowChipProfile] = useState(false);
   const [showChanStructures, setShowChanStructures] = useState(false);
-  const [indicatorVisibility, setIndicatorVisibility] = useState<MarketIndicatorVisibility>({
-    ma: true,
-    rsi: true,
-    macd: true,
-  });
+  const [indicatorVisibility, setIndicatorVisibility] = useDetailIndicators(isMobileDetail);
   const [chanVisibility, setChanVisibility] = useState<MarketChanVisibility>({
     pens: true,
     fractals: true,
@@ -1718,6 +1721,278 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     ? (marketSentiment.advancers / Math.max(1, marketSentiment.advancers + marketSentiment.decliners)) * 100
     : null;
 
+  const agentStyleOptions = (<section className="agent-style-section" aria-labelledby="agent-style-title">
+              <div className="agent-style-head">
+                <div><Text strong id="agent-style-title">交易风格</Text><Text type="secondary">至少选择 1 种，最多选择 3 种</Text></div>
+                <Text type="secondary">稳健 → 激进</Text>
+              </div>
+              <div className="agent-style-grid">
+                {(agentStatus?.tradingStyles ?? DEFAULT_TRADING_STYLES).map((style) => {
+                  const checked = agentStyles.includes(style.value);
+                  const disabled = !checked && agentStyles.length >= (agentStatus?.maxStyles ?? 3);
+                  return <label key={style.value} className={`agent-style-option risk-${style.riskLevel}${checked ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}`}>
+                    <Checkbox checked={checked} disabled={disabled} onChange={(event) => toggleAgentStyle(style.value, event.target.checked)} aria-label={style.label} />
+                    <span className="agent-style-copy"><strong>{style.label}</strong><small>{style.description}</small></span>
+                    <span className="agent-style-risk">{style.riskLabel}</span>
+                  </label>;
+                })}
+              </div>
+            </section>);
+  const chartCard = (<Card
+          className="market-chart-card"
+          variant="borderless"
+          title={isMobileDetail ? null : <Space wrap>
+            <span>价格走势</span>
+            {indicatorVisibility.ma && <Tag color="gold">MA5/10/20</Tag>}
+            {indicatorVisibility.rsi && <Tag color="blue">RSI14</Tag>}
+            {indicatorVisibility.macd && <Tag color="purple">MACD</Tag>}
+            {isEnhancedStockView && period !== 'intraday' && <Tag color="green">数据库优先 · {klines.length} 根</Tag>}
+            {isEnhancedStockView && period !== 'intraday' && klines.length > 0 && (
+              <Tag>{klines[0].date} ~ {klines[klines.length - 1].date}</Tag>
+            )}
+            {showChipProfile && <Tag color="volcano">筹码峰</Tag>}
+            {period === 'intraday' && <Tag color="cyan">5秒刷新</Tag>}
+          </Space>}
+          extra={(
+            <div className="market-chart-view-controls">
+              <Tooltip title={period === 'day' ? (showChipProfile ? '隐藏右侧筹码峰' : '在右侧展示筹码峰') : '请先切换到日K'}>
+                <Button
+                  className="market-chip-toggle"
+                  size="small"
+                  type={showChipProfile ? 'primary' : 'default'}
+                  disabled={period !== 'day'}
+                  aria-pressed={showChipProfile}
+                  onClick={() => setShowChipProfile((current) => !current)}
+                >
+                  筹码峰
+                </Button>
+              </Tooltip>
+              <MarketLayerControl
+                mobile={isMobileDetail}
+                title="技术指标"
+                content={(
+                  <div className="market-layer-options" aria-label="技术指标选择">
+                    <Checkbox
+                      checked={indicatorVisibility.ma}
+                      onChange={(event) => setIndicatorVisibility((current) => ({
+                        ...current,
+                        ma: event.target.checked,
+                      }))}
+                    >
+                      MA5/10/20（主图）
+                    </Checkbox>
+                    <Checkbox
+                      checked={indicatorVisibility.rsi}
+                      onChange={(event) => setIndicatorVisibility((current) => ({
+                        ...current,
+                        rsi: event.target.checked,
+                      }))}
+                    >
+                      RSI14
+                    </Checkbox>
+                    <Checkbox
+                      checked={indicatorVisibility.macd}
+                      onChange={(event) => setIndicatorVisibility((current) => ({
+                        ...current,
+                        macd: event.target.checked,
+                      }))}
+                    >
+                      MACD
+                    </Checkbox>
+                    <Text type="secondary">切换指标不会改变当前缩放或滚动位置。</Text>
+                  </div>
+                )}
+              >
+                <Button
+                  size="small"
+                  icon={<SlidersOutlined />}
+                  disabled={period === 'intraday'}
+                  aria-label="选择技术指标"
+                >
+                  指标
+                </Button>
+              </MarketLayerControl>
+              {isEnhancedStockView && (
+                <MarketLayerControl
+                  mobile={isMobileDetail}
+                  title="缠论图层"
+                  content={(
+                    <div className="market-layer-options" aria-label="缠论图层选择">
+                      <Checkbox
+                        checked={showChanStructures}
+                        onChange={(event) => setShowChanStructures(event.target.checked)}
+                      >
+                        启用缠论分析
+                      </Checkbox>
+                      <div className="market-layer-options-divider" />
+                      <Checkbox
+                        checked={chanVisibility.fractals}
+                        disabled={!showChanStructures}
+                        onChange={(event) => setChanVisibility((current) => ({
+                          ...current,
+                          fractals: event.target.checked,
+                        }))}
+                      >
+                        顶底分型
+                      </Checkbox>
+                      <Checkbox
+                        checked={chanVisibility.pens}
+                        disabled={!showChanStructures}
+                        onChange={(event) => setChanVisibility((current) => ({
+                          ...current,
+                          pens: event.target.checked,
+                        }))}
+                      >
+                        笔
+                      </Checkbox>
+                      <Checkbox
+                        checked={chanVisibility.segments}
+                        disabled={!showChanStructures}
+                        onChange={(event) => setChanVisibility((current) => ({
+                          ...current,
+                          segments: event.target.checked,
+                        }))}
+                      >
+                        线段
+                      </Checkbox>
+                      <Checkbox
+                        checked={chanVisibility.penCenters}
+                        disabled={!showChanStructures}
+                        onChange={(event) => setChanVisibility((current) => ({
+                          ...current,
+                          penCenters: event.target.checked,
+                        }))}
+                      >
+                        笔中枢
+                      </Checkbox>
+                      <Checkbox
+                        checked={chanVisibility.segmentCenters}
+                        disabled={!showChanStructures}
+                        onChange={(event) => setChanVisibility((current) => ({
+                          ...current,
+                          segmentCenters: event.target.checked,
+                        }))}
+                      >
+                        段中枢
+                      </Checkbox>
+                      <Text type="secondary">候选结构与确认结构沿用 chan-v1 规则。</Text>
+                    </div>
+                  )}
+                >
+                  <Button
+                    className="market-chan-toggle"
+                    size="small"
+                    type={showChanStructures ? 'primary' : 'default'}
+                    disabled={period === 'intraday'}
+                    aria-pressed={showChanStructures}
+                    icon={<SettingOutlined />}
+                  >
+                    缠论
+                  </Button>
+                </MarketLayerControl>
+              )}
+              <Segmented
+                value={period}
+                onChange={(value) => changePeriod(value as MarketKlinePeriod)}
+                options={[
+                  { label: '分时', value: 'intraday' },
+                  { label: '日K', value: 'day' },
+                  { label: '周K', value: 'week' },
+                  { label: '年K', value: 'year' },
+                ]}
+              />
+            </div>
+          )}
+        >
+          <Spin spinning={klineLoading}>
+            <MarketKlineChart
+              data={klines}
+              period={period}
+              previousClose={quote?.previousClose}
+              showChipProfile={showChipProfile}
+              showChanStructures={isEnhancedStockView && showChanStructures}
+              indicatorVisibility={indicatorVisibility}
+              chanVisibility={chanVisibility}
+            />
+          </Spin>
+        </Card>);
+  const reportsCard = (<Card className="market-reports-card" variant="borderless" title={<Space><FileSearchOutlined />机构研报</Space>} extra={<Space><Tag>{reports.length} 篇</Tag><Tooltip title="仅刷新机构研报"><Button size="small" icon={<ReloadOutlined />} loading={reportsLoading} onClick={() => loadReports(selectedCode)}>刷新</Button></Tooltip></Space>}>{isMobileDetail ? <MobileResearchReports key={selectedCode} reports={reports} loading={reportsLoading} /> : <Table<ResearchReport> size="small" loading={reportsLoading} rowKey="infoCode" scroll={{ x: 560 }} pagination={{ pageSize: 6, hideOnSinglePage: true, responsive: true }} dataSource={reports} columns={[{ title: '日期', dataIndex: 'publishDate', width: 104 }, { title: '机构', dataIndex: 'organization', width: 100, ellipsis: true }, { title: '标题', dataIndex: 'title', width: 280, ellipsis: true, render: (title, row) => row.pdfUrl ? <a href={row.pdfUrl} target="_blank" rel="noreferrer">{title}</a> : title }, { title: '评级', dataIndex: 'rating', width: 76, render: (v) => v ? <Tag color="blue">{v}</Tag> : '—' }]} locale={{ emptyText: <Empty description="暂无机构研报，可点击右上角刷新" /> }} />}</Card>);
+  const agentCard = (<Card className="market-agent-card" variant="borderless" title={<Space><FundProjectionScreenOutlined />{isMobileDetail ? 'AI 分析' : '智能交易系统'}</Space>} extra={!isMobileDetail && <Space wrap><Tag color="blue">{agentStyles.length}/3 种风格</Tag><Tag color={agentStatus?.configured ? 'green' : 'orange'}>{agentStatus?.configured ? agentStatus.currentModel : '待配置'}</Tag></Space>}>
+            {!isMobileDetail && <div className="agent-workflow">{(agentStatus?.workflow ?? ['全市场环境', '个股多层数据', '消息面交叉验证', '多风格研判', '交易计划', '风险核验']).map((step, i) => <span key={step}><b>{i + 1}</b>{step}</span>)}</div>}
+{isMobileDetail ? <MobileAnalysisSetup
+              styles={agentStyleOptions}
+              selectedStyles={(agentStatus?.tradingStyles ?? DEFAULT_TRADING_STYLES).filter(style => agentStyles.includes(style.value)).map(style => style.label)}
+              question={agentQuestion} onQuestionChange={setAgentQuestion}
+              model={agentModel} models={agentStatus?.availableModels ?? []} onModelChange={setAgentModel}
+              configured={Boolean(agentStatus?.configured)}>
+              <Button block type="primary" icon={<FundProjectionScreenOutlined />} loading={agentRunning}
+                disabled={!agentStatus?.configured || agentStyles.length < 1} onClick={runAgent}>生成交易分析</Button>
+            </MobileAnalysisSetup> : <>{agentStyleOptions}
+            <Input.TextArea rows={3} value={agentQuestion} onChange={(e) => setAgentQuestion(e.target.value)} maxLength={1000} aria-label="交易分析问题" placeholder="输入希望重点验证的市场、消息或个股问题" />
+            <div className="agent-actions"><Select aria-label="分析模型" value={agentModel} onChange={setAgentModel} options={(agentStatus?.availableModels ?? []).map((m) => ({ label: m, value: m }))} style={{ minWidth: 180 }} /><Button type="primary" icon={<FundProjectionScreenOutlined />} loading={agentRunning} disabled={!agentStatus?.configured || agentStyles.length < 1} onClick={runAgent}>生成交易分析</Button></div></>}
+            {(!isMobileDetail || agentResult) && <div className="agent-output-actions">
+              <Text type="secondary">系统输出</Text>
+              <Space wrap>
+                <Button size="small" icon={<CopyOutlined />} disabled={!agentResult || agentRunning} onClick={copyAgentResult}>复制报告</Button>
+                <Button size="small" icon={<DownloadOutlined />} disabled={!agentResult || agentRunning} onClick={exportAgentResult}>导出 Markdown</Button>
+              </Space>
+            </div>}
+            {(agentRunning || reasoningSummary.length > 0) && <Collapse className="agent-reasoning" activeKey={thinkingOpen ? ['reasoning'] : []} onChange={(keys) => setThinkingOpen((Array.isArray(keys) ? keys : [keys]).includes('reasoning'))} items={[{ key: 'reasoning', label: <Space>{agentRunning ? <Spin size="small" /> : <CheckCircleOutlined className="agent-process-done" />}分析过程摘要{!agentRunning && <Text type="secondary">（已完成，自动折叠）</Text>}</Space>, children: <ol>{(reasoningSummary.length ? reasoningSummary : ['读取全市场指数、情绪、资金和热点环境', '加载个股行情、K线与多层数据', '筛选市场消息、个股新闻和机构研报', '按已选交易风格分别建立分析框架', '交叉验证风格共识、冲突和风险', '生成带触发与失效条件的交易分析']).map((step) => <li key={step}>{step}</li>)}</ol> }]} />}
+            {agentResult ? <article className="agent-result markdown-preview"><ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                a: ({ href, children, ...props }) => <a {...props} href={normalizeNewsUrl(href)} target="_blank" rel="noreferrer">{children}</a>,
+              }}
+            >{agentResult}</ReactMarkdown></article> : !agentRunning && (isMobileDetail ? <p className="mobile-analysis-empty">{agentStatus?.configured ? '尚未生成报告；点击上方按钮开始分析。' : '请先在策略工作室配置分析模型。'}</p> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={agentStatus?.configured ? '系统将联合分析全市场环境、消息面、个股证据和所选交易风格' : '复用策略工作室的模型配置后即可运行'} />)}
+          </Card>);
+  const sevenCard = (<Card
+          className="market-seven-card"
+          variant="borderless"
+          title={<Space><DatabaseOutlined />数据源</Space>}
+          extra={<Button size="small" icon={<ReloadOutlined />} disabled={loadedSevenKeys.length === 0} onClick={refreshLoadedSevenLayers}>刷新已加载</Button>}
+        >
+          <Collapse
+            className="market-seven-collapse"
+            onChange={handleSevenLayerChange}
+            items={SEVEN_LAYER_DEFS.map((definition) => {
+              const section = sevenLayerSections[definition.key];
+              const loading = Boolean(sevenLayerLoading[definition.key]);
+              return {
+                key: definition.key,
+                label: <Space wrap><Text strong>{definition.title}</Text>{section && <Tag color={statusColor(section.status)}>{section.status}</Tag>}<Text type="secondary">{section?.summary ?? definition.summary}</Text>{loading && <Spin size="small" />}</Space>,
+                children: <Spin spinning={loading}>
+                  {section ? <SevenLayerSectionContent section={section} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="展开后加载该模块" />}
+                </Spin>,
+              };
+            })}
+          />
+        </Card>);
+
+  if (isMobileDetail) return <main className="market-page market-detail-page mobile-market-page mobile-detail-page" aria-label="行情详情">
+    <div className="market-main">
+      <Skeleton loading={quoteLoading && !quote} active paragraph={{ rows: 4 }}>
+        {quote ? <MobileDetailQuote quote={quote} inWatchlist={selectedIsInWatchlist}
+          refreshing={quoteLoading} exporting={exporting !== null}
+          onRefresh={() => void loadQuote(selectedCode)} onExport={() => void exportExcel()} onAnalyze={() => void openInAnalysis()}
+          onAdd={() => { addStock({ code: selectedCode, name: quote.name, market: quote.market, type: quote.type }); message.success(`${quote.name} 已加入自选`); }}
+          onConstituents={supportsIndexConstituents(quote) ? () => setIndexConstituentOpen(true) : undefined}
+        /> : <Empty description="行情暂不可用"><Button loading={quoteLoading} onClick={() => void loadQuote(selectedCode)}>重新加载行情</Button></Empty>}
+      </Skeleton>
+      <MobileDetailTabs key={selectedCode} hasScore={quote?.type === 'stock'} chart={chartCard}
+        analysis={<>
+          {quote?.type === 'stock' && <Card className="mobile-detail-score-card" variant="borderless">
+            <StockSelectionScore compact code={selectedCode} candles={scoreCode === selectedCode ? scoreKlines : []}
+              benchmarkCandles={benchmarkKlines} loading={scoreKlineLoading || benchmarkLoading || scoreCode !== selectedCode} quote={quote} />
+          </Card>}
+          {agentCard}
+        </>}
+        info={<>{reportsCard}{sevenCard}</>} />
+      {quote && supportsIndexConstituents(quote) && <IndexConstituentDrawer
+        index={{ code: quote.code, name: quote.name }} open={indexConstituentOpen}
+        onClose={() => setIndexConstituentOpen(false)} onSelectStock={openInstrumentDetail} />}
+    </div>
+  </main>;
+
   if (isMobileWatchlist) return <MobileWatchlist
     watchlist={orderedWatchlist}
     indexCards={visibleIndexCards}
@@ -1864,247 +2139,12 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
           onClose={() => setIndexConstituentOpen(false)}
           onSelectStock={openInstrumentDetail}
         />}
-        <Card
-          className="market-chart-card"
-          variant="borderless"
-          title={<Space wrap>
-            <span>价格走势</span>
-            {indicatorVisibility.ma && <Tag color="gold">MA5/10/20</Tag>}
-            {indicatorVisibility.rsi && <Tag color="blue">RSI14</Tag>}
-            {indicatorVisibility.macd && <Tag color="purple">MACD</Tag>}
-            {isEnhancedStockView && period !== 'intraday' && <Tag color="green">数据库优先 · {klines.length} 根</Tag>}
-            {isEnhancedStockView && period !== 'intraday' && klines.length > 0 && (
-              <Tag>{klines[0].date} ~ {klines[klines.length - 1].date}</Tag>
-            )}
-            {showChipProfile && <Tag color="volcano">筹码峰</Tag>}
-            {period === 'intraday' && <Tag color="cyan">5秒刷新</Tag>}
-          </Space>}
-          extra={(
-            <div className="market-chart-view-controls">
-              <Tooltip title={period === 'day' ? (showChipProfile ? '隐藏右侧筹码峰' : '在右侧展示筹码峰') : '请先切换到日K'}>
-                <Button
-                  className="market-chip-toggle"
-                  size="small"
-                  type={showChipProfile ? 'primary' : 'default'}
-                  disabled={period !== 'day'}
-                  aria-pressed={showChipProfile}
-                  onClick={() => setShowChipProfile((current) => !current)}
-                >
-                  筹码峰
-                </Button>
-              </Tooltip>
-              <Popover
-                placement="bottomRight"
-                trigger="click"
-                title="技术指标"
-                content={(
-                  <div className="market-layer-options" aria-label="技术指标选择">
-                    <Checkbox
-                      checked={indicatorVisibility.ma}
-                      onChange={(event) => setIndicatorVisibility((current) => ({
-                        ...current,
-                        ma: event.target.checked,
-                      }))}
-                    >
-                      MA5/10/20（主图）
-                    </Checkbox>
-                    <Checkbox
-                      checked={indicatorVisibility.rsi}
-                      onChange={(event) => setIndicatorVisibility((current) => ({
-                        ...current,
-                        rsi: event.target.checked,
-                      }))}
-                    >
-                      RSI14
-                    </Checkbox>
-                    <Checkbox
-                      checked={indicatorVisibility.macd}
-                      onChange={(event) => setIndicatorVisibility((current) => ({
-                        ...current,
-                        macd: event.target.checked,
-                      }))}
-                    >
-                      MACD
-                    </Checkbox>
-                    <Text type="secondary">切换指标不会改变当前缩放或滚动位置。</Text>
-                  </div>
-                )}
-              >
-                <Button
-                  size="small"
-                  icon={<SlidersOutlined />}
-                  disabled={period === 'intraday'}
-                  aria-label="选择技术指标"
-                >
-                  指标
-                </Button>
-              </Popover>
-              {isEnhancedStockView && (
-                <Popover
-                  placement="bottomRight"
-                  trigger="click"
-                  title="缠论图层"
-                  content={(
-                    <div className="market-layer-options" aria-label="缠论图层选择">
-                      <Checkbox
-                        checked={showChanStructures}
-                        onChange={(event) => setShowChanStructures(event.target.checked)}
-                      >
-                        启用缠论分析
-                      </Checkbox>
-                      <div className="market-layer-options-divider" />
-                      <Checkbox
-                        checked={chanVisibility.fractals}
-                        disabled={!showChanStructures}
-                        onChange={(event) => setChanVisibility((current) => ({
-                          ...current,
-                          fractals: event.target.checked,
-                        }))}
-                      >
-                        顶底分型
-                      </Checkbox>
-                      <Checkbox
-                        checked={chanVisibility.pens}
-                        disabled={!showChanStructures}
-                        onChange={(event) => setChanVisibility((current) => ({
-                          ...current,
-                          pens: event.target.checked,
-                        }))}
-                      >
-                        笔
-                      </Checkbox>
-                      <Checkbox
-                        checked={chanVisibility.segments}
-                        disabled={!showChanStructures}
-                        onChange={(event) => setChanVisibility((current) => ({
-                          ...current,
-                          segments: event.target.checked,
-                        }))}
-                      >
-                        线段
-                      </Checkbox>
-                      <Checkbox
-                        checked={chanVisibility.penCenters}
-                        disabled={!showChanStructures}
-                        onChange={(event) => setChanVisibility((current) => ({
-                          ...current,
-                          penCenters: event.target.checked,
-                        }))}
-                      >
-                        笔中枢
-                      </Checkbox>
-                      <Checkbox
-                        checked={chanVisibility.segmentCenters}
-                        disabled={!showChanStructures}
-                        onChange={(event) => setChanVisibility((current) => ({
-                          ...current,
-                          segmentCenters: event.target.checked,
-                        }))}
-                      >
-                        段中枢
-                      </Checkbox>
-                      <Text type="secondary">候选结构与确认结构沿用 chan-v1 规则。</Text>
-                    </div>
-                  )}
-                >
-                  <Button
-                    className="market-chan-toggle"
-                    size="small"
-                    type={showChanStructures ? 'primary' : 'default'}
-                    disabled={period === 'intraday'}
-                    aria-pressed={showChanStructures}
-                    icon={<SettingOutlined />}
-                  >
-                    缠论
-                  </Button>
-                </Popover>
-              )}
-              <Segmented
-                value={period}
-                onChange={(value) => changePeriod(value as MarketKlinePeriod)}
-                options={[
-                  { label: '分时', value: 'intraday' },
-                  { label: '日K', value: 'day' },
-                  { label: '周K', value: 'week' },
-                  { label: '年K', value: 'year' },
-                ]}
-              />
-            </div>
-          )}
-        >
-          <Spin spinning={klineLoading}>
-            <MarketKlineChart
-              data={klines}
-              period={period}
-              previousClose={quote?.previousClose}
-              showChipProfile={showChipProfile}
-              showChanStructures={isEnhancedStockView && showChanStructures}
-              indicatorVisibility={indicatorVisibility}
-              chanVisibility={chanVisibility}
-            />
-          </Spin>
-        </Card>
+        {chartCard}
         <div className="market-lower-grid">
-          <Card className="market-reports-card" variant="borderless" title={<Space><FileSearchOutlined />机构研报</Space>} extra={<Space><Tag>{reports.length} 篇</Tag><Tooltip title="仅刷新机构研报"><Button size="small" icon={<ReloadOutlined />} loading={reportsLoading} onClick={() => loadReports(selectedCode)}>刷新</Button></Tooltip></Space>}><Table<ResearchReport> size="small" loading={reportsLoading} rowKey="infoCode" scroll={{ x: 560 }} pagination={{ pageSize: 6, hideOnSinglePage: true, responsive: true }} dataSource={reports} columns={[{ title: '日期', dataIndex: 'publishDate', width: 104 }, { title: '机构', dataIndex: 'organization', width: 100, ellipsis: true }, { title: '标题', dataIndex: 'title', width: 280, ellipsis: true, render: (title, row) => row.pdfUrl ? <a href={row.pdfUrl} target="_blank" rel="noreferrer">{title}</a> : title }, { title: '评级', dataIndex: 'rating', width: 76, render: (v) => v ? <Tag color="blue">{v}</Tag> : '—' }]} locale={{ emptyText: <Empty description="暂无机构研报，可点击右上角刷新" /> }} /></Card>
-          <Card className="market-agent-card" variant="borderless" title={<Space><FundProjectionScreenOutlined />智能交易系统</Space>} extra={<Space wrap><Tag color="blue">{agentStyles.length}/3 种风格</Tag><Tag color={agentStatus?.configured ? 'green' : 'orange'}>{agentStatus?.configured ? agentStatus.currentModel : '待配置'}</Tag></Space>}>
-            <div className="agent-workflow">{(agentStatus?.workflow ?? ['全市场环境', '个股多层数据', '消息面交叉验证', '多风格研判', '交易计划', '风险核验']).map((step, i) => <span key={step}><b>{i + 1}</b>{step}</span>)}</div>
-            <section className="agent-style-section" aria-labelledby="agent-style-title">
-              <div className="agent-style-head">
-                <div><Text strong id="agent-style-title">交易风格</Text><Text type="secondary">至少选择 1 种，最多选择 3 种</Text></div>
-                <Text type="secondary">稳健 → 激进</Text>
-              </div>
-              <div className="agent-style-grid">
-                {(agentStatus?.tradingStyles ?? DEFAULT_TRADING_STYLES).map((style) => {
-                  const checked = agentStyles.includes(style.value);
-                  const disabled = !checked && agentStyles.length >= (agentStatus?.maxStyles ?? 3);
-                  return <label key={style.value} className={`agent-style-option risk-${style.riskLevel}${checked ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}`}>
-                    <Checkbox checked={checked} disabled={disabled} onChange={(event) => toggleAgentStyle(style.value, event.target.checked)} aria-label={style.label} />
-                    <span className="agent-style-copy"><strong>{style.label}</strong><small>{style.description}</small></span>
-                    <span className="agent-style-risk">{style.riskLabel}</span>
-                  </label>;
-                })}
-              </div>
-            </section>
-            <Input.TextArea rows={3} value={agentQuestion} onChange={(e) => setAgentQuestion(e.target.value)} maxLength={1000} aria-label="交易分析问题" placeholder="输入希望重点验证的市场、消息或个股问题" />
-            <div className="agent-actions"><Select aria-label="分析模型" value={agentModel} onChange={setAgentModel} options={(agentStatus?.availableModels ?? []).map((m) => ({ label: m, value: m }))} style={{ minWidth: 180 }} /><Button type="primary" icon={<FundProjectionScreenOutlined />} loading={agentRunning} disabled={!agentStatus?.configured || agentStyles.length < 1} onClick={runAgent}>生成交易分析</Button></div>
-            <div className="agent-output-actions">
-              <Text type="secondary">系统输出</Text>
-              <Space wrap>
-                <Button size="small" icon={<CopyOutlined />} disabled={!agentResult || agentRunning} onClick={copyAgentResult}>复制报告</Button>
-                <Button size="small" icon={<DownloadOutlined />} disabled={!agentResult || agentRunning} onClick={exportAgentResult}>导出 Markdown</Button>
-              </Space>
-            </div>
-            {(agentRunning || reasoningSummary.length > 0) && <Collapse className="agent-reasoning" activeKey={thinkingOpen ? ['reasoning'] : []} onChange={(keys) => setThinkingOpen((Array.isArray(keys) ? keys : [keys]).includes('reasoning'))} items={[{ key: 'reasoning', label: <Space>{agentRunning ? <Spin size="small" /> : <CheckCircleOutlined className="agent-process-done" />}分析过程摘要{!agentRunning && <Text type="secondary">（已完成，自动折叠）</Text>}</Space>, children: <ol>{(reasoningSummary.length ? reasoningSummary : ['读取全市场指数、情绪、资金和热点环境', '加载个股行情、K线与多层数据', '筛选市场消息、个股新闻和机构研报', '按已选交易风格分别建立分析框架', '交叉验证风格共识、冲突和风险', '生成带触发与失效条件的交易分析']).map((step) => <li key={step}>{step}</li>)}</ol> }]} />}
-            {agentResult ? <article className="agent-result markdown-preview"><ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                a: ({ href, children, ...props }) => <a {...props} href={normalizeNewsUrl(href)} target="_blank" rel="noreferrer">{children}</a>,
-              }}
-            >{agentResult}</ReactMarkdown></article> : !agentRunning && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={agentStatus?.configured ? '系统将联合分析全市场环境、消息面、个股证据和所选交易风格' : '复用策略工作室的模型配置后即可运行'} />}
-          </Card>
+          {reportsCard}
+          {agentCard}
         </div>
-        <Card
-          className="market-seven-card"
-          variant="borderless"
-          title={<Space><DatabaseOutlined />数据源</Space>}
-          extra={<Button size="small" icon={<ReloadOutlined />} disabled={loadedSevenKeys.length === 0} onClick={refreshLoadedSevenLayers}>刷新已加载</Button>}
-        >
-          <Collapse
-            className="market-seven-collapse"
-            onChange={handleSevenLayerChange}
-            items={SEVEN_LAYER_DEFS.map((definition) => {
-              const section = sevenLayerSections[definition.key];
-              const loading = Boolean(sevenLayerLoading[definition.key]);
-              return {
-                key: definition.key,
-                label: <Space wrap><Text strong>{definition.title}</Text>{section && <Tag color={statusColor(section.status)}>{section.status}</Tag>}<Text type="secondary">{section?.summary ?? definition.summary}</Text>{loading && <Spin size="small" />}</Space>,
-                children: <Spin spinning={loading}>
-                  {section ? <SevenLayerSectionContent section={section} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="展开后加载该模块" />}
-                </Spin>,
-              };
-            })}
-          />
-        </Card>
+        {sevenCard}
       </div>
     </div>
     {isWatchlistView && <section className="market-selection-section" aria-label="自选评分排名">
