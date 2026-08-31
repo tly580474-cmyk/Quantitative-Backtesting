@@ -403,10 +403,13 @@ main.market-page.mobile-market-page .market-kline-shell {
    * a viewport-relative shell. The page scroller is the mobile scroll owner. */
   height: auto;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 main.market-page.mobile-market-page .market-kline-stack {
   height: auto;
+  flex: none;
 }
 
 main.market-page.mobile-market-page .market-kline-stage {
@@ -421,21 +424,87 @@ main.market-page.mobile-market-page .market-kline-shell.has-macd-pane .market-kl
 }
 
 main.market-page.mobile-market-page .market-kline-shell.has-chip-profile .market-kline-stage {
-  flex: 0 0 336px;
-  flex-direction: column;
-  min-height: 336px;
+  /* Both plots share the same top and 280px height: ChipProfile positions
+   * every price using the candle series' priceToCoordinate result. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(72px, 23vw, 104px);
+  grid-template-rows: 280px auto auto;
+  flex: none;
+  min-height: 0;
 }
 
 main.market-page.mobile-market-page .market-kline-shell.has-chip-profile .market-kline {
-  min-height: 220px;
+  grid-column: 1;
+  grid-row: 1;
+  height: 280px;
+  min-height: 280px;
 }
 
 main.market-page.mobile-market-page .market-kline-shell.has-chip-profile .market-chip-profile {
-  width: 100%;
+  /* The bars occupy the right plot cell; the textual summary and cost
+   * ranges get their own full-width rows, outside both plotting surfaces. */
+  display: contents;
+}
+
+main.market-page.mobile-market-page .market-kline-shell.has-chip-profile .market-chip-bars {
+  position: relative;
+  inset: auto;
+  grid-column: 2;
+  grid-row: 1;
+  height: 280px;
   min-width: 0;
-  flex: 0 0 116px;
-  border-top: 1px solid #e2e8f0;
-  border-left: 0;
+  border-left: 1px solid var(--mobile-border);
+  background: var(--mobile-surface);
+}
+
+main.market-page.mobile-market-page .market-chip-bars::before {
+  background: repeating-linear-gradient(to bottom, transparent 0, transparent 23px, rgba(148, 163, 184, .12) 24px);
+}
+
+main.market-page.mobile-market-page .market-chip-summary,
+main.market-page.mobile-market-page .market-chip-foot {
+  position: static;
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  min-width: 0;
+  box-shadow: none;
+}
+
+main.market-page.mobile-market-page .market-chip-summary {
+  grid-row: 2;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 5px 7px;
+}
+
+main.market-page.mobile-market-page .market-chip-summary strong {
+  grid-column: 1;
+}
+
+main.market-page.mobile-market-page .market-chip-summary time {
+  grid-column: 2;
+}
+
+main.market-page.mobile-market-page .market-chip-summary span {
+  display: none;
+}
+
+main.market-page.mobile-market-page .market-chip-foot {
+  grid-row: 3;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px 12px;
+}
+
+main.market-page.mobile-market-page .market-kline-shell.has-chip-profile .market-chip-profile.is-empty {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1;
+  width: auto;
+  height: 280px;
+  padding: 6px;
+  overflow-wrap: anywhere;
 }
 
 main.market-page.mobile-market-page .market-kline-shell.has-chip-profile .market-kline-subpane {
@@ -443,23 +512,37 @@ main.market-page.mobile-market-page .market-kline-shell.has-chip-profile .market
 }
 
 main.market-page.mobile-market-page .market-indicator-legend {
-  right: 8px;
-  left: 8px;
-  max-width: calc(100% - 16px);
+  position: static;
+  width: 100%;
+  max-width: 100%;
+  margin-bottom: 8px;
   gap: 4px 8px;
   padding: 4px 6px;
   font-size: 11px;
 }
 
 main.market-page.mobile-market-page .market-kline-shell.has-chip-profile .market-indicator-legend {
-  max-width: calc(100% - 16px);
+  max-width: 100%;
+}
+
+html[data-theme='dark'] main.market-page.mobile-market-page .market-indicator-legend .ma5,
+html[data-theme='dark'] main.market-page.mobile-market-page .market-chip-summary strong {
+  color: #fb923c;
+}
+
+html[data-theme='dark'] main.market-page.mobile-market-page .market-indicator-legend .ma10 {
+  color: #60a5fa;
+}
+
+html[data-theme='dark'] main.market-page.mobile-market-page .market-indicator-legend .ma20 {
+  color: #a78bfa;
 }
 
 main.market-page.mobile-market-page .market-chan-legend {
-  right: 8px;
-  bottom: 8px;
-  left: 8px;
-  max-width: calc(100% - 16px);
+  position: static;
+  order: 2;
+  margin-top: 8px;
+  max-width: 100%;
   justify-content: flex-start;
   gap: 3px 7px;
   padding: 4px 6px;

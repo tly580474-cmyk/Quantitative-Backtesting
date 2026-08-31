@@ -440,14 +440,22 @@ export default function MarketKlineChart({
     });
     const clearHover = () => setHover(null);
     el.addEventListener('pointerleave', clearHover);
+    let chipCoordinateFrame: number | undefined;
     const updateChipCoordinates = () => {
-      setChipChartLayout((current) => ({
-        height: el.clientHeight,
-        revision: current.revision + 1,
-      }));
+      if (chipCoordinateFrame !== undefined) return;
+      // Price coordinates settle when lightweight-charts paints its resized
+      // panes. Reading them during applyOptions can retain the old axis size.
+      chipCoordinateFrame = requestAnimationFrame(() => {
+        chipCoordinateFrame = undefined;
+        setChipChartLayout((current) => ({
+          height: chart.panes()[0]?.getHeight() ?? el.clientHeight,
+          revision: current.revision + 1,
+        }));
+      });
     };
     chipPriceToCoordinateRef.current = (price) => candles.priceToCoordinate(price);
     chart.timeScale().subscribeVisibleLogicalRangeChange(updateChipCoordinates);
+    chart.timeScale().subscribeSizeChange(updateChipCoordinates);
     const rememberVisibleRange = (range: IRange<number> | null) => {
       if (range) dailyVisibleRangesRef.current.set(dailyDatasetKey, { ...range });
     };
@@ -467,6 +475,7 @@ export default function MarketKlineChart({
       observer.disconnect();
       el.removeEventListener('pointerleave', clearHover);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(updateChipCoordinates);
+      chart.timeScale().unsubscribeSizeChange(updateChipCoordinates);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(rememberVisibleRange);
       chipPriceToCoordinateRef.current = null;
       candles.detachPrimitive(chanStructure);
@@ -474,6 +483,7 @@ export default function MarketKlineChart({
       maSeriesRef.current.clear();
       dailyChartRef.current = null;
       chart.remove();
+      if (chipCoordinateFrame !== undefined) cancelAnimationFrame(chipCoordinateFrame);
       setHover(null);
     };
   }, [
