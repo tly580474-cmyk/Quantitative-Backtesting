@@ -31,6 +31,7 @@ html[data-theme='dark'] .mobile-watchlist-page .is-down { color: #4dcb8a; }
 .mobile-watchlist-row-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 8px; }
 .mobile-watchlist-add-search .ant-select { width: 100%; }
 .mobile-watchlist-status { margin: 0; padding: 8px 12px; color: var(--mobile-muted); font-size: 12px; }
+.mobile-watchlist-refresh-state { margin: 0; padding: 0 12px 6px; color: var(--mobile-muted); font-size: 11px; }
 @media (width < 360px) {
   .mobile-watchlist-indices strong { font-size: 16px; }
   .mobile-watchlist-columns, .mobile-watchlist-row { column-gap: 5px; padding-inline: 8px; }

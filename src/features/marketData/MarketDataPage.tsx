@@ -1379,11 +1379,11 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     }).catch(() => undefined);
   }, [isResearchView]);
   useEffect(() => {
-    if (!isOverviewView && !isMobileWatchlist) return undefined;
-    if (isMobileWatchlist || !marketDataCache.indexQuotes) void loadIndexQuotes();
+    if (!isOverviewView) return undefined;
+    if (!marketDataCache.indexQuotes) void loadIndexQuotes();
     const timer = window.setInterval(() => void loadIndexQuotes(true), 15000);
     return () => window.clearInterval(timer);
-  }, [isOverviewView, isMobileWatchlist, loadIndexQuotes]);
+  }, [isOverviewView, loadIndexQuotes]);
   useEffect(() => {
     if (!isOverviewView) return undefined;
     let cancelled = false;
@@ -1721,8 +1721,6 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   if (isMobileWatchlist) return <MobileWatchlist
     watchlist={orderedWatchlist}
     indexCards={visibleIndexCards}
-    indexLoading={indexLoading}
-    onRefreshIndices={() => loadIndexQuotes()}
     onOpenDetail={openInstrumentDetail}
     onRemove={removeStock}
     pinnedCodes={pinnedCodes}

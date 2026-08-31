@@ -1,17 +1,16 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Drawer, Empty, Input, Popconfirm } from 'antd';
 import { DeleteOutlined, PlusOutlined, PushpinOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { buildMarketIndexDetailTarget, type MarketIndexCardView } from './marketIndexCards';
+import { buildMarketIndexCards, buildMarketIndexDetailTarget, type MarketIndexCardView } from './marketIndexCards';
 import { calculateWatchlistMetrics } from './watchlistMetrics';
 import { useWatchlistQuotes } from './useWatchlistQuotes';
+import { useWatchlistRefresh } from './useWatchlistRefresh';
 import type { StockSearchItem } from './types';
 import './mobile-watchlist.css';
 
 interface Props {
   watchlist: StockSearchItem[];
   indexCards: MarketIndexCardView[];
-  indexLoading: boolean;
-  onRefreshIndices: () => Promise<void>;
   onOpenDetail: (stock: StockSearchItem) => void;
   onRemove: (code: string) => void;
   pinnedCodes: string[];
@@ -30,18 +29,21 @@ function direction(value: number | null | undefined) {
   return value != null && Number.isFinite(value) && value !== 0 ? (value > 0 ? 'is-up' : 'is-down') : '';
 }
 
-export default function MobileWatchlist({ watchlist, indexCards, indexLoading, onRefreshIndices,
+export default function MobileWatchlist({ watchlist, indexCards,
   onOpenDetail, onRemove, pinnedCodes, onTogglePin, addSearch }: Props) {
   const [query, setQuery] = useState('');
   const [managing, setManaging] = useState(false);
   const [adding, setAdding] = useState(false);
-  const { quotes, loading, failedCodes, refresh } = useWatchlistQuotes(watchlist.map(item => item.code));
+  const { key, quotes, indexQuotes, loading, failedCodes, indexFailed, refresh: refreshQuotes } = useWatchlistQuotes(watchlist.map(item => item.code));
+  const { phase, refresh } = useWatchlistRefresh(refreshQuotes, key);
+  const visibleIndices = buildMarketIndexCards(indexCards.map(item => item.key), indexCards.map(item => item.option), indexQuotes);
+  const refreshStatus = { trading: '盘中 · 每5秒刷新', lunch: '午休 · 保留上午行情', closed: '休市 · 最近收盘数据', unknown: '交易时段待确认 · 暂停自动刷新' }[phase];
   const search = query.trim().toLowerCase();
   const visible = watchlist.filter(item => `${item.name} ${item.code}`.toLowerCase().includes(search));
 
   return <main className="mobile-watchlist-page" aria-label="我的自选证券列表">
     <section className="mobile-watchlist-indices" aria-label="主要指数">
-      {indexCards.map(({ key, option, quote }) => <button key={key} type="button"
+      {visibleIndices.map(({ key, option, quote }) => <button key={key} type="button"
         aria-label={`查看${option.name}行情`} onClick={() => onOpenDetail(buildMarketIndexDetailTarget(option, quote))}>
         <span>{option.name}</span>
         <strong className={direction(quote?.changePct)}>{number(quote?.price)}</strong>
@@ -53,16 +55,18 @@ export default function MobileWatchlist({ watchlist, indexCards, indexLoading, o
       <Input prefix={<SearchOutlined />} allowClear value={query} aria-label="搜索我的自选"
         placeholder={`搜索自选 (${watchlist.length})`} onChange={event => setQuery(event.target.value)} />
       <Button type="text" icon={<PlusOutlined />} aria-label="添加自选" onClick={() => setAdding(true)} />
-      <Button type="text" icon={<ReloadOutlined />} aria-label="刷新自选及指数" loading={loading || indexLoading}
-        onClick={() => { void refresh(); void onRefreshIndices(); }} />
+      <Button type="text" icon={<ReloadOutlined />} aria-label="刷新自选及指数" loading={loading}
+        title={refreshStatus} onClick={() => { void refresh(); }} />
       <Button type="text" aria-pressed={managing} onClick={() => setManaging(!managing)}>{managing ? '完成' : '管理'}</Button>
     </div>
+    <p className="mobile-watchlist-refresh-state" aria-label="行情刷新状态">{refreshStatus}</p>
     <div className="mobile-watchlist-columns" aria-hidden="true">
       <span>证券</span><span>价格<small>换手率</small></span><span>涨跌幅<small>自选后收益</small></span>
     </div>
     {failedCodes.length > 0 && <p className="mobile-watchlist-status" role="status">
       {failedCodes.length} 只证券刷新失败，保留上次行情，可点刷新重试。
     </p>}
+    {indexFailed && <p className="mobile-watchlist-status" role="status">指数刷新失败，保留上次行情。</p>}
     {visible.length ? <ul className="mobile-watchlist-list" aria-label="自选证券">
       {visible.map(item => {
         const quote = quotes[item.code];

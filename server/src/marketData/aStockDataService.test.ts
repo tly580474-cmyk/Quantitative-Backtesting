@@ -120,6 +120,12 @@ describe('A-share stock quote service', () => {
     expect(inferType('932000', 'SH')).toBe('index');
   });
 
+  it('keeps market-specific six-digit codes distinct', () => {
+    expect(inferType('000001', 'SH')).toBe('index');
+    expect(inferType('000001', 'SZ')).toBe('stock');
+    expect(inferType('510300', 'SH')).toBe('etf');
+  });
+
   it('uses Sina daily history when Tencent only exposes one US-index point', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
       expect(String(url)).toContain('US_MinKService.getDailyK');

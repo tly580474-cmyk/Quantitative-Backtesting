@@ -24,6 +24,8 @@ import {
   fetchStockKlineFromDb,
   fetchStockFullHistoryFromDb,
   fetchMarketIndexQuotes,
+  fetchWatchlistQuote,
+  readWatchlistTradingDateEvidence,
   fetchStockIntraday,
   fetchStockKline,
   fetchStockQuote,
@@ -82,6 +84,7 @@ import { getMarketBillboard, getStockBillboard } from '../marketData/dragonTiger
 import { getMarketNews, getMarketOpinionNews, getStockNews } from '../marketData/marketNewsService.js';
 import { getFactorSelectionHistory } from '../marketData/factorStockSelection.js';
 import { getMarketHealthOverview } from '../marketHealth/service.js';
+import { getWatchlistSession } from '../marketData/watchlistSession.js';
 
 const candlesQuerySchema = z.object({
   startDate: z.string().optional(),
@@ -335,6 +338,15 @@ export function registerMarketDataRoutes(
   let snapshotUpdateInFlight: Promise<unknown> | null = null;
 
   // These endpoints fetch public market data on demand and intentionally do not depend on MySQL.
+  app.get('/api/market-data/watchlist-session', async (req, reply) => {
+    try {
+      return reply.send(await getWatchlistSession(new Date(), undefined, readWatchlistTradingDateEvidence));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(503).send({ message: '交易时段暂时不可用，请稍后重试' });
+    }
+  });
+
   app.get('/api/market-data/stocks/search', async (req, reply) => {
     const query = z.object({ q: z.string().trim().min(1).max(40) }).safeParse(req.query);
     if (!query.success) return reply.status(400).send({ message: '请输入股票代码、简称或拼音' });
@@ -346,17 +358,27 @@ export function registerMarketDataRoutes(
     }
   });
 
-  app.get<{ Params: { code: string } }>('/api/market-data/stocks/:code/quote', async (req, reply) => {
+  app.get<{ Params: { code: string }; Querystring: { profile?: string; snapshot?: string } }>('/api/market-data/stocks/:code/quote', async (req, reply) => {
+    const query = z.object({
+      profile: z.enum(['true', 'false']).optional(),
+      snapshot: z.enum(['live', 'close']).default('live'),
+    }).safeParse(req.query);
+    if (!query.success) return reply.status(400).send({ message: '行情查询参数无效' });
     try {
-      return reply.send(await fetchStockQuote(req.params.code));
+      const quote = query.data.snapshot === 'close'
+        ? await fetchWatchlistQuote(req.params.code, 'close')
+        : await fetchStockQuote(req.params.code, query.data.profile !== 'false');
+      return reply.send(quote);
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : '行情获取失败' });
     }
   });
 
-  app.get('/api/market-data/indices/quotes', async (_req, reply) => {
+  app.get<{ Querystring: { snapshot?: string } }>('/api/market-data/indices/quotes', async (req, reply) => {
+    const query = z.object({ snapshot: z.enum(['live', 'close']).default('live') }).safeParse(req.query);
+    if (!query.success) return reply.status(400).send({ message: '指数行情查询参数无效' });
     try {
-      return reply.send({ items: await fetchMarketIndexQuotes() });
+      return reply.send({ items: await fetchMarketIndexQuotes({ snapshot: query.data.snapshot }) });
     } catch (error) {
       return reply.status(502).send({ message: error instanceof Error ? error.message : '大盘行情获取失败' });
     }

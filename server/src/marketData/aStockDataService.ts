@@ -10,6 +10,8 @@ import {
   getPublishedHistoryAdjustment,
 } from './repositories/marketDataRepository.js';
 import { getInstrumentByMarketSymbol } from './repositories/instrumentRepository.js';
+import { getTradeDateStatus } from './repositories/calendarRepository.js';
+import { closingQuoteFromBars, confirmedClosingQuote, parseChinaQuoteTime, watchlistCloseCutoff } from './watchlistCloseQuote.js';
 import {
   applyHistoryAdjustment,
   type HistoryAdjustmentMode,
@@ -60,6 +62,8 @@ export interface StockQuote extends StockSearchItem {
   listDate: string | null;
   industry: string | null;
   updatedAt: string;
+  /** Provider-reported quote time, distinct from the request timestamp. */
+  quoteTime?: string;
   source: string[];
 }
 
@@ -85,6 +89,8 @@ export interface KlinePoint {
   amount?: number;
   /** Daily turnover rate in percentage points; 0.41 means 0.41%. */
   turnoverRatePct?: number;
+  previousClose?: number | null;
+  changePct?: number | null;
 }
 
 export type StockKlinePeriod = 'intraday' | 'day' | 'week' | 'year';
@@ -330,7 +336,10 @@ const KNOWN_CN_INDEX_CODES = new Set([
 export function inferType(code: string, market: MarketCode = marketOf(code)): 'stock' | 'index' | 'etf' {
   // 国际市场代码均为指数
   if (market === 'HK' || market === 'US' || market === 'JP' || market === 'KR') return 'index';
-  if (KNOWN_CN_INDEX_CODES.has(code)) return 'index';
+  // These codes are Shanghai indices; the same six-digit strings can be
+  // ordinary Shenzhen securities when callers provide a bare code (for
+  // example 000001 is 平安银行 unless it carries the sh000001 alias).
+  if (market === 'SH' && KNOWN_CN_INDEX_CODES.has(code)) return 'index';
   if ((market === 'SH' && code.startsWith('000')) || (market === 'SZ' && code.startsWith('399'))) return 'index';
   if (/^(1[568]|5[168])/.test(code)) return 'etf';
   return 'stock';
@@ -505,7 +514,102 @@ export async function fetchStockQuote(input: string, withProfile = true): Promis
   });
 }
 
-export async function fetchMarketIndexQuotes(): Promise<StockQuote[]> {
+function emptyWatchlistQuote(security: ResolvedSecurity, name = security.code): StockQuote {
+  return { code: security.code, name, market: security.market, type: inferType(security.code, security.market),
+    price: null, changeAmount: null, changePct: null, open: null, high: null, low: null,
+    previousClose: null, limitUp: null, limitDown: null, turnoverPct: null, amplitudePct: null,
+    volumeRatio: null, amountWan: null, peTtm: null, peStatic: null, pb: null, marketCapYi: null,
+    floatMarketCapYi: null, listDate: null, industry: null, updatedAt: '', source: [] };
+}
+
+async function closeCutoff(now: Date): Promise<string> {
+  const date = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
+  const open = await getTradeDateStatus('SH', date).catch(() => null);
+  return watchlistCloseCutoff(now, open);
+}
+
+const confirmedOpenDates = new Set<string>();
+/** A provider's dated, nonzero traded index quote can fill a missing calendar
+ * row. A request timestamp or unchanged prior-day quote cannot prove open. */
+export async function readWatchlistTradingDateEvidence(date: string): Promise<boolean | null> {
+  if (confirmedOpenDates.has(date)) return true;
+  const quote = await fetchStockQuote('sh000001', false);
+  if (!quote.quoteTime || !(quote.amountWan != null && quote.amountWan > 0)) return null;
+  const local = new Date(Date.parse(quote.quoteTime) + 8 * 3_600_000);
+  const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
+  if (local.toISOString().slice(0, 10) !== date || minute < 570) return null;
+  if (confirmedOpenDates.size > 7) confirmedOpenDates.clear();
+  confirmedOpenDates.add(date);
+  return true;
+}
+
+async function resolveWatchlistClose(
+  input: string, base: StockQuote, cutoff: string, requireCutoffDate = false,
+): Promise<StockQuote> {
+  const security = resolveSecurity(input);
+  let best = confirmedClosingQuote(base, cutoff);
+  // A dated final provider quote is already complete, including turnover and
+  // daily change. Request time alone is never proof of a closing snapshot.
+  if (best?.updatedAt.slice(0, 10) === cutoff) return best;
+  const consider = (candidate: StockQuote | null) => {
+    if (candidate && (!best || candidate.updatedAt > best.updatedAt)) best = candidate;
+  };
+  try {
+    const bars = base.type === 'index'
+      ? (await getLatestDatasetCandlesBySymbol(security.code, 'index', 3)).data.map(bar => ({
+        date: bar.time, open: Number(bar.open), close: Number(bar.close), high: Number(bar.high),
+        low: Number(bar.low), volume: Number(bar.volume ?? 0),
+        amount: bar.turnover == null ? undefined : Number(bar.turnover) * 100_000_000,
+      }))
+      : await fetchStockKlineFromDb(security.code, 'day', 3);
+    consider(closingQuoteFromBars(base, bars, cutoff, '本地收盘数据'));
+  } catch { /* An unavailable database must not prevent a dated online fallback. */ }
+  if (!best || ((requireCutoffDate || !confirmedClosingQuote(base, cutoff)) && best.updatedAt.slice(0, 10) < cutoff)) {
+    // Three bars leave two completed sessions when today's pre-open/intraday
+    // bar must be excluded. Never use adjusted prices for watchlist returns.
+    const bars = await fetchStockKline(input, 'day', 3, 'none').catch(() => []);
+    consider(closingQuoteFromBars(base, bars, cutoff, '在线收盘数据'));
+  }
+  if (!best || (requireCutoffDate && best.updatedAt.slice(0, 10) !== cutoff)) {
+    throw new Error(`证券 ${base.code} 暂无可确认的${requireCutoffDate ? '当日' : ''}收盘数据`);
+  }
+  return best;
+}
+
+export async function fetchWatchlistQuote(
+  input: string, snapshot: 'live' | 'close' = 'live', now = new Date(),
+): Promise<StockQuote> {
+  if (snapshot !== 'close') return fetchStockQuote(input, false);
+  const security = resolveSecurity(input);
+  const base = await fetchStockQuote(input, false).catch(() => emptyWatchlistQuote(security));
+  if (!['SH', 'SZ', 'BJ'].includes(security.market)) return base;
+  const cutoff = await closeCutoff(now);
+  const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
+  return resolveWatchlistClose(input, base, cutoff, cutoff === today);
+}
+
+export interface MarketIndexQuoteOptions {
+  snapshot?: 'live' | 'close';
+  now?: Date;
+}
+
+export async function fetchMarketIndexQuotes(options: MarketIndexQuoteOptions = {}): Promise<StockQuote[]> {
+  const live = await fetchMarketIndexQuotesLive();
+  if (options.snapshot !== 'close') return live;
+  const now = options.now ?? new Date();
+  const cutoff = await closeCutoff(now);
+  const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
+  const byKey = new Map(live.map(quote => [`${quote.market}:${quote.code}`, quote]));
+  const results = await Promise.allSettled(MARKET_INDEXES.map(item => {
+    const base = byKey.get(`${item.market}:${item.code}`) ?? emptyWatchlistQuote(item, item.name);
+    if (!['SH', 'SZ', 'BJ'].includes(item.market)) return Promise.resolve(base);
+    const alias = item.prefixed || (item.code === '932000' ? 'ft932000' : `${item.market.toLowerCase()}${item.code}`);
+    return resolveWatchlistClose(alias, base, cutoff, cutoff === today);
+  }));
+  return results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+}
+
+async function fetchMarketIndexQuotesLive(): Promise<StockQuote[]> {
   const tencentIndices = MARKET_INDEXES.filter((item) => item.source === 'tencent' && item.prefixed);
   const eastmoneyIndices = MARKET_INDEXES.filter((item) => item.source === 'eastmoney' && item.eastmoneySecid);
 
@@ -1638,6 +1742,7 @@ function parseTencentQuote(
   base: Pick<StockQuote, 'code' | 'market' | 'type' | 'industry' | 'listDate' | 'source'> & { name?: string },
 ): StockQuote {
   return {
+    quoteTime: ['SH', 'SZ', 'BJ'].includes(base.market) ? parseChinaQuoteTime(values[30]) : undefined,
     code: base.code,
     name: base.name ?? values[1],
     market: base.market,
@@ -1828,7 +1933,9 @@ export async function fetchStockKline(
   const payload = await response.json() as { data?: Record<string, Record<string, unknown[][]>> };
   const node = payload.data?.[prefixed] ?? {};
   const key = adjustmentMode === 'none' ? upstreamPeriod : `${adjustmentMode}${upstreamPeriod}`;
-  const rows = node[key] ?? node[`qfq${upstreamPeriod}`] ?? node[upstreamPeriod] ?? [];
+  const rows = adjustmentMode === 'none'
+    ? node[upstreamPeriod] ?? []
+    : node[key] ?? node[`qfq${upstreamPeriod}`] ?? node[upstreamPeriod] ?? [];
   const points: KlinePoint[] = rows.flatMap((row) => {
     if (row.length < 6) return [];
     const [date, open, close, high, low, volume] = row;
