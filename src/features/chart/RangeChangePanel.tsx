@@ -6,6 +6,7 @@ import { useChartStore } from '@/stores/useChartStore';
 import { calculateRangeChange } from '@/utils/rangeChange';
 import type { RangeChangeResult } from '@/utils/rangeChange';
 import type { Candle } from '@/models';
+import { financialTone } from '@/components/WorkspacePrimitives';
 
 const { Text } = Typography;
 
@@ -53,13 +54,14 @@ export default function RangeChangePanel({
   }, [candles, rangeLineStart, rangeLineEnd]);
 
   const isPositive = result != null && result.change >= 0;
-  const changeColor = result == null ? undefined : isPositive ? '#CF1322' : '#3F8600';
 
   if (candles.length === 0) return null;
 
   return (
     <div
       className="market-analysis-toolbar"
+      role="region"
+      aria-label="区间涨跌分析"
       style={{
         padding: '6px 16px',
         background: '#FAFBFC',
@@ -95,7 +97,7 @@ export default function RangeChangePanel({
           <Text type="secondary" style={{ fontSize: 12 }}>
             {fmt(result.startClose, 2)} → {fmt(result.endClose, 2)}
           </Text>
-          <Text strong style={{ color: changeColor, fontSize: 14 }}>
+          <Text strong className={`financial-${financialTone(result.change)}`} style={{ fontSize: 14 }}>
             {isPositive ? '+' : ''}{fmt(result.change, 2)} ({isPositive ? '+' : ''}{fmt(result.changePercent, 2)}%)
           </Text>
           <Text type="secondary" style={{ fontSize: 11 }}>

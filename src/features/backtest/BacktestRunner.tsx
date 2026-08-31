@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Button,
   Select,
@@ -6,6 +6,7 @@ import {
   Progress,
   Alert,
   Tag,
+  Spin,
   Grid,
   App as AntdApp,
 } from 'antd';
@@ -28,6 +29,7 @@ import { getStrategyById } from '@/features/strategies/registry';
 import type { MarketDataset } from '@/models';
 import { useMobileLayout } from '@/components/mobile/useMobileLayout';
 import './backtest.mobile.css';
+import './backtest.workbench.css';
 
 const { Text } = Typography;
 
@@ -44,9 +46,13 @@ function BacktestSettings({ maximumTradingDays }: { maximumTradingDays: number }
 export default function BacktestRunner() {
   const [datasets, setDatasets] = useState<MarketDataset[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
-  const [loadingDatasets, setLoadingDatasets] = useState(false);
+  const [loadingDatasets, setLoadingDatasets] = useState(true);
+  const [loadingCandles, setLoadingCandles] = useState(false);
+  const [datasetError, setDatasetError] = useState<string | null>(null);
   const [settingsDockOpen, setSettingsDockOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const datasetListRequestRef = useRef(0);
+  const candleRequestRef = useRef(0);
   const isMobile = useMobileLayout();
   const screens = Grid.useBreakpoint();
   const useSettingsDrawer = !screens.lg;
@@ -66,56 +72,88 @@ export default function BacktestRunner() {
 
   const { run, cancel, status, progress, result, error } = useBacktest();
 
-  useEffect(() => {
+  const loadDatasetCandles = async (dataset: MarketDataset) => {
+    const requestId = ++candleRequestRef.current;
+    setLoadingCandles(true);
+    setDatasetError(null);
+    setCandles([]);
+    setImportResult(null);
+    try {
+      const loaded = await getRepository().getCandlesByDataset(dataset.id);
+      if (requestId !== candleRequestRef.current) return;
+      setCandles(loaded);
+      setImportResult({
+        success: true,
+        fileName: dataset.sourceFileName ?? dataset.name,
+        symbol: dataset.symbol,
+        dateRange: { from: dataset.startTime, to: dataset.endTime },
+        totalRows: dataset.count,
+        validRows: dataset.count,
+        errors: [],
+        warnings: [],
+        candles: loaded,
+      });
+    } catch (loadError) {
+      if (requestId !== candleRequestRef.current) return;
+      setCandles([]);
+      setImportResult(null);
+      setDatasetError(loadError instanceof Error ? loadError.message : '读取数据集行情失败');
+    } finally {
+      if (requestId === candleRequestRef.current) setLoadingCandles(false);
+    }
+  };
+
+  const loadDatasets = async () => {
+    const requestId = ++datasetListRequestRef.current;
+    candleRequestRef.current += 1;
     setLoadingDatasets(true);
-    getRepository().getDatasets().then((ds) => {
+    setLoadingCandles(false);
+    setDatasetError(null);
+    setCandles([]);
+    setImportResult(null);
+    try {
+      const ds = await getRepository().getDatasets();
+      if (requestId !== datasetListRequestRef.current) return;
       setDatasets(ds);
-      setLoadingDatasets(false);
-      if (ds.length > 0 && !selectedDatasetId) {
-        const firstId = ds[0].id;
-        setSelectedDatasetId(firstId);
+      const nextDataset = ds.find((dataset) => dataset.id === selectedDatasetId) ?? ds[0];
+      if (nextDataset) {
+        setSelectedDatasetId(nextDataset.id);
         // Auto-load candles for the first dataset so the chart and run
         // button work immediately after page load.
-        getRepository().getCandlesByDataset(firstId).then((loaded) => {
-          setCandles(loaded);
-          setImportResult({
-            success: true,
-            fileName: ds[0].sourceFileName ?? ds[0].name,
-            symbol: ds[0].symbol,
-            dateRange: { from: ds[0].startTime, to: ds[0].endTime },
-            totalRows: ds[0].count,
-            validRows: ds[0].count,
-            errors: [],
-            warnings: [],
-            candles: loaded,
-          });
-        });
+        await loadDatasetCandles(nextDataset);
+      } else {
+        setSelectedDatasetId(null);
+        setCandles([]);
+        setImportResult(null);
       }
-    });
+    } catch (loadError) {
+      if (requestId !== datasetListRequestRef.current) return;
+      setDatasets([]);
+      setSelectedDatasetId(null);
+      setCandles([]);
+      setImportResult(null);
+      setDatasetError(loadError instanceof Error ? loadError.message : '读取数据集失败');
+    } finally {
+      if (requestId === datasetListRequestRef.current) setLoadingDatasets(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadDatasets();
+    return () => {
+      datasetListRequestRef.current += 1;
+      candleRequestRef.current += 1;
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSelectDataset = async (id: string) => {
     setSelectedDatasetId(id);
     const ds = datasets.find((d) => d.id === id);
-    if (ds) {
-      const loadedCandles = await getRepository().getCandlesByDataset(id);
-      setCandles(loadedCandles);
-      setImportResult({
-        success: true,
-        fileName: ds.sourceFileName ?? ds.name,
-        symbol: ds.symbol,
-        dateRange: { from: ds.startTime, to: ds.endTime },
-        totalRows: ds.count,
-        validRows: ds.count,
-        errors: [],
-        warnings: [],
-        candles: loadedCandles,
-      });
-    }
+    if (ds) await loadDatasetCandles(ds);
   };
 
   const handleRun = () => {
-    if (!selectedDatasetId || candles.length === 0) return;
+    if (loadingDatasets || loadingCandles || datasetError || !selectedDatasetId || candles.length === 0) return;
     const ds = datasets.find((d) => d.id === selectedDatasetId);
     if (!ds) return;
 
@@ -185,7 +223,7 @@ export default function BacktestRunner() {
     return (
       <div className="backtest-page backtest-page-mobile">
         <header className="backtest-mobile-header">
-          <div className="backtest-mobile-heading">
+          <div className="backtest-mobile-heading backtest-page-heading">
             <Text strong>回测实验</Text>
             <Text type="secondary">选择数据集，配置参数后运行</Text>
           </div>
@@ -202,6 +240,7 @@ export default function BacktestRunner() {
           <div className="backtest-mobile-dataset">
             <Text type="secondary">数据集</Text>
             <Select
+              aria-label="回测数据集"
               value={selectedDatasetId}
               onChange={handleSelectDataset}
               loading={loadingDatasets}
@@ -213,13 +252,13 @@ export default function BacktestRunner() {
               }))}
             />
           </div>
-          <div className="backtest-mobile-actions">
+          <div className="backtest-mobile-actions backtest-run-actions">
             <Button
               type="primary"
               icon={<PlayCircleOutlined />}
               onClick={handleRun}
               loading={isRunning}
-              disabled={!selectedDatasetId || candles.length === 0}
+              disabled={loadingDatasets || loadingCandles || Boolean(datasetError) || !selectedDatasetId || candles.length === 0}
               block
             >
               运行回测
@@ -229,14 +268,27 @@ export default function BacktestRunner() {
                 取消
               </Button>
             )}
-            {status === 'completed' && result && <Tag color="success">完成</Tag>}
-            {status === 'failed' && <Tag color="error">失败</Tag>}
-            {status === 'cancelled' && <Tag color="warning">已取消</Tag>}
+            <span className="backtest-run-state" aria-live="polite">
+              {status === 'completed' && result && <Tag color="success">完成</Tag>}
+              {status === 'failed' && <Tag color="error">失败</Tag>}
+              {status === 'cancelled' && <Tag color="warning">已取消</Tag>}
+            </span>
           </div>
         </div>
 
+        {datasetError && (
+          <Alert
+            type="error"
+            showIcon
+            title="数据集加载失败"
+            description={datasetError}
+            action={<Button onClick={() => void loadDatasets()}>重试</Button>}
+            className="backtest-dataset-alert"
+          />
+        )}
+
         {isRunning && progress && (
-          <div className="backtest-mobile-progress">
+          <div className="backtest-mobile-progress backtest-progress" role="status" aria-live="polite">
             <Progress percent={progressPercent} size="small" />
             <Text type="secondary">{progress.message}</Text>
           </div>
@@ -245,21 +297,35 @@ export default function BacktestRunner() {
         {error && (
           <Alert
             type="error"
-            message="回测失败"
+            title="回测失败"
             description={error}
             closable
-            className="backtest-mobile-error"
+            className="backtest-mobile-error backtest-error"
           />
         )}
 
         <main className="backtest-chart-area backtest-mobile-chart-area">
-          {candles.length > 0 ? (
+          {loadingDatasets ? (
+            <div className="backtest-empty-state" role="status" aria-live="polite">
+              <Spin size="small" />
+              <Text type="secondary">正在读取数据集…</Text>
+            </div>
+          ) : loadingCandles ? (
+            <div className="backtest-empty-state" role="status" aria-live="polite">
+              <Spin size="small" />
+              <Text type="secondary">正在读取数据集行情…</Text>
+            </div>
+          ) : datasetError ? (
+            <div className="backtest-empty-state">
+              <Text type="secondary">数据集行情暂不可用，请点击上方重试</Text>
+            </div>
+          ) : candles.length > 0 ? (
             <ChartContainer />
           ) : (
             <div className="backtest-empty-state">
               <Text type="secondary">
                 {datasets.length === 0
-                  ? '请先在数据管理中导入并保存行情数据'
+                  ? '暂无可用数据集，请先在数据管理中导入行情数据'
                   : '请选择数据集以查看行情'}
               </Text>
             </div>
@@ -281,9 +347,14 @@ export default function BacktestRunner() {
   return (
     <div className="backtest-page">
       {/* Top bar */}
-      <div className="backtest-toolbar">
+      <div className="backtest-toolbar" role="toolbar" aria-label="回测实验工具栏">
+        <div className="backtest-toolbar-heading">
+          <Text strong>策略回测</Text>
+          <Text type="secondary">选择数据集，调整参数并运行实验</Text>
+        </div>
         <Text strong className="backtest-dataset-label">数据集:</Text>
         <Select
+          aria-label="回测数据集"
           value={selectedDatasetId}
           onChange={handleSelectDataset}
           loading={loadingDatasets}
@@ -300,7 +371,7 @@ export default function BacktestRunner() {
           icon={<PlayCircleOutlined />}
           onClick={handleRun}
           loading={isRunning}
-          disabled={!selectedDatasetId || candles.length === 0}
+          disabled={loadingDatasets || loadingCandles || Boolean(datasetError) || !selectedDatasetId || candles.length === 0}
         >
           运行回测
         </Button>
@@ -318,22 +389,35 @@ export default function BacktestRunner() {
           </Button>
         )}
 
-        {status === 'completed' && result && (
-          <Tag color="success">完成</Tag>
-        )}
-        {status === 'failed' && (
-          <Tag color="error">失败</Tag>
-        )}
-        {status === 'cancelled' && (
-          <Tag color="warning">已取消</Tag>
-        )}
+        <span className="backtest-run-state" aria-live="polite">
+          {status === 'completed' && result && (
+            <Tag color="success">完成</Tag>
+          )}
+          {status === 'failed' && (
+            <Tag color="error">失败</Tag>
+          )}
+          {status === 'cancelled' && (
+            <Tag color="warning">已取消</Tag>
+          )}
+        </span>
       </div>
+
+      {datasetError && (
+        <Alert
+          type="error"
+          showIcon
+            title="数据集加载失败"
+          description={datasetError}
+          action={<Button onClick={() => void loadDatasets()}>重试</Button>}
+          className="backtest-dataset-alert"
+        />
+      )}
 
       {/* Progress bar */}
       {isRunning && progress && (
-        <div style={{ padding: '4px 16px', background: '#fff', flexShrink: 0 }}>
+        <div className="backtest-progress" role="status" aria-live="polite">
           <Progress percent={progressPercent} size="small" />
-          <Text type="secondary" style={{ fontSize: 12 }}>
+          <Text type="secondary">
             {progress.message}
           </Text>
         </div>
@@ -343,10 +427,10 @@ export default function BacktestRunner() {
       {error && (
         <Alert
           type="error"
-          message="回测失败"
+        title="回测失败"
           description={error}
           closable
-          style={{ margin: 8, flexShrink: 0 }}
+          className="backtest-error"
         />
       )}
 
@@ -366,13 +450,27 @@ export default function BacktestRunner() {
         )}
 
         <main className="backtest-chart-area">
-          {candles.length > 0 ? (
+          {loadingDatasets ? (
+            <div className="backtest-empty-state" role="status" aria-live="polite">
+              <Spin size="small" />
+              <Text type="secondary">正在读取数据集…</Text>
+            </div>
+          ) : loadingCandles ? (
+            <div className="backtest-empty-state" role="status" aria-live="polite">
+              <Spin size="small" />
+              <Text type="secondary">正在读取数据集行情…</Text>
+            </div>
+          ) : datasetError ? (
+            <div className="backtest-empty-state">
+              <Text type="secondary">数据集行情暂不可用，请点击上方重试</Text>
+            </div>
+          ) : candles.length > 0 ? (
             <ChartContainer />
           ) : (
             <div className="backtest-empty-state">
               <Text type="secondary">
                 {datasets.length === 0
-                  ? '请先在数据管理中导入并保存行情数据'
+                  ? '暂无可用数据集，请先在数据管理中导入行情数据'
                   : '请选择数据集以查看行情'}
               </Text>
             </div>

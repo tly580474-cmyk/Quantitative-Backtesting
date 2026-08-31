@@ -1,12 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Card, Typography, Space, App, Tag, Empty, Tooltip } from 'antd';
+import { Table, Button, Card, Typography, Space, App, Tag, Empty, Tooltip, Alert } from 'antd';
 import { DownloadOutlined, EyeOutlined, ReloadOutlined, FileTextOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { AgentReport } from './types';
 import { listAgentReports, getReportDownloadUrl } from './api';
 import { API_BASE_URL } from '@/api/config';
+import { useNavigate } from 'react-router-dom';
+import { useMobileLayout } from '@/components/mobile/useMobileLayout';
+import { PageHeader, WorkbenchEmpty } from '@/components/WorkspacePrimitives';
+import HistoryCards from './HistoryCards';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 function formatFileSize(bytes: number | null): string {
   if (!bytes) return '-';
@@ -26,14 +30,19 @@ function formatDate(iso: string): string {
 export default function AgentReportHistory() {
   const [reports, setReports] = useState<AgentReport[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mobile = useMobileLayout();
+  const navigate = useNavigate();
   const { message } = App.useApp();
 
   const fetchReports = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const result = await listAgentReports(100);
       setReports(result.reports ?? []);
     } catch (err) {
+      setError(err instanceof Error ? err.message : '报告暂时无法加载');
       message.error(`加载失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
@@ -118,11 +127,21 @@ export default function AgentReportHistory() {
 
   return (
     <div className="agent-history-page">
-      <div className="agent-history-header">
-        <Title level={4} style={{ margin: 0 }}>报告历史</Title>
-        <Button icon={<ReloadOutlined />} onClick={fetchReports} loading={loading}>刷新</Button>
-      </div>
-      <Card styles={{ body: { padding: 0 } }}>
+      <PageHeader title="研究报告" description={`${reports.length} 份报告 · 查看结论与研究证据`}
+        actions={<Button icon={<ReloadOutlined />} onClick={fetchReports} loading={loading}>刷新</Button>} />
+      {error && <Alert showIcon type="error" title="报告加载失败" description={error}
+        action={<Button onClick={fetchReports} loading={loading}>重试</Button>} />}
+      {mobile ? <HistoryCards items={reports} loading={loading} itemKey={(report) => report.runId}
+        empty={<WorkbenchEmpty title={error ? '报告暂不可用' : '尚未生成研究报告'}
+          description={error ? '请重试加载，已有报告不会被删除。' : '从一个研究问题开始，完成后的报告会保存在这里。'}
+          action={!error && <Button type="primary" onClick={() => navigate('/agent')}>开始研究</Button>} />}
+        renderItem={(report) => <>
+          <h2><FileTextOutlined /> {report.title}</h2>
+          {report.summary && <p className="agent-history-summary">{report.summary}</p>}
+          <div className="agent-history-card-meta"><span>{formatDate(report.createdAt)}</span><span>{report.chartsCount} 张图表 · {formatFileSize(report.fileSize)}</span></div>
+          <Space wrap><Button icon={<EyeOutlined />} onClick={() => handleView(report.runId)}>查看报告</Button>
+            <Button icon={<DownloadOutlined />} onClick={() => handleDownload(report.runId, report.title)}>下载 HTML</Button></Space>
+        </>} /> : <Card styles={{ body: { padding: 0 } }}>
         <Table
           columns={columns}
           dataSource={reports}
@@ -133,7 +152,7 @@ export default function AgentReportHistory() {
           locale={{ emptyText: <Empty description="暂无报告" /> }}
           size="middle"
         />
-      </Card>
+      </Card>}
     </div>
   );
 }

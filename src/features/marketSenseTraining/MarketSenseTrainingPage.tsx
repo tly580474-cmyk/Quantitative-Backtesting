@@ -44,6 +44,7 @@ import {
   toTrainingCandidate,
   type TrainingCandidate,
 } from './universe';
+import './marketSenseTraining.workbench.css';
 
 const INITIAL_VISIBLE_BARS = 80;
 const TARGET_FUTURE_BARS = 120;
@@ -399,7 +400,7 @@ export default function MarketSenseTrainingPage() {
   }, [lots, nextBar, phase, trade]);
 
   if (phase === 'idle' || phase === 'loading' || phase === 'error') {
-    return <section className="market-sense-page market-sense-welcome" aria-labelledby="market-sense-title">
+    return <section className="market-sense-page market-sense-welcome" aria-labelledby="market-sense-title" aria-busy={phase === 'loading'}>
       <div className="market-sense-welcome-card">
         <div className="market-sense-welcome-icon"><AimOutlined /></div>
         <Tag className="market-sense-kicker" bordered={false}>A 股 · 日线盲测</Tag>
@@ -425,7 +426,7 @@ export default function MarketSenseTrainingPage() {
     </section>;
   }
 
-  return <section className="market-sense-page" aria-label="A 股盘感训练台">
+  return <section className="market-sense-page market-sense-workbench" aria-label="A 股盘感训练台">
     <header className="market-sense-header">
       <div>
         <span className="market-sense-status-dot" />
@@ -573,7 +574,7 @@ export default function MarketSenseTrainingPage() {
             </div>
           </div>
           <div className="market-sense-result-grid">
-            <div><span>最大回撤</span><strong>{summary.maxDrawdownPct.toFixed(2)}%</strong></div>
+            <div><span>最大回撤</span><strong className="market-sense-risk-value">{summary.maxDrawdownPct.toFixed(2)}%</strong></div>
             <div><span>已实现盈亏</span><strong>{money(summary.realizedPnl)}</strong></div>
             <div><span>卖出胜率</span><strong>{summary.winRatePct.toFixed(0)}%</strong></div>
             <div><span>操作次数</span><strong>{summary.tradeCount}</strong></div>

@@ -34,7 +34,7 @@ export default function AutomatedFactorMiningPage() {
       </header>
       <section className="factor-panel factor-section-panel">
         <WorkbenchPanel
-          title="自动因子挖掘"
+          title="候选发现工作区"
           subtitle="训练验证、锁定测试、人工批准与显式发布"
         >
           <AutomatedMiningPanel />

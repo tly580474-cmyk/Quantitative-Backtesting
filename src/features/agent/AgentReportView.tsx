@@ -46,16 +46,16 @@ export function AgentReportView({ reportUrl, reportMeta, runId, embedded = false
         <div
           style={{
             padding: '12px 16px',
-            background: 'linear-gradient(135deg, #f0f5ff 0%, #e6f0ff 100%)',
-            borderBottom: '1px solid #d6e4ff',
+            background: 'var(--wb-selected)',
+            borderBottom: '1px solid var(--wb-border)',
             display: 'flex',
             alignItems: 'center',
             gap: 10,
           }}
         >
-          <FileTextOutlined style={{ color: '#1a73e8', fontSize: 18 }} />
+          <FileTextOutlined style={{ color: 'var(--wb-accent)', fontSize: 18 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 600, fontSize: 14, color: '#1a73e8' }}>
+            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--wb-accent)' }}>
               {reportMeta?.title ?? '研究报告中...'}
             </div>
             {reportMeta?.summary && (
@@ -75,7 +75,7 @@ export function AgentReportView({ reportUrl, reportMeta, runId, embedded = false
             )}
           </div>
         </div>
-        <div style={{ padding: '8px 16px', display: 'flex', gap: 8, background: '#fff' }}>
+        <div style={{ padding: '8px 16px', display: 'flex', flexWrap: 'wrap', gap: 8, background: 'var(--wb-surface)' }}>
           <Button
             size="small"
             type="primary"

@@ -1,0 +1,339 @@
+/* Local backtest workbench layer. Shared tokens live in styles/workbench.css;
+   the page keeps its own fallbacks so the route remains usable in isolation. */
+.backtest-page {
+  --backtest-canvas: var(--wb-canvas, #f4f6fa);
+  --backtest-surface: var(--wb-surface, #fff);
+  --backtest-muted-surface: var(--wb-surface-muted, #f8fafc);
+  --backtest-border: var(--wb-border, #dce4ee);
+  --backtest-text: var(--wb-text, #172033);
+  --backtest-muted: var(--wb-muted, #526174);
+  --backtest-accent: var(--wb-accent, #1d4ed8);
+  --backtest-positive: var(--wb-positive, #c62828);
+  --backtest-negative: var(--wb-negative, #15803d);
+  --backtest-risk: var(--wb-risk, #b45309);
+  color: var(--backtest-text);
+  background: var(--backtest-canvas);
+}
+
+.backtest-toolbar {
+  min-height: 58px;
+  padding: 8px 16px;
+  border-color: var(--backtest-border);
+  background: var(--backtest-surface);
+}
+
+.backtest-toolbar-heading {
+  display: flex;
+  min-width: 180px;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.25;
+}
+
+.backtest-toolbar-heading > .ant-typography:first-child {
+  color: var(--backtest-text);
+  font-size: 15px;
+}
+
+.backtest-toolbar-heading > .ant-typography:last-child {
+  color: var(--backtest-muted);
+  font-size: 12px;
+}
+
+.backtest-dataset-label {
+  color: var(--backtest-muted);
+  font-size: 12px;
+}
+
+.backtest-dataset-select {
+  flex: 0 1 clamp(180px, 22vw, 320px);
+  min-width: 180px;
+  width: auto;
+}
+
+.backtest-toolbar > .ant-btn,
+.backtest-mobile-header .ant-btn,
+.backtest-mobile-actions .ant-btn {
+  min-height: 40px;
+}
+
+.backtest-toolbar > .ant-btn-primary,
+.backtest-mobile-actions > .ant-btn-primary {
+  min-width: 104px;
+  box-shadow: 0 4px 12px rgb(29 78 216 / 18%);
+  font-weight: 650;
+}
+
+.backtest-run-state {
+  display: inline-flex;
+  min-width: 42px;
+  min-height: 24px;
+  align-items: center;
+}
+
+.backtest-run-state:empty {
+  display: none;
+}
+
+.backtest-progress {
+  flex: 0 0 auto;
+  padding: 5px 16px 7px;
+  border-bottom: 1px solid var(--backtest-border);
+  background: var(--backtest-surface);
+}
+
+.backtest-progress .ant-progress {
+  margin-bottom: 0;
+}
+
+.backtest-progress .ant-typography {
+  display: block;
+  overflow: hidden;
+  color: var(--backtest-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backtest-error {
+  flex: 0 0 auto;
+  margin: 8px;
+}
+
+.backtest-dataset-alert {
+  flex: 0 0 auto;
+  margin: 8px;
+}
+
+.backtest-workspace {
+  background: var(--backtest-surface);
+}
+
+.backtest-settings-panel {
+  flex-basis: clamp(312px, 25vw, 380px);
+  padding: 12px;
+  border-color: var(--backtest-border);
+  background: var(--backtest-canvas);
+}
+
+.backtest-settings-stack {
+  gap: 10px;
+}
+
+.backtest-config-card {
+  overflow: hidden;
+  border-color: var(--backtest-border) !important;
+  border-radius: 10px !important;
+  background: var(--backtest-surface);
+}
+
+.backtest-config-card .ant-card-head {
+  min-height: 42px;
+  padding-inline: 12px;
+  border-bottom-color: var(--backtest-border);
+  background: var(--backtest-surface);
+}
+
+.backtest-config-card .ant-card-head-title {
+  color: var(--backtest-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.backtest-config-card .ant-card-body {
+  padding: 10px 12px 12px;
+  background: var(--backtest-surface);
+}
+
+.backtest-config-section {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--backtest-border) 82%, transparent);
+  border-radius: 8px;
+  background: var(--backtest-muted-surface);
+}
+
+.backtest-config-section:first-child {
+  margin-top: 0;
+}
+
+.backtest-config-section-head {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.backtest-config-section-head strong {
+  color: var(--backtest-text);
+  font-size: 12px;
+}
+
+.backtest-config-section-head span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--backtest-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backtest-config-section .ant-form-item {
+  margin-bottom: 10px;
+}
+
+.backtest-config-section .ant-form-item:last-child {
+  margin-bottom: 0;
+}
+
+.backtest-config-section .ant-form-item-label > label {
+  color: var(--backtest-muted);
+  font-size: 12px;
+}
+
+.backtest-config-section .ant-form-item-extra,
+.backtest-config-section .ant-form-item-explain {
+  color: var(--backtest-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.backtest-config-section .ant-segmented {
+  max-width: 100%;
+}
+
+.backtest-chart-area {
+  background: var(--backtest-surface);
+}
+
+.backtest-empty-state {
+  color: var(--backtest-muted);
+  background: var(--backtest-surface);
+}
+
+.backtest-empty-state .ant-spin {
+  margin-inline-end: 8px;
+}
+
+.backtest-page-mobile {
+  background: var(--backtest-canvas);
+}
+
+.backtest-page-mobile .backtest-mobile-header,
+.backtest-page-mobile .backtest-mobile-controls,
+.backtest-page-mobile .backtest-mobile-progress {
+  border-color: var(--backtest-border);
+  background: var(--backtest-surface);
+}
+
+.backtest-page-mobile .backtest-mobile-heading .ant-typography:first-child {
+  color: var(--backtest-text);
+}
+
+.backtest-page-mobile .backtest-mobile-heading .ant-typography:last-child,
+.backtest-page-mobile .backtest-mobile-dataset > .ant-typography {
+  color: var(--backtest-muted);
+}
+
+html[data-theme='dark'] .backtest-page {
+  --backtest-canvas: var(--wb-canvas, #0b1220);
+  --backtest-surface: var(--wb-surface, #101a2a);
+  --backtest-muted-surface: var(--wb-surface-muted, #162133);
+  --backtest-border: var(--wb-border, #28364a);
+  --backtest-text: var(--wb-text, #e2e8f0);
+  --backtest-muted: var(--wb-muted, #a8b6c9);
+  --backtest-accent: var(--wb-accent, #93c5fd);
+  --backtest-positive: var(--wb-positive, #ff8585);
+  --backtest-negative: var(--wb-negative, #66dba0);
+  --backtest-risk: var(--wb-risk, #fbbf24);
+}
+
+html[data-theme='dark'] .backtest-config-section .ant-form-item-label > label,
+html[data-theme='dark'] .backtest-config-section .ant-form-item-extra {
+  color: var(--backtest-muted);
+}
+
+@media (max-width: 900px) {
+  .backtest-toolbar {
+    padding: 8px 12px;
+  }
+
+  .backtest-toolbar-heading {
+    flex-basis: 100%;
+  }
+
+  .backtest-dataset-select {
+    flex: 1 1 220px;
+    min-width: min(220px, 100%);
+  }
+
+  .backtest-toolbar > .ant-btn,
+  .backtest-toolbar > .backtest-run-state,
+  .backtest-mobile-header .ant-btn,
+  .backtest-mobile-actions .ant-btn {
+    min-height: 44px;
+  }
+
+  .backtest-mobile-header,
+  .backtest-mobile-controls {
+    padding-inline: 12px;
+  }
+
+  .backtest-mobile-actions {
+    align-items: stretch;
+  }
+
+  .backtest-mobile-actions .ant-btn {
+    min-height: 44px;
+  }
+
+  .backtest-config-section {
+    padding: 9px;
+  }
+
+  .backtest-config-section-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .backtest-config-section-head span {
+    white-space: normal;
+  }
+}
+
+@media (max-width: 560px) {
+  .backtest-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .backtest-toolbar-heading,
+  .backtest-dataset-label,
+  .backtest-dataset-select {
+    grid-column: 1 / -1;
+  }
+
+  .backtest-toolbar > .ant-btn {
+    width: 100%;
+  }
+
+  .backtest-toolbar > .backtest-run-state {
+    justify-content: flex-end;
+  }
+
+  .backtest-progress {
+    padding-inline: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backtest-page * {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}

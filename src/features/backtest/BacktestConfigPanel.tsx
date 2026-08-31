@@ -31,19 +31,24 @@ export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
   };
 
   return (
-    <Card size="small" title="回测参数">
+    <Card size="small" title="回测参数" className="backtest-config-card backtest-config-card-runtime">
       <Form layout="vertical" size="small">
-        <Form.Item label="回测模式">
+        <section className="backtest-config-section">
+          <div className="backtest-config-section-head">
+            <strong>实验模式</strong>
+            <span>选择本次实验的资金投入方式</span>
+          </div>
+          <Form.Item label="回测模式">
           <Segmented
             block
             value={config.backtestMode}
             options={[{ label: '策略回测', value: 'strategy' }, { label: '定投回测', value: 'dca' }]}
             onChange={(value) => setConfig({ backtestMode: value as 'strategy' | 'dca' })}
           />
-        </Form.Item>
+          </Form.Item>
 
-        {config.backtestMode === 'dca' && (
-          <>
+          {config.backtestMode === 'dca' && (
+            <>
             <Form.Item label="每期定投金额">
               <InputNumber
                 value={config.dca.amount}
@@ -61,10 +66,16 @@ export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
                 onChange={(frequency) => setConfig({ dca: { ...config.dca, frequency } })}
               />
             </Form.Item>
-          </>
-        )}
+            </>
+          )}
+        </section>
 
-        <Form.Item label="交易天数" extra={maximumTradingDays > 0 ? `使用最近 ${tradingDays} 个交易日` : '选择数据集后可调整'}>
+        <section className="backtest-config-section">
+          <div className="backtest-config-section-head">
+            <strong>数据与资金</strong>
+            <span>控制样本窗口和实验本金</span>
+          </div>
+          <Form.Item label="交易天数" extra={maximumTradingDays > 0 ? `使用最近 ${tradingDays} 个交易日` : '选择数据集后可调整'}>
           <Slider
             min={Math.min(2, maximumTradingDays)}
             max={Math.max(2, maximumTradingDays)}
@@ -94,8 +105,8 @@ export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
             ]}
             onChange={setTradingDayRange}
           />
-        </Form.Item>
-        <Form.Item
+          </Form.Item>
+          <Form.Item
           label={config.backtestMode === 'dca' ? '首日买入金额' : '初始资金'}
           extra={config.backtestMode === 'dca' ? '首个定投日投入；后续定投自动模拟外部入金，不受账户余额限制' : undefined}
         >
@@ -108,10 +119,15 @@ export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
             formatter={(v) => `¥ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
             parser={(v) => v?.replace(/[^\d.]/g, '') as unknown as number}
           />
-        </Form.Item>
+          </Form.Item>
+        </section>
 
         {config.backtestMode === 'strategy' && (
-          <>
+          <section className="backtest-config-section">
+            <div className="backtest-config-section-head">
+              <strong>仓位与执行</strong>
+              <span>设置调仓方式和单次仓位</span>
+            </div>
             <Form.Item label="买卖方式">
               <Segmented
                 block
@@ -149,10 +165,15 @@ export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
                 />
               </Form.Item>
             )}
-          </>
+          </section>
         )}
 
-        <Form.Item label="手续费率">
+        <section className="backtest-config-section">
+          <div className="backtest-config-section-head">
+            <strong>交易规则</strong>
+            <span>成本、滑点与成交单位</span>
+          </div>
+          <Form.Item label="手续费率">
           <InputNumber
             value={config.commissionRate}
             onChange={(v) => v != null && setConfig({ commissionRate: v })}
@@ -163,9 +184,9 @@ export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
             formatter={(v) => `${(Number(v) * 100).toFixed(2)}%`}
             parser={(v) => Number(v?.replace('%', '')) / 100}
           />
-        </Form.Item>
+          </Form.Item>
 
-        <Form.Item label="最低手续费">
+          <Form.Item label="最低手续费">
           <InputNumber
             value={config.minimumCommission}
             onChange={(v) => v != null && setConfig({ minimumCommission: v })}
@@ -174,10 +195,10 @@ export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
             style={{ width: '100%' }}
             prefix="¥"
           />
-        </Form.Item>
+          </Form.Item>
 
-        {config.backtestMode === 'strategy' && (
-          <>
+          {config.backtestMode === 'strategy' && (
+            <>
             <Form.Item label="卖出印花税率">
               <InputNumber
                 value={config.sellTaxRate}
@@ -201,10 +222,10 @@ export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
                 style={{ width: '100%' }}
               />
             </Form.Item>
-          </>
-        )}
+            </>
+          )}
 
-        <Form.Item label="最小交易单位">
+          <Form.Item label="最小交易单位">
           <Segmented
             block
             value={config.tradingUnitMode}
@@ -217,16 +238,17 @@ export default function BacktestConfigPanel({ maximumTradingDays = 0 }: Props) {
           <Typography.Text type="secondary" style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
             {config.tradingUnitMode === 'stock' ? '按一手 100 股取整成交' : '按 1 元金额步长成交，可持有小数份额'}
           </Typography.Text>
-        </Form.Item>
+          </Form.Item>
 
-        {config.backtestMode === 'strategy' && (
-          <Form.Item label="期末强制平仓">
+          {config.backtestMode === 'strategy' && (
+            <Form.Item label="期末强制平仓">
             <Switch
               checked={config.forceCloseAtEnd}
               onChange={(v) => setConfig({ forceCloseAtEnd: v })}
             />
-          </Form.Item>
-        )}
+            </Form.Item>
+          )}
+        </section>
       </Form>
     </Card>
   );

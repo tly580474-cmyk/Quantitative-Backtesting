@@ -16,6 +16,9 @@
 }
 
 .strategy-studio-mobile .strategy-studio-identity {
+  /* The desktop flex-basis is a horizontal width; do not turn it into a
+     520px-tall spacer when this header stacks vertically on a phone. */
+  flex: none;
   width: 100%;
   min-width: 0;
   max-width: none;

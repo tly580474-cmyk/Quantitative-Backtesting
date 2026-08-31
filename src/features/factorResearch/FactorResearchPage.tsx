@@ -40,6 +40,7 @@ import dayjs from 'dayjs';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { WorkbenchPanel } from '@/components/WorkbenchPanel';
+import { WorkbenchEmpty } from '@/components/WorkspacePrimitives';
 import { useMobileLayout } from '@/components/mobile/useMobileLayout';
 import './mobile.css';
 import {
@@ -932,13 +933,18 @@ export default function FactorResearchPage() {
               onClick={() => { void loadFactors(); void loadRuns(); void loadSnapshotFreshness(true); }}
             />
           </div>
-          <SnapshotFreshnessBanner
-            freshness={snapshotFreshness}
-            loading={loadingSnapshot}
-            updating={updatingSnapshot}
-            onRefresh={() => { void loadSnapshotFreshness(true); }}
-            onUpdate={() => { void handleUpdateSnapshot(); }}
-          />
+          <details className="workspace-details snapshot-compact" key={snapshotFreshness?.status ?? 'loading'}
+            open={snapshotFreshness != null && snapshotFreshness.status !== 'current' ? true : undefined}>
+            <summary><DatabaseOutlined />研究快照
+              <Tag color={snapshotFreshness?.status === 'current' ? 'success' : snapshotFreshness?.status === 'inconsistent' ? 'error' : 'warning'}>
+                {snapshotFreshness ? snapshotStatusText(snapshotFreshness.status) : '读取中'}
+              </Tag>
+              <span>{snapshotFreshness?.snapshot.maxDate ?? '等待数据'}</span>
+            </summary>
+            <SnapshotFreshnessBanner freshness={snapshotFreshness} loading={loadingSnapshot}
+              updating={updatingSnapshot} onRefresh={() => { void loadSnapshotFreshness(true); }}
+              onUpdate={() => { void handleUpdateSnapshot(); }} />
+          </details>
           <Collapse
             className="factor-operation-collapse"
             defaultActiveKey={['library', 'config']}
@@ -1082,9 +1088,11 @@ export default function FactorResearchPage() {
 
         <main
           ref={splitPaneRef}
-          className="factor-research-canvas"
+          className={`factor-research-canvas${!report && !compositeReport ? ' factor-report-empty' : ''}`}
           style={{
-            gridTemplateRows: `minmax(220px, ${topPanePercent}fr) 12px minmax(250px, ${100 - topPanePercent}fr)`,
+            gridTemplateRows: report || compositeReport
+              ? `minmax(220px, ${topPanePercent}fr) 12px minmax(250px, ${100 - topPanePercent}fr)`
+              : 'auto 12px minmax(250px, 1fr)',
           }}
         >
           <section className="factor-panel factor-report-panel">
@@ -1106,7 +1114,15 @@ export default function FactorResearchPage() {
                   }}
                 />
               ) : (
-                <Empty description="暂无报告" />
+                <WorkbenchEmpty title="选择一份报告，开始复盘"
+                  description="下方保留了研究任务历史。打开已完成的报告，或从左侧选择因子配置新研究。"
+                  action={runs.some((run) => run.status === 'completed') ? (
+                    <Button type="primary" loading={running} onClick={() => {
+                      const latest = [...runs].filter((run) => run.status === 'completed')
+                        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+                      if (latest) void handleOpenRunReport(latest.id);
+                    }}>打开最近完成的报告</Button>
+                  ) : undefined} />
               )}
             </WorkbenchPanel>
           </section>
@@ -1119,9 +1135,10 @@ export default function FactorResearchPage() {
             aria-valuemin={32}
             aria-valuemax={72}
             aria-valuenow={Math.round(topPanePercent)}
-            tabIndex={0}
-            onPointerDown={handleSplitPointerDown}
-            onKeyDown={handleSplitKeyDown}
+            aria-disabled={!report && !compositeReport}
+            tabIndex={report || compositeReport ? 0 : -1}
+            onPointerDown={report || compositeReport ? handleSplitPointerDown : undefined}
+            onKeyDown={report || compositeReport ? handleSplitKeyDown : undefined}
           >
             <span />
           </div>

@@ -1,14 +1,18 @@
-import { Card, Row, Col, Statistic, Typography, Tooltip } from 'antd';
+import { MetricStrip, financialTone } from '@/components/WorkspacePrimitives';
 import type { BacktestMetrics } from '@/models';
 
-const { Text } = Typography;
-
-function pct(val: number | undefined | null): string {
-  return `${((val ?? 0) * 100).toFixed(2)}%`;
+function pct(value: number | undefined | null, signed = false): string {
+  return value != null && Number.isFinite(value)
+    ? `${signed && value > 0 ? '+' : ''}${(value * 100).toFixed(2)}%`
+    : '—';
 }
 
-function num(val: number | undefined | null, decimals = 2): string {
-  return (val ?? 0).toFixed(decimals);
+function num(value: number | undefined | null, decimals = 2): string {
+  if (value === Infinity) return '∞';
+  if (value === -Infinity) return '−∞';
+  return value != null && Number.isFinite(value)
+    ? value.toLocaleString('zh-CN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+    : '—';
 }
 
 interface Props {
@@ -18,75 +22,35 @@ interface Props {
 }
 
 export default function ResultsOverview({ metrics, name, color }: Props) {
-  return (
-    <Card size="small" title={name} style={color ? { borderColor: color, borderWidth: 2 } : undefined}>
-      <Row className="results-overview-grid" gutter={[16, 12]}>
-        <Col span={8}>
-          <Statistic title="累计投入" value={num(metrics.netContributions ?? metrics.initialCapital)} prefix="¥" />
-        </Col>
-        <Col span={8}>
-          <Statistic title="期末权益" value={num(metrics.finalEquity)} prefix="¥" />
-        </Col>
-        <Col span={8}>
-          <Statistic
-            title="累计收益率"
-            value={pct(metrics.totalReturn)}
-            styles={{ content: { color: metrics.totalReturn >= 0 ? '#3f8600' : '#cf1322' } }}
-          />
-        </Col>
-        <Col span={8}>
-          <Statistic title="年化收益率" value={pct(metrics.annualizedReturn)} />
-        </Col>
-        <Col span={8}>
-          <Statistic title="年化波动率" value={pct(metrics.annualizedVolatility)} />
-        </Col>
-        <Col span={8}>
-          <Statistic title="夏普比率" value={num(metrics.sharpeRatio)} />
-        </Col>
-        <Col span={8}>
-          <Statistic title="风险收益比" value={num(metrics.riskReturnRatio ?? 0)} />
-        </Col>
-        <Col span={8}>
-          <Statistic title="回撤收益比" value={num(metrics.returnMddRatio ?? 0)} />
-        </Col>
-        <Col span={8}>
-          <Tooltip title="基于单位净值计算，剔除新增资金影响">
-            <Statistic
-              title="最大回撤"
-              value={pct(metrics.maxDrawdown)}
-              styles={{ content: { color: '#cf1322' } }}
-            />
-          </Tooltip>
-        </Col>
-        <Col span={8}>
-          <Statistic title="交易次数" value={metrics.tradeCount} />
-        </Col>
-        <Col span={8}>
-          <Statistic title="胜率" value={pct(metrics.winRate)} />
-        </Col>
-        <Col span={8}>
-          <Statistic title="盈亏比" value={num(metrics.profitFactor)} />
-        </Col>
-        <Col span={8}>
-          <Statistic title="平均持仓天数" value={num(metrics.avgHoldingDays, 1)} suffix="天" />
-        </Col>
-        <Col span={8}>
-          <Statistic title="总手续费" value={num(metrics.totalCommission)} prefix="¥" />
-        </Col>
-        <Col span={8}>
-          <Statistic title="总印花税" value={num(metrics.totalTax)} prefix="¥" />
-        </Col>
-        <Col span={12}>
-          <Text type="secondary">
-            基准收益: {pct(metrics.benchmarkReturn)} | 超额收益: {pct(metrics.excessReturn)}
-          </Text>
-        </Col>
-        {metrics.metricsNote && (
-          <Col span={24}>
-            <Text type="secondary" style={{ fontSize: 12 }}>{metrics.metricsNote}</Text>
-          </Col>
-        )}
-      </Row>
-    </Card>
-  );
+  const secondary = [
+    ['累计投入', `¥${num(metrics.netContributions ?? metrics.initialCapital)}`],
+    ['基准收益', pct(metrics.benchmarkReturn, true)],
+    ['年化波动率', pct(metrics.annualizedVolatility)],
+    ['风险收益比', num(metrics.riskReturnRatio)],
+    ['回撤收益比', num(metrics.returnMddRatio)],
+    ['交易次数', num(metrics.tradeCount, 0)],
+    ['胜率', pct(metrics.winRate)],
+    ['盈亏比', num(metrics.profitFactor)],
+    ['平均持仓天数', `${num(metrics.avgHoldingDays, 1)} 天`],
+    ['总手续费', `¥${num(metrics.totalCommission)}`],
+    ['总印花税', `¥${num(metrics.totalTax)}`],
+  ];
+  return <section className="results-metrics-card" aria-label={name || '回测绩效指标'}>
+    {name && <h3 style={color ? { borderLeft: `3px solid ${color}`, paddingLeft: 8 } : undefined}>{name}</h3>}
+    <MetricStrip label="回测核心指标" items={[
+      { label: '累计收益率', value: pct(metrics.totalReturn, true), tone: financialTone(metrics.totalReturn) },
+      { label: '年化收益率', value: pct(metrics.annualizedReturn, true), tone: financialTone(metrics.annualizedReturn) },
+      { label: '最大回撤', value: pct(metrics.maxDrawdown), tone: 'risk', note: '风险指标 · 基于单位净值' },
+      { label: '期末权益', value: `¥${num(metrics.finalEquity)}` },
+      { label: '夏普比率', value: num(metrics.sharpeRatio) },
+      { label: '超额收益', value: pct(metrics.excessReturn, true), tone: financialTone(metrics.excessReturn) },
+    ]} />
+    <details className="workspace-details">
+      <summary>更多绩效指标与费用明细</summary>
+      <dl className="results-secondary-metrics">
+        {secondary.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+      </dl>
+      {metrics.metricsNote && <p className="results-metrics-note">{metrics.metricsNote}</p>}
+    </details>
+  </section>;
 }

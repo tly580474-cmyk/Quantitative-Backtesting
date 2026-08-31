@@ -203,7 +203,7 @@ function App() {
   );
 }
 
-function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }) {
+export function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }) {
   const [section, setSection] = useState<Section>('overview');
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [config, setConfig] = useState<AdminConfigItem[]>([]);
@@ -465,7 +465,7 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(true)}>
             <MenuOutlined />
           </button>
-          <div>
+          <div className="admin-header-copy">
             <span className="eyebrow">Operations Console</span>
             <h1>{section === 'overview' ? '运行总览' : section === 'agents' ? 'Agent 运维' : section === 'diagnostics' ? '问题诊断' : '配置与密钥'}</h1>
           </div>
@@ -475,7 +475,7 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
               <strong>{lastRefresh ? lastRefresh.toLocaleTimeString('zh-CN', { hour12: false }) : '—'}</strong>
             </div>
             <button
-              className="danger-button"
+              className="secondary-button restart-trigger"
               disabled={restarting || restartStatus?.available !== true}
               title={restartStatus?.available ? '优雅重启后端服务' : restartStatus?.reason ?? '正在读取重启能力'}
               onClick={() => setRestartDialogOpen(true)}
@@ -494,7 +494,7 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
         </header>
 
         <div className="admin-content">
-          {error && <InlineMessage level="critical">{error}</InlineMessage>}
+          {error && overview && <InlineMessage level="critical">{error}</InlineMessage>}
           {notice && <InlineMessage level="warning" onClose={() => setNotice('')}>{notice}</InlineMessage>}
           {/* §4.2 critical 常驻横幅 */}
           {overview?.overall === 'critical' && (
@@ -504,8 +504,10 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
           )}
           {loading && !overview ? (
             <DashboardSkeleton />
+          ) : !overview ? (
+            <AdminLoadFailure error={error || '暂时无法读取管理台状态。'} onRetry={() => void refreshOverview()} />
           ) : section === 'overview' ? (
-            overview && <OverviewSection
+            <OverviewSection
               overview={overview}
               metrics={metrics}
               dataUpdates={dataUpdates}
@@ -516,9 +518,9 @@ function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }
               onRefreshMetrics={() => void refreshMetrics()}
             />
           ) : section === 'agents' ? (
-            agentOperations && <AgentOperationsSection operations={agentOperations} />
+            agentOperations ? <AgentOperationsSection operations={agentOperations} /> : <SectionLoadFailure label="Agent 运维数据暂不可用" />
           ) : section === 'diagnostics' ? (
-            overview && <DiagnosticsSection checks={overview.checks} />
+            <DiagnosticsSection checks={overview.checks} />
           ) : (
             <ConfigurationSection
               items={config}
@@ -598,7 +600,7 @@ function AgentOperationsSection({ operations }: { operations: AgentOperations })
       </div>
       <StatusBadge level={status} />
     </section>
-    <div className="metric-grid">
+    <div className="metric-grid metric-grid--agent" aria-label="Agent 运行指标">
       <MetricCard icon={<RobotOutlined />} label="Codex CLI" value={operations.codex.version ?? '不可用'} detail={operations.codex.model ?? '未指定模型'} level={operations.codex.version ? 'healthy' : 'warning'} />
       <MetricCard icon={<CloudServerOutlined />} label="API Provider" value={operations.codex.modelProvider} detail={operations.codex.apiKeyConfigured ? '项目 Key 已配置' : '项目 Key 未配置'} level={operations.codex.apiKeyConfigured ? 'healthy' : 'critical'} />
       <MetricCard icon={<SafetyCertificateOutlined />} label="工作区自治" value={operations.codex.sandboxMode} detail={`Windows ${operations.codex.windowsSandbox} · 审批 ${operations.codex.approvalsEnabled ? '逐步开启' : '无需逐步审批'} · 网络 ${operations.codex.networkEnabled ? '开放' : '关闭'}`} level={operations.codex.isolatedHome && operations.codex.sandboxMode === 'workspace-write' && !operations.codex.approvalsEnabled ? 'healthy' : 'warning'} />
@@ -1038,8 +1040,10 @@ function DiagnosticsSection({ checks }: { checks: DiagnosticCheck[] }) {
           ['healthy', '正常'],
         ] as const).map(([value, label]) => (
           <button
+            type="button"
             className={filter === value ? 'filter-button is-active' : 'filter-button'}
             key={value}
+            aria-pressed={filter === value}
             onClick={() => setFilter(value)}
           >
             {label}
@@ -1085,14 +1089,16 @@ function ConfigurationSection({
     <>
       <div className="config-search-bar">
         <SearchOutlined />
+        <label className="sr-only" htmlFor="admin-config-search">搜索配置项</label>
         <input
+          id="admin-config-search"
           type="text"
           placeholder="搜索配置项名称、键名或描述…"
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
         />
         {search && (
-          <button className="icon-button" aria-label="清除搜索" onClick={() => onSearchChange('')}>
+          <button type="button" className="icon-button" aria-label="清除搜索" onClick={() => onSearchChange('')}>
             <CloseOutlined />
           </button>
         )}
@@ -1469,11 +1475,13 @@ function LoginScreen({
               data-lpignore="true"
               data-form-type="other"
               placeholder="输入 ADMIN_API_TOKEN"
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? 'admin-login-error' : undefined}
               autoFocus
             />
-            {error && <InlineMessage level="critical">{error}</InlineMessage>}
-            <button className="primary-button login-button" type="submit" disabled={loading || !token.trim()}>
-              <SafetyCertificateOutlined />
+            {error && <div id="admin-login-error"><InlineMessage level="critical">{error}</InlineMessage></div>}
+            <button className="primary-button login-button" type="submit" disabled={loading || !token.trim()} aria-busy={loading}>
+              {loading ? <ReloadOutlined spin /> : <SafetyCertificateOutlined />}
               {loading ? '正在验证…' : '进入管理台'}
             </button>
           </form>
@@ -1652,7 +1660,7 @@ function NavButton({
   children: ReactNode;
 }) {
   return (
-    <button className={active ? 'nav-button is-active' : 'nav-button'} onClick={onClick}>
+    <button type="button" className={active ? 'nav-button is-active' : 'nav-button'} aria-current={active ? 'page' : undefined} onClick={onClick}>
       <span>{icon}</span>
       {children}
     </button>
@@ -1694,22 +1702,43 @@ function InlineMessage({
     <div className={`inline-message level-${level}`} role={level === 'critical' ? 'alert' : 'status'}>
       <StatusIcon level={level} />
       <span>{children}</span>
-      {onClose && <button className="icon-button" aria-label="关闭提示" onClick={onClose}><CloseOutlined /></button>}
+      {onClose && <button type="button" className="icon-button" aria-label="关闭提示" onClick={onClose}><CloseOutlined /></button>}
     </div>
   );
 }
 
-function EmptyState({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {
-  return <div className="empty-state"><span>{icon}</span><strong>{title}</strong><p>{description}</p></div>;
+function EmptyState({ icon, title, description, action }: { icon: ReactNode; title: string; description: string; action?: ReactNode }) {
+  return <div className="empty-state"><span>{icon}</span><strong>{title}</strong><p>{description}</p>{action && <div className="empty-state-action">{action}</div>}</div>;
+}
+
+function AdminLoadFailure({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <section className="panel admin-load-state" role="alert">
+      <EmptyState
+        icon={<CloseCircleOutlined />}
+        title="无法读取管理台状态"
+        description={error}
+        action={<button type="button" className="primary-button" onClick={onRetry}><ReloadOutlined />重新连接</button>}
+      />
+    </section>
+  );
+}
+
+function SectionLoadFailure({ label }: { label: string }) {
+  return (
+    <section className="panel admin-load-state" role="status">
+      <EmptyState icon={<ReloadOutlined spin />} title={label} description="请稍后刷新，管理台会保留已有的安全会话。" />
+    </section>
+  );
 }
 
 function LoadingScreen({ label }: { label: string }) {
-  return <main className="loading-page"><ReloadOutlined spin /><span>{label}</span></main>;
+  return <main className="loading-page" aria-busy="true"><ReloadOutlined spin /><span>{label}</span></main>;
 }
 
 function DashboardSkeleton() {
   return (
-    <div className="skeleton-stack" aria-label="正在加载运行状态">
+    <div className="skeleton-stack" aria-label="正在加载运行状态" aria-busy="true">
       <div className="skeleton skeleton-banner" />
       <div className="metric-grid">
         {[0, 1, 2, 3].map((item) => <div className="skeleton skeleton-card" key={item} />)}

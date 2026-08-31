@@ -98,7 +98,7 @@ export default function StrategyConfigPanel() {
   };
 
   return (
-    <Card size="small" title="策略配置">
+    <Card size="small" title="策略配置" className="backtest-config-card backtest-strategy-config-card">
       <Form layout="vertical" size="small">
         <Form.Item label="选择策略">
           <Select

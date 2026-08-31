@@ -18,6 +18,7 @@ import {
 } from '@ant-design/icons';
 import { useBacktestStore } from '@/stores/useBacktestStore';
 import { WorkbenchPanel } from '@/components/WorkbenchPanel';
+import { financialTone } from '@/components/WorkspacePrimitives';
 import ResultsOverview from './ResultsOverview';
 import EquityChart from './EquityChart';
 import TradeList from './TradeList';
@@ -270,6 +271,15 @@ export default function BacktestResultsPage() {
                     <div
                       key={r.id}
                       role="listitem"
+                      tabIndex={0}
+                      aria-label={`打开 ${strategyNameFor(r)} · ${r.datasetSnapshot.symbol} 回测结果`}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          handleView(r);
+                        }
+                      }}
                       className={[
                         'result-list-item',
                         isSelected ? 'is-selected' : '',
@@ -286,12 +296,12 @@ export default function BacktestResultsPage() {
                         </div>
                         <div className="result-list-meta">
                           <Text type="secondary">{r.datasetSnapshot.symbol}</Text>
-                          <Text type="secondary">{new Date(r.startedAt).toLocaleString('zh-CN')}</Text>
+                          <Text type="secondary" title={new Date(r.startedAt).toLocaleString('zh-CN')}>{new Date(r.startedAt).toLocaleDateString('zh-CN')}</Text>
                           <Text type="secondary">{r.datasetSnapshot.startTime} ~ {r.datasetSnapshot.endTime}</Text>
                           {isCompleted && (
                             <Space size={4} wrap>
-                              <Tag color="blue">{((r.metrics.totalReturn ?? 0) * 100).toFixed(2)}%</Tag>
-                              <Tag color={profitAmount >= 0 ? 'green' : 'red'}>
+                              <Tag className={`financial-${financialTone(r.metrics.totalReturn)}`}>{((r.metrics.totalReturn ?? 0) * 100).toFixed(2)}%</Tag>
+                              <Tag className={`financial-${financialTone(profitAmount)}`}>
                                 ¥{profitAmount.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
                               </Tag>
                               <Tag>{r.metrics.tradeCount} 笔</Tag>
@@ -401,7 +411,7 @@ export default function BacktestResultsPage() {
                   </Text>
                 </div>
                 <Space wrap>
-                  <Tag color={(activeResult.metrics.finalEquity - contributionBase(activeResult)) >= 0 ? 'green' : 'red'}>
+                  <Tag className={`financial-${financialTone(activeResult.metrics.totalReturn)}`}>
                     收益 {((activeResult.metrics.totalReturn ?? 0) * 100).toFixed(2)}%
                   </Tag>
                   <Tag color="blue">{activeResult.metrics.tradeCount} 笔交易</Tag>
@@ -411,9 +421,21 @@ export default function BacktestResultsPage() {
                 items={[
                   {
                     key: 'overview',
-                    label: '绩效指标',
+                    label: '绩效概览',
                     children: (
-                      <ResultsOverview metrics={activeResult.metrics} name="" />
+                      <>
+                        <ResultsOverview metrics={activeResult.metrics} name="" />
+                        <figure className="results-overview-chart">
+                          <figcaption><strong>策略权益走势</strong><span>买卖点、基准与成本对比见「权益曲线」</span></figcaption>
+                          <EquityChart height={isMobile ? 260 : 320} series={[{
+                            id: activeResult.id,
+                            label: strategyNameFor(activeResult),
+                            color: '#1677FF',
+                            valueFormat: 'currency',
+                            data: toEquitySeries(activeResult.equityCurve),
+                          }]} />
+                        </figure>
+                      </>
                     ),
                   },
                   {

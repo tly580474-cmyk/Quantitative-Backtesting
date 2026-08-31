@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { CSSProperties, KeyboardEvent } from 'react';
 import { App, AutoComplete, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, Modal, Segmented, Select, Skeleton, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
 import { ApartmentOutlined, ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlined, BarChartOutlined, CheckCircleOutlined, CheckOutlined, CopyOutlined, DashboardOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileSearchOutlined, FireOutlined, FundProjectionScreenOutlined, LineChartOutlined, NotificationOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SettingOutlined, SlidersOutlined, StarFilled, StarOutlined, ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons';
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
@@ -29,12 +29,14 @@ import {
   type WatchlistMetrics,
 } from './watchlistMetrics';
 import { useMobileLayout } from '@/components/mobile/useMobileLayout';
+import { useMediaQuery } from '@/components/useMediaQuery';
 import MobileWatchlist from './MobileWatchlist';
 import MobileDetailQuote from './MobileDetailQuote';
 import MobileDetailTabs from './MobileDetailTabs';
 import MobileAnalysisSetup from './MobileAnalysisSetup';
 import MobileResearchReports from './MobileResearchReports';
 import MarketLayerControl from './MarketLayerControl';
+import MarketFactorList from './MarketFactorList';
 import { useDetailIndicators } from './useDetailIndicators';
 import './mobile.css';
 import './mobile-detail.css';
@@ -327,7 +329,7 @@ function WatchlistMetricValues({
   </span>;
 }
 
-function SentimentMetricStrip({ overview }: { overview: MarketSentimentOverview }) {
+export function SentimentMetricStrip({ overview }: { overview: MarketSentimentOverview }) {
   const metrics = [
     { key: 'msi', label: 'MSI', value: signed(overview.msi), icon: <LineChartOutlined />, tone: overview.msi >= 0 ? 'up' : 'down' },
     { key: 'advancers', label: '上涨家数', value: `${fmt(overview.advancers, 0)} 家`, icon: <ArrowUpOutlined />, tone: 'up' },
@@ -344,7 +346,7 @@ function SentimentMetricStrip({ overview }: { overview: MarketSentimentOverview 
   </div>;
 }
 
-function MarketBreadthChart({
+export function MarketBreadthChart({
   overview,
   onSelectStock,
 }: {
@@ -393,7 +395,7 @@ function MarketBreadthChart({
               aria-label={`查看${item.label}的${item.count}只股票`}
             >
               <b>{item.count}</b>
-              <i style={{ height }} />
+              <i style={{ '--breadth-height': `${height}px`, '--breadth-width': `${item.count / maxCount * 100}%` } as CSSProperties} />
               <span>{item.label}</span>
             </button>;
           })}
@@ -689,15 +691,14 @@ function HealthIndicatorContent({ indicator }: { indicator: MarketHealthIndicato
       <span>{indicator.interpretation}</span>
       {indicator.coveragePct != null && <small>覆盖率 {fmt(indicator.coveragePct, 0)}%</small>}
     </div>
-    <div className="market-factor-list">
-      {indicator.components.map((component) => <Tooltip key={component.key} title={component.description}>
-        <div className="market-factor-row">
+    <MarketFactorList key={indicator.key} items={indicator.components.map((component) => ({
+      key: component.key, label: component.label, description: component.description,
+      content: <>
           <span><b>{component.source === 'macro' ? '宏' : component.source === 'financial' ? '财' : '市'}</b>{component.label}<small>{Math.round(component.weight * 100)}%</small></span>
           <Tag>{component.source === 'macro' ? '宏观' : component.source === 'financial' ? '财务' : '市场'}</Tag>
           <strong>{component.score == null ? '—' : fmt(component.score, 1)}</strong>
-        </div>
-      </Tooltip>)}
-    </div>
+      </>,
+    }))} />
   </>;
 }
 
@@ -742,15 +743,14 @@ function MarketIndicatorCard({
       <span>{overview.structureDescription}</span>
       <small>广度－权重指数：{signed(overview.breadthIndexDivergence)}</small>
     </div>
-    <div className="market-factor-list">
-      {overview.factors.map((factor) => <Tooltip key={factor.key} title={`${factor.formula}。${factor.description}`}>
-        <div className="market-factor-row">
+    <MarketFactorList key="msi" items={overview.factors.map((factor) => ({
+      key: factor.key, label: factor.label, description: `${factor.formula}。${factor.description}`,
+      content: <>
           <span><b>{factor.key}</b>{factor.label}<small>{Math.round(factor.weight * 100)}%</small></span>
           {sourceTag(factor.source)}
           <strong className={factor.value > 0 ? 'market-up' : factor.value < 0 ? 'market-down' : ''}>{fmt(factor.value)}</strong>
-        </div>
-      </Tooltip>)}
-    </div>
+      </>,
+    }))} />
     </> : healthIndicator
       ? <HealthIndicatorContent key={healthIndicator.key} indicator={healthIndicator} />
       : <div className="market-health-empty"><Spin spinning={healthLoading}><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`${selected.toUpperCase()} 尚无已发布数据`} /></Spin></div>}
@@ -1038,6 +1038,8 @@ function handleScrollKeys(event: KeyboardEvent<HTMLElement>) {
 export default function MarketDataPage({ view = 'overview', instrumentCode, onOpenInAnalysis, onOpenDetail }: MarketDataPageProps) {
   const { message } = App.useApp();
   const isMobileLayout = useMobileLayout();
+  const compactIndexLayout = useMediaQuery('(max-width: 1439px)');
+  const [allIndicesExpanded, setAllIndicesExpanded] = useState(false);
   const isWatchlistView = view === 'watchlist';
   const isDetailView = view === 'detail';
   const isMobileWatchlist = isWatchlistView && isMobileLayout;
@@ -1697,6 +1699,10 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     }
   };
   const visibleIndexCards = buildMarketIndexCards(selectedIndexKeys, MARKET_INDEX_OPTIONS, indexQuotes);
+  const canCollapseIndices = !isMobileLayout && compactIndexLayout && visibleIndexCards.length > 3;
+  const displayedIndexCards = canCollapseIndices && !allIndicesExpanded
+    ? visibleIndexCards.slice(0, 3)
+    : visibleIndexCards;
   // 长按拖拽重排序
   const {
     draggingKey,
@@ -2025,13 +2031,13 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       <AutoComplete className="market-search" value={searchText} options={options} onSearch={search} onSelect={(code) => { const item = searchItems.find((x) => x.code === code); if (item) openInstrumentDetail(item); }} notFoundContent={searching ? <Spin size="small" /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入代码、简称或拼音" />}>
         <Input size="middle" prefix={<SearchOutlined />} suffix={<ArrowRightOutlined />} placeholder="搜索股票并查看详情，如 600519、茅台、mt" aria-label="搜索股票并查看详情" />
       </AutoComplete>
-      <Space size={6}>
+      <Space size={6} className="market-overview-actions">
         <Tooltip title="设置展示的指数"><Button icon={<SettingOutlined />} aria-label="设置展示的指数" onClick={openIndexConfig} /></Tooltip>
         <Tooltip title="刷新指数与市场概况"><Button icon={<ReloadOutlined />} loading={indexLoading || marketSentimentLoading || marketHealthLoading} aria-label="刷新市场总览" onClick={() => { void loadIndexQuotes(); void refreshIndexPreviewKlines(); void loadMarketSentiment(false, true); void loadMarketHealth(false, true); }} /></Tooltip>
       </Space>
     </section>
-    <section className={`market-index-grid is-count-${visibleIndexCards.length}${isReordering ? ' is-reordering' : ''}`} aria-label="当前交易日主要指数">
-      {visibleIndexCards.map(({ key, option, quote: item }) => {
+    <section id="market-overview-indices" className={`market-index-grid is-count-${displayedIndexCards.length}${isReordering ? ' is-reordering' : ''}`} aria-label="当前交易日主要指数">
+      {displayedIndexCards.map(({ key, option, quote: item }) => {
         const snapshot = resolveMarketIndexSnapshot(item, indexPreviewKlines[key]);
         const direction = (snapshot.changePct ?? 0) > 0 ? 'up' : (snapshot.changePct ?? 0) < 0 ? 'down' : '';
         const isDragging = draggingKey === key;
@@ -2068,8 +2074,14 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         <div><span>情绪 MSI</span><strong className={(marketSentiment?.msi ?? 0) >= 0 ? 'market-up' : 'market-down'}>{signed(marketSentiment?.msi)}</strong></div>
       </div>
     </section>
-    {visibleIndexCards.length > 1 && !isReordering && (
-      <p className="market-index-drag-hint" aria-hidden="true">长按指数卡片可拖拽换位</p>
+    {!isMobileLayout && visibleIndexCards.length > 1 && !isReordering && (
+      <div className="market-index-expand">
+        <span>长按指数卡片调整顺序{canCollapseIndices && !allIndicesExpanded ? ` · 已显示 3 / ${visibleIndexCards.length}` : ''}</span>
+        {canCollapseIndices && <Button type="text" size="small" aria-expanded={allIndicesExpanded}
+          aria-controls="market-overview-indices" onClick={() => setAllIndicesExpanded((value) => !value)}>
+          {allIndicesExpanded ? '收起更多指数' : `展开其余 ${visibleIndexCards.length - 3} 个指数`}
+        </Button>}
+      </div>
     )}
     {isReordering && (
       <p className="market-index-drag-hint is-active" role="status">拖拽到目标卡片上松开即可交换位置</p>

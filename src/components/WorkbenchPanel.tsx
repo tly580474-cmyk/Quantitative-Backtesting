@@ -63,7 +63,7 @@ export function WorkbenchDrawer({
       ...resolvedStyles,
       body: {
         padding: 10,
-        background: '#f8fafc',
+        background: 'var(--wb-surface-muted)',
         ...resolvedStyles?.body,
       },
     });

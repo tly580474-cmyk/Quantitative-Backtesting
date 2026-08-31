@@ -25,12 +25,17 @@ import {
 import dayjs from 'dayjs';
 import zhCN from 'antd/locale/zh_CN';
 import AppLayout from './components/AppLayout';
+import AgentWorkspaceNav from './features/agent/AgentWorkspaceNav';
 import { useMobileLayout } from './components/mobile/useMobileLayout';
 import FileUploader from './components/FileUploader';
 import StockInfoBar from './components/StockInfoBar';
 import ImportResultPanel from './components/ImportResultPanel';
 import IndicatorPanel from './components/IndicatorPanel';
 import PageSkeleton from './components/PageSkeleton';
+import { PageHeader } from './components/WorkspacePrimitives';
+import { useMediaQuery } from './components/useMediaQuery';
+import AnalysisPlaceholder from './features/chart/AnalysisPlaceholder';
+import './features/chart/analysis.workbench.css';
 import { WorkbenchDrawer, WorkbenchPanel } from './components/WorkbenchPanel';
 import RangeChangePanel from './features/chart/RangeChangePanel';
 import SaveDatasetModal from './features/dataLibrary/SaveDatasetModal';
@@ -120,6 +125,8 @@ const MINUTE_MAX_WINDOW_DAYS: Record<MinuteChartPeriod, number> = {
   minute120: 366,
 };
 
+const EMPTY_ANALYSIS_CANDLES: ImportResult['candles'] = [];
+
 function normalizeMinuteTime(value: string): string {
   return value.trim().replace('T', ' ').slice(0, 16);
 }
@@ -199,6 +206,8 @@ const PAGE_LABELS: Record<string, string> = {
   '/factors': '因子研究',
   '/studio': '策略工作室',
   '/agent': '万行智研',
+  '/agent-reports': '研究报告',
+  '/agent-runs': '运行记录',
 };
 
 function DataLibraryRoute() {
@@ -206,25 +215,7 @@ function DataLibraryRoute() {
   return <DataLibrary onOpen={() => navigate('/analysis')} />;
 }
 
-function useCompactViewport() {
-  const [matches, setMatches] = useState(() => (
-    typeof window !== 'undefined'
-      ? window.matchMedia('(max-width: 991px)').matches
-      : false
-  ));
-
-  useEffect(() => {
-    const media = window.matchMedia('(max-width: 991px)');
-    const handleChange = () => setMatches(media.matches);
-    handleChange();
-    media.addEventListener('change', handleChange);
-    return () => media.removeEventListener('change', handleChange);
-  }, []);
-
-  return matches;
-}
-
-function MarketAnalysisRoute() {
+export function MarketAnalysisRoute() {
   const navigate = useNavigate();
   const { notification } = AntApp.useApp();
   const [rangeSelectionEnabled, setRangeSelectionEnabled] = useState(false);
@@ -245,10 +236,13 @@ function MarketAnalysisRoute() {
   const [minuteRange, setMinuteRange] = useState<[string, string] | null>(null);
   const [minuteCatalog, setMinuteCatalog] = useState<MinuteCatalogResponse | null>(null);
   const [minuteLoading, setMinuteLoading] = useState(false);
+  const [minuteCatalogLoading, setMinuteCatalogLoading] = useState(false);
+  const [minuteError, setMinuteError] = useState<string | null>(null);
+  const [minuteRetry, setMinuteRetry] = useState(0);
+  const [minuteDataKey, setMinuteDataKey] = useState('');
   const [minuteMeta, setMinuteMeta] = useState<{ sourceFiles: number; elapsedMs: number; truncated: boolean } | null>(null);
   const minuteRequestRef = useRef(0);
-  const emptyCandlesPromptShownRef = useRef(false);
-  const isCompactViewport = useCompactViewport();
+  const isCompactViewport = useMediaQuery('(max-width: 1279px)');
   const sourceCandles = useCandleStore((state) => state.candles);
   const importResult = useCandleStore((state) => state.importResult);
   const analysisSymbol = importResult?.symbol ?? sourceCandles[0]?.symbol ?? '';
@@ -285,7 +279,9 @@ function MarketAnalysisRoute() {
       setSwitchingAdjustment(false);
     }
   }, [notification]);
-  const activeSourceCandles = isMinutePeriod(period) ? minuteCandles : sourceCandles;
+  const activeSourceCandles = isMinutePeriod(period)
+    ? minuteDataKey === `${analysisSymbol}:${period}` ? minuteCandles : EMPTY_ANALYSIS_CANDLES
+    : sourceCandles;
   const displayCandles = useMemo(
     () => aggregateCandles(activeSourceCandles, period),
     [activeSourceCandles, period],
@@ -308,6 +304,9 @@ function MarketAnalysisRoute() {
     }
     const requestId = ++minuteRequestRef.current;
     setMinuteLoading(true);
+    setMinuteError(null);
+    setMinuteCandles([]);
+    setMinuteMeta(null);
     try {
       const query = new URLSearchParams({
         startDate: range[0],
@@ -335,6 +334,7 @@ function MarketAnalysisRoute() {
         volume: item.volume,
         turnover: item.amount / 100_000_000,
       })));
+      setMinuteDataKey(`${analysisSymbol}:${nextPeriod}`);
       setMinuteMeta({
         sourceFiles: response.sourceFiles,
         elapsedMs: response.elapsedMs,
@@ -345,15 +345,25 @@ function MarketAnalysisRoute() {
       if (requestId !== minuteRequestRef.current) return;
       setMinuteCandles([]);
       setMinuteMeta(null);
-      notification.error({ message: error instanceof Error ? error.message : '分钟行情加载失败' });
+      setMinuteError(error instanceof Error ? error.message : '分钟行情加载失败');
     } finally {
       if (requestId === minuteRequestRef.current) setMinuteLoading(false);
     }
   }, [analysisSymbol, notification]);
 
   useEffect(() => {
-    if (!isMinutePeriod(period)) return;
+    ++minuteRequestRef.current;
+    setMinuteCandles([]);
+    setMinuteMeta(null);
+    setMinuteCatalog(null);
+    setMinuteError(null);
+    setMinuteLoading(false);
+    if (!isMinutePeriod(period) || !analysisSymbol) {
+      setMinuteCatalogLoading(false);
+      return;
+    }
     let cancelled = false;
+    setMinuteCatalogLoading(true);
     const prepare = async () => {
       try {
         const catalog = await apiFetch<MinuteCatalogResponse>('/api/market-data/minute/catalog');
@@ -361,7 +371,7 @@ function MarketAnalysisRoute() {
         setMinuteCatalog(catalog);
         if (catalog.status !== 'ready' || !catalog.lastDate) {
           setMinuteCandles([]);
-          notification.warning({ message: 'DuckDB 分钟快照暂不可用' });
+          setMinuteError('分钟快照暂不可用，请稍后重试或切回日 K。');
           return;
         }
         const end = catalog.lastDate;
@@ -370,43 +380,14 @@ function MarketAnalysisRoute() {
         setMinuteRange(range);
         await loadMinuteCandles(period, range, true);
       } catch (error) {
-        if (!cancelled) notification.error({ message: error instanceof Error ? error.message : '分钟数据目录读取失败' });
+        if (!cancelled) setMinuteError(error instanceof Error ? error.message : '分钟数据目录读取失败');
+      } finally {
+        if (!cancelled) setMinuteCatalogLoading(false);
       }
     };
     void prepare();
-    return () => { cancelled = true; };
-  }, [loadMinuteCandles, notification, period]);
-
-  useEffect(() => {
-    if (sourceCandles.length > 0) {
-      emptyCandlesPromptShownRef.current = false;
-      notification.destroy('empty-analysis-candles');
-      return undefined;
-    }
-
-    if (emptyCandlesPromptShownRef.current) return undefined;
-    emptyCandlesPromptShownRef.current = true;
-    notification.info({
-      key: 'empty-analysis-candles',
-      title: '当前没有可展示的 K 线数据',
-      description: '可在数据管理中导入 Excel / CSV，或打开已有数据集后再查看图表。',
-      placement: 'topRight',
-      duration: 8,
-      actions: (
-        <Button
-          type="primary"
-          size="small"
-          onClick={() => {
-            notification.destroy('empty-analysis-candles');
-            navigate('/data');
-          }}
-        >
-          去数据管理
-        </Button>
-      ),
-    });
-    return undefined;
-  }, [navigate, notification, sourceCandles.length]);
+    return () => { cancelled = true; ++minuteRequestRef.current; };
+  }, [analysisSymbol, loadMinuteCandles, minuteRetry, period]);
 
   const handleInspectorToggle = useCallback((mode: 'indicator' | 'chan') => {
     setInspectorMode(mode);
@@ -556,7 +537,8 @@ function MarketAnalysisRoute() {
   const morePeriod = MORE_PERIOD_OPTIONS.find((option) => option.value === period);
 
   const analysisControls = (
-    <Space className="market-analysis-toolbar-controls" size={8} wrap>
+    <div className="market-analysis-toolbar-controls">
+      <div className="analysis-tool-group" role="group" aria-label="分析图层工具">
       <Button
         type={!isCompactViewport && indicatorInspectorOpen && inspectorMode === 'indicator' ? 'primary' : 'default'}
         size="small"
@@ -600,6 +582,8 @@ function MarketAnalysisRoute() {
         筹码峰
       </Button>
       {chanEnabled && <Tag className="chan-version-tag" variant="filled">chan-v1</Tag>}
+      </div>
+      <div className="analysis-tool-group" role="group" aria-label="行情周期与范围">
       <div className="analysis-period-switcher" aria-label="K线周期">
         <Segmented<ChartPeriod>
           size="small"
@@ -629,6 +613,7 @@ function MarketAnalysisRoute() {
       {isMinutePeriod(period) && (
         <Space.Compact className="analysis-minute-range">
           <DatePicker.RangePicker
+            aria-label="分钟行情日期范围"
             size="small"
             allowClear={false}
             value={minuteRange ? [dayjs(minuteRange[0]), dayjs(minuteRange[1])] : null}
@@ -643,8 +628,8 @@ function MarketAnalysisRoute() {
           <Button
             size="small"
             icon={<ReloadOutlined />}
-            loading={minuteLoading}
-            disabled={!minuteRange || !analysisSymbol}
+            loading={minuteLoading || minuteCatalogLoading}
+            disabled={!minuteRange || !analysisSymbol || minuteCatalogLoading}
             onClick={() => minuteRange && loadMinuteCandles(period, minuteRange)}
           >
             加载
@@ -656,6 +641,8 @@ function MarketAnalysisRoute() {
           DuckDB · {minuteMeta.sourceFiles} 日 · {displayCandles.length} 根 · {minuteMeta.elapsedMs}ms
         </Tag>
       )}
+      </div>
+      <div className="analysis-tool-group" role="group" aria-label="价格口径与导出">
       <Segmented<AdjustmentMode | ''>
         size="small"
         aria-label="价格复权方式"
@@ -678,25 +665,29 @@ function MarketAnalysisRoute() {
       >
         导出数据
       </Button>
-    </Space>
+      </div>
+    </div>
   );
 
   return (
     <div className="market-analysis-page">
-      {displayCandles.length === 0 && (
-        <div className="market-analysis-toolbar is-empty">
-          <div className="market-analysis-toolbar-extra">{analysisControls}</div>
-        </div>
-      )}
+      <PageHeader className="analysis-page-heading"
+        title={analysisSymbol ? `${importResult?.name || analysisSymbol} · 行情分析` : '行情分析工作台'}
+        description={analysisSymbol
+          ? `${analysisSymbol} · ${displayCandles.length.toLocaleString('zh-CN')} 根 K 线${displayCandles.length ? ` · ${displayCandles[0].time} — ${displayCandles[displayCandles.length - 1].time}` : ''}`
+          : '选择行情数据，再按周期、技术指标和结构图层展开研究。'}
+        actions={<Button size="small" icon={<DatabaseOutlined />} onClick={() => navigate('/data')}>
+          {analysisSymbol ? '更换数据' : '选择数据'}
+        </Button>} />
+      <div className="analysis-tools-surface" aria-label="行情分析工具栏">{analysisControls}</div>
       <RangeChangePanel
         enabled={rangeSelectionEnabled}
         onEnabledChange={setRangeSelectionEnabled}
         candles={displayCandles}
-        extra={analysisControls}
       />
       <div className={indicatorInspectorOpen ? 'market-analysis-workspace has-inspector' : 'market-analysis-workspace'}>
         <div className="market-analysis-chart">
-          <ChartContainer
+          {displayCandles.length > 0 ? <ChartContainer
             sourceCandles={activeSourceCandles}
             showRangeLines={rangeSelectionEnabled}
             period={period}
@@ -706,9 +697,17 @@ function MarketAnalysisRoute() {
             showChanSegments={chanEnabled && showChanSegments}
             showChanPenCenters={chanEnabled && showChanPenCenters}
             showChanSegmentCenters={chanEnabled && showChanSegmentCenters}
-          />
+          /> : <AnalysisPlaceholder loading={isMinutePeriod(period) && (minuteLoading || minuteCatalogLoading)} minuteMode={isMinutePeriod(period)}
+            error={isMinutePeriod(period) ? minuteError : null}
+            onRetry={() => {
+              if (isMinutePeriod(period) && minuteCatalog?.status === 'ready' && minuteRange) {
+                void loadMinuteCandles(period, minuteRange);
+              } else setMinuteRetry((value) => value + 1);
+            }}
+            hasSource={sourceCandles.length > 0} onOpenData={() => navigate('/data')}
+            onOpenMarket={() => navigate('/market-data')} />}
         </div>
-        {indicatorInspectorOpen && (
+        {indicatorInspectorOpen && !isCompactViewport && (
           <aside className="market-analysis-inspector">
             {indicatorPanel}
           </aside>
@@ -717,7 +716,7 @@ function MarketAnalysisRoute() {
       <WorkbenchDrawer
         className="market-analysis-indicator-drawer"
         title="分析图层"
-        open={indicatorDrawerOpen}
+        open={indicatorDrawerOpen && isCompactViewport}
         onClose={() => setIndicatorDrawerOpen(false)}
       >
         {inspectorContent}
@@ -779,9 +778,11 @@ function AppContent() {
   const [colorMode, setColorMode] = useState<ColorMode>(() => readColorMode());
   const factorWorkspaceActive = ['/factors', '/factor-mining']
     .includes(location.pathname);
+  const agentWorkspaceActive = ['/agent', '/agent-runs', '/agent-reports'].includes(location.pathname);
   const activeKey = location.pathname === '/'
     ? '/market-data'
     : factorWorkspaceActive ? '/factors'
+    : agentWorkspaceActive ? '/agent'
     : location.pathname.startsWith('/') ? location.pathname : '/market-data';
   useEffect(() => {
     applyColorMode(colorMode);
@@ -899,23 +900,37 @@ function AppContent() {
         algorithm: colorMode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
           colorPrimary: '#1677FF',
-          borderRadius: 6,
+          borderRadius: 8,
+          fontFamily: 'Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+          colorText: colorMode === 'dark' ? '#e2e8f0' : '#172033',
+          colorTextSecondary: colorMode === 'dark' ? '#a8b6c9' : '#526174',
+          colorLink: colorMode === 'dark' ? '#93c5fd' : '#1d4ed8',
+          colorBgContainer: colorMode === 'dark' ? '#101a2a' : '#ffffff',
+          colorBgElevated: colorMode === 'dark' ? '#182438' : '#ffffff',
+          colorBorderSecondary: colorMode === 'dark' ? '#28364a' : '#e2e8f0',
           colorBgBase: colorMode === 'dark' ? '#0b1220' : '#ffffff',
+        },
+        components: {
+          Tabs: {
+            itemSelectedColor: colorMode === 'dark' ? '#93c5fd' : '#1d4ed8',
+            itemHoverColor: colorMode === 'dark' ? '#bfdbfe' : '#1e40af',
+            inkBarColor: colorMode === 'dark' ? '#60a5fa' : '#1677ff',
+          },
         },
       }}
     >
       <AntApp>
         <AppLayout
           activeKey={activeKey}
-          activeTitle={location.pathname.startsWith('/market-detail/') ? '行情详情' : PAGE_LABELS[activeKey] ?? '市场数据'}
+          activeTitle={location.pathname.startsWith('/market-detail/') ? '行情详情' : PAGE_LABELS[location.pathname] ?? PAGE_LABELS[activeKey] ?? '市场数据'}
           navigationItems={NAV_ITEMS}
           onNavigate={(key) => navigate(key)}
           colorMode={colorMode}
           onToggleColorMode={handleToggleColorMode}
           onBack={location.pathname.startsWith('/market-detail/') ? () => navigate('/market-data') : undefined}
           topBar={topBar}
-          headerNav={factorHeaderNav}
-          hidePageIdentity={factorWorkspaceActive}
+          headerNav={agentWorkspaceActive ? <AgentWorkspaceNav /> : factorHeaderNav}
+          hidePageIdentity={factorWorkspaceActive || agentWorkspaceActive}
           center={
             <Suspense
               key={location.pathname === '/market-sense-training' ? 'market-sense-training' : colorMode}

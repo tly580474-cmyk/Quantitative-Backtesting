@@ -1,13 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Button, Card, Typography, Space, App, Tag, Empty, Select, Tooltip, Modal, Popconfirm } from 'antd';
+import { Table, Button, Card, Typography, Space, App, Tag, Empty, Select, Tooltip, Modal, Popconfirm, Alert } from 'antd';
 import { ReloadOutlined, EyeOutlined, StopOutlined, RedoOutlined, DeleteOutlined, MessageOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { AgentRun, AgentEvent } from './types';
 import { listAgentRuns, cancelAgentRun, getAgentRun, deleteAgentRun } from './api';
 import { AgentEventList } from './AgentEventList';
+import { useMobileLayout } from '@/components/mobile/useMobileLayout';
+import { PageHeader, WorkbenchEmpty } from '@/components/WorkspacePrimitives';
+import HistoryCards from './HistoryCards';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'default',
@@ -49,6 +52,8 @@ export default function AgentRunHistory() {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mobile = useMobileLayout();
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
   const [detailEvents, setDetailEvents] = useState<AgentEvent[]>([]);
@@ -58,10 +63,12 @@ export default function AgentRunHistory() {
 
   const fetchRuns = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const result = await listAgentRuns(100, 0, statusFilter);
       setRuns(result.runs ?? []);
     } catch (err) {
+      setError(err instanceof Error ? err.message : '运行记录暂时无法加载');
       message.error(`加载失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
@@ -117,9 +124,35 @@ export default function AgentRunHistory() {
     navigate(`/agent?prompt=${encodeURIComponent(record.prompt)}`);
   };
 
+  const renderRunActions = (record: AgentRun) => <Space size="small" wrap>
+    <Tooltip title="查看详情">
+      <Button aria-label="查看运行详情" size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.id)} />
+    </Tooltip>
+    {(record.status === 'completed' || record.status === 'failed' || record.status === 'canceled') && (
+      <Tooltip title="继续对话">
+        <Button aria-label="继续对话" size="small" type="primary" ghost icon={<MessageOutlined />} onClick={() => handleContinue(record)} />
+      </Tooltip>
+    )}
+    <Tooltip title="使用此 Prompt 重新发起">
+      <Button aria-label="重新发起" size="small" icon={<RedoOutlined />} onClick={() => handleRerun(record)} />
+    </Tooltip>
+    {record.status === 'running' && (
+      <Tooltip title="取消运行">
+        <Button aria-label="取消运行" size="small" danger icon={<StopOutlined />} onClick={() => handleCancel(record.id)} />
+      </Tooltip>
+    )}
+    {record.status !== 'running' && (
+      <Popconfirm title="确定删除此运行记录？" onConfirm={() => handleDelete(record.id)} okText="删除" cancelText="取消">
+        <Tooltip title="删除">
+          <Button aria-label="删除运行记录" size="small" danger icon={<DeleteOutlined />} />
+        </Tooltip>
+      </Popconfirm>
+    )}
+  </Space>;
+
   const columns: ColumnsType<AgentRun> = [
     {
-      title: 'Prompt',
+      title: '研究任务',
       dataIndex: 'prompt',
       key: 'prompt',
       ellipsis: true,
@@ -153,42 +186,16 @@ export default function AgentRunHistory() {
       title: '操作',
       key: 'actions',
       width: 220,
-      render: (_, record) => (
-        <Space size="small">
-          <Tooltip title="查看详情">
-            <Button aria-label="查看运行详情" size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.id)} />
-          </Tooltip>
-          {(record.status === 'completed' || record.status === 'failed' || record.status === 'canceled') && (
-            <Tooltip title="继续对话">
-              <Button aria-label="继续对话" size="small" type="primary" ghost icon={<MessageOutlined />} onClick={() => handleContinue(record)} />
-            </Tooltip>
-          )}
-          <Tooltip title="使用此 Prompt 重新发起">
-            <Button aria-label="重新发起" size="small" icon={<RedoOutlined />} onClick={() => handleRerun(record)} />
-          </Tooltip>
-          {record.status === 'running' && (
-            <Tooltip title="取消运行">
-              <Button aria-label="取消运行" size="small" danger icon={<StopOutlined />} onClick={() => handleCancel(record.id)} />
-            </Tooltip>
-          )}
-          {record.status !== 'running' && (
-            <Popconfirm title="确定删除此运行记录？" onConfirm={() => handleDelete(record.id)} okText="删除" cancelText="取消">
-              <Tooltip title="删除">
-                <Button aria-label="删除运行记录" size="small" danger icon={<DeleteOutlined />} />
-              </Tooltip>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
+      render: (_, record) => renderRunActions(record),
     },
   ];
 
   return (
     <div className="agent-history-page">
-      <div className="agent-history-header">
-        <Title level={4} style={{ margin: 0 }}>运行历史</Title>
-        <Space>
+      <PageHeader title="运行记录" description={`${runs.length} 条记录 · 查看过程，继续已有研究`}
+        actions={<Space wrap>
           <Select
+            aria-label="筛选运行状态"
             placeholder="筛选状态"
             allowClear
             style={{ width: 120 }}
@@ -202,9 +209,20 @@ export default function AgentRunHistory() {
             ]}
           />
           <Button icon={<ReloadOutlined />} onClick={fetchRuns} loading={loading}>刷新</Button>
-        </Space>
-      </div>
-      <Card styles={{ body: { padding: 0 } }}>
+        </Space>} />
+      {error && <Alert showIcon type="error" title="运行记录加载失败" description={error}
+        action={<Button onClick={fetchRuns} loading={loading}>重试</Button>} />}
+      {mobile ? <HistoryCards key={statusFilter ?? 'all'} items={runs} loading={loading} itemKey={(run) => run.id}
+        empty={<WorkbenchEmpty title={error ? '运行记录暂不可用' : '暂无符合条件的运行记录'}
+          description="调整状态筛选，或回到研究会话开始一个新问题。"
+          action={<Button onClick={() => navigate('/agent')}>前往研究会话</Button>} />}
+        renderItem={(run) => <>
+          <div className="agent-history-card-meta"><Tag color={STATUS_COLORS[run.status] ?? 'default'}>{STATUS_TEXTS[run.status] ?? run.status}</Tag>
+            <span>{run.status === 'running' ? '执行中' : formatDuration(run.startedAt, run.finishedAt)}</span></div>
+          <h2>{run.prompt.slice(0, 100)}{run.prompt.length > 100 ? '…' : ''}</h2>
+          <div className="agent-history-card-meta">{formatDate(run.createdAt)}</div>
+          <div className="agent-history-card-actions">{renderRunActions(run)}</div>
+        </>} /> : <Card styles={{ body: { padding: 0 } }}>
         <Table
           columns={columns}
           dataSource={runs}
@@ -215,7 +233,7 @@ export default function AgentRunHistory() {
           locale={{ emptyText: <Empty description="暂无运行记录" /> }}
           size="middle"
         />
-      </Card>
+      </Card>}
 
       <Modal
         title="运行详情"

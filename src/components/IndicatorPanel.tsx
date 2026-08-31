@@ -33,6 +33,7 @@ export default function IndicatorPanel() {
       {/* Add indicator */}
       {unusedOptions.length > 0 && (
         <Select
+          aria-label="添加技术指标"
           style={{ width: '100%', marginBottom: 12 }}
           placeholder="添加指标..."
           value={null}

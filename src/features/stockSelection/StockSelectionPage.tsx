@@ -5,7 +5,6 @@ import {
   DotChartOutlined,
   DownOutlined,
   FilterOutlined,
-  StockOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../api/client';
@@ -13,8 +12,9 @@ import StockSelectionWorkspace from '../marketData/StockSelectionWorkspace';
 import { marketDataCache } from '../marketData/marketDataCache';
 import type { FactorSelectionHistory, StockSearchItem } from '../marketData/types';
 import FactorSelectionPanel from './FactorSelectionPanel';
+import { PageHeader } from '@/components/WorkspacePrimitives';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
 const PINNED_WATCHLIST_KEY = 'quant-market-watchlist-pinned-v1';
 const ACTIVE_STRATEGY_KEY = 'quant-stock-selection-active-strategy-v1';
@@ -142,22 +142,8 @@ export default function StockSelectionPage() {
   };
 
   return <main className="stock-selection-page">
-    <header className="stock-selection-page-header">
-      <div className="stock-selection-page-title">
-        <span className="stock-selection-page-icon"><StockOutlined /></span>
-        <div>
-          <Space size={8} align="center" wrap>
-            <Title level={2}>选股</Title>
-            <Tag color="blue">{strategies.length} 个维度</Tag>
-          </Space>
-          <Text type="secondary">独立管理不同选股方法，查看当日结果与历史入选表现。</Text>
-        </div>
-      </div>
-      <div className="stock-selection-page-status">
-        <span>研究数据</span>
-        <strong>{history?.dataAsOf ?? '加载中'}</strong>
-      </div>
-    </header>
+    <PageHeader title="选股工作台" description="切换选股方法，查看当日结果与历史表现。"
+      actions={<Space size={8}><Tag>{strategies.length} 种方法</Tag><Text type="secondary">数据截至 {history?.dataAsOf ?? '加载中'}</Text></Space>} />
 
     <section className="stock-selection-strategy-picker" aria-label="选股策略">
       <button

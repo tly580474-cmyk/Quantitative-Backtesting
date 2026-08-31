@@ -4,7 +4,6 @@ import {
   App,
   Button,
   Checkbox,
-  Empty,
   Grid,
   Input,
   List,
@@ -31,15 +30,19 @@ import { apiFetch } from '@/api/client';
 import { DATA_SOURCE, INDEXEDDB_MIGRATION_MODE } from '@/api/config';
 import { getRepository } from '@/api/useRepository';
 import { WorkbenchPanel } from '@/components/WorkbenchPanel';
+import { PageHeader, WorkbenchEmpty } from '@/components/WorkspacePrimitives';
 import { exportDatabaseToExcel } from '@/db/databaseExport';
 import type { MarketDataset } from '@/models';
 import { useCandleStore } from '@/stores/useCandleStore';
 import { useDataLibraryViewStore } from '@/stores/useDataLibraryViewStore';
 import { getDatasetAssetType, type DatasetAssetType } from './datasetAssetType';
+import { formatLibraryCount, getDatasetEmptyState, getStockEmptyState } from './dataLibraryPresentation';
 import { fetchHistoryCandles } from './historyBar';
+import { useDatasetLibraryLoad } from './useDatasetLibraryLoad';
 import { fetchAdjustedDatasets, exportAdjustedKlinesToExcel } from '@/features/marketData/exportMarketData';
+import './dataLibrary.workbench.css';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 const STOCK_SYNC_TIME = '15:30';
 
 interface DataLibraryProps {
@@ -88,7 +91,14 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
   const screens = Grid.useBreakpoint();
   const isCompactPagination = !screens.sm;
   const { message } = App.useApp();
-  const [datasets, setDatasets] = useState<MarketDataset[]>([]);
+  const loadDatasets = useCallback(() => getRepository().getDatasets(), []);
+  const {
+    datasets,
+    loading: datasetsLoading,
+    error: datasetsError,
+    refresh: refreshDatasets,
+    retry: retryDatasets,
+  } = useDatasetLibraryLoad(loadDatasets);
   const activeType = useDataLibraryViewStore((state) => state.activeType);
   const setActiveType = useDataLibraryViewStore((state) => state.setActiveType);
   const search = useDataLibraryViewStore((state) => state.search);
@@ -122,14 +132,6 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
   const savedScrollTopRef = useRef(useDataLibraryViewStore.getState().scrollTop);
   const setCandles = useCandleStore((state) => state.setCandles);
   const setImportResult = useCandleStore((state) => state.setImportResult);
-
-  const refresh = async () => {
-    setDatasets(await getRepository().getDatasets());
-  };
-
-  useEffect(() => {
-    void refresh();
-  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -349,7 +351,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
 
   const handleDelete = async (id: string) => {
     await getRepository().deleteDataset(id);
-    await refresh();
+    await refreshDatasets();
   };
 
   const handleExportDatabase = async () => {
@@ -373,7 +375,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
         body: JSON.stringify({ group, force: true }),
         timeoutMs: 120000,
       });
-      await refresh();
+      await refreshDatasets();
       const title = group === 'cn-index' ? '沪深中证指数更新完成' : '纳斯达克100更新完成';
       const failed = result.details.filter((item) => item.status === 'failed');
       if (result.failed > 0) message.warning(`${title}，但有 ${result.failed} 个失败`);
@@ -447,42 +449,81 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
       <>
         <div className="data-library-section-head">
           <div>
-            <Text strong>{assetType === 'index' ? '指数行情数据' : '个股行情数据'}</Text>
-            <Text type="secondary">
+            <div className="data-library-section-kicker">
+              <Text strong>{assetType === 'index' ? '指数行情数据' : '个股行情数据'}</Text>
+              <Tag color={assetType === 'index' ? 'geekblue' : 'cyan'}>
+                {items.length.toLocaleString()} 个数据集
+              </Tag>
+            </div>
+            <Text className="data-library-section-description" type="secondary">
               {assetType === 'index'
                 ? '用于市场基准、指数对比与指数策略回测'
                 : '用于个股研究、选股与个股策略回测'}
             </Text>
+            <Text className="data-library-section-summary" type="secondary">
+              {search ? `已按“${search.trim()}”筛选 · ` : ''}本地 IndexedDB 数据集
+            </Text>
           </div>
-          {assetType === 'index' && (
-            <Space wrap>
-              <Button
-                icon={<SyncOutlined />}
-                loading={updatingGroup === 'cn-index'}
-                disabled={updatingGroup != null}
-                title="盘后更新当日数据；盘中仅更新至前一交易日"
-                onClick={() => handleIndexUpdate('cn-index')}
-              >
-                更新沪深中证指数
-              </Button>
-              <Button
-                icon={<SyncOutlined />}
-                loading={updatingGroup === 'us-index'}
-                disabled={updatingGroup != null}
-                title="纽约市场收盘后更新当日数据；盘中仅更新至前一交易日"
-                onClick={() => handleIndexUpdate('us-index')}
-              >
-                更新纳斯达克100
-              </Button>
-            </Space>
-          )}
+          <div className="data-library-section-actions">
+            {assetType === 'index' && (
+              <Space wrap>
+                <Button
+                  icon={<SyncOutlined />}
+                  loading={updatingGroup === 'cn-index'}
+                  disabled={updatingGroup != null}
+                  title="盘后更新当日数据；盘中仅更新至前一交易日"
+                  onClick={() => handleIndexUpdate('cn-index')}
+                >
+                  更新沪深中证指数
+                </Button>
+                <Button
+                  icon={<SyncOutlined />}
+                  loading={updatingGroup === 'us-index'}
+                  disabled={updatingGroup != null}
+                  title="纽约市场收盘后更新当日数据；盘中仅更新至前一交易日"
+                  onClick={() => handleIndexUpdate('us-index')}
+                >
+                  更新纳斯达克100
+                </Button>
+              </Space>
+            )}
+          </div>
         </div>
 
-        {items.length === 0 ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={search ? '没有匹配的数据集' : `暂无${assetType === 'index' ? '指数' : '个股'}行情数据`}
+        {datasetsError && datasets.length > 0 && (
+          <Alert
+            className="data-library-local-load-alert"
+            type="warning"
+            showIcon
+            title="数据集列表刷新失败，当前仍显示上一次结果"
+            description={datasetsError}
+            action={(
+              <Button size="small" loading={datasetsLoading} onClick={retryDatasets}>
+                重试
+              </Button>
+            )}
           />
+        )}
+
+        {datasetsLoading && datasets.length === 0 ? (
+          <div className="data-library-local-loading" aria-live="polite" aria-busy="true">
+            <Skeleton active paragraph={{ rows: 4 }} />
+          </div>
+        ) : datasetsError && datasets.length === 0 ? (
+          <Alert
+            className="data-library-local-load-alert"
+            type="error"
+            showIcon
+            title="本地数据集加载失败"
+            description={datasetsError}
+            action={(
+              <Button size="small" loading={datasetsLoading} onClick={retryDatasets}>
+                重试
+              </Button>
+            )}
+          />
+        ) : items.length === 0 ? (
+          <WorkbenchEmpty {...getDatasetEmptyState(assetType, Boolean(search.trim()))} />
         ) : (
           <div className="data-library-list" role="list" aria-label={`${assetType === 'index' ? '指数' : '个股'}行情数据集`}>
             {items.map((dataset) => (
@@ -494,7 +535,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
                   </div>
                   <div className="data-library-row-meta">
                     <Text type="secondary">{dataset.startTime} ~ {dataset.endTime}</Text>
-                    <Tag>{dataset.count.toLocaleString()} 条</Tag>
+                    <Tag>{formatLibraryCount(dataset.count)}</Tag>
                     {dataset.sourceFileName && (
                       <Text type="secondary">来源：{dataset.sourceFileName}</Text>
                     )}
@@ -535,8 +576,16 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
     <>
       <div className="data-library-section-head">
         <div>
-          <Text strong>个股行情数据</Text>
-          <Text type="secondary">MySQL 全量历史库 · 服务端分页读取 · 每日 {STOCK_SYNC_TIME} 后台更新</Text>
+          <div className="data-library-section-kicker">
+            <Text strong>个股行情数据</Text>
+            <Tag color="blue">服务端分页</Tag>
+          </div>
+          <Text className="data-library-section-description" type="secondary">
+            MySQL 全量历史库 · 每日 {STOCK_SYNC_TIME} 后台更新
+          </Text>
+          <Text className="data-library-section-summary" type="secondary">
+            {stockTotal.toLocaleString()} 只证券 · 当前页 {stockItems.length.toLocaleString()} 条
+          </Text>
         </div>
         <div className="data-library-stock-controls">
           <div className="data-library-stock-filters" aria-label="个股列表筛选">
@@ -637,14 +686,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
           <Skeleton active paragraph={{ rows: 6 }} />
         </div>
       ) : stockItems.length === 0 ? (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={
-            stockQuery || selectedIndustry !== 'all'
-              ? '没有匹配的证券'
-              : '暂无个股行情数据'
-          }
-        />
+        <WorkbenchEmpty {...getStockEmptyState(Boolean(stockQuery || selectedIndustry !== 'all'))} />
       ) : (
         <>
           <div className={stockLoading ? 'data-library-list data-library-stock-list is-loading' : 'data-library-list data-library-stock-list'} role="list" aria-label="个股行情证券列表">
@@ -724,28 +766,37 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
 
   return (
     <div ref={pageRef} className="data-library-page">
-      <header className="data-library-header">
-        <div>
-          <Title level={4}>行情数据库</Title>
-          <Text type="secondary">分类管理本地指数与个股日线数据</Text>
-        </div>
-        <div className="data-library-actions">
-          <Input
-            aria-label="搜索行情数据集"
-            prefix={<SearchOutlined />}
-            placeholder="搜索名称或代码"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            allowClear
-          />
-          <Button icon={<ExportOutlined />} onClick={handleExportDatabase}>
-            导出数据库
-          </Button>
-        </div>
-      </header>
+      <PageHeader
+        className="data-library-page-header"
+        title="行情数据库"
+        description={(
+          <span className="data-library-page-description">
+            分类管理指数与个股日线数据
+            <Tag color={INDEXEDDB_MIGRATION_MODE ? 'gold' : 'blue'}>
+              {INDEXEDDB_MIGRATION_MODE ? '只读迁移' : DATA_SOURCE === 'api' ? 'API 数据源' : '本地数据源'}
+            </Tag>
+          </span>
+        )}
+        actions={(
+          <div className="data-library-actions">
+            <Input
+              aria-label="搜索行情数据集"
+              prefix={<SearchOutlined />}
+              placeholder="搜索名称或代码"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              allowClear
+            />
+            <Button icon={<ExportOutlined />} onClick={handleExportDatabase}>
+              导出数据库
+            </Button>
+          </div>
+        )}
+      />
 
       {INDEXEDDB_MIGRATION_MODE && (
         <Alert
+          className="data-library-migration-alert"
           type="warning"
           showIcon
           message="IndexedDB 只读迁移模式"
@@ -756,11 +807,11 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
       <div className="data-library-workbench">
         <aside className="data-library-sidebar">
           <WorkbenchPanel title="数据域" subtitle="行情类型与资产规模">
-            <div className="data-library-domain-list" role="tablist" aria-label="行情数据域">
+            <div className="data-library-domain-list" role="group" aria-label="行情数据域">
               <button
                 type="button"
-                role="tab"
-                aria-selected={activeType === 'index'}
+                aria-pressed={activeType === 'index'}
+                aria-controls="data-library-index-panel"
                 className={activeType === 'index' ? 'data-library-domain is-active' : 'data-library-domain'}
                 onClick={() => setActiveType('index')}
               >
@@ -770,8 +821,8 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
               </button>
               <button
                 type="button"
-                role="tab"
-                aria-selected={activeType === 'stock'}
+                aria-pressed={activeType === 'stock'}
+                aria-controls="data-library-stock-panel"
                 className={activeType === 'stock' ? 'data-library-domain is-active' : 'data-library-domain'}
                 onClick={() => setActiveType('stock')}
               >
@@ -780,19 +831,16 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
                 <small>个股研究、选股与策略回测</small>
               </button>
             </div>
-            <div className="data-library-kpi-grid">
-              <div>
-                <span>本地指数</span>
-                <strong>{totals.index.toLocaleString()}</strong>
-              </div>
-              <div>
-                <span>{DATA_SOURCE === 'api' ? '服务端个股' : '本地个股'}</span>
-                <strong>{(DATA_SOURCE === 'api' ? stockTotal : totals.stock).toLocaleString()}</strong>
-              </div>
+            <div className="data-library-sidebar-note">
+              <span>当前数据源</span>
+              <strong>{DATA_SOURCE === 'api' ? 'MySQL / API' : '浏览器 IndexedDB'}</strong>
+              <small>
+                {DATA_SOURCE === 'api' ? '个股历史库按页读取 · 日线不复权' : '本地数据集可打开、导出或管理'}
+              </small>
             </div>
           </WorkbenchPanel>
         </aside>
-        <main className="data-library-content-panel">
+        <main id={`data-library-${activeType}-panel`} className="data-library-content-panel" role="region" aria-label={activeType === 'index' ? '指数行情数据面板' : '个股行情数据面板'}>
           <section className="data-library-surface">
             {activeType === 'index'
               ? renderDatasetList('index')

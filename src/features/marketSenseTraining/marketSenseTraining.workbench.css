@@ -1,0 +1,246 @@
+/* Page-local layer for the chart-first training workbench. */
+.market-sense-page {
+  --sense-bg: var(--wb-canvas, #080b10);
+  --sense-panel: var(--wb-surface, #11161d);
+  --sense-panel-2: var(--wb-surface-muted, #161c24);
+  --sense-border: var(--wb-border, #242c36);
+  --sense-text: var(--wb-text, #f4f7fb);
+  --sense-muted: var(--wb-muted, #929dab);
+  --sense-accent: #2563eb;
+  --sense-selected: #172c49;
+  --sense-positive: var(--wb-positive, #f05252);
+  --sense-negative: var(--wb-negative, #22a06b);
+  --sense-risk: var(--wb-risk, #f59e0b);
+  overflow-x: hidden;
+}
+
+.market-sense-welcome-card {
+  width: min(720px, 100%);
+  gap: 14px;
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgb(15 23 42 / 18%);
+}
+
+.market-sense-welcome-icon {
+  color: var(--wb-accent, #93c5fd);
+  border-color: color-mix(in srgb, var(--sense-accent) 34%, var(--sense-border));
+  background: color-mix(in srgb, var(--sense-accent) 12%, var(--sense-panel));
+}
+
+.market-sense-kicker {
+  color: var(--wb-accent, #93c5fd) !important;
+  background: color-mix(in srgb, var(--sense-accent) 10%, var(--sense-panel)) !important;
+}
+
+.market-sense-welcome h1 {
+  font-size: clamp(26px, 3.5vw, 40px);
+}
+
+.market-sense-feature-grid > div {
+  min-height: 78px;
+  border-radius: 9px;
+}
+
+.market-sense-header {
+  min-height: 56px;
+  padding: 8px 14px;
+  border-color: var(--sense-border);
+  background: var(--sense-panel);
+}
+
+.market-sense-header > div:first-child {
+  min-width: 0;
+}
+
+.market-sense-header > div:first-child strong {
+  color: var(--sense-text);
+  font-size: 13px;
+}
+
+.market-sense-status-dot {
+  background: var(--sense-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sense-accent) 16%, transparent);
+}
+
+.market-sense-header .ant-btn {
+  min-height: 40px;
+}
+
+.market-sense-progress .ant-progress-bg {
+  background: var(--sense-accent) !important;
+}
+
+.market-sense-workspace {
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 27vw, 400px);
+}
+
+.market-sense-chart-panel,
+.market-sense-chart-toolbar,
+.market-sense-console {
+  border-color: var(--sense-border);
+  background: var(--sense-panel);
+}
+
+.market-sense-chart-toolbar {
+  min-height: 90px;
+}
+
+.market-sense-chart-meta {
+  min-height: 64px;
+  padding: 8px 14px;
+  border-color: var(--sense-border);
+}
+
+.market-sense-chart-tools {
+  min-height: 40px;
+  padding-block: 4px;
+}
+
+.market-sense-chart-tools .ant-btn {
+  min-height: 36px;
+  border-color: var(--sense-border);
+  color: var(--sense-text);
+  background: var(--sense-panel-2);
+}
+
+.market-sense-console {
+  padding: 14px;
+}
+
+.market-sense-console .ant-btn {
+  min-height: 42px;
+}
+
+.market-sense-next {
+  border-color: color-mix(in srgb, var(--sense-accent) 42%, var(--sense-border)) !important;
+}
+
+.market-sense-position-card,
+.market-sense-equity-card,
+.market-sense-result-grid > div,
+.market-sense-result-head {
+  border-color: var(--sense-border);
+  background: var(--sense-panel-2);
+}
+
+.market-sense-result-head {
+  padding: 18px 12px;
+}
+
+.market-sense-result-head > strong {
+  color: var(--sense-text);
+}
+
+.market-sense-page .is-profit {
+  color: var(--sense-positive) !important;
+}
+
+.market-sense-page .is-loss {
+  color: var(--sense-negative) !important;
+}
+
+.market-sense-page .market-sense-risk-value {
+  color: var(--sense-risk) !important;
+}
+
+.market-sense-review-note {
+  border-color: color-mix(in srgb, var(--sense-accent) 34%, var(--sense-border));
+}
+
+.market-sense-holding-line,
+.market-sense-quantity small,
+.market-sense-presets > span {
+  color: var(--sense-muted);
+}
+
+html[data-theme='light'] .market-sense-page {
+  --sense-bg: var(--wb-canvas, #f4f6fa);
+  --sense-panel: var(--wb-surface, #fff);
+  --sense-panel-2: var(--wb-surface-muted, #f8fafc);
+  --sense-border: var(--wb-border, #dce4ee);
+  --sense-text: var(--wb-text, #172033);
+  --sense-muted: var(--wb-muted, #526174);
+  --sense-positive: var(--wb-positive, #c62828);
+  --sense-negative: var(--wb-negative, #15803d);
+  --sense-risk: var(--wb-risk, #b45309);
+  --sense-selected: var(--wb-selected, #eff6ff);
+}
+
+html[data-theme='dark'] .market-sense-page {
+  --sense-bg: var(--wb-canvas, #0b1220);
+  --sense-panel: var(--wb-surface, #101a2a);
+  --sense-panel-2: var(--wb-surface-muted, #162133);
+  --sense-border: var(--wb-border, #28364a);
+  --sense-text: var(--wb-text, #e2e8f0);
+  --sense-muted: var(--wb-muted, #a8b6c9);
+  --sense-positive: var(--wb-positive, #ff8585);
+  --sense-negative: var(--wb-negative, #66dba0);
+  --sense-risk: var(--wb-risk, #fbbf24);
+  --sense-selected: var(--wb-selected, #172c49);
+}
+
+@media (max-width: 900px) {
+  .market-sense-header {
+    padding-inline: 12px;
+  }
+
+  .market-sense-header .ant-btn,
+  .market-sense-console .ant-btn,
+  .market-sense-chart-tools .ant-btn {
+    min-height: 44px;
+  }
+
+  .market-sense-console {
+    padding: 12px;
+  }
+
+  .market-sense-chart-tools {
+    min-height: 48px;
+  }
+}
+
+@media (max-width: 560px) {
+  .market-sense-welcome {
+    padding: 16px 10px;
+  }
+
+  .market-sense-welcome-card {
+    padding: 24px 16px;
+  }
+
+  .market-sense-feature-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .market-sense-feature-grid > div {
+    min-height: 0;
+  }
+
+  .market-sense-header {
+    gap: 8px;
+    padding-inline: 10px;
+  }
+
+  .market-sense-header > div:first-child {
+    gap: 6px;
+  }
+
+  .market-sense-header .ant-tag {
+    max-width: 44vw;
+  }
+
+  .market-sense-chart-meta {
+    padding-inline: 10px;
+  }
+
+  .market-sense-console .ant-btn {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .market-sense-page * {
+    transition-duration: .01ms !important;
+  }
+}

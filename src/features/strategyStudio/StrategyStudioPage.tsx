@@ -34,6 +34,7 @@ import GenerateStrategyDrawer from '@/features/aiStrategy/GenerateStrategyDrawer
 import { useStrategyPreview } from './useStrategyPreview';
 import { useCandleStore } from '@/stores/useCandleStore';
 import { useMobileLayout } from '@/components/mobile/useMobileLayout';
+import { useMediaQuery } from '@/components/useMediaQuery';
 import './strategyStudio.mobile.css';
 
 const { Text, Title } = Typography;
@@ -1080,7 +1081,8 @@ export default function StrategyStudioPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isMobile = useMobileLayout();
   const screens = Grid.useBreakpoint();
-  const usePanelDrawer = isMobile || !screens.lg;
+  const wideWorkbench = useMediaQuery('(min-width: 1440px)');
+  const usePanelDrawer = isMobile || !screens.lg || !wideWorkbench;
 
   const candles = useCandleStore((s) => s.candles);
   const preview = useStrategyPreview();
@@ -1210,8 +1212,8 @@ export default function StrategyStudioPage() {
     selectNode(nodeId);
     // On a phone the inspector is a drawer, so make a selected condition
     // immediately editable instead of requiring a second tap on 属性.
-    if (isMobile) setInspectorDrawerOpen(true);
-  }, [isMobile, selectNode]);
+    if (usePanelDrawer) setInspectorDrawerOpen(true);
+  }, [usePanelDrawer, selectNode]);
 
   if (!document) {
     return (
@@ -1569,7 +1571,7 @@ export default function StrategyStudioPage() {
             保存
           </Button>
         ) : undefined}
-        styles={{ body: { padding: 10, background: '#f8fafc' } }}
+        styles={{ body: { padding: 12, background: 'var(--wb-surface-muted)' } }}
         destroyOnHidden
       >
         {libraryContent}
@@ -1586,7 +1588,7 @@ export default function StrategyStudioPage() {
             保存
           </Button>
         ) : undefined}
-        styles={{ body: { padding: 10, background: '#f8fafc' } }}
+        styles={{ body: { padding: 12, background: 'var(--wb-surface-muted)' } }}
         destroyOnHidden
       >
         {inspectorContent}

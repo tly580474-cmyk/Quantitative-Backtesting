@@ -1,0 +1,35 @@
+.market-analysis-page .analysis-page-heading { margin: 0; padding: 10px 16px; background: var(--wb-surface); }
+.market-analysis-page .analysis-page-heading h1 { font-size: 16px; }
+.analysis-tools-surface { flex: 0 0 auto; min-width: 0; padding: 8px 16px; border-bottom: 1px solid var(--wb-border); background: var(--wb-surface); }
+.analysis-tools-surface .market-analysis-toolbar-controls { display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 8px 14px; }
+.analysis-tool-group { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; gap: 6px; }
+.analysis-tools-surface .analysis-period-switcher { border: 0; padding: 0; background: var(--wb-surface-muted); }
+.analysis-tools-surface .analysis-period-switcher .ant-segmented { background: var(--wb-surface-muted); }
+.analysis-tools-surface .analysis-minute-range { max-width: 100%; }
+.analysis-tools-surface .analysis-minute-range .ant-picker { min-width: 0; }
+.market-analysis-page .market-analysis-toolbar { padding: 6px 16px !important; background: var(--wb-surface-muted) !important; border-color: var(--wb-border) !important; }
+.market-analysis-page .market-analysis-workspace { background: var(--wb-canvas); border-color: var(--wb-border); }
+.market-analysis-page .market-analysis-chart { background: var(--wb-surface); }
+.market-analysis-page .market-analysis-inspector { flex-basis: 288px; background: var(--wb-surface); border-color: var(--wb-border); }
+.market-analysis-inspector-panel > .ant-segmented { margin-bottom: 12px; }
+.market-analysis-inspector-panel .indicator-panel-title { display: none; }
+.market-analysis-inspector-panel .indicator-panel .ant-empty { padding-block: 12px; }
+.analysis-placeholder { display: grid; height: 100%; min-height: 220px; padding: 20px; place-items: center; }
+.analysis-placeholder .workspace-empty { width: 100%; }
+.analysis-placeholder .workspace-empty p { max-width: 420px; }
+.analysis-loading-content { width: min(100%, 520px); color: var(--wb-muted); }
+.market-analysis-page .market-analysis-chart:has(.analysis-placeholder) { overflow-y: auto; }
+
+@media (max-width: 767px) {
+  .market-analysis-page .analysis-page-heading { padding: 10px 12px; gap: 6px; }
+  .analysis-page-heading .workspace-page-heading { flex: 1 1 190px; }
+  .analysis-page-heading .workspace-page-actions { width: auto; }
+  .analysis-tools-surface { padding: 8px 12px; }
+  .analysis-tool-group { width: 100%; }
+  .analysis-tools-surface .ant-btn, .analysis-page-heading .ant-btn { min-height: 44px; }
+  .market-analysis-page .analysis-tools-surface .ant-segmented-item-label { min-height: 44px; line-height: 44px; padding-inline: 10px; }
+  .analysis-tools-surface .analysis-period-switcher { width: 100%; justify-content: space-between; }
+  .market-analysis-page .market-analysis-toolbar .ant-btn { min-height: 44px; }
+  .analysis-placeholder { padding: 12px; }
+  .analysis-placeholder .ant-btn { min-height: 44px; }
+}

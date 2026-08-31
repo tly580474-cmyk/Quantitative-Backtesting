@@ -15,6 +15,8 @@ import {
   Space,
   Spin,
   Statistic,
+  Alert,
+  Skeleton,
   Table,
   Tabs,
   Tag,
@@ -33,6 +35,8 @@ import { apiFetch } from '@/api/client';
 import type { StockSearchItem } from '@/features/marketData/types';
 import PaperSecurityLink from './PaperSecurityLink';
 import { useMobileLayout } from '@/components/mobile/useMobileLayout';
+import { financialTone } from '@/components/WorkspacePrimitives';
+import './paperTrading.workbench.css';
 
 const { Text, Title } = Typography;
 
@@ -115,6 +119,10 @@ interface PaperOrderPreview {
 
 const ACTIVE_ORDER_STATUSES = new Set(['accepted', 'partially_filled']);
 
+function isFormValidationError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'errorFields' in error;
+}
+
 export default function PaperTradingPage() {
   const mobileLayout = useMobileLayout();
   const [mobileView, setMobileView] = useState<'account' | 'order'>('account');
@@ -122,12 +130,17 @@ export default function PaperTradingPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>();
   const [detail, setDetail] = useState<PaperAccountDetail | null>(null);
   const [loading, setLoading] = useState(false);
+  const [accountsLoading, setAccountsLoading] = useState(true);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [creatingAccount, setCreatingAccount] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [securityOptions, setSecurityOptions] = useState<StockSearchItem[]>([]);
   const [securitySearching, setSecuritySearching] = useState(false);
   const [orderPreview, setOrderPreview] = useState<PaperOrderPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [submittingOrder, setSubmittingOrder] = useState(false);
   const securitySearchSequence = useRef(0);
   const [accountForm] = Form.useForm();
   const [orderForm] = Form.useForm();
@@ -141,22 +154,35 @@ export default function PaperTradingPage() {
   );
 
   const loadAccounts = useCallback(async (preserveSelection = true) => {
-    const items = await apiFetch<PaperAccountSummary[]>('/api/paper-trading/accounts');
-    setAccounts(items);
-    setSelectedAccountId((current) => {
-      if (preserveSelection && current && items.some((item) => item.id === current)) {
-        return current;
-      }
-      return items[0]?.id;
-    });
+    setAccountsLoading(true);
+    setAccountsError(null);
+    try {
+      const items = await apiFetch<PaperAccountSummary[]>('/api/paper-trading/accounts');
+      setAccounts(items);
+      setSelectedAccountId((current) => {
+        if (preserveSelection && current && items.some((item) => item.id === current)) {
+          return current;
+        }
+        return items[0]?.id;
+      });
+    } catch (error) {
+      setAccountsError(error instanceof Error ? error.message : '加载模拟账户失败');
+      throw error;
+    } finally {
+      setAccountsLoading(false);
+    }
   }, []);
 
   const loadDetail = useCallback(async (accountId: string, showLoading = true) => {
     if (showLoading) setLoading(true);
+    setDetailError(null);
     try {
       setDetail(await apiFetch<PaperAccountDetail>(
         `/api/paper-trading/accounts/${accountId}`,
       ));
+    } catch (error) {
+      setDetailError(error instanceof Error ? error.message : '加载账户详情失败');
+      throw error;
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -184,6 +210,7 @@ export default function PaperTradingPage() {
       });
     } else {
       setDetail(null);
+      setDetailError(null);
     }
   }, [loadDetail, selectedAccountId]);
 
@@ -199,15 +226,25 @@ export default function PaperTradingPage() {
   }, [loadDetail, selectedAccountId]);
 
   const createAccount = async () => {
-    const values = await accountForm.validateFields();
-    await apiFetch('/api/paper-trading/accounts', {
-      method: 'POST',
-      body: JSON.stringify(values),
-    });
-    message.success('模拟账户已创建');
-    setAccountModalOpen(false);
-    accountForm.resetFields();
-    await loadAccounts(false);
+    if (creatingAccount) return;
+    setCreatingAccount(true);
+    try {
+      const values = await accountForm.validateFields();
+      await apiFetch('/api/paper-trading/accounts', {
+        method: 'POST',
+        body: JSON.stringify(values),
+      });
+      message.success('模拟账户已创建');
+      setAccountModalOpen(false);
+      accountForm.resetFields();
+      await loadAccounts(false);
+    } catch (error) {
+      if (!isFormValidationError(error)) {
+        message.error(error instanceof Error ? error.message : '创建模拟账户失败');
+      }
+    } finally {
+      setCreatingAccount(false);
+    }
   };
 
   const deleteAccount = async () => {
@@ -300,29 +337,38 @@ export default function PaperTradingPage() {
   };
 
   const submitOrder = async () => {
-    if (!selectedAccountId) return;
-    const values = await orderForm.validateFields();
-    const result = await apiFetch<{ matched: boolean; order: PaperOrder }>(
-      '/api/paper-trading/orders',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          ...values,
-          accountId: selectedAccountId,
-          clientOrderId: crypto.randomUUID(),
-          securityCode: orderPreview?.instrument.securityCode ?? values.securityCode,
-          quantity: Number(values.quantityLots) * 100,
-          limitPrice: values.orderType === 'limit' ? values.limitPrice : null,
-          quantityLots: undefined,
-        }),
-      },
-    );
-    message.success(result.matched ? '委托已模拟成交' : '委托已受理');
-    orderForm.resetFields(['securityCode', 'quantityLots', 'limitPrice']);
-    orderForm.setFieldValue('quantityLots', 1);
-    setOrderPreview(null);
-    setSecurityOptions([]);
-    await refresh();
+    if (!selectedAccountId || submittingOrder) return;
+    setSubmittingOrder(true);
+    try {
+      const values = await orderForm.validateFields();
+      const result = await apiFetch<{ matched: boolean; order: PaperOrder }>(
+        '/api/paper-trading/orders',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            ...values,
+            accountId: selectedAccountId,
+            clientOrderId: crypto.randomUUID(),
+            securityCode: orderPreview?.instrument.securityCode ?? values.securityCode,
+            quantity: Number(values.quantityLots) * 100,
+            limitPrice: values.orderType === 'limit' ? values.limitPrice : null,
+            quantityLots: undefined,
+          }),
+        },
+      );
+      message.success(result.matched ? '委托已模拟成交' : '委托已受理');
+      orderForm.resetFields(['securityCode', 'quantityLots', 'limitPrice']);
+      orderForm.setFieldValue('quantityLots', 1);
+      setOrderPreview(null);
+      setSecurityOptions([]);
+      await refresh();
+    } catch (error) {
+      if (!isFormValidationError(error)) {
+        message.error(error instanceof Error ? error.message : '提交模拟委托失败');
+      }
+    } finally {
+      setSubmittingOrder(false);
+    }
   };
 
   const cancelOrder = async (order: PaperOrder) => {
@@ -343,76 +389,52 @@ export default function PaperTradingPage() {
     await refresh();
   };
 
-  return (
-    <div className="paper-trading-page">
-      <div className="paper-trading-header">
-        <div>
-          <Space align="center">
-            <Title level={3}>模拟交易</Title>
-            <Tag color="blue" icon={<SafetyCertificateOutlined />}>仅模拟，不连接真实资金</Tag>
-          </Space>
-          <Text type="secondary">
-            本地分钟数据优先 · A 股 T+1 · 订单与账本持久化
-          </Text>
-        </div>
-        <Space>
-          <Select
-            value={selectedAccountId}
-            placeholder="选择模拟账户"
-            style={{ width: 220 }}
-            options={accounts.map((account) => ({
-              label: account.name,
-              value: account.id,
-            }))}
-            onChange={setSelectedAccountId}
-          />
-          <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void refresh()}>
-            刷新
-          </Button>
-          <Popconfirm
-            title={`删除账户“${selectedAccount?.name ?? ''}”？`}
-            description="账户、持仓、委托、成交和资金流水将永久删除，无法恢复。"
-            okText="永久删除"
-            cancelText="取消"
-            okButtonProps={{ danger: true, loading: deletingAccount }}
-            disabled={!selectedAccount}
-            onConfirm={() => void deleteAccount()}
-          >
-            <Button
-              danger
-              icon={<DeleteOutlined />}
-              disabled={!selectedAccount}
-              loading={deletingAccount}
-            >
-              删除账户
-            </Button>
-          </Popconfirm>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAccountModalOpen(true)}>
-            新建账户
-          </Button>
-        </Space>
-      </div>
-
-      {mobileLayout && detail && <nav className="mobile-paper-tabs" aria-label="模拟交易视图">
-        <Button type={mobileView === 'account' ? 'primary' : 'default'} aria-pressed={mobileView === 'account'}
-          onClick={() => setMobileView('account')}>账户与记录</Button>
-        <Button type={mobileView === 'order' ? 'primary' : 'default'} aria-pressed={mobileView === 'order'}
-          onClick={() => setMobileView('order')}>模拟委托</Button>
-      </nav>}
-      {!selectedAccount || !detail ? (
-        <Card><Empty description="请先创建模拟账户" /></Card>
-      ) : (
-        <>
+  const returnValue = detail ? detail.totalEquity - detail.initialCash : null;
+  const returnTone = financialTone(returnValue);
+  const pageContent = accountsLoading ? (
+    <Card className="paper-empty-card paper-loading-card" aria-label="正在加载模拟账户">
+      <Skeleton active paragraph={{ rows: 3 }} />
+    </Card>
+  ) : accountsError ? (
+    <Alert
+      type="error"
+      showIcon
+      title="模拟账户加载失败"
+      description={accountsError}
+      action={<Button onClick={() => void loadAccounts(false).catch(() => undefined)}>重试</Button>}
+    />
+  ) : !selectedAccountId || !selectedAccount ? (
+    <Card className="paper-empty-card">
+      <Empty description="暂无模拟账户，请先新建账户" />
+    </Card>
+  ) : loading && !detail ? (
+    <Card className="paper-empty-card paper-loading-card" aria-label="正在加载账户详情">
+      <Skeleton active paragraph={{ rows: 3 }} />
+    </Card>
+  ) : detailError && !detail ? (
+    <Alert
+      type="error"
+      showIcon
+      title="账户详情加载失败"
+      description={detailError}
+      action={<Button onClick={() => void loadDetail(selectedAccountId).catch(() => undefined)}>重试</Button>}
+    />
+  ) : !detail ? (
+    <Card className="paper-empty-card paper-loading-card" aria-label="正在准备账户详情">
+      <Skeleton active paragraph={{ rows: 3 }} />
+    </Card>
+  ) : (
+    <>
           <Row gutter={[16, 16]} className="paper-trading-statistics" style={mobileLayout && mobileView !== 'account' ? { display: 'none' } : undefined}>
-            <Col xs={24} sm={12} xl={8} xxl={4}><Card><Statistic title="总权益" value={detail.totalEquity} precision={2} suffix="元" /></Card></Col>
-            <Col xs={24} sm={12} xl={8} xxl={4}><Card><Statistic title="可用现金" value={detail.availableCash} precision={2} suffix="元" /></Card></Col>
-            <Col xs={24} sm={12} xl={8} xxl={4}><Card><Statistic title="冻结资金" value={detail.frozenCash} precision={2} suffix="元" /></Card></Col>
-            <Col xs={24} sm={12} xl={8} xxl={4}><Card><Statistic title="持仓市值" value={detail.marketValue} precision={2} suffix="元" /></Card></Col>
-            <Col xs={24} sm={12} xl={8} xxl={4}><Card><Statistic title="累计收益" value={detail.totalEquity - detail.initialCash} precision={2} suffix="元" /></Card></Col>
-            <Col xs={24} sm={12} xl={8} xxl={4}><Card><Statistic title="收益率" value={(detail.totalEquity / detail.initialCash - 1) * 100} precision={2} suffix="%" /></Card></Col>
+            <Col xs={24} sm={12} xl={8} xxl={4}><Card className="paper-stat-card"><Statistic title="总权益" value={detail.totalEquity} precision={2} suffix="元" /></Card></Col>
+            <Col xs={24} sm={12} xl={8} xxl={4}><Card className="paper-stat-card"><Statistic title="可用现金" value={detail.availableCash} precision={2} suffix="元" /></Card></Col>
+            <Col xs={24} sm={12} xl={8} xxl={4}><Card className="paper-stat-card paper-stat-risk"><Statistic title="冻结资金" value={detail.frozenCash} precision={2} suffix="元" /></Card></Col>
+            <Col xs={24} sm={12} xl={8} xxl={4}><Card className="paper-stat-card"><Statistic title="持仓市值" value={detail.marketValue} precision={2} suffix="元" /></Card></Col>
+            <Col xs={24} sm={12} xl={8} xxl={4}><Card className={`paper-stat-card paper-stat-${returnTone}`}><Statistic title="累计收益" value={detail.totalEquity - detail.initialCash} precision={2} suffix="元" /></Card></Col>
+            <Col xs={24} sm={12} xl={8} xxl={4}><Card className={`paper-stat-card paper-stat-${financialTone(returnValue)}`}><Statistic title="收益率" value={(detail.totalEquity / detail.initialCash - 1) * 100} precision={2} suffix="%" /></Card></Col>
           </Row>
 
-          <Card title={<Space><SwapOutlined />手工委托</Space>} className="paper-trading-order-card"
+          <Card title={<Space><SwapOutlined />手工委托</Space>} className="paper-trading-order-card paper-workbench-card"
             style={mobileLayout && mobileView !== 'order' ? { display: 'none' } : undefined}>
             <Form
               form={orderForm}
@@ -544,14 +566,14 @@ export default function PaperTradingPage() {
               </div>
 
               <Form.Item className="paper-trading-submit">
-                <Button type="primary" htmlType="submit" size="large">
+                <Button type="primary" htmlType="submit" size="large" loading={submittingOrder} disabled={submittingOrder}>
                   提交模拟委托
                 </Button>
               </Form.Item>
             </Form>
           </Card>
 
-          <Card style={mobileLayout && mobileView !== 'account' ? { display: 'none' } : undefined}>
+          <Card className="paper-trading-records-card paper-workbench-card" style={mobileLayout && mobileView !== 'account' ? { display: 'none' } : undefined}>
             <Tabs
               items={[
                 {
@@ -651,13 +673,73 @@ export default function PaperTradingPage() {
             />
           </Card>
         </>
-      )}
+  );
+
+  return (
+    <div className="paper-trading-page" aria-label="模拟交易工作台">
+      <div className="paper-trading-header">
+        <div className="paper-trading-heading">
+          <Space align="center">
+            <Title level={3}>模拟交易</Title>
+            <Tag color="blue" icon={<SafetyCertificateOutlined />}>仅模拟，不连接真实资金</Tag>
+          </Space>
+          <Text type="secondary">
+            本地分钟数据优先 · A 股 T+1 · 订单与账本持久化
+          </Text>
+        </div>
+        <Space className="paper-trading-header-actions">
+          <Select
+            value={selectedAccountId}
+            placeholder="选择模拟账户"
+            style={{ width: 220 }}
+            options={accounts.map((account) => ({
+              label: account.name,
+              value: account.id,
+            }))}
+            onChange={setSelectedAccountId}
+          />
+          <Button icon={<ReloadOutlined />} loading={loading || accountsLoading} onClick={() => void refresh()}>
+            刷新
+          </Button>
+          <Popconfirm
+            title={`删除账户“${selectedAccount?.name ?? ''}”？`}
+            description="账户、持仓、委托、成交和资金流水将永久删除，无法恢复。"
+            okText="永久删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true, loading: deletingAccount }}
+            disabled={!selectedAccount}
+            onConfirm={() => void deleteAccount()}
+          >
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              disabled={!selectedAccount}
+              loading={deletingAccount}
+            >
+              删除账户
+            </Button>
+          </Popconfirm>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAccountModalOpen(true)}>
+            新建账户
+          </Button>
+        </Space>
+      </div>
+
+      {mobileLayout && detail && <nav className="mobile-paper-tabs" aria-label="模拟交易视图">
+        <Button type={mobileView === 'account' ? 'primary' : 'default'} aria-pressed={mobileView === 'account'}
+          onClick={() => setMobileView('account')}>账户与记录</Button>
+        <Button type={mobileView === 'order' ? 'primary' : 'default'} aria-pressed={mobileView === 'order'}
+          onClick={() => setMobileView('order')}>模拟委托</Button>
+      </nav>}
+
+      {pageContent}
 
       <Modal
         title="新建模拟账户"
         open={accountModalOpen}
         onCancel={() => setAccountModalOpen(false)}
         onOk={() => void createAccount()}
+        okButtonProps={{ loading: creatingAccount, disabled: creatingAccount }}
         destroyOnHidden
       >
         <Form form={accountForm} layout="vertical">
@@ -695,6 +777,7 @@ export default function PaperTradingPage() {
   );
 }
 
+
 function money(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number.toFixed(2) : '—';
@@ -703,7 +786,10 @@ function money(value: unknown) {
 function pnl(value: unknown) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '—';
-  return <Text type={number > 0 ? 'danger' : number < 0 ? 'success' : undefined}>{number.toFixed(2)}</Text>;
+  return <Text
+    className={number > 0 ? 'paper-value-positive' : number < 0 ? 'paper-value-negative' : undefined}
+    type={number > 0 ? 'danger' : number < 0 ? 'success' : undefined}
+  >{number.toFixed(2)}</Text>;
 }
 
 function sideTag(value: unknown) {
