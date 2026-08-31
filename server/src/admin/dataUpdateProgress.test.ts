@@ -129,7 +129,8 @@ describe('admin data update progress', () => {
       },
     } satisfies CollectorRun);
     expect(progress.key).toBe('financial_reports');
-    expect(progress.status).toBe('completed');
+    expect(progress.status).toBe('failed');
+    expect(progress.phase).toBe('部分失败');
     expect(progress.total).toBe(200);
     expect(progress.completed).toBe(198);
     expect(progress.failed).toBe(2);
@@ -141,5 +142,26 @@ describe('admin data update progress', () => {
     const progress = normalizeFinancialProgress(null);
     expect(progress.status).toBe('idle');
     expect(progress.phase).toBe('等待财报更新');
+  });
+
+  it('uses the target count and heartbeat while a financial batch is running', () => {
+    const progress = normalizeFinancialProgress({
+      runKey: 'financial_reports:test', jobType: 'financial_reports', status: 'running',
+      attempts: 1, startedAt: '2026-08-31T11:00:00Z',
+      details: { totalSymbols: 200, apiRows: { symbols: 12, failedSymbols: 2 }, updatedAt: '2026-08-31T11:05:00Z' },
+    });
+    expect(progress.percent).toBe(7);
+    expect(progress.updatedAt).toBe('2026-08-31T11:05:00Z');
+  });
+
+  it('explains a historical timeout without repeating the truncated warning', () => {
+    const progress = normalizeFinancialProgress({
+      runKey: 'financial_reports:test', jobType: 'financial_reports', status: 'failed',
+      attempts: 3, startedAt: '2026-08-30T12:00:20Z', finishedAt: '2026-08-30T12:30:20Z',
+      errorMessage: 'Command failed: python financial_update.py\npkg_resources is deprecated\n0%|',
+    });
+    expect(progress.message).toContain('30 分钟');
+    expect(progress.message).not.toContain('pkg_resources');
+    expect(progress.percent).toBeNull();
   });
 });

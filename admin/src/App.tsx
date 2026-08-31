@@ -50,6 +50,7 @@ import {
 } from './api';
 import type { AdminConfigItem, AdminHealth, AdminOverview, AgentOperations, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressItem, DiagnosticCheck, HealthLevel, MetricSample, PublicAccessStatus } from './types';
 import { sanitizeSecretReplacement } from './secretInput';
+import { DataUpdateMessage } from './DataUpdateMessage';
 
 type Section = 'overview' | 'agents' | 'diagnostics' | 'configuration';
 
@@ -911,7 +912,7 @@ function DatabaseBackupPanel({ status, starting, onStart, onDownload }: {
   );
 }
 
-function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressItem[] }) {
+export function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressItem[] }) {
   const runningCount = items.filter((item) => item.status === 'running' || item.status === 'pending').length;
   const issueCount = items.filter((item) => item.status === 'failed' || item.failed > 0).length;
   return (
@@ -955,7 +956,7 @@ function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressItem[] })
               <div className="data-update-meta">
                 <span>{item.total > 0
                   ? `${item.completed + item.failed} / ${item.total} · 成功 ${item.completed} · 失败 ${item.failed}`
-                  : item.message ?? '暂无运行中的任务'}</span>
+                  : running ? '等待采集进度' : '未返回数量统计'}</span>
                 <strong>{item.percent == null ? '—' : `${item.percent}%`}</strong>
               </div>
               {featured && (item.currentDate || item.processedRows || item.etaAt) && (
@@ -965,9 +966,7 @@ function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressItem[] })
                   <div><dt>预计完成</dt><dd>{item.etaAt ? new Date(item.etaAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) : '计算中'}</dd></div>
                 </dl>
               )}
-              {(item.message || item.updatedAt) && (
-                <p>{item.message ?? '进度已更新'}{item.updatedAt ? ` · ${new Date(item.updatedAt).toLocaleString('zh-CN', { hour12: false })}` : ''}</p>
-              )}
+              <DataUpdateMessage message={item.message} updatedAt={item.updatedAt} />
             </article>
           );
         })}

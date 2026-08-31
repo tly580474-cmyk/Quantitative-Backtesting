@@ -178,6 +178,10 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .data-update-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; color: var(--muted); font-size: 12px; }
 .data-update-meta strong { color: var(--text); font-family: "Cascadia Code", Consolas, monospace; }
 .data-update-card p { margin: 9px 0 0; color: var(--faint); font-size: 11px; line-height: 1.5; }
+.data-update-card p, .data-update-error-details { overflow-wrap: anywhere; }
+.data-update-error-details { margin-top: 9px; color: var(--faint); font-size: 11px; line-height: 1.5; }
+.data-update-error-details summary { cursor: pointer; }
+.data-update-error-details pre { max-height: 220px; overflow: auto; white-space: pre-wrap; }
 .data-update-highlights { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 15px 0 0; }
 .data-update-highlights > div { min-width: 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--border-strong) 75%, transparent); border-radius: 9px; background: rgba(8, 13, 24, .46); }
 .data-update-highlights dt { color: var(--faint); font-size: 11px; }

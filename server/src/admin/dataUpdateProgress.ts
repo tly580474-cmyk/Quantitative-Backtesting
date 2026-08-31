@@ -247,15 +247,17 @@ export function normalizeFinancialProgress(run: CollectorRun | null): DataUpdate
   const apiRows = isRecord(details.apiRows) ? details.apiRows : {};
   const completed = positiveInteger(apiRows.symbols);
   const failed = positiveInteger(apiRows.failedSymbols);
-  const total = completed + failed;
+  const total = Math.max(positiveInteger(details.totalSymbols), completed + failed);
   const reports = positiveInteger(details.normalizedReports);
   const written = positiveInteger(details.writtenReports);
-  const status: DataUpdateStatus = run.status === 'succeeded' ? 'completed' : run.status;
+  const partial = details.status === 'partial' || (run.status === 'succeeded' && failed > 0);
+  const status: DataUpdateStatus = partial ? 'failed' : run.status === 'succeeded' ? 'completed' : run.status;
   const source = typeof details.source === 'string' && details.source.trim()
     ? details.source.trim()
     : null;
   const summary = status === 'failed'
-    ? run.errorMessage ?? '财务报表更新失败'
+    ? partial ? `财务报表部分失败：成功 ${completed} 只、失败 ${failed} 只，写入 ${written} 期。`
+      : summarizeLegacyFinancialError(run)
     : [
       source ? `来源 ${source}` : null,
       reports > 0 ? `标准化 ${reports} 期` : null,
@@ -266,7 +268,7 @@ export function normalizeFinancialProgress(run: CollectorRun | null): DataUpdate
     key: 'financial_reports',
     label: '财务报表',
     status,
-    phase: run.status === 'running' ? '采集财务报表' : status,
+    phase: partial ? '部分失败' : run.status === 'running' ? '采集财务报表' : status,
     completed,
     total,
     failed,
@@ -274,10 +276,20 @@ export function normalizeFinancialProgress(run: CollectorRun | null): DataUpdate
       ? clampPercent((completed + failed) / total * 100)
       : status === 'completed' ? 100 : null,
     startedAt: validTimestamp(run.startedAt),
-    updatedAt: validTimestamp(run.finishedAt ?? run.startedAt),
+    updatedAt: validTimestamp(run.finishedAt ?? details.updatedAt ?? run.startedAt),
     finishedAt: validTimestamp(run.finishedAt),
     message: summary,
   };
+}
+
+function summarizeLegacyFinancialError(run: CollectorRun): string {
+  const message = run.errorMessage ?? '财务报表更新失败';
+  if (!message.startsWith('Command failed:')) return message;
+  const duration = run.finishedAt ? Date.parse(run.finishedAt) - Date.parse(run.startedAt) : 0;
+  if (duration >= 1_799_000 && duration < 1_810_000) {
+    return '财务报表运行约 30 分钟后终止，达到调度超时上限；历史错误日志已截断。';
+  }
+  return '财务报表采集进程异常退出；历史错误日志已截断，无法从启动警告判断具体原因。';
 }
 
 async function readMinuteProgress(path: string, now: Date, minute: MinuteProgressContext): Promise<DataUpdateProgressItem> {

@@ -4,7 +4,9 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 import time
+from threading import Lock
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -464,7 +466,62 @@ def load_sina_targets(
         return list(cursor.fetchall())
 
 
-def fetch_sina_symbol(target: dict[str, Any]) -> list[dict[str, Any]]:
+class SinaHttpClient:
+    """Bound requests made by the Sina adapter, without changing requests globally."""
+
+    def __init__(self, request_interval: float) -> None:
+        self.interval = max(0.0, request_interval)
+        self.lock = Lock()
+        self.last_request = 0.0
+
+    def get(self, url: str, **kwargs: Any) -> Any:
+        import requests
+
+        kwargs.setdefault("timeout", (10, 30))
+        for attempt in range(3):
+            with self.lock:
+                time.sleep(max(0.0, self.last_request + self.interval - time.monotonic()))
+                self.last_request = time.monotonic()
+            try:
+                response = requests.get(url, **kwargs)
+                response.raise_for_status()
+                return response
+            except (requests.ConnectionError, requests.Timeout):
+                if attempt == 2:
+                    raise
+                time.sleep(2 ** attempt)
+
+
+def configure_sina_runtime(request_interval: float) -> None:
+    # Set this before importing AKShare/tqdm, and before starting worker threads.
+    if not sys.stderr.isatty():
+        os.environ["TQDM_DISABLE"] = "1"
+    import akshare.stock_fundamental.stock_finance_sina as sina
+
+    sina.requests = SinaHttpClient(request_interval)
+
+
+def sina_indicator_start_year(target: dict[str, Any], start_date: date, full: bool) -> str:
+    latest = normalize_date(target.get("latest_fetched_at"))
+    if full or not latest:
+        return "2010"
+    # Include the prior fiscal year and catch up after outages longer than lookback.
+    return str(max(2010, min(start_date.year, int(latest[:4])) - 1))
+
+
+def prepare_records(records: list[dict[str, Any]], provider: str, source_version: str) -> None:
+    carry_forward_publications(records)
+    fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    for record in records:
+        derive_metrics(record)
+        record.update(source_key=provider, source_version=source_version, fetched_at=fetched_at)
+        record["source_fingerprint"] = fingerprint(record)
+    records.sort(key=lambda item: (
+        item["instrument_key"], item["report_period"], item["announcement_date"]
+    ))
+
+
+def fetch_sina_symbol(target: dict[str, Any], indicator_start_year: str = "2010") -> list[dict[str, Any]]:
     import akshare as ak
 
     symbol = str(target["symbol"]).zfill(6)
@@ -535,7 +592,7 @@ def fetch_sina_symbol(target: dict[str, Any]) -> list[dict[str, Any]]:
     # Sina rejects very early start years for some securities with an empty frame.
     # 2010 is accepted consistently; older periods still retain statement values
     # and receive transparently labelled calculated ROE where possible.
-    indicators = ak.stock_financial_analysis_indicator(symbol=symbol, start_year="2010")
+    indicators = ak.stock_financial_analysis_indicator(symbol=symbol, start_year=indicator_start_year)
     by_period: dict[str, dict[str, Any]] = {}
     for raw in indicators.to_dict(orient="records"):
         period = normalize_date(raw.get("日期"))
@@ -586,6 +643,25 @@ def main() -> int:
         provider = args.provider
         if provider == "auto":
             provider = "tushare" if token and args.symbol else "sina"
+        source_version = f"{provider}-{start_date:%Y%m%d}-{end_date:%Y%m%d}"
+        written = 0
+        normalized = 0
+        total_symbols = 0
+        failures: list[dict[str, str]] = []
+
+        def emit_progress(status: str, calculated_roe: int = 0) -> None:
+            print(json.dumps({
+                "status": status,
+                "source": provider,
+                "window": {"start": start_date.isoformat(), "end": end_date.isoformat()},
+                "apiRows": fetched_counts,
+                "totalSymbols": total_symbols,
+                "normalizedReports": normalized,
+                "writtenReports": written,
+                "calculatedRoeRows": calculated_roe,
+                "failures": failures[-10:],
+                "updatedAt": datetime.now(timezone.utc).isoformat(),
+            }, ensure_ascii=False), flush=True)
 
         if provider == "tushare":
             client = TushareClient(token, args.request_interval)
@@ -616,59 +692,48 @@ def main() -> int:
                     fetched_counts[api_name] = fetched_counts.get(api_name, 0) + len(rows)
                     merge_records(combined, map_api_rows(api_name, rows, instruments))
         else:
+            configure_sina_runtime(args.request_interval)
             targets = load_sina_targets(connection, args.symbol, args.full, args.batch_size)
+            total_symbols = len(targets)
+            emit_progress("running")
             with ThreadPoolExecutor(max_workers=max(1, min(8, args.workers))) as executor:
-                futures = {executor.submit(fetch_sina_symbol, target): target for target in targets}
+                futures = {
+                    executor.submit(fetch_sina_symbol, target,
+                                    sina_indicator_start_year(target, start_date, args.full)): target
+                    for target in targets
+                }
                 for future in as_completed(futures):
                     target = futures[future]
                     try:
                         records = future.result()
-                        merge_records(combined, {
-                            (
-                                int(record["instrument_key"]),
-                                str(record["report_period"]),
-                                str(record["announcement_date"]),
-                            ): record
-                            for record in records
-                        })
+                        if not records:
+                            raise RuntimeError("Sina returned no usable financial reports")
+                        prepare_records(records, provider, source_version)
+                        # Commit each security so a later timeout does not discard
+                        # the whole batch. fetched_at also advances the rotation cursor.
+                        written += 0 if args.dry_run else upsert_records(connection, records)
+                        normalized += len(records)
                         fetched_counts["symbols"] = fetched_counts.get("symbols", 0) + 1
                         fetched_counts["reports"] = fetched_counts.get("reports", 0) + len(records)
                     except Exception as error:
+                        connection.rollback()
                         fetched_counts["failedSymbols"] = fetched_counts.get("failedSymbols", 0) + 1
+                        failures.append({"symbol": str(target["symbol"]), "error": str(error)[:1000]})
                         print(
                             f"[financial_update] Sina {target['symbol']} failed: {error}",
                             file=os.sys.stderr,
                         )
+                    emit_progress("running")
 
-        fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        source_version = f"{provider}-{start_date:%Y%m%d}-{end_date:%Y%m%d}"
-        records = []
-        carry_forward_publications(combined.values())
-        for record in combined.values():
-            derive_metrics(record)
-            record.update(
-                source_key=provider,
-                source_version=source_version,
-                fetched_at=fetched_at,
-            )
-            record["source_fingerprint"] = fingerprint(record)
-            records.append(record)
-        records.sort(key=lambda item: (
-            item["instrument_key"], item["report_period"], item["announcement_date"]
-        ))
-        written = 0 if args.dry_run else upsert_records(connection, records)
+        if provider == "tushare":
+            records = list(combined.values())
+            prepare_records(records, provider, source_version)
+            normalized = len(records)
+            written = 0 if args.dry_run else upsert_records(connection, records)
         calculated_roe = 0 if args.dry_run else fill_calculated_roe(connection)
         failed_symbols = int(fetched_counts.get("failedSymbols", 0))
-        print(json.dumps({
-            "status": result_status(args.dry_run, failed_symbols),
-            "source": provider,
-            "window": {"start": start_date.isoformat(), "end": end_date.isoformat()},
-            "apiRows": fetched_counts,
-            "normalizedReports": len(records),
-            "writtenReports": written,
-            "calculatedRoeRows": calculated_roe,
-        }, ensure_ascii=False))
-        return 0
+        emit_progress(result_status(args.dry_run, failed_symbols), calculated_roe)
+        return 1 if failed_symbols and not args.dry_run else 0
     finally:
         connection.close()
 
