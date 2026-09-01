@@ -32,6 +32,7 @@ import StockInfoBar from './components/StockInfoBar';
 import ImportResultPanel from './components/ImportResultPanel';
 import IndicatorPanel from './components/IndicatorPanel';
 import PageSkeleton from './components/PageSkeleton';
+import PageErrorBoundary from './components/PageErrorBoundary';
 import { PageHeader } from './components/WorkspacePrimitives';
 import { useMediaQuery } from './components/useMediaQuery';
 import AnalysisPlaceholder from './features/chart/AnalysisPlaceholder';
@@ -932,31 +933,36 @@ function AppContent() {
           headerNav={agentWorkspaceActive ? <AgentWorkspaceNav /> : factorHeaderNav}
           hidePageIdentity={factorWorkspaceActive || agentWorkspaceActive}
           center={
-            <Suspense
-              key={location.pathname === '/market-sense-training' ? 'market-sense-training' : colorMode}
-              fallback={<PageSkeleton />}
+            <PageErrorBoundary
+              resetKey={`${location.pathname}${location.search}`}
+              onBackHome={() => navigate('/market-data')}
             >
-              <Routes>
-                <Route path="/" element={<MarketDataRoute />} />
-                <Route path="/analysis" element={<MarketAnalysisRoute />} />
-                <Route path="/data" element={<DataLibraryRoute />} />
-                <Route path="/market-data" element={<MarketDataRoute />} />
-                <Route path="/market-detail/:code" element={<MarketDetailRoute />} />
-                <Route path="/watchlist" element={<WatchlistRoute />} />
-                <Route path="/stock-selection" element={<StockSelectionPage />} />
-                <Route path="/backtest" element={<BacktestRunner />} />
-                <Route path="/market-sense-training" element={<MarketSenseTrainingPage />} />
-                <Route path="/paper-trading" element={<PaperTradingPage />} />
-                <Route path="/results" element={<BacktestResultsPage />} />
-                <Route path="/factors" element={<FactorResearchPage />} />
-                <Route path="/factor-mining" element={<AutomatedFactorMiningPage />} />
-                <Route path="/studio" element={<StrategyStudioPage />} />
-                <Route path="/agent" element={<AgentRunner />} />
-                <Route path="/agent-reports" element={<AgentReportHistory />} />
-                <Route path="/agent-runs" element={<AgentRunHistory />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </Suspense>
+              <Suspense
+                key={location.pathname === '/market-sense-training' ? 'market-sense-training' : colorMode}
+                fallback={<PageSkeleton />}
+              >
+                <Routes>
+                  <Route path="/" element={<MarketDataRoute />} />
+                  <Route path="/analysis" element={<MarketAnalysisRoute />} />
+                  <Route path="/data" element={<DataLibraryRoute />} />
+                  <Route path="/market-data" element={<MarketDataRoute />} />
+                  <Route path="/market-detail/:code" element={<MarketDetailRoute />} />
+                  <Route path="/watchlist" element={<WatchlistRoute />} />
+                  <Route path="/stock-selection" element={<StockSelectionPage />} />
+                  <Route path="/backtest" element={<BacktestRunner />} />
+                  <Route path="/market-sense-training" element={<MarketSenseTrainingPage />} />
+                  <Route path="/paper-trading" element={<PaperTradingPage />} />
+                  <Route path="/results" element={<BacktestResultsPage />} />
+                  <Route path="/factors" element={<FactorResearchPage />} />
+                  <Route path="/factor-mining" element={<AutomatedFactorMiningPage />} />
+                  <Route path="/studio" element={<StrategyStudioPage />} />
+                  <Route path="/agent" element={<AgentRunner />} />
+                  <Route path="/agent-reports" element={<AgentReportHistory />} />
+                  <Route path="/agent-runs" element={<AgentRunHistory />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </Suspense>
+            </PageErrorBoundary>
           }
         />
         <Modal

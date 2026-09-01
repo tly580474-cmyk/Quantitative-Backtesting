@@ -52,6 +52,7 @@ html[data-theme='dark'] {
 .workspace-skeleton { width: 100%; padding: 24px; }
 .workspace-skeleton-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 20px 0; }
 .workspace-skeleton-metrics > div { padding: 16px; border: 1px solid var(--wb-border); border-radius: var(--wb-radius); }
+.workspace-page-error { display: grid; width: 100%; min-height: min(560px, 70vh); place-items: center; padding: 24px; background: var(--wb-surface); }
 .workspace-details { margin: 10px 0; color: var(--wb-text); border: 1px solid var(--wb-border); border-radius: 8px; background: var(--wb-surface); }
 .workspace-details > summary { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 9px 12px; color: var(--wb-muted); cursor: pointer; list-style: none; font-size: 12px; }
 .workspace-details > summary::-webkit-details-marker { display: none; }

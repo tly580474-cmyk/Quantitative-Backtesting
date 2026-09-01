@@ -8,7 +8,7 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5558,
     strictPort: true,
-    allowedHosts: ['stock.clical.xin'],
+    allowedHosts: ['stock.clical.xin', 'xg-2.frp.one:58298'],
     proxy: {
       '/api': 'http://127.0.0.1:3001',
     },
@@ -17,7 +17,7 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5558,
     strictPort: true,
-    allowedHosts: ['stock.clical.xin'],
+    allowedHosts: ['stock.clical.xin', 'xg-2.frp.one:58298'],
     proxy: {
       '/api': 'http://127.0.0.1:3001',
     },
