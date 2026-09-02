@@ -39,9 +39,11 @@ import AnalysisPlaceholder from './features/chart/AnalysisPlaceholder';
 import './features/chart/analysis.workbench.css';
 import { WorkbenchDrawer, WorkbenchPanel } from './components/WorkbenchPanel';
 import RangeChangePanel from './features/chart/RangeChangePanel';
+import DrawingToolbar from './features/chart/drawing/DrawingToolbar';
 import SaveDatasetModal from './features/dataLibrary/SaveDatasetModal';
 import { useImport } from './features/import/useImport';
 import { useCandleStore } from './stores/useCandleStore';
+import { useDrawingStore } from './stores/useDrawingStore';
 import { apiFetch } from '@/api/client';
 import { getRepository } from './api/useRepository';
 import { computeChecksum } from './db/marketDataRepository';
@@ -248,6 +250,15 @@ export function MarketAnalysisRoute() {
   const importResult = useCandleStore((state) => state.importResult);
   const analysisSymbol = importResult?.symbol ?? sourceCandles[0]?.symbol ?? '';
   const adjustmentMode: AdjustmentMode = importResult?.adjustmentMode ?? 'none';
+  const drawingTool = useDrawingStore((state) => state.tool);
+  const drawingContextKey = useMemo(() => analysisSymbol
+    ? JSON.stringify({
+      version: 1,
+      instrument: importResult?.instrumentId ?? analysisSymbol,
+      period,
+      adjustmentMode,
+    })
+    : '', [adjustmentMode, analysisSymbol, importResult?.instrumentId, period]);
   const canSwitchAdjustment = !!importResult?.instrumentId && !isMinutePeriod(period);
   const handleAnalysisAdjustmentChange = useCallback(async (value: string | number) => {
     const nextMode = value as AdjustmentMode;
@@ -287,6 +298,19 @@ export function MarketAnalysisRoute() {
     () => aggregateCandles(activeSourceCandles, period),
     [activeSourceCandles, period],
   );
+
+  useEffect(() => {
+    if (drawingTool !== 'select') setRangeSelectionEnabled(false);
+  }, [drawingTool]);
+
+  const handleRangeSelectionEnabledChange = useCallback((enabled: boolean) => {
+    if (enabled) {
+      const drawingState = useDrawingStore.getState();
+      drawingState.clearDraft();
+      drawingState.setTool('select');
+    }
+    setRangeSelectionEnabled(enabled);
+  }, []);
   const chanAnalysis = useMemo(() => analyzeChanlun(displayCandles), [displayCandles]);
 
   const loadMinuteCandles = useCallback(async (
@@ -584,6 +608,15 @@ export function MarketAnalysisRoute() {
       </Button>
       {chanEnabled && <Tag className="chan-version-tag" variant="filled">chan-v1</Tag>}
       </div>
+      <div className="analysis-tool-group" role="group" aria-label="用户画线工具">
+        <DrawingToolbar
+          contextKey={drawingContextKey}
+          disabled={displayCandles.length === 0}
+          onToolChange={(tool) => {
+            if (tool !== 'select') setRangeSelectionEnabled(false);
+          }}
+        />
+      </div>
       <div className="analysis-tool-group" role="group" aria-label="行情周期与范围">
       <div className="analysis-period-switcher" aria-label="K线周期">
         <Segmented<ChartPeriod>
@@ -683,7 +716,7 @@ export function MarketAnalysisRoute() {
       <div className="analysis-tools-surface" aria-label="行情分析工具栏">{analysisControls}</div>
       <RangeChangePanel
         enabled={rangeSelectionEnabled}
-        onEnabledChange={setRangeSelectionEnabled}
+        onEnabledChange={handleRangeSelectionEnabledChange}
         candles={displayCandles}
       />
       <div className={indicatorInspectorOpen ? 'market-analysis-workspace has-inspector' : 'market-analysis-workspace'}>
@@ -698,6 +731,7 @@ export function MarketAnalysisRoute() {
             showChanSegments={chanEnabled && showChanSegments}
             showChanPenCenters={chanEnabled && showChanPenCenters}
             showChanSegmentCenters={chanEnabled && showChanSegmentCenters}
+            drawingContextKey={drawingContextKey}
           /> : <AnalysisPlaceholder loading={isMinutePeriod(period) && (minuteLoading || minuteCatalogLoading)} minuteMode={isMinutePeriod(period)}
             error={isMinutePeriod(period) ? minuteError : null}
             onRetry={() => {

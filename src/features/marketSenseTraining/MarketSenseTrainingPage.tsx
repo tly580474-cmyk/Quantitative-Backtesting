@@ -18,8 +18,12 @@ import {
   UndoOutlined,
 } from '@ant-design/icons';
 import { App as AntApp, Button, Checkbox, InputNumber, Popover, Progress, Spin, Tag, Tooltip } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '@/api/client';
+import { toCandles } from '@/features/marketData/exportMarketData';
 import type { KlinePoint } from '@/features/marketData/types';
+import type { ImportResult } from '@/models';
+import { useCandleStore } from '@/stores/useCandleStore';
 import { useDarkMode } from '@/theme';
 import TrainingChart, {
   type TrainingChartSnapshot,
@@ -203,6 +207,7 @@ async function loadCandidateSession(candidate: TrainingCandidate): Promise<Kline
 
 export default function MarketSenseTrainingPage() {
   const { message } = AntApp.useApp();
+  const navigate = useNavigate();
   const isDark = useDarkMode();
   const initialCache = readTrainingSessionCache();
   const [phase, setPhase] = useState<Phase>(initialCache?.phase ?? 'idle');
@@ -217,6 +222,7 @@ export default function MarketSenseTrainingPage() {
   const [drawings, setDrawings] = useState<TrainingDrawing[]>(initialCache?.drawings ?? []);
   const [draftPoint, setDraftPoint] = useState<TrainingDrawingPoint | null>(initialCache?.draftPoint ?? null);
   const [chartSnapshot, setChartSnapshot] = useState<TrainingChartSnapshot | null>(null);
+  const [openingAnalysis, setOpeningAnalysis] = useState(false);
 
   const currentBar = sessionBars[cursor];
   const previousBar = cursor > 0 ? sessionBars[cursor - 1] : undefined;
@@ -322,6 +328,39 @@ export default function MarketSenseTrainingPage() {
     setPortfolio((value) => recordEquity(value, currentBar));
     setPhase('finished');
   }, [currentBar]);
+
+  const openInMarketAnalysis = useCallback(async () => {
+    if (phase !== 'finished' || !instrument || openingAnalysis) return;
+    setOpeningAnalysis(true);
+    try {
+      const response = await apiFetch<KlineResponse>(
+        `/api/market-data/stocks/${instrument.code}/kline?period=day&fullHistory=true&startDate=${trainingHistoryStartDate()}`,
+      );
+      const daily = cleanBars(response.items ?? []);
+      if (daily.length === 0) throw new Error('当前标的暂无可导入的日 K 数据');
+      const candles = toCandles(daily, { code: instrument.code });
+      const result: ImportResult = {
+        success: true,
+        fileName: `${instrument.code}-${instrument.name}-盘感训练复盘`,
+        symbol: instrument.code,
+        name: instrument.name,
+        dateRange: { from: candles[0]?.time ?? '', to: candles[candles.length - 1]?.time ?? '' },
+        totalRows: candles.length,
+        validRows: candles.length,
+        errors: [],
+        warnings: [],
+        candles,
+      };
+      useCandleStore.getState().setCandles(candles);
+      useCandleStore.getState().setImportResult(result);
+      message.success(`已打开 ${instrument.name} 的行情分析`);
+      navigate('/analysis');
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : '打开行情分析失败');
+    } finally {
+      setOpeningAnalysis(false);
+    }
+  }, [instrument, message, navigate, openingAnalysis, phase]);
 
   const nextBar = useCallback(() => {
     if (phase !== 'active' || !currentBar) return;
@@ -437,7 +476,14 @@ export default function MarketSenseTrainingPage() {
         <span>{phase === 'finished' ? '训练完成' : `${completedSteps} / ${totalSteps}`}</span>
         <Progress percent={phase === 'finished' ? 100 : progress} showInfo={false} strokeColor="#ef4444" trailColor="#202832" />
       </div>
-      <Button danger onClick={finishTraining} disabled={phase === 'finished'}>结束训练</Button>
+      {phase === 'finished'
+        ? <Button
+            type="primary"
+            icon={<BarChartOutlined />}
+            loading={openingAnalysis}
+            onClick={() => void openInMarketAnalysis()}
+          >前往行情分析</Button>
+        : <Button danger onClick={finishTraining}>结束训练</Button>}
     </header>
 
     <div className="market-sense-workspace">

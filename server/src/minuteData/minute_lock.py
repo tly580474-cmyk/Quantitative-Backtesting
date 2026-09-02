@@ -92,13 +92,19 @@ def read_lock_payload(path: Path) -> dict[str, Any]:
 
 def lock_is_stale(path: Path, payload: dict[str, Any], stale_after_seconds: float) -> bool:
     pid = payload.get("pid")
-    if isinstance(pid, int) and pid > 0 and process_exists(pid):
-        return False
+    if isinstance(pid, int) and pid > 0:
+        # Once the owning process is gone it cannot still be writing the lake:
+        # all of its file handles have been closed by the OS.  Reclaim the lock
+        # immediately so a crashed/killed scheduled run does not block retries
+        # for the full stale timeout.
+        return not process_exists(pid)
     try:
         age = time.time() - path.stat().st_mtime
     except FileNotFoundError:
         return True
-    return age >= stale_after_seconds or not isinstance(pid, int)
+    # Keep an unreadable/malformed lock briefly in case another process has
+    # only just created it and has not finished writing its JSON payload yet.
+    return age >= stale_after_seconds
 
 
 def process_exists(pid: int) -> bool:
@@ -113,4 +119,3 @@ def process_exists(pid: int) -> bool:
     except OSError:
         return False
     return True
-

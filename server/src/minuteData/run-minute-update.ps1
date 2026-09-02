@@ -156,6 +156,13 @@ if ($exitCode -ne 0 -and -not $dependencyTimedOut) {
   }
 }
 
+if ($exitCode -eq 0) {
+  Write-MinuteProgress `
+    -Status 'completed' `
+    -Phase 'completed' `
+    -Message 'Minute data update completed.'
+}
+
 "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Finished automatic minute update with exit code $exitCode." |
   Out-File -LiteralPath $logPath -Append -Encoding utf8
 exit $exitCode

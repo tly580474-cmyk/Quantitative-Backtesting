@@ -40,6 +40,9 @@ import { ChanStructurePrimitive } from './ChanStructurePrimitive';
 import { chartTimeKey, toChartTime } from './chartTime';
 import type { Candle } from '@/models';
 import { getChartSurfaceColors } from '@/theme';
+import { DrawingPrimitive } from './drawing/DrawingPrimitive';
+import type { Drawing, DrawingDraft, DrawingPoint, DrawingTool } from './drawing/types';
+import { useDrawingStore } from '@/stores/useDrawingStore';
 
 interface IndicatorPaneEntry {
   chart: IChartApi;
@@ -51,6 +54,7 @@ interface IndicatorPaneEntry {
 
 interface ChartContainerProps {
   sourceCandles?: readonly Candle[];
+  drawingContextKey?: string;
   showRangeLines?: boolean;
   period?: ChartPeriod;
   showChipProfile?: boolean;
@@ -61,8 +65,93 @@ interface ChartContainerProps {
   showChanSegmentCenters?: boolean;
 }
 
+function drawingPointAt(
+  chart: IChartApi,
+  series: ISeriesApi<'Candlestick'>,
+  candles: readonly Candle[],
+  x: number,
+  y: number,
+): DrawingPoint | null {
+  if (candles.length === 0) return null;
+  const logical = chart.timeScale().coordinateToLogical(x);
+  const price = series.coordinateToPrice(y);
+  if (logical == null || price == null || !Number.isFinite(price)) return null;
+  const index = Math.max(0, Math.min(candles.length - 1, Math.round(logical)));
+  return { time: candles[index].time, price };
+}
+
+function parseDrawingHit(externalId: string): {
+  id: string;
+  part: 'anchor' | 'body' | 'stroke';
+  anchorIndex?: number;
+} | null {
+  const match = externalId.match(/^drawing-(.+?)-(anchor)-(\d+)$/);
+  if (match) return { id: match[1], part: 'anchor', anchorIndex: Number(match[3]) };
+  const body = externalId.match(/^drawing-(.+?)-(body|stroke)$/);
+  return body ? { id: body[1], part: body[2] as 'body' | 'stroke' } : null;
+}
+
+function nearestCandleIndex(
+  chart: IChartApi,
+  candles: readonly Candle[],
+  x: number,
+): number | null {
+  if (candles.length === 0) return null;
+  const logical = chart.timeScale().coordinateToLogical(x);
+  if (logical == null || !Number.isFinite(logical)) return null;
+  return Math.max(0, Math.min(candles.length - 1, Math.round(logical)));
+}
+
+function rectangleCorners(points: readonly DrawingPoint[], chart: IChartApi, series: ISeriesApi<'Candlestick'>): DrawingPoint[] {
+  if (points.length < 2) return [...points];
+  const firstX = chart.timeScale().timeToCoordinate(toChartTime(points[0].time));
+  const secondX = chart.timeScale().timeToCoordinate(toChartTime(points[1].time));
+  const firstY = series.priceToCoordinate(points[0].price);
+  const secondY = series.priceToCoordinate(points[1].price);
+  if (firstX == null || secondX == null || firstY == null || secondY == null) return [...points];
+  const leftTime = firstX <= secondX ? points[0].time : points[1].time;
+  const rightTime = firstX <= secondX ? points[1].time : points[0].time;
+  const topPrice = firstY <= secondY ? points[0].price : points[1].price;
+  const bottomPrice = firstY <= secondY ? points[1].price : points[0].price;
+  return [
+    { time: leftTime, price: topPrice },
+    { time: rightTime, price: topPrice },
+    { time: rightTime, price: bottomPrice },
+    { time: leftTime, price: bottomPrice },
+  ];
+}
+
+function shiftDrawingPoints(
+  drawing: Drawing,
+  startPoint: DrawingPoint,
+  currentPoint: DrawingPoint,
+  candles: readonly Candle[],
+): DrawingPoint[] {
+  const priceDelta = currentPoint.price - startPoint.price;
+  if (drawing.type === 'horizontal') {
+    return drawing.points.map((point) => ({ ...point, price: point.price + priceDelta }));
+  }
+  const startIndex = candles.findIndex((candle) => candle.time === startPoint.time);
+  const currentIndex = candles.findIndex((candle) => candle.time === currentPoint.time);
+  if (startIndex < 0 || currentIndex < 0) {
+    return drawing.points.map((point) => ({ ...point, price: point.price + priceDelta }));
+  }
+  const indexDelta = currentIndex - startIndex;
+  return drawing.points.map((point) => {
+    const index = candles.findIndex((candle) => candle.time === point.time);
+    const nextIndex = index < 0
+      ? -1
+      : Math.max(0, Math.min(candles.length - 1, index + indexDelta));
+    return {
+      time: nextIndex >= 0 ? candles[nextIndex].time : point.time,
+      price: point.price + priceDelta,
+    };
+  });
+}
+
 export default function ChartContainer({
   sourceCandles: sourceCandlesOverride,
+  drawingContextKey,
   showRangeLines = false,
   period = 'day',
   showChipProfile = false,
@@ -103,13 +192,61 @@ export default function ChartContainer({
   const setVisibleRange = useChartStore((s) => s.setVisibleRange);
   const setRangeLineState = useChartStore((s) => s.setRangeLineState);
   const rangeLineDragging = useChartStore((s) => s.rangeLineDragging);
+  const drawings = useDrawingStore((s) => s.drawings);
+  const drawingDraft = useDrawingStore((s) => s.draft);
+  const drawingSelectedId = useDrawingStore((s) => s.selectedId);
+  const drawingTool = useDrawingStore((s) => s.tool);
+  const setDrawingContextKey = useDrawingStore((s) => s.setContextKey);
+  const setDrawingDraft = useDrawingStore((s) => s.setDraft);
+  const clearDrawingDraft = useDrawingStore((s) => s.clearDraft);
+  const setDrawingSelectedId = useDrawingStore((s) => s.setSelectedId);
+  const addDrawing = useDrawingStore((s) => s.add);
+  const updateDrawing = useDrawingStore((s) => s.update);
   const visibleRangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rangeLineRef = useRef<RangeLinePrimitive | null>(null);
+  const drawingPrimitiveRef = useRef<DrawingPrimitive | null>(null);
   const chanStructureRef = useRef<ChanStructurePrimitive | null>(null);
   const rangeLineHoveredRef = useRef<'start' | 'end' | null>(null);
+  const drawingToolRef = useRef<DrawingTool>(drawingTool);
+  drawingToolRef.current = drawingTool;
+  const drawingEnabled = Boolean(drawingContextKey);
+  const drawingEnabledRef = useRef(drawingEnabled);
+  drawingEnabledRef.current = drawingEnabled;
+  const drawingsRef = useRef<readonly Drawing[]>(drawings);
+  const drawingDraftRef = useRef<DrawingDraft | null>(drawingDraft);
+  drawingsRef.current = drawings;
+  drawingDraftRef.current = drawingDraft;
+  const drawingPreviewRef = useRef<readonly Drawing[] | null>(null);
+  const drawingDragRef = useRef<{
+    id: string;
+    part: 'anchor' | 'body' | 'stroke';
+    anchorIndex?: number;
+    pointerId: number;
+    startPoint: DrawingPoint;
+    points: DrawingPoint[];
+  } | null>(null);
   const chipPriceToCoordinateRef = useRef<((price: number) => number | null) | null>(null);
   const [chipChartLayout, setChipChartLayout] = useState({ height: 0, revision: 0 });
   const [chipEndIndex, setChipEndIndex] = useState(-1);
+
+  useEffect(() => {
+    if (drawingContextKey != null) setDrawingContextKey(drawingContextKey);
+  }, [drawingContextKey, setDrawingContextKey]);
+
+  useEffect(() => {
+    const primitive = drawingPrimitiveRef.current;
+    if (!primitive) return;
+    primitive.setDrawings(drawingEnabled ? drawingPreviewRef.current ?? drawings : []);
+    primitive.setDraft(drawingEnabled ? drawingDraft : null);
+    primitive.setSelectedDrawing(drawingEnabled ? drawingSelectedId : null);
+  }, [drawingDraft, drawingEnabled, drawingSelectedId, drawings]);
+
+  useEffect(() => {
+    const chart = mainChartRef.current;
+    if (!chart) return;
+    const enabled = !drawingEnabled || drawingTool === 'select';
+    chart.applyOptions({ handleScroll: enabled, handleScale: enabled });
+  }, [drawingEnabled, drawingTool]);
 
   const indicatorResults = useMemo(
     () => calculateAllIndicators(candles, actives),
@@ -353,6 +490,8 @@ export default function ChartContainer({
         timeVisible: true,
         secondsVisible: false,
       },
+      handleScroll: !drawingEnabledRef.current || drawingToolRef.current === 'select',
+      handleScale: !drawingEnabledRef.current || drawingToolRef.current === 'select',
       width: container.clientWidth,
       height: container.clientHeight,
     });
@@ -389,6 +528,13 @@ export default function ChartContainer({
     chanStructureRef.current = chanStructure;
     candleSeries.attachPrimitive(chanStructure);
 
+    const drawingPrimitive = new DrawingPrimitive();
+    drawingPrimitiveRef.current = drawingPrimitive;
+    drawingPrimitive.setDrawings(drawingEnabledRef.current ? drawingsRef.current : []);
+    drawingPrimitive.setDraft(drawingEnabledRef.current ? drawingDraftRef.current : null);
+    drawingPrimitive.setSelectedDrawing(drawingEnabledRef.current ? useDrawingStore.getState().selectedId : null);
+    candleSeries.attachPrimitive(drawingPrimitive);
+
     // Keep the range primitive attached for the lifetime of the chart. Enabling
     // the range tool now only supplies/clears its endpoints, so the chart and its
     // current logical viewport never need to be remounted.
@@ -401,6 +547,7 @@ export default function ChartContainer({
 
     const handleRangeMouseDown = (event: MouseEvent) => {
       const rect = container.getBoundingClientRect();
+      if (drawingToolRef.current !== 'select') return;
       const hit = rangeLine.hitTest(event.clientX - rect.left, event.clientY - rect.top);
       if (!hit) return;
 
@@ -410,6 +557,135 @@ export default function ChartContainer({
       event.stopPropagation();
     };
     container.addEventListener('mousedown', handleRangeMouseDown, true);
+
+    const pointFromPointerEvent = (event: PointerEvent): { x: number; y: number; point: DrawingPoint | null } => {
+      const rect = container.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      return { x, y, point: drawingPointAt(chart, candleSeries, candlesRef.current, x, y) };
+    };
+    const updateChartInteraction = () => {
+      const enabled = !drawingEnabledRef.current
+        || (drawingToolRef.current === 'select' && drawingDragRef.current == null);
+      chart.applyOptions({ handleScroll: enabled, handleScale: enabled });
+    };
+    const drawingById = (id: string) => drawingsRef.current.find((drawing) => drawing.id === id);
+    const setDrawingPreview = (id: string, points: DrawingPoint[]) => {
+      const preview = drawingsRef.current.map((drawing) => drawing.id === id
+        ? { ...drawing, points }
+        : drawing);
+      drawingPreviewRef.current = preview;
+      drawingPrimitive.setDrawings(preview);
+    };
+    const finishDrawingDrag = (event?: PointerEvent, cancelled = false) => {
+      const drag = drawingDragRef.current;
+      if (!drag || (event && event.pointerId !== drag.pointerId)) return;
+      const preview = drawingPreviewRef.current;
+      if (!cancelled && preview) {
+        const updated = preview.find((drawing) => drawing.id === drag.id);
+        if (updated) updateDrawing(drag.id, { points: updated.points });
+      }
+      drawingPreviewRef.current = null;
+      drawingDragRef.current = null;
+      drawingPrimitive.setDrawings(drawingsRef.current);
+      if (event && container.hasPointerCapture(event.pointerId)) container.releasePointerCapture(event.pointerId);
+      updateChartInteraction();
+    };
+    const handleDrawingPointerDown = (event: PointerEvent) => {
+      if (!drawingEnabledRef.current) return;
+      const tool = drawingToolRef.current;
+      const { x, y, point } = pointFromPointerEvent(event);
+      if (x < 0 || y < 0 || x > container.clientWidth || y > container.clientHeight) return;
+
+      if (tool !== 'select') {
+        if (!point) return;
+        if (rangeLine.getDragging()) rangeLine.setDragging(null);
+        const draft = drawingDraftRef.current;
+        if (tool === 'horizontal') {
+          addDrawing({ type: 'horizontal', points: [point] });
+          drawingDraftRef.current = null;
+          drawingPrimitive.setDraft(null);
+        } else if (draft?.type === tool && draft.points.length > 0) {
+          addDrawing({ type: tool, points: [draft.points[0], point] });
+          drawingDraftRef.current = null;
+          drawingPrimitive.setDraft(null);
+        } else {
+          const nextDraft: DrawingDraft = { type: tool, points: [point] };
+          drawingDraftRef.current = nextDraft;
+          setDrawingDraft(nextDraft);
+          drawingPrimitive.setDraft(nextDraft);
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      const hit = parseDrawingHit(drawingPrimitive.hitTest(x, y)?.externalId ?? '');
+      if (!hit) {
+        setDrawingSelectedId(null);
+        return;
+      }
+      const drawing = drawingById(hit.id);
+      if (!drawing || !point) return;
+      setDrawingSelectedId(hit.id);
+      drawingDragRef.current = {
+        id: hit.id,
+        part: hit.part,
+        anchorIndex: hit.anchorIndex,
+        pointerId: event.pointerId,
+        startPoint: point,
+        points: drawing.points.map((item) => ({ ...item })),
+      };
+      drawingPreviewRef.current = null;
+      chart.applyOptions({ handleScroll: false, handleScale: false });
+      try { container.setPointerCapture(event.pointerId); } catch { /* unsupported in test DOM */ }
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const handleDrawingPointerMove = (event: PointerEvent) => {
+      if (!drawingEnabledRef.current) return;
+      const { x, y, point } = pointFromPointerEvent(event);
+      if (x < 0 || y < 0 || x > container.clientWidth || y > container.clientHeight) return;
+      const drag = drawingDragRef.current;
+      if (drag && point) {
+        const drawing = drawingsRef.current.find((item) => item.id === drag.id);
+        if (!drawing) return;
+        let nextPoints: DrawingPoint[];
+        if (drag.part === 'anchor' && drag.anchorIndex != null) {
+          if (drawing.type === 'rectangle') {
+            const corners = rectangleCorners(drag.points, chart, candleSeries);
+            const opposite = corners[(drag.anchorIndex + 2) % corners.length];
+            nextPoints = opposite ? [point, opposite] : drag.points.map((item) => ({ ...item }));
+          } else {
+            nextPoints = drag.points.map((item, index) => index === drag.anchorIndex ? point : { ...item });
+          }
+        } else {
+          nextPoints = shiftDrawingPoints(drawing, drag.startPoint, point, candlesRef.current);
+        }
+        setDrawingPreview(drag.id, nextPoints);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (drawingToolRef.current !== 'select') {
+        const draft = drawingDraftRef.current;
+        if (draft && draft.points.length > 0 && point) {
+          drawingPrimitive.setDraft({ ...draft, previewPoint: point });
+        }
+      }
+    };
+    const handleDrawingPointerUp = (event: PointerEvent) => finishDrawingDrag(event);
+    const handleDrawingPointerCancel = (event: PointerEvent) => finishDrawingDrag(event, true);
+    const handleDrawingPointerLeave = () => {
+      if (drawingToolRef.current !== 'select' && drawingDraftRef.current) {
+        drawingPrimitive.setDraft(drawingDraftRef.current);
+      }
+    };
+    container.addEventListener('pointerdown', handleDrawingPointerDown, true);
+    container.addEventListener('pointermove', handleDrawingPointerMove, true);
+    container.addEventListener('pointerleave', handleDrawingPointerLeave, true);
+    document.addEventListener('pointerup', handleDrawingPointerUp, true);
+    document.addEventListener('pointercancel', handleDrawingPointerCancel, true);
 
     chart.subscribeCrosshairMove((param) => {
       // Range line drag handling
@@ -531,6 +807,12 @@ export default function ChartContainer({
       if (visibleRangeTimerRef.current) clearTimeout(visibleRangeTimerRef.current);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       container.removeEventListener('mousedown', handleRangeMouseDown, true);
+      container.removeEventListener('pointerdown', handleDrawingPointerDown, true);
+      container.removeEventListener('pointermove', handleDrawingPointerMove, true);
+      container.removeEventListener('pointerleave', handleDrawingPointerLeave, true);
+      document.removeEventListener('pointerup', handleDrawingPointerUp, true);
+      document.removeEventListener('pointercancel', handleDrawingPointerCancel, true);
+      finishDrawingDrag(undefined, true);
       setVisibleRange(null);
       if (rangeLineRef.current) {
         candleSeries.detachPrimitive(rangeLineRef.current);
@@ -540,6 +822,8 @@ export default function ChartContainer({
         candleSeries.detachPrimitive(chanStructureRef.current);
         chanStructureRef.current = null;
       }
+      candleSeries.detachPrimitive(drawingPrimitive);
+      drawingPrimitiveRef.current = null;
       for (const entry of indicatorPanesRef.current.values()) {
         entry.unsubscribeRange?.();
         entry.unsubscribeCrosshair?.();

@@ -1,0 +1,126 @@
+.drawing-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--wb-border, #dbe3ec);
+  border-radius: 8px;
+  background: var(--wb-surface, #fff);
+  color: var(--wb-text, #0f172a);
+}
+
+.drawing-toolbar .ant-btn {
+  min-height: 36px;
+}
+
+.drawing-toolbar .ant-btn:focus-visible {
+  outline: 2px solid var(--wb-accent, #2563eb);
+  outline-offset: 2px;
+}
+
+.drawing-toolbar__trigger,
+.drawing-toolbar__browse {
+  min-width: 72px;
+}
+
+.drawing-toolbar__status {
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+  color: var(--wb-muted, #64748b);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawing-toolbar__count {
+  margin-left: auto;
+  color: var(--wb-muted, #64748b);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.drawing-toolbar__menu {
+  display: grid;
+  min-width: 250px;
+  grid-template-columns: repeat(2, minmax(116px, 1fr));
+  gap: 6px;
+}
+
+.drawing-toolbar__menu .ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 40px;
+  gap: 6px;
+  text-align: left;
+}
+
+.drawing-toolbar__menu .ant-btn > span:not(.anticon) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawing-toolbar__menu kbd {
+  margin-left: auto;
+  padding: 1px 5px;
+  border: 1px solid var(--wb-border, #dbe3ec);
+  border-radius: 4px;
+  color: var(--wb-muted, #64748b);
+  background: var(--wb-surface-muted, #f8fafc);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.drawing-toolbar-popover .ant-popover-inner {
+  border: 1px solid var(--wb-border, #dbe3ec);
+  background: var(--wb-surface, #fff);
+}
+
+html[data-theme='dark'] .drawing-toolbar__menu kbd {
+  color: var(--wb-muted, #94a3b8);
+  background: var(--wb-surface-muted, #151a21);
+}
+
+@media (max-width: 767px) {
+  .drawing-toolbar {
+    width: 100%;
+    padding: 6px;
+    border-radius: 6px;
+  }
+
+  .drawing-toolbar .ant-btn {
+    min-height: 44px;
+  }
+
+  .drawing-toolbar__status {
+    flex: 1 1 100%;
+    order: 10;
+    margin: 0;
+    padding: 2px 4px 0;
+  }
+
+  .drawing-toolbar__count {
+    margin-left: 0;
+  }
+
+  .drawing-toolbar__menu {
+    min-width: min(280px, calc(100vw - 32px));
+  }
+
+  .drawing-toolbar__menu .ant-btn {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawing-toolbar *,
+  .drawing-toolbar *::before,
+  .drawing-toolbar *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
