@@ -503,8 +503,32 @@ export function registerMarketDataRoutes(
     }
     if (!agentConfig.apiKey) return reply.status(503).send({ message: '请先在服务端配置 AI 模型与密钥' });
     if (!dbOnline) return reply.status(503).send({ message: '数据库不可用，无法整理市场新闻上下文' });
+    const wantsStream = req.headers.accept?.includes('application/x-ndjson') ?? false;
     try {
-      return reply.send(await opinionAgent.generate(await getMarketOpinionNews(), body.data.model, body.data.force));
+      if (!wantsStream) return reply.send(await opinionAgent.generate(await getMarketOpinionNews(), body.data.model, body.data.force));
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
+      });
+      const send = (event: Record<string, unknown>) => {
+        if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.write(`${JSON.stringify(event)}\n`);
+      };
+      send({ type: 'start' });
+      try {
+        const report = await opinionAgent.generate(await getMarketOpinionNews(), body.data.model, body.data.force, {
+          onDelta: (content) => send({ type: 'delta', content }),
+          onReasoningDelta: (content) => send({ type: 'reasoning_delta', content }),
+        });
+        send({ type: 'done', report });
+      } catch (error) {
+        req.log.error(error);
+        send({ type: 'error', message: error instanceof Error ? error.message : '市场观点解读生成失败' });
+      } finally {
+        reply.raw.end();
+      }
+      return;
     } catch (error) {
       req.log.error(error);
       return reply.status(502).send({ message: error instanceof Error ? error.message : '市场观点解读生成失败' });
@@ -896,6 +920,7 @@ export function registerMarketDataRoutes(
         const result = await agent.research(context, body.data.model, {
           signal: abortController.signal,
           onDelta: (content) => send({ type: 'delta', content }),
+          onReasoningDelta: (content) => send({ type: 'reasoning_delta', content }),
         });
         send({
           type: 'done',

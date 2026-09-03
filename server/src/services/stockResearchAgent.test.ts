@@ -103,6 +103,7 @@ function context(): StockResearchContext {
 describe('stock intelligent trading system prompt', () => {
   it('aggregates streamed report content and ignores non-content chunks', async () => {
     async function* chunks() {
+      yield { choices: [{ delta: { reasoning_content: '先核验行情。' } }] };
       yield { choices: [{ delta: { content: '执行摘要\n' } }] };
       yield { choices: [{ delta: {} }] };
       yield { choices: [{ delta: { content: '- 等待确认' } }] };
@@ -110,9 +111,15 @@ describe('stock intelligent trading system prompt', () => {
     }
 
     const deltas: string[] = [];
-    await expect(collectResearchStream(chunks(), (content) => deltas.push(content)))
+    const reasoningDeltas: string[] = [];
+    await expect(collectResearchStream(
+      chunks(),
+      (content) => deltas.push(content),
+      (content) => reasoningDeltas.push(content),
+    ))
       .resolves.toBe('执行摘要\n- 等待确认');
     expect(deltas).toEqual(['执行摘要\n', '- 等待确认']);
+    expect(reasoningDeltas).toEqual(['先核验行情。']);
   });
 
   it('returns an empty string when a stream contains no report content', async () => {
@@ -148,6 +155,21 @@ describe('stock intelligent trading system prompt', () => {
     };
 
     await expect(collectResearchStreamWithRetry(request)).rejects.toThrow('中途断开');
+    expect(attempts).toBe(1);
+  });
+
+  it('does not retry after reasoning has already been exposed', async () => {
+    let attempts = 0;
+    const request = async () => {
+      attempts += 1;
+      return (async function* chunks() {
+        yield { choices: [{ delta: { reasoning_content: '已显示思考' } }] };
+        throw new Error('思考流中途断开');
+      }());
+    };
+
+    await expect(collectResearchStreamWithRetry(request, undefined, () => undefined))
+      .rejects.toThrow('思考流中途断开');
     expect(attempts).toBe(1);
   });
 

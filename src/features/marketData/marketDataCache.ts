@@ -3,6 +3,7 @@ import type { SelectionScoreContext } from './selectionScore';
 
 interface AgentResultCache {
   content: string;
+  reasoningContent?: string;
   reasoningSummary: string[];
 }
 

@@ -43,7 +43,11 @@ export interface AIStatus {
 }
 
 export interface StrategyGenerationProvider {
-  generate(request: GenerateStrategyRequest): Promise<GenerateStrategyResult>;
-  refine(request: RefineStrategyRequest): Promise<GenerateStrategyResult>;
+  generate(request: GenerateStrategyRequest, options?: StrategyGenerationStreamOptions): Promise<GenerateStrategyResult>;
+  refine(request: RefineStrategyRequest, options?: StrategyGenerationStreamOptions): Promise<GenerateStrategyResult>;
   explain(request: ExplainStrategyRequest): Promise<StrategyExplanation>;
+}
+
+export interface StrategyGenerationStreamOptions {
+  onReasoningDelta?: (content: string) => void;
 }

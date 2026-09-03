@@ -21,6 +21,7 @@ import {
   InputNumber,
   Select,
   Space,
+  Spin,
   Table,
   Tag,
   Tabs,
@@ -184,6 +185,8 @@ export default function FactorResearchPage() {
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const [updatingSnapshot, setUpdatingSnapshot] = useState(false);
   const [interpretation, setInterpretation] = useState<FactorReportInterpretation | null>(null);
+  const [interpretationDraft, setInterpretationDraft] = useState('');
+  const [interpretationReasoning, setInterpretationReasoning] = useState('');
   const [interpreting, setInterpreting] = useState(false);
   const [aiModelStatus, setAiModelStatus] = useState<AiModelStatus | null>(null);
   const [interpretationModel, setInterpretationModel] = useState<string>();
@@ -463,9 +466,16 @@ export default function FactorResearchPage() {
       return;
     }
     setInterpreting(true);
+    setInterpretationDraft('');
+    setInterpretationReasoning('');
     setError(null);
     try {
-      const result = await interpretFactorRunReport(reportRunId, interpretationModel);
+      let content = '';
+      let reasoning = '';
+      const result = await interpretFactorRunReport(reportRunId, interpretationModel, {
+        onDelta: (delta) => { content += delta; setInterpretationDraft(content); },
+        onReasoningDelta: (delta) => { reasoning += delta; setInterpretationReasoning(reasoning); },
+      });
       setInterpretation(result);
       message.success('智能体解读已生成');
     } catch (err) {
@@ -816,6 +826,8 @@ export default function FactorResearchPage() {
                     <ReportInterpretationPanel
                       runId={reportRunId}
                       interpretation={interpretation}
+                      draft={interpretationDraft}
+                      reasoning={interpretationReasoning}
                       loading={interpreting}
                       disabled={!reportRunId || (!report && !compositeReport) || !aiModelStatus?.configured}
                       model={interpretationModel}
@@ -888,6 +900,8 @@ export default function FactorResearchPage() {
                     <ReportInterpretationPanel
                       runId={reportRunId}
                       interpretation={interpretation}
+                      draft={interpretationDraft}
+                      reasoning={interpretationReasoning}
                       loading={interpreting}
                       disabled={!reportRunId || (!report && !compositeReport) || !aiModelStatus?.configured}
                       model={interpretationModel}
@@ -1163,6 +1177,8 @@ export default function FactorResearchPage() {
                 <ReportInterpretationPanel
                   runId={reportRunId}
                   interpretation={interpretation}
+                  draft={interpretationDraft}
+                  reasoning={interpretationReasoning}
                   loading={interpreting}
                   disabled={!reportRunId || (!report && !compositeReport) || !aiModelStatus?.configured}
                   model={interpretationModel}
@@ -1202,6 +1218,8 @@ function MarketSelect() {
 function ReportInterpretationPanel({
   runId,
   interpretation,
+  draft,
+  reasoning,
   loading,
   disabled,
   model,
@@ -1211,6 +1229,8 @@ function ReportInterpretationPanel({
 }: {
   runId: string | null;
   interpretation: FactorReportInterpretation | null;
+  draft: string;
+  reasoning: string;
   loading: boolean;
   disabled: boolean;
   model: string | undefined;
@@ -1249,6 +1269,11 @@ function ReportInterpretationPanel({
           </Button>
         </div>
       </div>
+      {loading && reasoning && <Collapse
+        activeKey={['reasoning']}
+        items={[{ key: 'reasoning', label: <Space><Spin size="small" />模型思考过程</Space>, children: <div className="markdown-preview" aria-live="polite"><ReactMarkdown remarkPlugins={[remarkGfm]}>{reasoning}</ReactMarkdown></div> }]}
+      />}
+      {loading && draft && <div className="factor-agent-result markdown-preview" aria-live="polite"><ReactMarkdown remarkPlugins={[remarkGfm]}>{draft}</ReactMarkdown></div>}
       {interpretation ? (
         <div className="factor-agent-result markdown-preview">
           <div className="factor-agent-meta">
@@ -1258,13 +1283,14 @@ function ReportInterpretationPanel({
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {interpretation.interpretation}
           </ReactMarkdown>
+          {interpretation.reasoningContent && <Collapse items={[{ key: 'reasoning', label: '模型思考过程', children: <div className="markdown-preview"><ReactMarkdown remarkPlugins={[remarkGfm]}>{interpretation.reasoningContent}</ReactMarkdown></div> }]} />}
         </div>
-      ) : (
+      ) : !loading ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={disabled ? '打开一个已完成报告后可生成智能解读' : '智能体会总结有效性、稳定性、风险和下一步研究建议'}
         />
-      )}
+      ) : null}
     </div>
   );
 }

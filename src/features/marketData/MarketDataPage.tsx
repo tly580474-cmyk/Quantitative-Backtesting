@@ -69,6 +69,7 @@ const DEFAULT_TRADING_STYLES: TradingStyleOption[] = [
 type ResearchStreamEvent =
   | { type: 'start' }
   | { type: 'delta'; content: string }
+  | { type: 'reasoning_delta'; content: string }
   | { type: 'done'; reasoningSummary: string[]; model: string; sources: string[] }
   | { type: 'error'; message: string };
 const MARKET_INDEX_OPTIONS: MarketIndexOption[] = [
@@ -1108,6 +1109,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [agentStyles, setAgentStyles] = useState<TradingStyleId[]>(marketDataCache.agentStyles);
   const [agentRunning, setAgentRunning] = useState(false);
   const [agentResult, setAgentResult] = useState(() => marketDataCache.agentResults[initialSelectedCode]?.content ?? '');
+  const [reasoningContent, setReasoningContent] = useState(() => marketDataCache.agentResults[initialSelectedCode]?.reasoningContent ?? '');
   const [reasoningSummary, setReasoningSummary] = useState<string[]>(() => marketDataCache.agentResults[initialSelectedCode]?.reasoningSummary ?? []);
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const selectedCodeRef = useRef(initialSelectedCode);
@@ -1303,6 +1305,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     setSevenLayerSections(marketDataCache.sevenLayer[selectedCode] ?? {});
     setSevenLayerLoading({});
     setAgentResult(cachedAgent?.content ?? '');
+    setReasoningContent(cachedAgent?.reasoningContent ?? '');
     setReasoningSummary(cachedAgent?.reasoningSummary ?? []);
     // Let the quote/profile request enter the Eastmoney limiter before the heavier
     // report request, so the primary card never sits behind a long report fetch.
@@ -1564,15 +1567,19 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       return;
     }
     const targetCode = selectedCode;
-    setAgentRunning(true); setAgentResult(''); setReasoningSummary([]); setThinkingOpen(true);
+    setAgentRunning(true); setAgentResult(''); setReasoningContent(''); setReasoningSummary([]); setThinkingOpen(true);
     let streamedContent = '';
+    let streamedReasoning = '';
     let streamCompleted = false;
     let completedReasoningSummary: string[] = [];
     let renderTimer: ReturnType<typeof window.setTimeout> | null = null;
     const flushStream = () => {
       if (renderTimer !== null) window.clearTimeout(renderTimer);
       renderTimer = null;
-      if (selectedCodeRef.current === targetCode) setAgentResult(streamedContent);
+      if (selectedCodeRef.current === targetCode) {
+        setAgentResult(streamedContent);
+        setReasoningContent(streamedReasoning);
+      }
     };
     const scheduleStreamRender = () => {
       if (renderTimer !== null) return;
@@ -1587,6 +1594,9 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
         if (event.type === 'delta') {
           streamedContent += event.content;
           scheduleStreamRender();
+        } else if (event.type === 'reasoning_delta') {
+          streamedReasoning += event.content;
+          scheduleStreamRender();
         } else if (event.type === 'done') {
           streamCompleted = true;
           completedReasoningSummary = event.reasoningSummary ?? [];
@@ -1598,10 +1608,14 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       if (!streamCompleted || !streamedContent.trim()) {
         throw new ApiError('INCOMPLETE_STREAM', '智能交易分析流未完整返回', 502);
       }
-      const result = { content: streamedContent.trim(), reasoningSummary: completedReasoningSummary };
+      const result = {
+        content: streamedContent.trim(),
+        reasoningContent: streamedReasoning.trim(),
+        reasoningSummary: completedReasoningSummary,
+      };
       marketDataCache.agentResults[targetCode] = result;
       if (selectedCodeRef.current !== targetCode) return;
-      setAgentResult(result.content); setReasoningSummary(result.reasoningSummary ?? []); setThinkingOpen(false);
+      setAgentResult(result.content); setReasoningContent(result.reasoningContent); setReasoningSummary(result.reasoningSummary ?? []); setThinkingOpen(false);
     } catch (e) { message.error(e instanceof Error ? e.message : '智能交易系统分析失败'); }
     finally {
       if (renderTimer !== null) window.clearTimeout(renderTimer);
@@ -1979,7 +1993,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
                 <Button size="small" icon={<DownloadOutlined />} disabled={!agentResult || agentRunning} onClick={exportAgentResult}>导出 Markdown</Button>
               </Space>
             </div>}
-            {(agentRunning || reasoningSummary.length > 0) && <Collapse className="agent-reasoning" activeKey={thinkingOpen ? ['reasoning'] : []} onChange={(keys) => setThinkingOpen((Array.isArray(keys) ? keys : [keys]).includes('reasoning'))} items={[{ key: 'reasoning', label: <Space>{agentRunning ? <Spin size="small" /> : <CheckCircleOutlined className="agent-process-done" />}分析过程摘要{!agentRunning && <Text type="secondary">（已完成，自动折叠）</Text>}</Space>, children: <ol>{(reasoningSummary.length ? reasoningSummary : ['读取全市场指数、情绪、资金和热点环境', '加载个股行情、K线与多层数据', '筛选市场消息、个股新闻和机构研报', '按已选交易风格分别建立分析框架', '交叉验证风格共识、冲突和风险', '生成带触发与失效条件的交易分析']).map((step) => <li key={step}>{step}</li>)}</ol> }]} />}
+            {(agentRunning || reasoningContent || reasoningSummary.length > 0) && <Collapse className="agent-reasoning" activeKey={thinkingOpen ? ['reasoning'] : []} onChange={(keys) => setThinkingOpen((Array.isArray(keys) ? keys : [keys]).includes('reasoning'))} items={[{ key: 'reasoning', label: <Space>{agentRunning ? <Spin size="small" /> : <CheckCircleOutlined className="agent-process-done" />}{reasoningContent ? '模型思考过程' : '分析过程摘要'}{!agentRunning && <Text type="secondary">（已完成，自动折叠）</Text>}</Space>, children: reasoningContent ? <article className="markdown-preview" aria-live="polite"><ReactMarkdown remarkPlugins={[remarkGfm]}>{reasoningContent}</ReactMarkdown></article> : <ol>{(reasoningSummary.length ? reasoningSummary : ['正在等待模型返回思考内容…']).map((step) => <li key={step}>{step}</li>)}</ol> }]} />}
             {agentResult ? <article className="agent-result markdown-preview"><ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { StrategyGenerationProvider } from '../services/strategyGeneration/provider.js';
 import { StrategyOutputValidationError } from '../services/strategyGeneration/schema.js';
 
@@ -58,12 +58,16 @@ export function registerAiRoutes(
     }
 
     try {
-      const result = await provider.generate({
+      const request = {
         prompt: body.prompt as string,
         model: body.model as string | undefined,
         datasetContext: body.datasetContext as { timeframe: string; availableFields: string[] } | undefined,
         dslVersion: (body.dslVersion as string) ?? '1.0',
-      });
+      };
+      if (req.headers.accept?.includes('application/x-ndjson')) {
+        return streamStrategyResult(reply, (onReasoningDelta) => provider.generate(request, { onReasoningDelta }));
+      }
+      const result = await provider.generate(request);
 
       return reply.send(result);
     } catch (err) {
@@ -109,12 +113,16 @@ export function registerAiRoutes(
     }
 
     try {
-      const result = await provider.refine({
+      const request = {
         currentStrategy: body.currentStrategy as Record<string, unknown>,
         modification: body.modification as string,
         model: body.model as string | undefined,
         dslVersion: (body.dslVersion as string) ?? '1.0',
-      });
+      };
+      if (req.headers.accept?.includes('application/x-ndjson')) {
+        return streamStrategyResult(reply, (onReasoningDelta) => provider.refine(request, { onReasoningDelta }));
+      }
+      const result = await provider.refine(request);
       return reply.send(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -147,4 +155,32 @@ export function registerAiRoutes(
       return reply.status(500).send({ error: 'EXPLAIN_FAILED', message: '策略解释失败' });
     }
   });
+}
+
+async function streamStrategyResult(
+  reply: FastifyReply,
+  run: (onReasoningDelta: (content: string) => void) => Promise<unknown>,
+) {
+  reply.hijack();
+  reply.raw.writeHead(200, {
+    'Content-Type': 'application/x-ndjson; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (event: Record<string, unknown>) => {
+    if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.write(`${JSON.stringify(event)}\n`);
+  };
+  send({ type: 'start' });
+  try {
+    const result = await run((content) => send({ type: 'reasoning_delta', content }));
+    send({ type: 'done', result });
+  } catch (error) {
+    send({
+      type: 'error',
+      message: error instanceof Error ? error.message : '策略生成失败',
+      details: error instanceof StrategyOutputValidationError ? error.validationErrors : undefined,
+    });
+  } finally {
+    reply.raw.end();
+  }
 }

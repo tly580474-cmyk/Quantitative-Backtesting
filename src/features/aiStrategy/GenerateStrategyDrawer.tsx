@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import {
   Drawer, Button, Input, Select, Segmented, Typography, Space, Alert,
-  Tag, Spin, Divider, Card, App,
+  Tag, Spin, Divider, Card, App, Collapse,
 } from 'antd';
 import { BulbOutlined, CheckCircleOutlined, EditOutlined } from '@ant-design/icons';
 import { getAIStatus, generateStrategy, refineStrategy } from './api';
@@ -82,6 +82,7 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [reasoningContent, setReasoningContent] = useState('');
   const [result, setResult] = useState<BoundGenerationResult | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -119,6 +120,7 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
     setGenerating(true);
     setGenError(null);
     setResult(null);
+    setReasoningContent('');
 
     const requestMode = mode;
     const requestDocument = currentDocument;
@@ -139,18 +141,23 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
           ? await localRefine(requestDocument!, prompt.trim())
           : await localGenerate(prompt.trim());
       } else {
+        let reasoning = '';
+        const onReasoningDelta = (delta: string) => {
+          reasoning += delta;
+          setReasoningContent(reasoning);
+        };
         res = requestMode === 'refine'
           ? await refineStrategy({
               currentStrategy: requestDocument!,
               modification: prompt.trim(),
               model,
               dslVersion: '1.0',
-            }, controller.signal)
+            }, controller.signal, onReasoningDelta)
           : await generateStrategy({
               prompt: prompt.trim(),
               model,
               dslVersion: '1.0',
-            }, controller.signal);
+            }, controller.signal, onReasoningDelta);
       }
 
       if (controller.signal.aborted) return;
@@ -354,6 +361,14 @@ export default function GenerateStrategyDrawer({ open, onClose }: Props) {
             </Space>
           </div>
         )}
+        {generating && reasoningContent && <Collapse
+          activeKey={['reasoning']}
+          items={[{
+            key: 'reasoning',
+            label: <Space><Spin size="small" />模型思考过程</Space>,
+            children: <Paragraph aria-live="polite" style={{ whiteSpace: 'pre-wrap', maxHeight: 280, overflow: 'auto', marginBottom: 0 }}>{reasoningContent}</Paragraph>,
+          }]}
+        />}
 
         {/* Error */}
         {genError && (

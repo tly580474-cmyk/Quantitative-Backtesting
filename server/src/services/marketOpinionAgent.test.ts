@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MarketNewsItem, NewsSourceTier } from '../marketData/marketNewsTypes.js';
 import {
   MarketOpinionAgent,
+  collectMarketOpinionStream,
   buildDigestPrompt,
   buildMarketOpinionPrompt,
   selectOpinionNews,
@@ -34,6 +35,19 @@ function item(id: string, tier: NewsSourceTier, publishedAt = new Date().toISOSt
 }
 
 describe('market opinion agent context', () => {
+  it('collects reasoning and answer deltas independently', async () => {
+    async function* chunks() {
+      yield { choices: [{ delta: { reasoning_content: '核验证据' } }] };
+      yield { choices: [{ delta: { content: '形成结论' } }] };
+    }
+    const reasoning: string[] = [];
+    const content: string[] = [];
+    await expect(collectMarketOpinionStream(chunks(), (value) => content.push(value), (value) => reasoning.push(value)))
+      .resolves.toEqual({ content: '形成结论', reasoningContent: '核验证据' });
+    expect(reasoning).toEqual(['核验证据']);
+    expect(content).toEqual(['形成结论']);
+  });
+
   it('selects high-value events with source and topic diversity', () => {
     const items = [
       ...Array.from({ length: 25 }, (_, index) => item(`s${index}`, 'state_media')),

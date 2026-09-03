@@ -1,4 +1,4 @@
-import { apiFetch } from '@/api/client';
+import { ApiError, apiFetch, apiFetchNdjson } from '@/api/client';
 
 export interface FactorDefinition {
   id: string;
@@ -243,6 +243,7 @@ export interface FactorReportInterpretation {
   model: string;
   generatedAt: string;
   interpretation: string;
+  reasoningContent?: string;
 }
 
 export interface AiModelStatus {
@@ -336,12 +337,31 @@ export function fetchAiModelStatus() {
   return apiFetch<AiModelStatus>('/api/ai/status');
 }
 
-export function interpretFactorRunReport(runId: string, model: string) {
-  return apiFetch<FactorReportInterpretation>(`/api/factor-runs/${runId}/interpret`, {
+export async function interpretFactorRunReport(
+  runId: string,
+  model: string,
+  options: { onDelta?: (content: string) => void; onReasoningDelta?: (content: string) => void } = {},
+) {
+  type Event =
+    | { type: 'start' }
+    | { type: 'delta'; content: string }
+    | { type: 'reasoning_delta'; content: string }
+    | { type: 'done'; result: FactorReportInterpretation }
+    | { type: 'error'; message: string };
+  let result: FactorReportInterpretation | null = null;
+  await apiFetchNdjson<Event>(`/api/factor-runs/${runId}/interpret`, {
     method: 'POST',
     body: JSON.stringify({ model }),
     timeoutMs: 120000,
+  }, (event) => {
+    if (event.type === 'delta') options.onDelta?.(event.content);
+    else if (event.type === 'reasoning_delta') options.onReasoningDelta?.(event.content);
+    else if (event.type === 'done') result = event.result;
+    else if (event.type === 'error') throw new ApiError('FACTOR_INTERPRETATION_STREAM_ERROR', event.message, 502);
   });
+  const completed = result as FactorReportInterpretation | null;
+  if (!completed) throw new ApiError('INCOMPLETE_STREAM', '因子报告解读流未完整返回', 502);
+  return completed;
 }
 
 export function fetchResearchSnapshotFreshness() {

@@ -6,6 +6,7 @@ import type {
   RefineStrategyRequest,
   ExplainStrategyRequest,
   StrategyExplanation,
+  StrategyGenerationStreamOptions,
 } from './provider.js';
 import { DSL_CONTRACT, SYSTEM_PROMPT, USER_PROMPT_TEMPLATE } from './prompts.js';
 import {
@@ -35,15 +36,17 @@ export class OpenAIStrategyGenerationProvider implements StrategyGenerationProvi
     this.model = model;
   }
 
-  async generate(request: GenerateStrategyRequest): Promise<GenerateStrategyResult> {
+  async generate(request: GenerateStrategyRequest, options: StrategyGenerationStreamOptions = {}): Promise<GenerateStrategyResult> {
     const id = crypto.randomUUID();
     const model = request.model || this.model;
     const rawStrategy = await this.requestJson(
       model,
       SYSTEM_PROMPT,
       USER_PROMPT_TEMPLATE(request.prompt, request.dslVersion),
+      16384,
+      options,
     );
-    const strategy = await this.validateAndRepair(rawStrategy, model, id);
+    const strategy = await this.validateAndRepair(rawStrategy, model, id, options);
 
     return {
       generationId: id,
@@ -54,15 +57,17 @@ export class OpenAIStrategyGenerationProvider implements StrategyGenerationProvi
     };
   }
 
-  async refine(request: RefineStrategyRequest): Promise<GenerateStrategyResult> {
+  async refine(request: RefineStrategyRequest, options: StrategyGenerationStreamOptions = {}): Promise<GenerateStrategyResult> {
     const id = crypto.randomUUID();
     const model = request.model || this.model;
     const rawStrategy = await this.requestJson(
       model,
       SYSTEM_PROMPT,
       `当前策略 DSL:\n${JSON.stringify(request.currentStrategy, null, 2)}\n\n修改要求: ${request.modification}\n\n${DSL_CONTRACT}\n\n只返回修改后的完整策略 JSON。`,
+      16384,
+      options,
     );
-    const strategy = await this.validateAndRepair(rawStrategy, model, id);
+    const strategy = await this.validateAndRepair(rawStrategy, model, id, options);
 
     return {
       generationId: id,
@@ -92,18 +97,39 @@ export class OpenAIStrategyGenerationProvider implements StrategyGenerationProvi
     systemPrompt: string,
     userPrompt: string,
     maxTokens = 16384,
+    options: StrategyGenerationStreamOptions = {},
   ): Promise<unknown> {
-    const response = await this.client.chat.completions.create({
+    const requestBody = {
       model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.2,
       max_tokens: maxTokens,
-    });
-    const text = response.choices[0]?.message?.content;
+      reasoning_effort: 'low',
+      thinking: { type: 'enabled' as const },
+    };
+    let text = '';
+    if (options.onReasoningDelta) {
+      const stream = await this.client.chat.completions.create({
+        ...requestBody,
+        stream: true,
+      } as Parameters<typeof this.client.chat.completions.create>[0] & { thinking?: unknown }) as AsyncIterable<{
+        choices?: Array<{ delta?: { content?: string | null; reasoning_content?: string | null } }>;
+      }>;
+      for await (const chunk of stream) {
+        const delta = chunk.choices?.[0]?.delta;
+        if (delta?.reasoning_content) options.onReasoningDelta(delta.reasoning_content);
+        if (delta?.content) text += delta.content;
+      }
+    } else {
+      const response = await this.client.chat.completions.create(
+        requestBody as Parameters<typeof this.client.chat.completions.create>[0] & { thinking?: unknown },
+      );
+      const completion = response as unknown as { choices: Array<{ message?: { content?: string | null } }> };
+      text = completion.choices[0]?.message?.content ?? '';
+    }
     if (!text) throw new Error('模型返回了空响应');
     try {
       return JSON.parse(text);
@@ -116,6 +142,7 @@ export class OpenAIStrategyGenerationProvider implements StrategyGenerationProvi
     candidate: unknown,
     model: string,
     generationId: string,
+    options: StrategyGenerationStreamOptions = {},
   ): Promise<Record<string, unknown>> {
     const normalizedCandidate = normalizeStrategyCandidate(candidate, generationId);
     const first = strategyDocumentSchema.safeParse(normalizedCandidate);
@@ -126,6 +153,8 @@ export class OpenAIStrategyGenerationProvider implements StrategyGenerationProvi
       model,
       `${SYSTEM_PROMPT}\n${DSL_CONTRACT}`,
       `下面的策略 JSON 未通过校验。请只修复结构和类型错误，不改变策略意图。\n\n校验错误:\n${errors.join('\n')}\n\n待修复 JSON:\n${JSON.stringify(normalizedCandidate, null, 2)}\n\n只返回修复后的完整 JSON。`,
+      16384,
+      options,
     );
     const second = strategyDocumentSchema.safeParse(normalizeStrategyCandidate(repaired, generationId));
     if (!second.success) {

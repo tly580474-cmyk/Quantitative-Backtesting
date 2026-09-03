@@ -3,11 +3,18 @@ import { Alert, App, Button, Collapse, Empty, Select, Space, Spin, Tag, Typograp
 import { CopyOutlined, DownloadOutlined, LinkOutlined, RobotOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { apiFetch } from '../../api/client';
+import { ApiError, apiFetch, apiFetchNdjson } from '../../api/client';
 import type { MarketOpinionReport, MarketOpinionStatus } from './types';
 import { normalizeNewsUrl } from './newsUrl';
 
 const { Text } = Typography;
+
+type MarketOpinionStreamEvent =
+  | { type: 'start' }
+  | { type: 'reasoning_delta'; content: string }
+  | { type: 'delta'; content: string }
+  | { type: 'done'; report: MarketOpinionReport }
+  | { type: 'error'; message: string };
 
 export default function MarketOpinionPanel() {
   const { message } = App.useApp();
@@ -15,6 +22,8 @@ export default function MarketOpinionPanel() {
   const [report, setReport] = useState<MarketOpinionReport | null>(null);
   const [model, setModel] = useState<string>();
   const [loading, setLoading] = useState(false);
+  const [streamedContent, setStreamedContent] = useState('');
+  const [streamedReasoning, setStreamedReasoning] = useState('');
   const [statusLoading, setStatusLoading] = useState(true);
 
   useEffect(() => {
@@ -30,12 +39,31 @@ export default function MarketOpinionPanel() {
 
   const generate = async () => {
     setLoading(true);
+    setStreamedContent('');
+    setStreamedReasoning('');
     try {
-      const next = await apiFetch<MarketOpinionReport>('/api/market-data/news/opinion', {
+      let next: MarketOpinionReport | null = null;
+      let content = '';
+      let reasoning = '';
+      await apiFetchNdjson<MarketOpinionStreamEvent>('/api/market-data/news/opinion', {
         method: 'POST', body: JSON.stringify({ model, force: Boolean(report) }), timeoutMs: 120_000,
+      }, (event) => {
+        if (event.type === 'delta') {
+          content += event.content;
+          setStreamedContent(content);
+        } else if (event.type === 'reasoning_delta') {
+          reasoning += event.content;
+          setStreamedReasoning(reasoning);
+        } else if (event.type === 'done') {
+          next = event.report;
+        } else if (event.type === 'error') {
+          throw new ApiError('MARKET_OPINION_STREAM_ERROR', event.message, 502);
+        }
       });
-      setReport(next);
-      message.success(next.cached ? '已读取相同新闻样本的缓存报告' : '市场观点解读已生成');
+      const completedReport = next as MarketOpinionReport | null;
+      if (!completedReport) throw new ApiError('INCOMPLETE_STREAM', '市场观点流未完整返回', 502);
+      setReport(completedReport);
+      message.success(completedReport.cached ? '已读取相同新闻样本的缓存报告' : '市场观点解读已生成');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '市场观点解读生成失败');
     } finally {
@@ -93,7 +121,13 @@ export default function MarketOpinionPanel() {
       {(status?.workflow ?? []).map((step, index) => <span key={step}><b>{index + 1}</b>{step}</span>)}
     </div>
 
-    {loading && !report && <div className="market-opinion-loading"><Spin /><Text type="secondary">正在整理新闻证据并生成报告，通常需要几十秒</Text></div>}
+    {loading && !streamedReasoning && !streamedContent && <div className="market-opinion-loading"><Spin /><Text type="secondary">正在整理新闻证据并等待模型思考</Text></div>}
+    {loading && streamedReasoning && <Collapse
+      className="market-opinion-evidence"
+      activeKey={['reasoning']}
+      items={[{ key: 'reasoning', label: <Space><Spin size="small" />模型思考过程</Space>, children: <article className="markdown-preview" aria-live="polite"><ReactMarkdown remarkPlugins={[remarkGfm]}>{streamedReasoning}</ReactMarkdown></article> }]}
+    />}
+    {loading && streamedContent && <article className="market-opinion-report markdown-preview" aria-live="polite"><ReactMarkdown remarkPlugins={[remarkGfm]}>{streamedContent}</ReactMarkdown></article>}
 
     {report && <>
       <div className="market-opinion-meta">
@@ -122,7 +156,7 @@ export default function MarketOpinionPanel() {
       <Collapse
         className="market-opinion-evidence"
         items={[
-          { key: 'reasoning', label: '生成过程摘要', children: <ol>{report.reasoningSummary.map((step) => <li key={step}>{step}</li>)}</ol> },
+          { key: 'reasoning', label: report.reasoningContent ? '模型思考过程' : '生成过程摘要', children: report.reasoningContent ? <article className="markdown-preview"><ReactMarkdown remarkPlugins={[remarkGfm]}>{report.reasoningContent}</ReactMarkdown></article> : <ol>{report.reasoningSummary.map((step) => <li key={step}>{step}</li>)}</ol> },
           { key: 'sources', label: `引用材料（${report.sources.length}）`, children: <ol>{report.sources.map((source) => <li key={source.ref}><Tag>{source.ref}</Tag>{source.sourceUrl ? <a href={normalizeNewsUrl(source.sourceUrl)} target="_blank" rel="noreferrer">{source.title}<LinkOutlined /></a> : source.title}<Text type="secondary"> · {source.sourceName} · {new Date(source.publishedAt).toLocaleString('zh-CN')}</Text></li>)}</ol> },
         ]}
       />

@@ -27,11 +27,16 @@ describe('factor research AI API', () => {
   });
 
   it('sends the selected configured model when interpreting a report', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      model: 'model-2',
-      generatedAt: '2026-08-22T00:00:00.000Z',
-      interpretation: 'ok',
-    }), { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response([
+      JSON.stringify({ type: 'start' }),
+      JSON.stringify({ type: 'reasoning_delta', content: '分析中' }),
+      JSON.stringify({ type: 'delta', content: 'ok' }),
+      JSON.stringify({
+        type: 'done',
+        result: { model: 'model-2', generatedAt: '2026-08-22T00:00:00.000Z', interpretation: 'ok' },
+      }),
+      '',
+    ].join('\n'), { status: 200, headers: { 'Content-Type': 'application/x-ndjson' } }));
     vi.stubGlobal('fetch', fetchMock);
 
     await interpretFactorRunReport('run-1', 'model-2');

@@ -363,6 +363,7 @@ export interface MarketOpinionSource {
 
 export interface MarketOpinionReport {
   content: string;
+  reasoningContent?: string;
   model: string;
   generatedAt: string;
   periodStart: string;

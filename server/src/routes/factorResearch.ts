@@ -635,12 +635,13 @@ export function registerFactorResearchRoutes(
       if (detail.run.status !== 'completed') {
         return reply.status(409).send(apiError(ErrorCodes.VALIDATION_ERROR, '仅支持解读已完成的因子报告'));
       }
-      const result = await interpretFactorReport({
+      const aiConfig = {
         apiKey: config.ai.apiKey,
         baseURL: config.ai.baseURL,
         model: selectedModel,
         timeoutMs: config.ai.timeoutMs,
-      }, {
+      };
+      const interpretationInput = {
         run: {
           id: detail.run.id,
           factorVersionId: detail.run.factorVersionId,
@@ -652,8 +653,32 @@ export function registerFactorResearchRoutes(
         },
         report: detail.report,
         daily: dailySeries?.items ?? [],
+      };
+      const wantsStream = req.headers.accept?.includes('application/x-ndjson') ?? false;
+      if (!wantsStream) return reply.send(await interpretFactorReport(aiConfig, interpretationInput));
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
       });
-      return reply.send(result);
+      const send = (event: Record<string, unknown>) => {
+        if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.write(`${JSON.stringify(event)}\n`);
+      };
+      send({ type: 'start' });
+      try {
+        const result = await interpretFactorReport(aiConfig, interpretationInput, {
+          onDelta: (content) => send({ type: 'delta', content }),
+          onReasoningDelta: (content) => send({ type: 'reasoning_delta', content }),
+        });
+        send({ type: 'done', result });
+      } catch (error) {
+        req.log.error(error);
+        send({ type: 'error', message: error instanceof Error ? error.message : '因子报告智能解读失败' });
+      } finally {
+        reply.raw.end();
+      }
+      return;
     } catch (error) {
       req.log.error(error);
       return reply.status(502).send({

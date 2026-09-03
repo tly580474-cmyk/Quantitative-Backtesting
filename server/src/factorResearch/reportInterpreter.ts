@@ -25,11 +25,18 @@ export interface FactorReportInterpretation {
   model: string;
   generatedAt: string;
   interpretation: string;
+  reasoningContent?: string;
+}
+
+export interface FactorReportInterpretationStreamOptions {
+  onDelta?: (content: string) => void;
+  onReasoningDelta?: (content: string) => void;
 }
 
 export async function interpretFactorReport(
   config: FactorReportInterpretationConfig,
   input: FactorReportInterpretationInput,
+  options: FactorReportInterpretationStreamOptions = {},
 ): Promise<FactorReportInterpretation> {
   const client = new OpenAI({
     apiKey: config.apiKey,
@@ -38,7 +45,7 @@ export async function interpretFactorReport(
     maxRetries: 1,
   });
   const summary = buildCompactReportSummary(input);
-  const response = await client.chat.completions.create({
+  const requestBody = {
     model: config.model,
     messages: [
       {
@@ -55,17 +62,53 @@ export async function interpretFactorReport(
         content: `请解读以下因子研究报告摘要。\n\n${JSON.stringify(summary, null, 2)}`,
       },
     ],
-    temperature: 0.2,
     max_tokens: 1800,
-  });
-  const interpretation = response.choices[0]?.message?.content?.trim();
+    reasoning_effort: 'low',
+    thinking: { type: 'enabled' as const },
+  };
+  let interpretation = '';
+  let reasoningContent = '';
+  if (options.onDelta || options.onReasoningDelta) {
+    const stream = await client.chat.completions.create({
+      ...requestBody,
+      stream: true,
+    } as Parameters<typeof client.chat.completions.create>[0] & { thinking?: unknown }) as AsyncIterable<FactorInterpretationStreamChunk>;
+    for await (const chunk of stream) {
+      const delta = chunk.choices?.[0]?.delta;
+      if (delta?.reasoning_content) {
+        reasoningContent += delta.reasoning_content;
+        options.onReasoningDelta?.(delta.reasoning_content);
+      }
+      if (delta?.content) {
+        interpretation += delta.content;
+        options.onDelta?.(delta.content);
+      }
+    }
+  } else {
+    const response = await client.chat.completions.create(
+      requestBody as Parameters<typeof client.chat.completions.create>[0] & { thinking?: unknown },
+    );
+    const completion = response as unknown as {
+      choices: Array<{ message?: { content?: string | null; reasoning_content?: string | null } }>;
+    };
+    const message = completion.choices[0]?.message;
+    interpretation = message?.content ?? '';
+    reasoningContent = message?.reasoning_content ?? '';
+  }
+  interpretation = interpretation.trim();
+  reasoningContent = reasoningContent.trim();
   if (!interpretation) throw new Error('模型返回了空解读');
   return {
     model: config.model,
     generatedAt: new Date().toISOString(),
     interpretation,
+    reasoningContent,
   };
 }
+
+type FactorInterpretationStreamChunk = {
+  choices?: Array<{ delta?: { content?: string | null; reasoning_content?: string | null } }>;
+};
 
 function buildCompactReportSummary(input: FactorReportInterpretationInput) {
   const report = asRecord(input.report);

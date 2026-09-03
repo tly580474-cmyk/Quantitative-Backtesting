@@ -108,7 +108,17 @@ export interface StockResearchContext {
 export interface StockResearchStreamOptions {
   signal?: AbortSignal;
   onDelta?: (content: string) => void;
+  onReasoningDelta?: (content: string) => void;
 }
+
+type ResearchStreamChunk = {
+  choices?: Array<{
+    delta?: {
+      content?: string | null;
+      reasoning_content?: string | null;
+    };
+  }>;
+};
 
 export class StockResearchAgent {
   private client: OpenAI | null;
@@ -147,8 +157,18 @@ export class StockResearchAgent {
         temperature: 0.15,
         max_tokens: 7_000,
         stream: true,
-      }, { signal: options.signal });
-    const content = await collectResearchStreamWithRetry(request, options.onDelta, options.signal);
+        reasoning_effort: 'low',
+        thinking: { type: 'enabled' },
+      } as Parameters<typeof this.client.chat.completions.create>[0] & {
+        reasoning_effort?: string;
+        thinking?: { type: 'enabled' | 'disabled' };
+      }, { signal: options.signal }) as Promise<AsyncIterable<ResearchStreamChunk>>;
+    const content = await collectResearchStreamWithRetry(
+      request,
+      options.onDelta,
+      options.onReasoningDelta,
+      options.signal,
+    );
     if (!content) throw new Error('模型返回了空的交易分析结果');
     return {
       content,
@@ -175,12 +195,16 @@ export class StockResearchAgent {
 }
 
 export async function collectResearchStream(
-  stream: AsyncIterable<{ choices?: Array<{ delta?: { content?: string | null } }> }>,
+  stream: AsyncIterable<ResearchStreamChunk>,
   onDelta?: (content: string) => void,
+  onReasoningDelta?: (content: string) => void,
 ): Promise<string> {
   const parts: string[] = [];
   for await (const chunk of stream) {
-    const content = chunk.choices?.[0]?.delta?.content;
+    const delta = chunk.choices?.[0]?.delta;
+    const reasoning = delta?.reasoning_content;
+    if (reasoning) onReasoningDelta?.(reasoning);
+    const content = delta?.content;
     if (content) {
       parts.push(content);
       onDelta?.(content);
@@ -190,25 +214,33 @@ export async function collectResearchStream(
 }
 
 export async function collectResearchStreamWithRetry(
-  request: () => Promise<AsyncIterable<{ choices?: Array<{ delta?: { content?: string | null } }> }>>,
+  request: () => Promise<AsyncIterable<ResearchStreamChunk>>,
   onDelta?: (content: string) => void,
+  onReasoningDelta?: (content: string) => void,
   signal?: AbortSignal,
 ): Promise<string> {
-  let emittedContent = false;
+  let emittedVisibleDelta = false;
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const content = await collectResearchStream(await request(), (delta) => {
-        emittedContent = true;
-        onDelta?.(delta);
-      });
+      const content = await collectResearchStream(
+        await request(),
+        (delta) => {
+          emittedVisibleDelta = true;
+          onDelta?.(delta);
+        },
+        (delta) => {
+          emittedVisibleDelta = true;
+          onReasoningDelta?.(delta);
+        },
+      );
       if (content) return content;
       lastError = new Error('模型返回了空的交易分析结果');
     } catch (error) {
       lastError = error;
     }
     // Retrying after a visible delta would duplicate or splice two reports.
-    if (emittedContent || signal?.aborted || attempt === 1) break;
+    if (emittedVisibleDelta || signal?.aborted || attempt === 1) break;
   }
   throw lastError instanceof Error ? lastError : new Error('智能交易分析失败');
 }
