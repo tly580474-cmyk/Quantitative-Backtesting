@@ -3,6 +3,8 @@ import {
   buildRelativeStrengthEvidence,
   buildTradingSystemPrompt,
   buildValueInvestmentEvidence,
+  collectResearchStream,
+  collectResearchStreamWithRetry,
   resolveTradingStyles,
   TRADING_STYLE_DEFINITIONS,
   type StockResearchContext,
@@ -99,6 +101,56 @@ function context(): StockResearchContext {
 }
 
 describe('stock intelligent trading system prompt', () => {
+  it('aggregates streamed report content and ignores non-content chunks', async () => {
+    async function* chunks() {
+      yield { choices: [{ delta: { content: '执行摘要\n' } }] };
+      yield { choices: [{ delta: {} }] };
+      yield { choices: [{ delta: { content: '- 等待确认' } }] };
+      yield { choices: [] };
+    }
+
+    const deltas: string[] = [];
+    await expect(collectResearchStream(chunks(), (content) => deltas.push(content)))
+      .resolves.toBe('执行摘要\n- 等待确认');
+    expect(deltas).toEqual(['执行摘要\n', '- 等待确认']);
+  });
+
+  it('returns an empty string when a stream contains no report content', async () => {
+    async function* chunks() {
+      yield { choices: [{ delta: {} }] };
+    }
+
+    await expect(collectResearchStream(chunks())).resolves.toBe('');
+  });
+
+  it('retries a connection failure before any content is exposed', async () => {
+    let attempts = 0;
+    const request = async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('Connection error.');
+      return (async function* chunks() {
+        yield { choices: [{ delta: { content: '恢复后的报告' } }] };
+      }());
+    };
+
+    await expect(collectResearchStreamWithRetry(request)).resolves.toBe('恢复后的报告');
+    expect(attempts).toBe(2);
+  });
+
+  it('does not retry after content has already been exposed', async () => {
+    let attempts = 0;
+    const request = async () => {
+      attempts += 1;
+      return (async function* chunks() {
+        yield { choices: [{ delta: { content: '已显示' } }] };
+        throw new Error('中途断开');
+      }());
+    };
+
+    await expect(collectResearchStreamWithRetry(request)).rejects.toThrow('中途断开');
+    expect(attempts).toBe(1);
+  });
+
   it('keeps the style catalog ordered from conservative to aggressive', () => {
     expect(TRADING_STYLE_DEFINITIONS).toHaveLength(8);
     expect(TRADING_STYLE_DEFINITIONS.map((item) => item.riskLevel))

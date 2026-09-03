@@ -12,6 +12,8 @@ import StockSelectionWorkspace from '../marketData/StockSelectionWorkspace';
 import { marketDataCache } from '../marketData/marketDataCache';
 import type { FactorSelectionHistory, StockSearchItem } from '../marketData/types';
 import FactorSelectionPanel from './FactorSelectionPanel';
+import SelectionExportButton from './SelectionExportButton';
+import { exportFactorSelection, type SelectionExportFormat } from './selectionExport';
 import { PageHeader } from '@/components/WorkspacePrimitives';
 
 const { Text } = Typography;
@@ -41,6 +43,7 @@ export default function StockSelectionPage() {
   const [activeStrategy, setActiveStrategy] = useState<SelectionStrategy>(() => (
     localStorage.getItem(ACTIVE_STRATEGY_KEY) === 'factor' ? 'factor' : 'technical'
   ));
+  const [selectedFactorDate, setSelectedFactorDate] = useState('');
   const strategyTriggerRef = useRef<HTMLButtonElement>(null);
   const selectedOptionRef = useRef<HTMLButtonElement>(null);
 
@@ -127,6 +130,22 @@ export default function StockSelectionPage() {
     },
   ];
   const selectedStrategy = strategies.find((item) => item.key === activeStrategy) ?? strategies[0];
+  const selectedFactorBatch = history?.batches.find((item) => item.tradeDate === selectedFactorDate)
+    ?? history?.batches[0]
+    ?? null;
+
+  const handleFactorExport = (format: SelectionExportFormat) => {
+    if (!history || !selectedFactorBatch?.items.length) {
+      message.warning('暂无可导出的因子选股结果');
+      return;
+    }
+    try {
+      const fileName = exportFactorSelection(history, selectedFactorBatch, format);
+      message.success(`已导出 ${fileName}`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '选股结果导出失败');
+    }
+  };
 
   const chooseStrategy = (strategy: SelectionStrategy) => {
     setActiveStrategy(strategy);
@@ -146,15 +165,18 @@ export default function StockSelectionPage() {
       actions={<Space size={8}><Tag>{strategies.length} 种方法</Tag><Text type="secondary">数据截至 {history?.dataAsOf ?? '加载中'}</Text></Space>} />
 
     <section className="stock-selection-strategy-picker" aria-label="选股策略">
-      <button
-        ref={strategyTriggerRef}
-        type="button"
-        className={`stock-selection-strategy-trigger${strategyMenuOpen ? ' is-open' : ''}`}
-        aria-expanded={strategyMenuOpen}
-        aria-controls="stock-selection-strategy-options"
-        onClick={() => setStrategyMenuOpen((open) => !open)}
-      >
-        <DownOutlined className="stock-selection-strategy-arrow" />
+      <div className={`stock-selection-strategy-trigger${strategyMenuOpen ? ' is-open' : ''}`}>
+        <button
+          ref={strategyTriggerRef}
+          type="button"
+          className="stock-selection-strategy-toggle"
+          aria-label="切换选股策略"
+          aria-expanded={strategyMenuOpen}
+          aria-controls="stock-selection-strategy-options"
+          onClick={() => setStrategyMenuOpen((open) => !open)}
+        >
+          <DownOutlined className="stock-selection-strategy-arrow" />
+        </button>
         <span className="stock-selection-strategy-icon">{selectedStrategy.icon}</span>
         <span className="stock-selection-strategy-current">
           <span>
@@ -164,10 +186,14 @@ export default function StockSelectionPage() {
           </span>
           <Text type="secondary">{selectedStrategy.description}</Text>
         </span>
+        {activeStrategy === 'factor' && <SelectionExportButton
+          disabled={!selectedFactorBatch?.items.length || factorLoading}
+          onExport={handleFactorExport}
+        />}
         <Text type="secondary" className="stock-selection-strategy-hint">
           {strategyMenuOpen ? '选择一个策略' : '点击箭头切换策略'}
         </Text>
-      </button>
+      </div>
 
       {strategyMenuOpen && <div
         id="stock-selection-strategy-options"
@@ -225,6 +251,8 @@ export default function StockSelectionPage() {
             onRefresh={() => void loadFactorHistory(true)}
             onAdd={addStock}
             onOpenDetail={openDetail}
+            selectedDate={selectedFactorDate}
+            onSelectedDateChange={setSelectedFactorDate}
           />}
       </div>
     </section>

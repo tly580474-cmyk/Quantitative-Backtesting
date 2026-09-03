@@ -363,11 +363,12 @@ html[data-theme='light'] .market-sense-benchmark-return span { color: #64748b; }
 .stock-selection-page-status { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-end; gap: 2px; color: #64748b; font-size: 12px; }
 .stock-selection-page-status strong { color: #1e293b; font-size: 14px; font-variant-numeric: tabular-nums; }
 .stock-selection-strategy-picker { width: 100%; max-width: 1680px; margin: 0 auto; overflow: hidden; border: 1px solid #dfe6ef; border-radius: 9px; background: #fff; }
-.stock-selection-strategy-trigger { display: grid; width: 100%; min-height: 66px; grid-template-columns: 44px 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 16px 8px 0; border: 0; border-bottom: 1px solid #e7edf4; color: inherit; background: #fff; font: inherit; text-align: left; cursor: pointer; transition: background-color .2s ease, box-shadow .2s ease; }
+.stock-selection-strategy-trigger { display: grid; width: 100%; min-height: 66px; grid-template-columns: 44px 34px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 8px 16px 8px 0; border: 0; border-bottom: 1px solid #e7edf4; color: inherit; background: #fff; font: inherit; text-align: left; transition: background-color .2s ease, box-shadow .2s ease; }
 .stock-selection-strategy-trigger:hover { background: #f8fbff; }
-.stock-selection-strategy-trigger:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
 .stock-selection-strategy-trigger.is-open { background: #f8fbff; box-shadow: inset 0 -2px #2563eb; }
-.stock-selection-strategy-arrow { display: grid; width: 44px; height: 48px; place-items: center; color: #334155; font-size: 12px; transition: transform .2s ease; }
+.stock-selection-strategy-toggle { display: grid; width: 44px; height: 48px; place-items: center; padding: 0; border: 0; color: inherit; background: transparent; cursor: pointer; }
+.stock-selection-strategy-toggle:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
+.stock-selection-strategy-arrow { color: #334155; font-size: 12px; transition: transform .2s ease; }
 .stock-selection-strategy-trigger.is-open .stock-selection-strategy-arrow { transform: rotate(180deg); }
 .stock-selection-strategy-icon, .stock-selection-strategy-option-icon { display: grid; place-items: center; border-radius: 7px; color: #1d4ed8; background: #eaf2ff; }
 .stock-selection-strategy-icon { width: 34px; height: 34px; font-size: 17px; }
@@ -375,7 +376,7 @@ html[data-theme='light'] .market-sense-benchmark-return span { color: #64748b; }
 .stock-selection-strategy-current > span { display: flex; min-width: 0; align-items: center; gap: 8px; }
 .stock-selection-strategy-current strong { color: #0f172a; font-size: 17px; }
 .stock-selection-strategy-current > .ant-typography { overflow: hidden; color: #475569; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.stock-selection-strategy-hint { padding-right: 2px; color: #64748b !important; font-size: 12px; white-space: nowrap; }
+.stock-selection-strategy-hint { grid-column: 5; padding-right: 2px; color: #64748b !important; font-size: 12px; white-space: nowrap; }
 .stock-selection-strategy-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 12px 16px; border-bottom: 1px solid #dbe3ed; background: #f8fafc; }
 .stock-selection-strategy-option { display: grid; min-width: 0; min-height: 72px; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 10px 12px; border: 1px solid #dbe3ed; border-radius: 8px; color: inherit; background: #fff; font: inherit; text-align: left; cursor: pointer; transition: border-color .2s ease, background-color .2s ease, box-shadow .2s ease; }
 .stock-selection-strategy-option:hover { border-color: #93c5fd; background: #f8fbff; }
@@ -419,6 +420,9 @@ html[data-theme='light'] .market-sense-benchmark-return span { color: #64748b; }
 .factor-stock-link small { color: #64748b; font-size: 11px; }
 .factor-score { color: #1d4ed8; }
 .factor-method-note { margin-top: 12px; padding: 9px 12px; border-left: 3px solid #2563eb; border-radius: 4px; background: #eff6ff; }
+.selection-filter-actions > .selection-filter-left { display: flex; min-width: 0; flex-direction: row; align-items: center; gap: 16px; }
+.selection-export-button { min-height: 32px; cursor: pointer; }
+.selection-export-chevron { margin-left: 2px; font-size: 10px; }
 @media (max-width: 800px) {
   .stock-selection-page { padding: 12px; }
   .stock-selection-page-header { align-items: flex-start; flex-direction: column; }
@@ -434,12 +438,13 @@ html[data-theme='light'] .market-sense-benchmark-return span { color: #64748b; }
 @media (max-width: 520px) {
   .stock-selection-page-header { padding: 12px; }
   .stock-selection-page-icon { width: 38px; height: 38px; }
-  .stock-selection-strategy-trigger { grid-template-columns: 38px 32px minmax(0, 1fr); gap: 7px; padding-right: 10px; }
-  .stock-selection-strategy-arrow { width: 38px; }
+  .stock-selection-strategy-trigger { grid-template-columns: 38px 32px minmax(0, 1fr) auto; gap: 7px; padding-right: 10px; }
+  .stock-selection-strategy-toggle { width: 38px; }
   .stock-selection-strategy-icon { width: 32px; height: 32px; }
   .stock-selection-strategy-current > span { flex-wrap: wrap; gap: 5px; }
   .stock-selection-strategy-current strong { width: 100%; font-size: 16px; }
   .stock-selection-strategy-hint { display: none; }
+  .stock-selection-strategy-trigger > .selection-export-button { grid-column: 4; }
   .stock-selection-strategy-options { padding: 10px; }
   .stock-selection-strategy-option { grid-template-columns: 36px minmax(0, 1fr); }
   .stock-selection-strategy-option-meta { grid-column: 2; justify-content: flex-start; }
@@ -448,6 +453,7 @@ html[data-theme='light'] .market-sense-benchmark-return span { color: #64748b; }
   .factor-selection-summary > div { min-height: 64px; border-top: 1px solid #e2e8f0; border-right: 0; }
   .factor-selection-summary > div:first-child { border-top: 0; }
   .factor-selection-toolbar .ant-btn { width: 100%; min-height: 44px; }
+  .selection-filter-actions > .selection-filter-left { align-items: stretch; flex-direction: column; }
 }
 .market-pinned-mark { display: inline-flex; margin-right: 5px; padding: 1px 5px; border-radius: 4px; color: #1d4ed8 !important; background: #dbeafe; font-size: 10px !important; font-weight: 700; vertical-align: 1px; }
 .market-sentiment-collapse { overflow: hidden; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; box-shadow: 0 2px 8px rgba(15,23,42,.035); }

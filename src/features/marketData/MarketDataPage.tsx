@@ -5,7 +5,7 @@ import { ApartmentOutlined, ArrowDownOutlined, ArrowRightOutlined, ArrowUpOutlin
 import { ColorType, createChart, LineSeries, type Time } from 'lightweight-charts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { apiFetch } from '../../api/client';
+import { ApiError, apiFetch, apiFetchNdjson } from '../../api/client';
 import MarketKlineChart, {
   type MarketChanVisibility,
 } from './MarketKlineChart';
@@ -65,6 +65,12 @@ const DEFAULT_TRADING_STYLES: TradingStyleOption[] = [
   { value: 'trend', label: '趋势跟踪派', riskLevel: 4, riskLabel: '进取', description: '趋势强度、突破与退出纪律' },
   { value: 'limit-up', label: '短线打板流', riskLevel: 5, riskLabel: '激进', description: '涨停结构、情绪周期与接力风险' },
 ];
+
+type ResearchStreamEvent =
+  | { type: 'start' }
+  | { type: 'delta'; content: string }
+  | { type: 'done'; reasoningSummary: string[]; model: string; sources: string[] }
+  | { type: 'error'; message: string };
 const MARKET_INDEX_OPTIONS: MarketIndexOption[] = [
   // A 股核心指数
   { key: 'SH:000001', code: '000001', name: '上证指数', market: 'SH', prefixed: 'sh000001' },
@@ -1559,18 +1565,48 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
     }
     const targetCode = selectedCode;
     setAgentRunning(true); setAgentResult(''); setReasoningSummary([]); setThinkingOpen(true);
+    let streamedContent = '';
+    let streamCompleted = false;
+    let completedReasoningSummary: string[] = [];
+    let renderTimer: ReturnType<typeof window.setTimeout> | null = null;
+    const flushStream = () => {
+      if (renderTimer !== null) window.clearTimeout(renderTimer);
+      renderTimer = null;
+      if (selectedCodeRef.current === targetCode) setAgentResult(streamedContent);
+    };
+    const scheduleStreamRender = () => {
+      if (renderTimer !== null) return;
+      renderTimer = window.setTimeout(flushStream, 50);
+    };
     try {
-      const result = await apiFetch<{ content: string; reasoningSummary: string[] }>(`/api/market-data/stocks/${targetCode}/research`, {
+      await apiFetchNdjson<ResearchStreamEvent>(`/api/market-data/stocks/${targetCode}/research`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: agentQuestion, model: agentModel, styles: agentStyles }),
         timeoutMs: 180000,
+      }, (event) => {
+        if (event.type === 'delta') {
+          streamedContent += event.content;
+          scheduleStreamRender();
+        } else if (event.type === 'done') {
+          streamCompleted = true;
+          completedReasoningSummary = event.reasoningSummary ?? [];
+        } else if (event.type === 'error') {
+          throw new ApiError('RESEARCH_STREAM_ERROR', event.message, 502);
+        }
       });
+      flushStream();
+      if (!streamCompleted || !streamedContent.trim()) {
+        throw new ApiError('INCOMPLETE_STREAM', '智能交易分析流未完整返回', 502);
+      }
+      const result = { content: streamedContent.trim(), reasoningSummary: completedReasoningSummary };
       marketDataCache.agentResults[targetCode] = result;
       if (selectedCodeRef.current !== targetCode) return;
       setAgentResult(result.content); setReasoningSummary(result.reasoningSummary ?? []); setThinkingOpen(false);
     } catch (e) { message.error(e instanceof Error ? e.message : '智能交易系统分析失败'); }
-    finally { setAgentRunning(false); }
+    finally {
+      if (renderTimer !== null) window.clearTimeout(renderTimer);
+      setAgentRunning(false);
+    }
   };
 
   const copyAgentResult = async () => {

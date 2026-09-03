@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { App, Button, Checkbox, Collapse, Empty, InputNumber, Segmented, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { FilterOutlined, MinusOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ReloadOutlined, StarFilled } from '@ant-design/icons';
 import { apiFetch } from '../../api/client';
+import SelectionExportButton from '../stockSelection/SelectionExportButton';
+import { exportTechnicalSelection } from '../stockSelection/selectionExport';
 import {
   calculateSelectionScore,
   SELECTION_STYLE_OPTIONS,
@@ -240,6 +242,19 @@ export default function StockSelectionWorkspace({
     }
   };
 
+  const handleTechnicalExport = (format: 'md' | 'xlsx') => {
+    if (!screenSnapshot?.items.length) {
+      message.warning('暂无可导出的技术选股结果');
+      return;
+    }
+    try {
+      const fileName = exportTechnicalSelection(screenSnapshot, criteria, format);
+      message.success(`已导出 ${fileName}`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '选股结果导出失败');
+    }
+  };
+
   const rankingTab = <div className="selection-ranking">
     <div className="selection-toolbar">
       <div>
@@ -344,7 +359,13 @@ export default function StockSelectionWorkspace({
       </div>
     </div>
     <div className="selection-toolbar selection-filter-actions">
-      <Checkbox checked={criteria.excludeRiskNames} onChange={(event) => setCriteria((item) => ({ ...item, excludeRiskNames: event.target.checked }))}>排除 ST / 退市风险名称</Checkbox>
+      <div className="selection-filter-left">
+        <Checkbox checked={criteria.excludeRiskNames} onChange={(event) => setCriteria((item) => ({ ...item, excludeRiskNames: event.target.checked }))}>排除 ST / 退市风险名称</Checkbox>
+        <SelectionExportButton
+          disabled={!screenSnapshot?.items.length || screenLoading}
+          onExport={handleTechnicalExport}
+        />
+      </div>
       <Space>
         <Button onClick={() => setCriteria(DEFAULT_SCREENER_CRITERIA)}>恢复默认</Button>
         <Button type="primary" icon={<FilterOutlined />} loading={screenLoading} onClick={() => void runScreen(false)}>{screenLoading ? '读取快照并分析日 K' : '开始筛选'}</Button>

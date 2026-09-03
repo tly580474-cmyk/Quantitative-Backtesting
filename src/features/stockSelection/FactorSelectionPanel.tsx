@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Button, Empty, Segmented, Skeleton, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { PlusOutlined, ReloadOutlined, RightOutlined } from '@ant-design/icons';
 import type {
@@ -17,6 +17,8 @@ interface FactorSelectionPanelProps {
   onRefresh: () => void;
   onAdd: (stock: StockSearchItem, price: number) => void;
   onOpenDetail: (stock: StockSearchItem) => void;
+  selectedDate: string;
+  onSelectedDateChange: (date: string) => void;
 }
 
 function signedPercent(value: number) {
@@ -34,15 +36,15 @@ export default function FactorSelectionPanel({
   onRefresh,
   onAdd,
   onOpenDetail,
+  selectedDate,
+  onSelectedDateChange,
 }: FactorSelectionPanelProps) {
-  const [selectedDate, setSelectedDate] = useState('');
-
   useEffect(() => {
     if (!history?.batches.length) return;
     if (!history.batches.some((batch) => batch.tradeDate === selectedDate)) {
-      setSelectedDate(history.batches[0].tradeDate);
+      onSelectedDateChange(history.batches[0].tradeDate);
     }
-  }, [history, selectedDate]);
+  }, [history, onSelectedDateChange, selectedDate]);
 
   const batch = useMemo<FactorSelectionBatch | null>(
     () => history?.batches.find((item) => item.tradeDate === selectedDate)
@@ -100,7 +102,7 @@ export default function FactorSelectionPanel({
       block
       value={batch.tradeDate}
       options={dateOptions}
-      onChange={(value) => setSelectedDate(String(value))}
+      onChange={(value) => onSelectedDateChange(String(value))}
       aria-label="选择因子选股交易日"
     />
 

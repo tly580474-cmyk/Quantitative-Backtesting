@@ -857,7 +857,7 @@ export function registerMarketDataRoutes(
       const fundamental = needsDividend
         ? mergeTradingLayers(localDividend, remoteFundamental)
         : remoteFundamental;
-      return reply.send(await agent.research({
+      const context = {
         quote,
         daily,
         weekly,
@@ -868,7 +868,52 @@ export function registerMarketDataRoutes(
         stockNews,
         marketLayers: { signal, capital, fundamental },
         question: body.data.question,
-      }, body.data.model));
+      };
+      const wantsStream = req.headers.accept?.includes('application/x-ndjson') ?? false;
+      if (!wantsStream) return reply.send(await agent.research(context, body.data.model));
+
+      reply.hijack();
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) reply.raw.setHeader(name, value);
+      }
+      reply.raw.writeHead(200, {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
+      });
+      const abortController = new AbortController();
+      let finished = false;
+      const send = (event: Record<string, unknown>) => {
+        if (!reply.raw.destroyed && !reply.raw.writableEnded) {
+          reply.raw.write(`${JSON.stringify(event)}\n`);
+        }
+      };
+      reply.raw.once('close', () => {
+        if (!finished) abortController.abort();
+      });
+      send({ type: 'start' });
+      try {
+        const result = await agent.research(context, body.data.model, {
+          signal: abortController.signal,
+          onDelta: (content) => send({ type: 'delta', content }),
+        });
+        send({
+          type: 'done',
+          model: result.model,
+          sources: result.sources,
+          reasoningSummary: result.reasoningSummary,
+        });
+      } catch (error) {
+        req.log.error(error);
+        send({
+          type: 'error',
+          message: error instanceof Error ? error.message : '智能交易分析失败',
+        });
+      } finally {
+        finished = true;
+        if (!reply.raw.writableEnded) reply.raw.end();
+      }
+      return;
     } catch (error) {
       req.log.error(error);
       return reply.status(502).send({ message: error instanceof Error ? error.message : '智能交易分析失败' });
