@@ -507,6 +507,9 @@ export function registerMarketDataRoutes(
     try {
       if (!wantsStream) return reply.send(await opinionAgent.generate(await getMarketOpinionNews(), body.data.model, body.data.force));
       reply.hijack();
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) reply.raw.setHeader(name, value);
+      }
       reply.raw.writeHead(200, {
         'Content-Type': 'application/x-ndjson; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
