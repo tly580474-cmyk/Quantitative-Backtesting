@@ -14,6 +14,7 @@ import {
   type IRange,
   CrosshairMode,
   ColorType,
+  type Logical,
 } from 'lightweight-charts';
 import { useCandleStore } from '@/stores/useCandleStore';
 import { useIndicatorStore } from '@/stores/useIndicatorStore';
@@ -76,8 +77,9 @@ function drawingPointAt(
   const logical = chart.timeScale().coordinateToLogical(x);
   const price = series.coordinateToPrice(y);
   if (logical == null || price == null || !Number.isFinite(price)) return null;
-  const index = Math.max(0, Math.min(candles.length - 1, Math.round(logical)));
-  return { time: candles[index].time, price };
+  const logicalValue = Number(logical);
+  const index = Math.max(0, Math.min(candles.length - 1, Math.round(logicalValue)));
+  return { time: candles[index].time, price, logical: logicalValue };
 }
 
 function parseDrawingHit(externalId: string): {
@@ -104,20 +106,23 @@ function nearestCandleIndex(
 
 function rectangleCorners(points: readonly DrawingPoint[], chart: IChartApi, series: ISeriesApi<'Candlestick'>): DrawingPoint[] {
   if (points.length < 2) return [...points];
-  const firstX = chart.timeScale().timeToCoordinate(toChartTime(points[0].time));
-  const secondX = chart.timeScale().timeToCoordinate(toChartTime(points[1].time));
+  const coordinateFor = (point: DrawingPoint) => point.logical != null
+    ? chart.timeScale().logicalToCoordinate(point.logical as Logical)
+    : chart.timeScale().timeToCoordinate(toChartTime(point.time));
+  const firstX = coordinateFor(points[0]);
+  const secondX = coordinateFor(points[1]);
   const firstY = series.priceToCoordinate(points[0].price);
   const secondY = series.priceToCoordinate(points[1].price);
   if (firstX == null || secondX == null || firstY == null || secondY == null) return [...points];
-  const leftTime = firstX <= secondX ? points[0].time : points[1].time;
-  const rightTime = firstX <= secondX ? points[1].time : points[0].time;
+  const leftPoint = firstX <= secondX ? points[0] : points[1];
+  const rightPoint = firstX <= secondX ? points[1] : points[0];
   const topPrice = firstY <= secondY ? points[0].price : points[1].price;
   const bottomPrice = firstY <= secondY ? points[1].price : points[0].price;
   return [
-    { time: leftTime, price: topPrice },
-    { time: rightTime, price: topPrice },
-    { time: rightTime, price: bottomPrice },
-    { time: leftTime, price: bottomPrice },
+    { ...leftPoint, price: topPrice },
+    { ...rightPoint, price: topPrice },
+    { ...rightPoint, price: bottomPrice },
+    { ...leftPoint, price: bottomPrice },
   ];
 }
 
@@ -130,6 +135,21 @@ function shiftDrawingPoints(
   const priceDelta = currentPoint.price - startPoint.price;
   if (drawing.type === 'horizontal') {
     return drawing.points.map((point) => ({ ...point, price: point.price + priceDelta }));
+  }
+  if (startPoint.logical != null && currentPoint.logical != null) {
+    const logicalDelta = currentPoint.logical - startPoint.logical;
+    return drawing.points.map((point) => {
+      const fallbackIndex = candles.findIndex((candle) => candle.time === point.time);
+      const sourceLogical = point.logical ?? fallbackIndex;
+      if (!Number.isFinite(sourceLogical)) return { ...point, price: point.price + priceDelta };
+      const logical = sourceLogical + logicalDelta;
+      const index = Math.max(0, Math.min(candles.length - 1, Math.round(logical)));
+      return {
+        time: candles[index]?.time ?? point.time,
+        price: point.price + priceDelta,
+        logical,
+      };
+    });
   }
   const startIndex = candles.findIndex((candle) => candle.time === startPoint.time);
   const currentIndex = candles.findIndex((candle) => candle.time === currentPoint.time);
@@ -196,6 +216,7 @@ export default function ChartContainer({
   const drawingDraft = useDrawingStore((s) => s.draft);
   const drawingSelectedId = useDrawingStore((s) => s.selectedId);
   const drawingTool = useDrawingStore((s) => s.tool);
+  const drawingColor = useDrawingStore((s) => s.color);
   const setDrawingContextKey = useDrawingStore((s) => s.setContextKey);
   const setDrawingDraft = useDrawingStore((s) => s.setDraft);
   const clearDrawingDraft = useDrawingStore((s) => s.clearDraft);
@@ -209,6 +230,8 @@ export default function ChartContainer({
   const rangeLineHoveredRef = useRef<'start' | 'end' | null>(null);
   const drawingToolRef = useRef<DrawingTool>(drawingTool);
   drawingToolRef.current = drawingTool;
+  const drawingColorRef = useRef(drawingColor);
+  drawingColorRef.current = drawingColor;
   const drawingEnabled = Boolean(drawingContextKey);
   const drawingEnabledRef = useRef(drawingEnabled);
   drawingEnabledRef.current = drawingEnabled;
@@ -224,6 +247,13 @@ export default function ChartContainer({
     pointerId: number;
     startPoint: DrawingPoint;
     points: DrawingPoint[];
+  } | null>(null);
+  const freehandRef = useRef<{
+    pointerId: number;
+    points: DrawingPoint[];
+    lastX: number;
+    lastY: number;
+    color: string;
   } | null>(null);
   const chipPriceToCoordinateRef = useRef<((price: number) => number | null) | null>(null);
   const [chipChartLayout, setChipChartLayout] = useState({ height: 0, revision: 0 });
@@ -591,8 +621,29 @@ export default function ChartContainer({
       if (event && container.hasPointerCapture(event.pointerId)) container.releasePointerCapture(event.pointerId);
       updateChartInteraction();
     };
+    const finishFreehand = (event: PointerEvent, cancelled = false) => {
+      const gesture = freehandRef.current;
+      if (!gesture || event.pointerId !== gesture.pointerId) return false;
+      freehandRef.current = null;
+      drawingDraftRef.current = null;
+      clearDrawingDraft();
+      drawingPrimitive.setDraft(null);
+      if (!cancelled && gesture.points.length >= 2) {
+        addDrawing({
+          type: 'freehand',
+          points: gesture.points,
+          style: { color: gesture.color },
+        });
+      }
+      if (container.hasPointerCapture(event.pointerId)) container.releasePointerCapture(event.pointerId);
+      updateChartInteraction();
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    };
     const handleDrawingPointerDown = (event: PointerEvent) => {
       if (!drawingEnabledRef.current) return;
+      if (event.button !== 0) return;
       const tool = drawingToolRef.current;
       const { x, y, point } = pointFromPointerEvent(event);
       if (x < 0 || y < 0 || x > container.clientWidth || y > container.clientHeight) return;
@@ -600,17 +651,40 @@ export default function ChartContainer({
       if (tool !== 'select') {
         if (!point) return;
         if (rangeLine.getDragging()) rangeLine.setDragging(null);
+        const color = drawingColorRef.current;
+        if (tool === 'freehand') {
+          const nextDraft: DrawingDraft = {
+            type: 'freehand',
+            points: [point],
+            style: { color },
+          };
+          freehandRef.current = {
+            pointerId: event.pointerId,
+            points: [point],
+            lastX: x,
+            lastY: y,
+            color,
+          };
+          drawingDraftRef.current = nextDraft;
+          setDrawingDraft(nextDraft);
+          drawingPrimitive.setDraft(nextDraft);
+          chart.applyOptions({ handleScroll: false, handleScale: false });
+          try { container.setPointerCapture(event.pointerId); } catch { /* unsupported in test DOM */ }
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
         const draft = drawingDraftRef.current;
         if (tool === 'horizontal') {
-          addDrawing({ type: 'horizontal', points: [point] });
+          addDrawing({ type: 'horizontal', points: [point], style: { color } });
           drawingDraftRef.current = null;
           drawingPrimitive.setDraft(null);
         } else if (draft?.type === tool && draft.points.length > 0) {
-          addDrawing({ type: tool, points: [draft.points[0], point] });
+          addDrawing({ type: tool, points: [draft.points[0], point], style: draft.style ?? { color } });
           drawingDraftRef.current = null;
           drawingPrimitive.setDraft(null);
         } else {
-          const nextDraft: DrawingDraft = { type: tool, points: [point] };
+          const nextDraft: DrawingDraft = { type: tool, points: [point], style: { color } };
           drawingDraftRef.current = nextDraft;
           setDrawingDraft(nextDraft);
           drawingPrimitive.setDraft(nextDraft);
@@ -646,6 +720,24 @@ export default function ChartContainer({
       if (!drawingEnabledRef.current) return;
       const { x, y, point } = pointFromPointerEvent(event);
       if (x < 0 || y < 0 || x > container.clientWidth || y > container.clientHeight) return;
+      const freehand = freehandRef.current;
+      if (freehand && event.pointerId === freehand.pointerId && point) {
+        if (Math.hypot(x - freehand.lastX, y - freehand.lastY) >= 2.5) {
+          freehand.points.push(point);
+          freehand.lastX = x;
+          freehand.lastY = y;
+          const nextDraft: DrawingDraft = {
+            type: 'freehand',
+            points: freehand.points,
+            style: { color: freehand.color },
+          };
+          drawingDraftRef.current = nextDraft;
+          drawingPrimitive.setDraft(nextDraft);
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       const drag = drawingDragRef.current;
       if (drag && point) {
         const drawing = drawingsRef.current.find((item) => item.id === drag.id);
@@ -674,10 +766,14 @@ export default function ChartContainer({
         }
       }
     };
-    const handleDrawingPointerUp = (event: PointerEvent) => finishDrawingDrag(event);
-    const handleDrawingPointerCancel = (event: PointerEvent) => finishDrawingDrag(event, true);
+    const handleDrawingPointerUp = (event: PointerEvent) => {
+      if (!finishFreehand(event)) finishDrawingDrag(event);
+    };
+    const handleDrawingPointerCancel = (event: PointerEvent) => {
+      if (!finishFreehand(event, true)) finishDrawingDrag(event, true);
+    };
     const handleDrawingPointerLeave = () => {
-      if (drawingToolRef.current !== 'select' && drawingDraftRef.current) {
+      if (!freehandRef.current && drawingToolRef.current !== 'select' && drawingDraftRef.current) {
         drawingPrimitive.setDraft(drawingDraftRef.current);
       }
     };

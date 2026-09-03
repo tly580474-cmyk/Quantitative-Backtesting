@@ -77,4 +77,40 @@ describe('drawing geometry', () => {
       drawingId: 'rectangle-1', part: 'stroke', distance: 2,
     });
   });
+
+  it('renders and hit-tests every segment in a freehand path without edit anchors', () => {
+    const freehand = drawing('freehand', [
+      { time: '10', price: 20 },
+      { time: '30', price: 40 },
+      { time: '55', price: 25 },
+    ]);
+    const geometry = resolveDrawingGeometry(freehand, adapter, viewport);
+
+    expect(geometry?.anchors).toEqual([]);
+    expect(geometry?.strokes).toHaveLength(2);
+    expect(hitTestDrawings([freehand], { x: 42, y: 33 }, adapter, viewport)).toMatchObject({
+      drawingId: 'freehand-1',
+      part: 'stroke',
+    });
+  });
+
+  it('uses continuous logical coordinates outside the candle time range', () => {
+    const geometry = resolveDrawingGeometry({
+      id: 'future-segment',
+      type: 'segment',
+      points: [
+        { time: 'last-candle', price: 20, logical: 105.5 },
+        { time: 'last-candle', price: 40, logical: 118.25 },
+      ],
+    }, {
+      timeToCoordinate: () => 50,
+      logicalToCoordinate: (logical) => logical - 100,
+      priceToCoordinate: (price) => price,
+    }, viewport);
+
+    expect(geometry?.strokes).toEqual([{
+      from: { x: 5.5, y: 20 },
+      to: { x: 18.25, y: 40 },
+    }]);
+  });
 });

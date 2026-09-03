@@ -10,9 +10,11 @@ import { isDrawingType } from '@/features/chart/drawing/types';
 
 const STORAGE_KEY = 'quant-backtest:drawing-store:v1';
 const DEFAULT_CONTEXT_KEY = '';
+export const DEFAULT_DRAWING_COLOR = '#2563EB';
 
 interface PersistedDrawings {
   contexts?: Record<string, Drawing[]>;
+  color?: string;
 }
 
 export interface DrawingState {
@@ -21,6 +23,7 @@ export interface DrawingState {
   draft: DrawingDraft | null;
   selectedId: string | null;
   tool: DrawingTool;
+  color: string;
   past: Drawing[][];
   future: Drawing[][];
   canUndo: boolean;
@@ -28,6 +31,7 @@ export interface DrawingState {
 
   setContextKey: (contextKey: string) => void;
   setTool: (tool: DrawingTool) => void;
+  setColor: (color: string) => void;
   setDraft: (draft: DrawingDraft | null) => void;
   clearDraft: () => void;
   setSelectedId: (selectedId: string | null) => void;
@@ -59,8 +63,10 @@ function readPersisted(): PersistedDrawings {
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return {};
-    const contexts = (parsed as PersistedDrawings).contexts;
-    return contexts && typeof contexts === 'object' ? { contexts } : {};
+    const value = parsed as PersistedDrawings;
+    const contexts = value.contexts && typeof value.contexts === 'object' ? value.contexts : undefined;
+    const color = isColor(value.color) ? value.color.toUpperCase() : undefined;
+    return { contexts, color };
   } catch {
     // A private browsing session or malformed old data must not make the
     // chart unusable. The in-memory store remains available in that case.
@@ -68,13 +74,18 @@ function readPersisted(): PersistedDrawings {
   }
 }
 
-function isPoint(value: unknown): value is { time: string; price: number } {
+function isColor(value: unknown): value is string {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function isPoint(value: unknown): value is { time: string; price: number; logical?: number } {
   if (!value || typeof value !== 'object') return false;
-  const point = value as { time?: unknown; price?: unknown };
+  const point = value as { time?: unknown; price?: unknown; logical?: unknown };
   return typeof point.time === 'string'
     && point.time.length > 0
     && typeof point.price === 'number'
-    && Number.isFinite(point.price);
+    && Number.isFinite(point.price)
+    && (point.logical == null || (typeof point.logical === 'number' && Number.isFinite(point.logical)));
 }
 
 function isStoredDrawing(value: unknown, contextKey: string): value is Drawing {
@@ -103,10 +114,20 @@ function persistContext(contextKey: string, drawings: readonly Drawing[]): void 
     const persisted = readPersisted();
     const contexts = { ...(persisted.contexts ?? {}) };
     contexts[contextKey] = cloneDrawings(drawings);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ contexts }));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...persisted, contexts }));
   } catch {
     // Persistence is best-effort. Drawing in the current session must still
     // work when storage is full or disabled.
+  }
+}
+
+function persistColor(color: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const persisted = readPersisted();
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...persisted, color }));
+  } catch {
+    // Keep the preference in memory if storage is unavailable.
   }
 }
 
@@ -136,6 +157,7 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
   draft: null,
   selectedId: null,
   tool: 'select',
+  color: readPersisted().color ?? DEFAULT_DRAWING_COLOR,
   past: [],
   future: [],
   canUndo: false,
@@ -160,6 +182,14 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
       draft: null,
       selectedId: tool === 'select' ? state.selectedId : null,
     }));
+  },
+
+  setColor: (color) => {
+    if (!isColor(color)) return;
+    const normalized = color.toUpperCase();
+    if (normalized === get().color) return;
+    set({ color: normalized });
+    persistColor(normalized);
   },
 
   setDraft: (draft) => {

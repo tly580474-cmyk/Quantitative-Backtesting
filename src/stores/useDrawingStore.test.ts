@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useDrawingStore } from './useDrawingStore';
 import { DRAWING_STORAGE_KEY } from './useDrawingStore';
+import { DEFAULT_DRAWING_COLOR } from './useDrawingStore';
 
 const point = (time: string, price: number) => ({ time, price });
 
@@ -12,6 +13,7 @@ function resetStore(): void {
     draft: null,
     selectedId: null,
     tool: 'select',
+    color: DEFAULT_DRAWING_COLOR,
     past: [],
     future: [],
     canUndo: false,
@@ -77,5 +79,28 @@ describe('useDrawingStore', () => {
     expect(useDrawingStore.getState().clear()).toBe(true);
     expect(useDrawingStore.getState().draft).toBeNull();
     expect(useDrawingStore.getState().canUndo).toBe(false);
+  });
+
+  it('stores the active color and persists a colored freehand path', () => {
+    useDrawingStore.getState().setColor('#dc2626');
+    useDrawingStore.getState().add({
+      type: 'freehand',
+      points: [
+        { ...point('2026-01-02', 10), logical: -2.5 },
+        { ...point('2026-01-03', 11), logical: 0.25 },
+        { ...point('2026-01-04', 10.5), logical: 8.75 },
+      ],
+      style: { color: useDrawingStore.getState().color },
+    });
+
+    expect(useDrawingStore.getState().color).toBe('#DC2626');
+    expect(useDrawingStore.getState().drawings[0]).toMatchObject({
+      type: 'freehand',
+      style: { color: '#DC2626' },
+    });
+    expect(useDrawingStore.getState().drawings[0]?.points[0]?.logical).toBe(-2.5);
+    expect(JSON.parse(localStorage.getItem(DRAWING_STORAGE_KEY) ?? '{}')).toMatchObject({
+      color: '#DC2626',
+    });
   });
 });

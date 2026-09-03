@@ -1,9 +1,11 @@
 import { useState, type ReactNode } from 'react';
-import { Button, Drawer, Layout, Menu, Tooltip, Typography } from 'antd';
+import { App as AntApp, Button, Drawer, Layout, Menu, Tooltip, Typography } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   ArrowLeftOutlined,
   CloseOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MoonOutlined,
@@ -13,6 +15,7 @@ import { BrandLogo } from './BrandLogo';
 import type { ColorMode } from '../theme';
 import MobileAppLayout from './mobile/MobileAppLayout';
 import { useMobileLayout } from './mobile/useMobileLayout';
+import { useFullscreen } from './useFullscreen';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -48,8 +51,10 @@ function DesktopAppLayout({
   colorMode,
   onToggleColorMode,
 }: AppLayoutProps) {
+  const { message } = AntApp.useApp();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { isFullscreen, supported: fullscreenSupported, toggleFullscreen } = useFullscreen();
 
   const handleNavigate = (key: string) => {
     onNavigate(key);
@@ -94,6 +99,20 @@ function DesktopAppLayout({
               onClick={() => setCollapsed((value) => !value)}
             />
           </Tooltip>
+          {fullscreenSupported && (
+            <Tooltip title={isFullscreen ? '退出全屏' : '进入全屏'} placement="top">
+              <Button
+                className="app-fullscreen-toggle"
+                aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
+                aria-pressed={isFullscreen}
+                type="text"
+                icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                onClick={() => void toggleFullscreen().catch((error) => {
+                  message.error(error instanceof Error ? error.message : '切换全屏模式失败');
+                })}
+              />
+            </Tooltip>
+          )}
           <Tooltip
             title={colorMode === 'dark' ? '切换为亮色模式' : '切换为暗色模式'}
             placement="right"

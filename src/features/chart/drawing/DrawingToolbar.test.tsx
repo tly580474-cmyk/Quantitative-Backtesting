@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import DrawingToolbar from './DrawingToolbar';
 import { useDrawingStore } from '@/stores/useDrawingStore';
+import { DEFAULT_DRAWING_COLOR } from '@/stores/useDrawingStore';
 
 function resetStore(): void {
   localStorage.clear();
@@ -11,6 +12,7 @@ function resetStore(): void {
     draft: null,
     selectedId: null,
     tool: 'select',
+    color: DEFAULT_DRAWING_COLOR,
     past: [],
     future: [],
     canUndo: false,
@@ -66,5 +68,35 @@ describe('DrawingToolbar', () => {
     expect(screen.getByRole('button', { name: '浏览模式' }).hasAttribute('disabled')).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '画线工具' }));
     expect(useDrawingStore.getState().tool).toBe('select');
+  });
+
+  it('selects freehand drawing and applies an accessible color choice', () => {
+    render(<DrawingToolbar />);
+    fireEvent.click(screen.getByRole('button', { name: '画线工具' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /自由画线/ }));
+
+    expect(useDrawingStore.getState().tool).toBe('freehand');
+    expect(screen.getByRole('status').textContent).toContain('按住并拖动');
+
+    fireEvent.click(screen.getByRole('button', { name: /画线颜色，当前为蓝色/ }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '红色' }));
+
+    expect(useDrawingStore.getState().color).toBe('#DC2626');
+    expect(screen.getByRole('button', { name: /画线颜色，当前为红色/ })).toBeTruthy();
+  });
+
+  it('recolors the selected drawing and keeps the change undoable', () => {
+    const id = useDrawingStore.getState().add({
+      type: 'segment',
+      points: [{ time: '2026-01-02', price: 10 }, { time: '2026-01-03', price: 12 }],
+      style: { color: DEFAULT_DRAWING_COLOR },
+    });
+    render(<DrawingToolbar />);
+
+    fireEvent.click(screen.getByRole('button', { name: /画线颜色，当前为蓝色/ }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '紫色' }));
+
+    expect(useDrawingStore.getState().drawings.find((item) => item.id === id)?.style?.color).toBe('#7C3AED');
+    expect(useDrawingStore.getState().canUndo).toBe(true);
   });
 });

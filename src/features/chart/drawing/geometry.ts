@@ -2,6 +2,7 @@ import type {
   Drawing,
   DrawingCoordinateAdapter,
   DrawingHit,
+  DrawingPoint,
   DrawingPoint2D,
   DrawingViewport,
 } from './types';
@@ -42,12 +43,14 @@ function finitePoint(x: number | null, y: number | null): DrawingPoint2D | null 
 }
 
 function mapPoint(
-  point: { time: string; price: number } | undefined,
+  point: DrawingPoint | undefined,
   adapter: DrawingCoordinateAdapter,
 ): DrawingPoint2D | null {
   if (!point || !Number.isFinite(point.price)) return null;
   return finitePoint(
-    adapter.timeToCoordinate(point.time),
+    point.logical != null && Number.isFinite(point.logical) && adapter.logicalToCoordinate
+      ? adapter.logicalToCoordinate(point.logical)
+      : adapter.timeToCoordinate(point.time),
     adapter.priceToCoordinate(point.price),
   );
 }
@@ -246,6 +249,24 @@ export function resolveDrawingGeometry(
       anchors: rectangleAnchors(body),
       strokes: clipRectangleStrokes(body, viewport),
       body,
+    };
+  }
+
+
+  if (drawing.type === 'freehand') {
+    const visiblePoints = mapped.filter((point): point is DrawingPoint2D => point != null);
+    const strokes = visiblePoints.slice(1).flatMap((point, index) => {
+      const clipped = clipSegmentToViewport(visiblePoints[index], point, viewport);
+      return clipped ? [clipped] : [];
+    });
+    return {
+      id: drawing.id,
+      type: drawing.type,
+      // A freehand path may contain hundreds of samples. Keeping it handle-free
+      // avoids a forest of edit anchors while stroke hit-testing still allows
+      // selecting and moving the complete path.
+      anchors: [],
+      strokes,
     };
   }
 

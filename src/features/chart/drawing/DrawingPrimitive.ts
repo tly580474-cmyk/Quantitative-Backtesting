@@ -5,6 +5,7 @@ import type {
   ISeriesPrimitive,
   PrimitiveHoveredItem,
   SeriesAttachedParameter,
+  Logical,
   Time,
 } from 'lightweight-charts';
 import { chartTimeKey, toChartTime } from '../chartTime';
@@ -52,13 +53,20 @@ const ANCHOR_RADIUS = 5;
 
 function styleFor(drawing: Drawing, draft: boolean): ResolvedDrawingStyle {
   const base = draft ? DRAFT_STYLE : DEFAULT_STYLE;
+  const color = drawing.style?.color ?? base.color;
   return {
-    color: drawing.style?.color ?? base.color,
+    color,
     width: drawing.style?.width ?? base.width,
     dash: drawing.style?.dash ?? base.dash,
-    fill: drawing.style?.fill ?? base.fill,
+    fill: drawing.style?.fill ?? colorWithAlpha(color, draft ? 0.06 : 0.10, base.fill),
     opacity: drawing.style?.opacity ?? base.opacity,
   };
+}
+
+function colorWithAlpha(color: string, alpha: number, fallback: string): string {
+  const match = color.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (!match) return fallback;
+  return `rgba(${Number.parseInt(match[1], 16)}, ${Number.parseInt(match[2], 16)}, ${Number.parseInt(match[3], 16)}, ${alpha})`;
 }
 
 function materializeDraft(draft: DrawingDraft | null): Drawing | null {
@@ -264,6 +272,9 @@ export class DrawingPrimitive implements ISeriesPrimitive<Time> {
       timeToCoordinate: (time: string): Coordinate | null => this.chart
         ?.timeScale()
         .timeToCoordinate(toChartTime(time)) ?? null,
+      logicalToCoordinate: (logical: number): Coordinate | null => this.chart
+        ?.timeScale()
+        .logicalToCoordinate(logical as Logical) ?? null,
       priceToCoordinate: (price: number): Coordinate | null => this.series?.priceToCoordinate(price) ?? null,
     };
   }

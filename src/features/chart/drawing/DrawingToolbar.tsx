@@ -3,9 +3,12 @@ import { Button, Popover } from 'antd';
 import {
   AimOutlined,
   ArrowRightOutlined,
+  BgColorsOutlined,
   BorderOutlined,
+  CheckOutlined,
   ClearOutlined,
   DeleteOutlined,
+  EditOutlined,
   LineOutlined,
   MinusOutlined,
   NodeIndexOutlined,
@@ -13,6 +16,7 @@ import {
   UndoOutlined,
 } from '@ant-design/icons';
 import { useDrawingStore } from '@/stores/useDrawingStore';
+import { DEFAULT_DRAWING_COLOR } from '@/stores/useDrawingStore';
 import type { DrawingTool } from './types';
 import './drawing.css';
 
@@ -52,6 +56,13 @@ const TOOL_OPTIONS: Array<{
     icon: <LineOutlined />,
   },
   {
+    value: 'freehand',
+    label: '自由画线',
+    hint: '按住并拖动指针，自由绘制路径',
+    shortcut: 'F',
+    icon: <EditOutlined />,
+  },
+  {
     value: 'rectangle',
     label: '矩形',
     hint: '点击对角线的两个角绘制矩形',
@@ -59,6 +70,20 @@ const TOOL_OPTIONS: Array<{
     icon: <BorderOutlined />,
   },
 ];
+
+const COLOR_OPTIONS = [
+  { value: DEFAULT_DRAWING_COLOR, label: '蓝色' },
+  { value: '#7C3AED', label: '紫色' },
+  { value: '#DC2626', label: '红色' },
+  { value: '#EA580C', label: '橙色' },
+  { value: '#16A34A', label: '绿色' },
+  { value: '#0891B2', label: '青色' },
+  { value: '#0F172A', label: '深灰色' },
+] as const;
+
+function colorLabel(color: string): string {
+  return COLOR_OPTIONS.find((option) => option.value === color)?.label ?? '自定义颜色';
+}
 
 function toolLabel(tool: DrawingTool): string {
   if (tool === 'select') return '浏览';
@@ -71,6 +96,9 @@ function statusText(
   drawingCount: number,
 ): string {
   if (draft) {
+    if (draft.type === 'freehand') {
+      return '自由画线：拖动指针绘制，松开完成（Esc 取消）';
+    }
     return draft.points.length > 0
       ? `${toolLabel(draft.type)}：已选择起点，请点击终点（Esc 取消）`
       : `${toolLabel(draft.type)}：请在图表中选择起点`;
@@ -89,18 +117,22 @@ export default function DrawingToolbar({
   onToolChange,
 }: DrawingToolbarProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [colorPopoverOpen, setColorPopoverOpen] = useState(false);
   const tool = useDrawingStore((state) => state.tool);
   const draft = useDrawingStore((state) => state.draft);
   const drawings = useDrawingStore((state) => state.drawings);
   const selectedId = useDrawingStore((state) => state.selectedId);
+  const color = useDrawingStore((state) => state.color);
   const canUndo = useDrawingStore((state) => state.canUndo);
   const canRedo = useDrawingStore((state) => state.canRedo);
   const setContextKey = useDrawingStore((state) => state.setContextKey);
   const setTool = useDrawingStore((state) => state.setTool);
+  const setColor = useDrawingStore((state) => state.setColor);
   const setDraft = useDrawingStore((state) => state.setDraft);
   const undo = useDrawingStore((state) => state.undo);
   const redo = useDrawingStore((state) => state.redo);
   const remove = useDrawingStore((state) => state.delete);
+  const update = useDrawingStore((state) => state.update);
   const clear = useDrawingStore((state) => state.clear);
 
   useEffect(() => {
@@ -115,6 +147,16 @@ export default function DrawingToolbar({
     if (nextTool === 'select') setDraft(null);
     setPopoverOpen(false);
     onToolChange?.(nextTool);
+  };
+
+  const chooseColor = (nextColor: string) => {
+    const normalized = nextColor.toUpperCase();
+    setColor(normalized);
+    if (tool === 'select' && selectedId) {
+      const selected = drawings.find((drawing) => drawing.id === selectedId);
+      if (selected) update(selectedId, { style: { ...selected.style, color: normalized } });
+    }
+    setColorPopoverOpen(false);
   };
 
   useEffect(() => {
@@ -158,6 +200,7 @@ export default function DrawingToolbar({
       else if (shortcut === 'h') chooseTool('horizontal');
       else if (shortcut === 'l') chooseTool('infinite-line');
       else if (shortcut === 's') chooseTool('segment');
+      else if (shortcut === 'f') chooseTool('freehand');
       else if (shortcut === 'b') chooseTool('rectangle');
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -182,6 +225,39 @@ export default function DrawingToolbar({
           <kbd>{option.shortcut}</kbd>
         </Button>
       ))}
+    </div>
+  );
+
+  const colorMenu = (
+    <div className="drawing-toolbar__color-menu" role="menu" aria-label="画线颜色选项">
+      <div className="drawing-toolbar__color-grid">
+        {COLOR_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="menuitemradio"
+            aria-checked={color === option.value}
+            aria-label={option.label}
+            title={option.label}
+            className="drawing-toolbar__color-option"
+            onClick={() => chooseColor(option.value)}
+          >
+            <span className="drawing-toolbar__swatch" style={{ backgroundColor: option.value }} />
+            <span>{option.label}</span>
+            {color === option.value && <CheckOutlined aria-hidden="true" />}
+          </button>
+        ))}
+      </div>
+      <label className="drawing-toolbar__custom-color">
+        <span><BgColorsOutlined /> 自定义颜色</span>
+        <input
+          type="color"
+          aria-label="选择自定义画线颜色"
+          value={color}
+          disabled={disabled}
+          onChange={(event) => chooseColor(event.target.value)}
+        />
+      </label>
     </div>
   );
 
@@ -218,6 +294,27 @@ export default function DrawingToolbar({
           disabled={disabled}
         >
           {activeDrawingTool ? toolLabel(tool) : '画线'}
+        </Button>
+      </Popover>
+      <Popover
+        open={colorPopoverOpen}
+        onOpenChange={setColorPopoverOpen}
+        trigger="click"
+        placement="bottomLeft"
+        title="画线颜色"
+        content={colorMenu}
+        overlayClassName="drawing-toolbar-popover"
+      >
+        <Button
+          className="drawing-toolbar__color-trigger"
+          aria-label={`画线颜色，当前为${colorLabel(color)}`}
+          aria-haspopup="menu"
+          aria-expanded={colorPopoverOpen}
+          disabled={disabled}
+          title={tool === 'select' && selectedId ? '选择颜色并应用到选中画线' : '选择新画线的颜色'}
+          icon={<span className="drawing-toolbar__swatch" style={{ backgroundColor: color }} />}
+        >
+          颜色
         </Button>
       </Popover>
       <Button

@@ -10,6 +10,7 @@ export type DrawingTool =
   | 'horizontal'
   | 'infinite-line'
   | 'segment'
+  | 'freehand'
   | 'rectangle';
 
 export type DrawingType = Exclude<DrawingTool, 'select'>;
@@ -19,6 +20,9 @@ export type DrawingMode = DrawingTool;
 export interface DrawingPoint {
   time: string;
   price: number;
+  /** Continuous chart index. It preserves anchors drawn in whitespace before
+   * the first or after the last candle; old persisted drawings may omit it. */
+  logical?: number;
 }
 
 /** Screen-space point used by the drawing renderer and hit tester. */
@@ -30,6 +34,7 @@ export interface DrawingPoint2D {
 /** The chart-space conversion functions required by drawing primitives. */
 export interface DrawingCoordinateAdapter {
   timeToCoordinate: (time: string) => number | null;
+  logicalToCoordinate?: (logical: number) => number | null;
   priceToCoordinate: (price: number) => number | null;
 }
 
@@ -85,6 +90,7 @@ export function isDrawingTool(value: unknown): value is DrawingTool {
     || value === 'horizontal'
     || value === 'infinite-line'
     || value === 'segment'
+    || value === 'freehand'
     || value === 'rectangle';
 }
 
