@@ -83,6 +83,7 @@ import { getMinuteDataCatalog, queryMinuteBars } from '../minuteData/minuteDataS
 import { getMarketBillboard, getStockBillboard } from '../marketData/dragonTigerService.js';
 import { getMarketNews, getMarketOpinionNews, getStockNews } from '../marketData/marketNewsService.js';
 import { getFactorSelectionHistory } from '../marketData/factorStockSelection.js';
+import { getCsi1000LowPbSelectionHistory } from '../marketData/csi1000LowPbSelection.js';
 import { getMarketHealthOverview } from '../marketHealth/service.js';
 import { getWatchlistSession } from '../marketData/watchlistSession.js';
 
@@ -627,6 +628,25 @@ export function registerMarketDataRoutes(
       req.log.error(error);
       return reply.status(502).send({
         message: error instanceof Error ? error.message : '13 因子选股失败',
+      });
+    }
+  });
+
+  app.get('/api/market-data/csi1000-low-pb-selection', async (req, reply) => {
+    const query = z.object({
+      force: z.enum(['true', 'false']).default('false'),
+      limit: z.coerce.number().int().min(10).max(200).default(200),
+    }).safeParse(req.query);
+    if (!query.success) return reply.status(400).send({ message: '中证1000低PB选股查询参数无效' });
+    try {
+      return reply.send(await getCsi1000LowPbSelectionHistory(storageConfig.snapshotRoot, {
+        force: query.data.force === 'true',
+        selectionSize: query.data.limit,
+      }));
+    } catch (error) {
+      req.log.error(error);
+      return reply.status(502).send({
+        message: error instanceof Error ? error.message : '中证1000低PB选股失败',
       });
     }
   });

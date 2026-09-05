@@ -5,22 +5,37 @@ import {
   DotChartOutlined,
   DownOutlined,
   FilterOutlined,
+  FundOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../api/client';
 import StockSelectionWorkspace from '../marketData/StockSelectionWorkspace';
 import { marketDataCache } from '../marketData/marketDataCache';
-import type { FactorSelectionHistory, StockSearchItem } from '../marketData/types';
+import type {
+  Csi1000LowPbSelectionHistory,
+  FactorSelectionHistory,
+  StockSearchItem,
+} from '../marketData/types';
 import FactorSelectionPanel from './FactorSelectionPanel';
+import Csi1000LowPbPanel from './Csi1000LowPbPanel';
 import SelectionExportButton from './SelectionExportButton';
-import { exportFactorSelection, type SelectionExportFormat } from './selectionExport';
+import {
+  exportCsi1000LowPbSelection,
+  exportFactorSelection,
+  type SelectionExportFormat,
+} from './selectionExport';
 import { PageHeader } from '@/components/WorkspacePrimitives';
 
 const { Text } = Typography;
 const WATCHLIST_KEY = 'quant-market-watchlist-v1';
 const PINNED_WATCHLIST_KEY = 'quant-market-watchlist-pinned-v1';
 const ACTIVE_STRATEGY_KEY = 'quant-stock-selection-active-strategy-v1';
-type SelectionStrategy = 'technical' | 'factor';
+type SelectionStrategy = 'technical' | 'factor' | 'csi1000-low-pb';
+
+function readSelectionStrategy(): SelectionStrategy {
+  const stored = localStorage.getItem(ACTIVE_STRATEGY_KEY);
+  return stored === 'factor' || stored === 'csi1000-low-pb' ? stored : 'technical';
+}
 
 function readArray<T>(key: string): T[] {
   try {
@@ -38,14 +53,17 @@ export default function StockSelectionPage() {
   const [pinnedCodes, setPinnedCodes] = useState<string[]>(() => readArray(PINNED_WATCHLIST_KEY));
   const [selectedCode, setSelectedCode] = useState(() => watchlist[0]?.code ?? '');
   const [history, setHistory] = useState<FactorSelectionHistory | null>(null);
+  const [lowPbHistory, setLowPbHistory] = useState<Csi1000LowPbSelectionHistory | null>(null);
   const [factorLoading, setFactorLoading] = useState(false);
+  const [lowPbLoading, setLowPbLoading] = useState(false);
+  const [lowPbError, setLowPbError] = useState<string | null>(null);
   const [strategyMenuOpen, setStrategyMenuOpen] = useState(false);
-  const [activeStrategy, setActiveStrategy] = useState<SelectionStrategy>(() => (
-    localStorage.getItem(ACTIVE_STRATEGY_KEY) === 'factor' ? 'factor' : 'technical'
-  ));
+  const [activeStrategy, setActiveStrategy] = useState<SelectionStrategy>(readSelectionStrategy);
   const [selectedFactorDate, setSelectedFactorDate] = useState('');
+  const [selectedLowPbDate, setSelectedLowPbDate] = useState('');
   const strategyTriggerRef = useRef<HTMLButtonElement>(null);
   const selectedOptionRef = useRef<HTMLButtonElement>(null);
+  const lowPbInitialLoadStartedRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist));
@@ -81,6 +99,31 @@ export default function StockSelectionPage() {
     void loadFactorHistory(false);
   }, [loadFactorHistory]);
 
+  const loadLowPbHistory = useCallback(async (force = false) => {
+    setLowPbLoading(true);
+    setLowPbError(null);
+    try {
+      const result = await apiFetch<Csi1000LowPbSelectionHistory>(
+        `/api/market-data/csi1000-low-pb-selection?limit=200${force ? '&force=true' : ''}`,
+        { timeoutMs: 180000 },
+      );
+      setLowPbHistory(result);
+      if (force) message.success(`已更新 ${result.batches[0]?.rebalanceDate ?? result.dataAsOf} 的中证1000低PB结果`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '中证1000低PB选股加载失败';
+      setLowPbError(errorMessage);
+      message.error(errorMessage);
+    } finally {
+      setLowPbLoading(false);
+    }
+  }, [message]);
+
+  useEffect(() => {
+    if (activeStrategy !== 'csi1000-low-pb' || lowPbHistory || lowPbInitialLoadStartedRef.current) return;
+    lowPbInitialLoadStartedRef.current = true;
+    void loadLowPbHistory(false);
+  }, [activeStrategy, loadLowPbHistory, lowPbHistory]);
+
   const addStock = useCallback((stock: StockSearchItem, price?: number) => {
     setWatchlist((current) => {
       if (current.some((item) => item.code === stock.code)) return current;
@@ -105,6 +148,7 @@ export default function StockSelectionPage() {
   }, [navigate]);
 
   const latestCount = history?.batches[0]?.items.length;
+  const lowPbLatestCount = lowPbHistory?.batches[0]?.items.length;
   const strategies: Array<{
     key: SelectionStrategy;
     title: string;
@@ -128,10 +172,21 @@ export default function StockSelectionPage() {
       icon: <DotChartOutlined />,
       count: latestCount,
     },
+    {
+      key: 'csi1000-low-pb',
+      title: '中证1000低PB',
+      tag: '月末等权',
+      description: '真实成分域内按PB升序选取200只',
+      icon: <FundOutlined />,
+      count: lowPbLatestCount,
+    },
   ];
   const selectedStrategy = strategies.find((item) => item.key === activeStrategy) ?? strategies[0];
   const selectedFactorBatch = history?.batches.find((item) => item.tradeDate === selectedFactorDate)
     ?? history?.batches[0]
+    ?? null;
+  const selectedLowPbBatch = lowPbHistory?.batches.find((item) => item.rebalanceDate === selectedLowPbDate)
+    ?? lowPbHistory?.batches[0]
     ?? null;
 
   const handleFactorExport = (format: SelectionExportFormat) => {
@@ -141,6 +196,19 @@ export default function StockSelectionPage() {
     }
     try {
       const fileName = exportFactorSelection(history, selectedFactorBatch, format);
+      message.success(`已导出 ${fileName}`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '选股结果导出失败');
+    }
+  };
+
+  const handleLowPbExport = (format: SelectionExportFormat) => {
+    if (!lowPbHistory || !selectedLowPbBatch?.items.length) {
+      message.warning('暂无可导出的中证1000低PB选股结果');
+      return;
+    }
+    try {
+      const fileName = exportCsi1000LowPbSelection(lowPbHistory, selectedLowPbBatch, format);
       message.success(`已导出 ${fileName}`);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '选股结果导出失败');
@@ -161,8 +229,8 @@ export default function StockSelectionPage() {
   };
 
   return <main className="stock-selection-page">
-    <PageHeader title="选股工作台" description="切换选股方法，查看当日结果与历史表现。"
-      actions={<Space size={8}><Tag>{strategies.length} 种方法</Tag><Text type="secondary">数据截至 {history?.dataAsOf ?? '加载中'}</Text></Space>} />
+    <PageHeader title="选股工作台" description="切换选股方法，查看最新结果与历史表现。"
+      actions={<Space size={8}><Tag>{strategies.length} 种方法</Tag><Text type="secondary">数据截至 {activeStrategy === 'csi1000-low-pb' ? lowPbHistory?.dataAsOf ?? '加载中' : history?.dataAsOf ?? '加载中'}</Text></Space>} />
 
     <section className="stock-selection-strategy-picker" aria-label="选股策略">
       <div className={`stock-selection-strategy-trigger${strategyMenuOpen ? ' is-open' : ''}`}>
@@ -181,7 +249,7 @@ export default function StockSelectionPage() {
         <span className="stock-selection-strategy-current">
           <span>
             <strong>{selectedStrategy.title}</strong>
-            <Tag color={activeStrategy === 'factor' ? 'geekblue' : 'blue'}>{selectedStrategy.tag}</Tag>
+            <Tag color={activeStrategy === 'factor' ? 'geekblue' : activeStrategy === 'csi1000-low-pb' ? 'gold' : 'blue'}>{selectedStrategy.tag}</Tag>
             {selectedStrategy.count != null && <Tag>{selectedStrategy.count} 只</Tag>}
           </span>
           <Text type="secondary">{selectedStrategy.description}</Text>
@@ -189,6 +257,10 @@ export default function StockSelectionPage() {
         {activeStrategy === 'factor' && <SelectionExportButton
           disabled={!selectedFactorBatch?.items.length || factorLoading}
           onExport={handleFactorExport}
+        />}
+        {activeStrategy === 'csi1000-low-pb' && <SelectionExportButton
+          disabled={!selectedLowPbBatch?.items.length || lowPbLoading}
+          onExport={handleLowPbExport}
         />}
         <Text type="secondary" className="stock-selection-strategy-hint">
           {strategyMenuOpen ? '选择一个策略' : '点击箭头切换策略'}
@@ -219,7 +291,7 @@ export default function StockSelectionPage() {
               <small>{strategy.description}</small>
             </span>
             <span className="stock-selection-strategy-option-meta">
-              <Tag color={strategy.key === 'factor' ? 'geekblue' : 'blue'}>{strategy.tag}</Tag>
+              <Tag color={strategy.key === 'factor' ? 'geekblue' : strategy.key === 'csi1000-low-pb' ? 'gold' : 'blue'}>{strategy.tag}</Tag>
               {strategy.count != null && <Tag>{strategy.count} 只</Tag>}
               {selected && <CheckOutlined aria-label="当前策略" />}
             </span>
@@ -228,8 +300,7 @@ export default function StockSelectionPage() {
       </div>}
 
       <div className="stock-selection-active-panel">
-        {activeStrategy === 'technical'
-          ? <StockSelectionWorkspace
+        {activeStrategy === 'technical' && <StockSelectionWorkspace
             embedded
             mode="screen"
             watchlist={watchlist}
@@ -243,8 +314,8 @@ export default function StockSelectionPage() {
             onAdd={(stock) => addStock(stock)}
             onRemove={removeStock}
             onOpenDetail={openDetail}
-          />
-          : <FactorSelectionPanel
+          />}
+        {activeStrategy === 'factor' && <FactorSelectionPanel
             history={history}
             loading={factorLoading}
             watchlist={watchlist}
@@ -254,6 +325,17 @@ export default function StockSelectionPage() {
             selectedDate={selectedFactorDate}
             onSelectedDateChange={setSelectedFactorDate}
           />}
+        {activeStrategy === 'csi1000-low-pb' && <Csi1000LowPbPanel
+          history={lowPbHistory}
+          loading={lowPbLoading}
+          error={lowPbError}
+          watchlist={watchlist}
+          onRefresh={() => void loadLowPbHistory(true)}
+          onAdd={addStock}
+          onOpenDetail={openDetail}
+          selectedDate={selectedLowPbDate}
+          onSelectedDateChange={setSelectedLowPbDate}
+        />}
       </div>
     </section>
   </main>;

@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type {
+  Csi1000LowPbSelectionHistory,
   FactorSelectionHistory,
   MarketScreenerCriteria,
   MarketScreenerSnapshot,
 } from '../marketData/types';
-import { buildFactorSelectionMarkdown, buildTechnicalSelectionMarkdown } from './selectionExport';
+import {
+  buildCsi1000LowPbSelectionMarkdown,
+  buildFactorSelectionMarkdown,
+  buildTechnicalSelectionMarkdown,
+} from './selectionExport';
 
 const criteria: MarketScreenerCriteria = {
   markets: ['SH', 'SZ'],
@@ -82,5 +87,37 @@ describe('selection export', () => {
     expect(markdown).toContain('选股日期：2026-09-01');
     expect(markdown).toContain('处理流程：去极值 → 标准化 → 中性化');
     expect(markdown).toContain('| 1 | 600000 | 浦发银行 | SH | 银行 | 1.2346 | 13 / 13 |');
+  });
+
+  it('exports CSI 1000 low-PB methodology, provenance, risk, and holdings', () => {
+    const history: Csi1000LowPbSelectionHistory = {
+      strategy: '中证1000低PB', snapshotId: 'research-snapshot',
+      snapshotCreatedAt: '2026-09-04T14:26:11.928Z', dataAsOf: '2026-09-04',
+      generatedAt: '2026-09-05T09:00:00.000Z',
+      methodology: {
+        indexCode: '000852', indexName: '中证1000', selectionSize: 200,
+        retainedMonths: 6, rebalance: '月末', weighting: '等权',
+        processing: ['锁定月末真实成分快照', '按PB升序取前200只'],
+        caveats: ['结果未计交易成本与冲击成本', '历史回测不代表未来表现'],
+      },
+      batches: [],
+    };
+    const batch = {
+      rebalanceDate: '2026-08-31', constituentDate: '2026-08-31',
+      constituentSnapshotId: 'constituent-snapshot', isLatest: true,
+      averagePb: 0.82, averageReturnPct: 1.5, positiveCount: 1,
+      items: [{
+        rank: 1, code: '600000', name: '浦发银行', market: 'SH' as const,
+        industry: '银行', pb: 0.65, totalMarketCapYi: 3200,
+        portfolioWeightPct: 0.5, selectedPrice: 10, latestPrice: 10.3,
+        returnSinceSelectionPct: 3,
+      }],
+    };
+
+    const markdown = buildCsi1000LowPbSelectionMarkdown(history, batch);
+    expect(markdown).toContain('# 中证1000低PB选股结果');
+    expect(markdown).toContain('成分日期：2026-08-31');
+    expect(markdown).toContain('结果未计交易成本与冲击成本；历史回测不代表未来表现');
+    expect(markdown).toContain('| 1 | 600000 | 浦发银行 | SH | 银行 | 0.650 | 3200.00 | 0.50% |');
   });
 });

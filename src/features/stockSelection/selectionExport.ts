@@ -1,5 +1,7 @@
 import * as XLSX from 'xlsx';
 import type {
+  Csi1000LowPbSelectionBatch,
+  Csi1000LowPbSelectionHistory,
   FactorSelectionBatch,
   FactorSelectionHistory,
   HistoricalTechnicalIndicators,
@@ -263,6 +265,90 @@ export function exportFactorSelection(
   infoSheet['!cols'] = [{ wch: 22 }, { wch: 64 }];
   XLSX.utils.book_append_sheet(workbook, resultSheet, '选股结果');
   XLSX.utils.book_append_sheet(workbook, infoSheet, '导出信息');
+  downloadWorkbook(workbook, `${baseName}.xlsx`);
+  return `${baseName}.xlsx`;
+}
+
+function csi1000LowPbRows(batch: Csi1000LowPbSelectionBatch) {
+  return batch.items.map((item) => ({
+    排名: item.rank,
+    股票代码: item.code,
+    股票名称: item.name,
+    市场: item.market,
+    行业: item.industry,
+    PB: item.pb,
+    总市值亿元: item.totalMarketCapYi,
+    等权权重百分比: item.portfolioWeightPct,
+    入选价: item.selectedPrice,
+    最新价: item.latestPrice,
+    调仓后收益百分比: item.returnSinceSelectionPct,
+  }));
+}
+
+export function buildCsi1000LowPbSelectionMarkdown(
+  history: Csi1000LowPbSelectionHistory,
+  batch: Csi1000LowPbSelectionBatch,
+) {
+  return [
+    `# ${history.strategy}选股结果`,
+    '',
+    `- 调仓日期：${batch.rebalanceDate}`,
+    `- 成分日期：${batch.constituentDate}`,
+    `- 数据截至：${history.dataAsOf}`,
+    `- 入选数量：${batch.items.length} 只`,
+    `- 组合平均 PB：${batch.averagePb.toFixed(3)}`,
+    `- 调仓后等权收益：${formatNumber(batch.averageReturnPct)}%`,
+    `- 上涨数量：${batch.positiveCount} / ${batch.items.length}`,
+    `- 处理流程：${history.methodology.processing.join(' → ')}`,
+    `- 风险提示：${history.methodology.caveats.join('；')}`,
+    '',
+    '## 选股明细',
+    '',
+    markdownTable(
+      ['排名', '代码', '名称', '市场', '行业', 'PB', '总市值（亿元）', '等权权重', '入选价', '最新价', '调仓后收益'],
+      batch.items.map((item) => [
+        item.rank, item.code, item.name, item.market, item.industry,
+        item.pb.toFixed(3), item.totalMarketCapYi.toFixed(2),
+        `${item.portfolioWeightPct.toFixed(2)}%`, item.selectedPrice.toFixed(2),
+        item.latestPrice.toFixed(2), `${formatNumber(item.returnSinceSelectionPct)}%`,
+      ]),
+    ),
+    '',
+  ].join('\n');
+}
+
+export function exportCsi1000LowPbSelection(
+  history: Csi1000LowPbSelectionHistory,
+  batch: Csi1000LowPbSelectionBatch,
+  format: SelectionExportFormat,
+) {
+  const baseName = safeFilePart(`${history.strategy}选股结果-${batch.rebalanceDate}`);
+  if (format === 'md') {
+    downloadMarkdown(buildCsi1000LowPbSelectionMarkdown(history, batch), `${baseName}.md`);
+    return `${baseName}.md`;
+  }
+
+  const workbook = XLSX.utils.book_new();
+  const resultSheet = XLSX.utils.json_to_sheet(csi1000LowPbRows(batch));
+  resultSheet['!cols'] = [6, 12, 14, 8, 16, 10, 14, 14, 10, 10, 16].map((wch) => ({ wch }));
+  const infoSheet = XLSX.utils.aoa_to_sheet([
+    ['项目', '内容'],
+    ['策略', history.strategy],
+    ['指数', `${history.methodology.indexName}（${history.methodology.indexCode}）`],
+    ['调仓日期', batch.rebalanceDate],
+    ['成分日期', batch.constituentDate],
+    ['数据截至', history.dataAsOf],
+    ['研究快照', history.snapshotId],
+    ['成分快照', batch.constituentSnapshotId],
+    ['入选数量', batch.items.length],
+    ['组合平均 PB', batch.averagePb],
+    ['调仓后等权收益（%）', batch.averageReturnPct],
+    ['处理流程', history.methodology.processing.join(' → ')],
+    ['风险提示', history.methodology.caveats.join('；')],
+  ]);
+  infoSheet['!cols'] = [{ wch: 22 }, { wch: 80 }];
+  XLSX.utils.book_append_sheet(workbook, resultSheet, '选股结果');
+  XLSX.utils.book_append_sheet(workbook, infoSheet, '策略与数据口径');
   downloadWorkbook(workbook, `${baseName}.xlsx`);
   return `${baseName}.xlsx`;
 }

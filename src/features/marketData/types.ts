@@ -227,6 +227,50 @@ export interface FactorSelectionHistory {
   batches: FactorSelectionBatch[];
 }
 
+export interface Csi1000LowPbSelectionItem {
+  rank: number;
+  code: string;
+  name: string;
+  market: 'SH' | 'SZ';
+  industry: string;
+  pb: number;
+  totalMarketCapYi: number;
+  portfolioWeightPct: number;
+  selectedPrice: number;
+  latestPrice: number;
+  returnSinceSelectionPct: number;
+}
+
+export interface Csi1000LowPbSelectionBatch {
+  rebalanceDate: string;
+  constituentDate: string;
+  constituentSnapshotId: string;
+  isLatest: boolean;
+  averagePb: number;
+  averageReturnPct: number;
+  positiveCount: number;
+  items: Csi1000LowPbSelectionItem[];
+}
+
+export interface Csi1000LowPbSelectionHistory {
+  strategy: '中证1000低PB';
+  snapshotId: string;
+  snapshotCreatedAt: string;
+  dataAsOf: string;
+  generatedAt: string;
+  methodology: {
+    indexCode: '000852';
+    indexName: '中证1000';
+    selectionSize: number;
+    retainedMonths: number;
+    rebalance: '月末';
+    weighting: '等权';
+    processing: string[];
+    caveats: string[];
+  };
+  batches: Csi1000LowPbSelectionBatch[];
+}
+
 export interface HotSectorItem {
   code: string;
   name: string;

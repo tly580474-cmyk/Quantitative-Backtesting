@@ -1,0 +1,4 @@
+interface:
+  display_name: "本地 DuckDB 研究"
+  short_description: "安全查询本地量化研究快照、分钟湖并导出可追溯结果"
+  default_prompt: "使用 $local-duckdb-research 完成这项本地量化数据查询或导出任务。"
