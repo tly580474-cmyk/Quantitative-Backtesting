@@ -1,5 +1,5 @@
 import type { Pool, ResultSetHeader } from 'mysql2/promise';
-import type { PublicAgentEvent, TerminalPayload, TerminalStatus } from './eventProtocol.js';
+import { sanitizeToolDetail, type PublicAgentEvent, type TerminalPayload, type TerminalStatus } from './eventProtocol.js';
 import type { AgentProviderId } from './providers/types.js';
 
 export type RunStatus = 'pending' | 'starting' | 'running' | TerminalStatus;
@@ -286,10 +286,11 @@ export class AgentRepository {
       `INSERT INTO agent_events
        (run_id, seq, event_type, content, tool_name, tool_use_id, duration_ms, terminal_json, approval_json,
         protocol_version, tool_input, tool_result, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 2, NULL, NULL, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 2, ?, ?, ?)`,
       [runId, seq, event.type, event.publicContent, event.toolName ?? null, event.toolUseId ?? null,
         event.durationMs ?? null, event.terminal ? JSON.stringify(event.terminal) : null,
-        event.approval ? JSON.stringify(event.approval) : null, event.timestamp],
+        event.approval ? JSON.stringify(event.approval) : null,
+        sanitizeToolDetail(event.toolInput) ?? null, sanitizeToolDetail(event.toolResult) ?? null, event.timestamp],
     );
   }
 
@@ -305,6 +306,17 @@ export class AgentRepository {
   async getLastSeq(runId: string): Promise<number> {
     const [rows] = await this.pool.execute('SELECT COALESCE(MAX(seq), 0) AS seq FROM agent_events WHERE run_id = ?', [runId]);
     return Number((rows as Array<{ seq: number }>)[0]?.seq ?? 0);
+  }
+
+  async getRecentResearchEvents(parentRunId: string): Promise<AgentEventRecord[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT e.* FROM agent_events e JOIN agent_runs r ON r.id = e.run_id
+       JOIN agent_runs parent ON parent.id = ? AND parent.conversation_id = r.conversation_id
+       WHERE r.turn_index <= parent.turn_index AND e.protocol_version >= 2
+         AND e.event_type IN ('tool_started', 'tool_finished', 'error')
+       ORDER BY r.turn_index DESC, e.seq DESC LIMIT 80`, [parentRunId],
+    );
+    return (rows as Record<string, unknown>[]).map(row => toCamelRow<AgentEventRecord>(row)).reverse();
   }
 
   async saveReport(runId: string, title: string, htmlPath: string, fileSize: number, summary: string, chartsCount: number): Promise<void> {

@@ -35,6 +35,8 @@ export interface AgentEvent {
   runId?: string;
   toolName?: string;
   toolUseId?: string;
+  toolInput?: string;
+  toolResult?: string;
   durationMs?: number;
   terminal?: { status: 'completed' | 'failed' | 'canceled'; exitCode: number | null; errorCode?: string };
   seq?: number;

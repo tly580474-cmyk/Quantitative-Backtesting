@@ -3,8 +3,9 @@ import { resolve } from 'node:path';
 import type { Pool } from 'mysql2/promise';
 import { buildPrompt, type TemplateStyle } from './promptBuilder.js';
 import type { ParsedEvent } from './outputParser.js';
-import { type TerminalPayload, type TerminalStatus } from './eventProtocol.js';
+import { sanitizeToolDetail, type TerminalPayload, type TerminalStatus } from './eventProtocol.js';
 import { AgentRepository } from './agentRepository.js';
+import { buildResearchContext } from './researchContext.js';
 import { validateAgentReport } from './reportValidator.js';
 import { renderStaticAgentReport } from './reportRenderer.js';
 import { ClaudeAgentProvider } from './providers/claudeAgentProvider.js';
@@ -42,6 +43,7 @@ export interface OrchestratorConfig {
 }
 
 export interface StartParams {
+  parentRunId?: string;
   runId: string;
   prompt: string;
   maxTurns: number;
@@ -136,6 +138,8 @@ export class AgentOrchestrator {
       const workingDirectory = providerId === 'codex'
         ? this.config.codex?.workingDirectory ?? ''
         : this.config.claudeWorkingDirectory;
+      const researchContext = params.parentRunId
+        ? buildResearchContext(await repo.getRecentResearchEvents(params.parentRunId)) : '';
       const prompt = buildPrompt(
         params.prompt, workingDirectory, templateStyle, Boolean(params.resumeSessionId), providerId,
         providerId === 'codex' ? {
@@ -146,7 +150,7 @@ export class AgentOrchestrator {
           approvalsEnabled: this.config.codex?.approvalsEnabled,
           networkEnabled: this.config.codex?.networkEnabled,
         } : undefined,
-        params.attachments ?? [],
+        params.attachments ?? [], researchContext,
       );
       const providerRun = await provider.start({
         runId: params.runId, prompt, maxTurns: params.maxTurns, resumeSessionId: params.resumeSessionId,
@@ -247,15 +251,17 @@ export class AgentOrchestrator {
 
   private async publish(runId: string, active: ActiveRun, repo: AgentRepository, event: ParsedEvent): Promise<void> {
     if (active.finalized && event.type !== 'terminal') return;
+    event.toolInput = sanitizeToolDetail(event.toolInput);
+    event.toolResult = sanitizeToolDetail(event.toolResult);
     if (event.type === 'progress' && active.lastEventType === 'progress'
       && active.lastEventContent === event.publicContent) return;
     if (event.type === 'tool_started' && event.toolUseId) {
-      if (active.toolStartedAt.has(event.toolUseId)) return;
-      active.toolStartedAt.set(event.toolUseId, Date.now());
+      if (active.toolStartedAt.has(event.toolUseId) && !event.toolInput) return;
+      if (!active.toolStartedAt.has(event.toolUseId)) active.toolStartedAt.set(event.toolUseId, Date.now());
       if (event.toolName) active.toolNames.set(event.toolUseId, event.toolName);
     }
     if (event.type === 'assistant_final') active.finalContent = event.publicContent;
-    if (event.type === 'tool_finished' && event.toolUseId) {
+    if ((event.type === 'tool_finished' || event.type === 'error') && event.toolUseId) {
       const started = active.toolStartedAt.get(event.toolUseId);
       if (started && event.durationMs == null) event.durationMs = Math.max(0, Date.now() - started);
       event.toolName = event.toolName ?? active.toolNames.get(event.toolUseId);

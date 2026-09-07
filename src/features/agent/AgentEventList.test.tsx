@@ -2,9 +2,27 @@
 import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { AgentEventList } from './AgentEventList';
+import { AgentEventList, mergeToolEvents } from './AgentEventList';
 
 describe('AgentEventList', () => {
+  it('merges partial/start/end events and expands persisted input and output', () => {
+    const events = [
+      { type: 'tool_started' as const, content: '', toolUseId: 'c1', toolName: 'command', seq: 1 },
+      { type: 'tool_started' as const, content: '', toolUseId: 'c1', toolName: 'command', toolInput: 'node researchData.mjs catalog', seq: 2 },
+      { type: 'tool_finished' as const, content: '', toolUseId: 'c1', toolResult: 'rows=42', durationMs: 953, seq: 3 },
+    ];
+    expect(mergeToolEvents(events)).toHaveLength(1);
+    render(<AgentEventList userPrompt="" events={events} />);
+    fireEvent.click(screen.getByRole('button', { name: /1次工具调用/ }));
+    expect(screen.queryByText('node researchData.mjs catalog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '展开 command 调用详情' }));
+    expect(screen.getByText('node researchData.mjs catalog')).toBeVisible();
+    expect(screen.getByText('rows=42')).toBeVisible();
+    expect(screen.getByText('953ms')).toBeVisible();
+  });
+  it('keeps equal tool IDs in different runs separate', () => {
+    expect(mergeToolEvents(['a', 'b'].map(runId => ({ type: 'tool_started', content: '', runId, toolUseId: 'same' })))).toHaveLength(2);
+  });
   it('collapses public progress while keeping the final answer visible', () => {
     render(<AgentEventList runId="run-1" userPrompt="" events={[
       { type: 'user', content: '分析样本' },
@@ -14,7 +32,7 @@ describe('AgentEventList', () => {
     ]} />);
     expect(screen.getByText('这是最终结论')).toBeVisible();
     expect(screen.queryByText('正在检查数据')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /已处理 2秒 · 2步/ }));
+    fireEvent.click(screen.getByRole('button', { name: /已处理 2秒 · 1次工具调用/ }));
     expect(screen.getByText('正在检查数据')).toBeVisible();
   });
 
@@ -34,7 +52,7 @@ describe('AgentEventList', () => {
     ]} />);
     expect(screen.getByText('智能体进程异常')).toBeVisible();
     expect(screen.queryByText('工具执行失败')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /1步 · 1个工具失败/ }));
+    fireEvent.click(screen.getByRole('button', { name: /1次工具调用 · 1个工具失败/ }));
     expect(screen.getByText('工具执行失败')).toBeVisible();
     expect(screen.getByText('股票代码必须是 6 位数字')).toBeVisible();
     expect(screen.queryByText(/成功输出成功输出成功输出/)).not.toBeInTheDocument();

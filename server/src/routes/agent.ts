@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { ErrorCodes, apiError, dbUnavailable } from '../validation/errors.js';
 import { AgentRepository, type AgentEventRecord, type AgentRunRecord } from '../services/agent/agentRepository.js';
 import type { AgentOrchestrator } from '../services/agent/agentOrchestrator.js';
-import { isPublicAgentEventType, sanitizePublicContent, type PublicAgentEvent } from '../services/agent/eventProtocol.js';
+import { isPublicAgentEventType, sanitizePublicContent, sanitizeToolDetail, type PublicAgentEvent } from '../services/agent/eventProtocol.js';
 import type { EnvConfig } from '../config.js';
 import type { AgentProviderId } from '../services/agent/providers/types.js';
 import { AGENT_ATTACHMENT_ACCEPT, AgentAttachmentError, AgentAttachmentService } from '../services/agent/attachmentService.js';
@@ -38,6 +38,8 @@ function publicEvent(record: AgentEventRecord, lastLegacyTextSeq = -1): (PublicA
       seq: record.seq,
       ...(record.toolName ? { toolName: record.toolName } : {}),
       ...(record.toolUseId ? { toolUseId: record.toolUseId } : {}),
+      toolInput: sanitizeToolDetail(record.toolInput),
+      toolResult: sanitizeToolDetail(record.toolResult),
       ...(record.durationMs != null ? { durationMs: record.durationMs } : {}),
       ...(record.terminal ? { terminal: record.terminal } : {}),
       ...(record.approval ? { approval: record.approval } : {}),
@@ -205,7 +207,7 @@ export function registerAgentRoutes(
       : []);
     void orchestrator.start({
       runId, prompt: body.prompt, maxTurns: 0, timeoutMs: timeoutMinutes * 60_000,
-      templateStyle: 'classic-blue', resumeSessionId: parent?.sessionId ?? undefined,
+      templateStyle: 'classic-blue', resumeSessionId: parent?.sessionId ?? undefined, parentRunId: parent?.id,
       provider, attachments,
     }).catch(error => console.error(`[Agent] start failed for ${runId}:`, error));
     return { runId, conversationId, turnIndex, status: 'pending' as const, parentRunId: parent?.id ?? null };

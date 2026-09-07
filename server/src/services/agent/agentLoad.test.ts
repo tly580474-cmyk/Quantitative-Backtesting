@@ -14,7 +14,7 @@ describe('agent protocol load limits', () => {
 
   it('parses ten thousand public blocks in bounded time', () => {
     const line = JSON.stringify({ type: 'assistant', message: { content: Array.from({ length: 10_000 }, (_, index) => (
-      index % 2 ? { type: 'tool_use', id: `tool-${index}`, name: 'Read', input: { huge: 'not persisted' } }
+      index % 2 ? { type: 'tool_use', id: `tool-${index}`, name: 'Read', input: { token: 'not persisted' } }
         : { type: 'text', text: `progress ${index}` }
     )) } });
     const started = performance.now();

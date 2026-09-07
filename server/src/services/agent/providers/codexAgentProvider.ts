@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { extractReportDirective } from '../outputParser.js';
-import { sanitizePublicContent, sanitizeToolName } from '../eventProtocol.js';
+import { sanitizePublicContent, sanitizeToolName, sanitizeToolDetail } from '../eventProtocol.js';
 import { terminateProcessTree } from './processUtils.js';
 import type {
   AgentProvider,
@@ -112,6 +112,18 @@ function publicToolName(item: Record<string, any>): string {
 
 function isToolItem(item: Record<string, any>): boolean {
   return ['commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall', 'webSearch'].includes(item.type);
+}
+
+export function codexToolDetails(item: Record<string, any>) {
+  // Whitelist actual tool payloads; never expose reasoning or provider/session metadata.
+  const input = item.type === 'commandExecution' ? item.command
+    : item.type === 'fileChange' ? item.changes
+    : item.type === 'webSearch' ? (item.action ?? item.query)
+    : item.arguments;
+  const output = item.type === 'commandExecution'
+    ? { exitCode: item.exitCode, output: item.aggregatedOutput }
+    : item.result ?? item.error ?? item.contentItems;
+  return { toolInput: sanitizeToolDetail(input), toolResult: sanitizeToolDetail(output) };
 }
 
 function isIntermediateMessagePhase(phase: unknown): boolean {
@@ -379,6 +391,7 @@ export class CodexAgentProvider implements AgentProvider {
         await sink.event({
           type: 'tool_started', publicContent: `正在使用 ${toolName}`, timestamp: now(),
           toolName, toolUseId: String(item.id ?? '').slice(0, 128) || undefined,
+          toolInput: codexToolDetails(item).toolInput,
         });
         return;
       }
@@ -393,7 +406,8 @@ export class CodexAgentProvider implements AgentProvider {
         if (isToolItem(item)) {
           const toolName = publicToolName(item);
           finalResponse.finishTool(item.id);
-          const failed = ['failed', 'declined', 'error'].includes(String(item.status ?? '').toLowerCase());
+          const failed = item.success === false || (typeof item.exitCode === 'number' && item.exitCode !== 0)
+            || ['failed', 'declined', 'error'].includes(String(item.status ?? '').toLowerCase());
           const errorDetail = failed ? codexToolErrorContent(item) : '';
           await sink.event({
             type: failed ? 'error' : 'tool_finished',
@@ -401,6 +415,7 @@ export class CodexAgentProvider implements AgentProvider {
               ? `${toolName} 执行失败${errorDetail ? `：${errorDetail}` : ''}`
               : `${toolName} 执行完成`,
             timestamp: now(), toolName,
+            ...codexToolDetails(item),
             toolUseId: String(item.id ?? '').slice(0, 128) || undefined,
             durationMs: typeof item.durationMs === 'number' ? item.durationMs : undefined,
           });

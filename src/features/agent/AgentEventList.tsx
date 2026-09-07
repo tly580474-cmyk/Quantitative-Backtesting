@@ -64,6 +64,7 @@ function AssistantAvatar() {
 
 function ProcessEvent({ event }: { event: AgentEvent }) {
   const theme = useAgentTheme();
+  const [expanded, setExpanded] = useState(false);
   if (event.type === 'progress') return <div style={{ color: theme.textSecondary, fontSize: 13, lineHeight: 1.7, margin: '6px 0' }}>
     <ReactMarkdown remarkPlugins={[remarkGfm]}>{event.content}</ReactMarkdown>
   </div>;
@@ -82,6 +83,16 @@ function ProcessEvent({ event }: { event: AgentEvent }) {
       </div>
       {detail && <div style={{ margin: '6px 0 0 24px', color: theme.errorText, lineHeight: 1.6,
         whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{detail}</div>}
+      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}
+        aria-label={`${expanded ? '收起' : '展开'} ${event.toolName ?? '工具'} 调用详情`}
+        style={{ border: 0, background: 'transparent', color: theme.textSecondary, cursor: 'pointer', padding: '6px 0' }}>
+        {expanded ? <DownOutlined /> : <RightOutlined />} {expanded ? '收起调用详情' : '查看调用详情'}
+      </button>
+      {expanded && <div style={{ padding: 10, background: theme.codeBg, borderRadius: 8 }}>
+        {!event.toolInput && !event.toolResult && <span>此调用尚无详情，或历史记录未保存详情。</span>}
+        {event.toolInput && <><strong>输入 / 命令</strong><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 320, overflow: 'auto' }}>{event.toolInput}</pre></>}
+        {event.toolResult && <><strong>输出 / 结果</strong><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 320, overflow: 'auto' }}>{event.toolResult}</pre></>}
+      </div>}
     </div>;
   }
   return null;
@@ -106,6 +117,28 @@ function ErrorBlock({ event }: { event: AgentEvent }) {
 }
 
 interface Turn { type: 'user' | 'assistant'; events: AgentEvent[]; }
+export function mergeToolEvents(events: AgentEvent[]): AgentEvent[] {
+  const result: AgentEvent[] = [];
+  const calls = new Map<string, number>();
+  for (const event of events) {
+    if (!event.toolUseId || !['tool_started', 'tool_finished', 'error'].includes(event.type)) {
+      result.push(event); continue;
+    }
+    const key = `${event.runId ?? ''}:${event.toolUseId}`;
+    const index = calls.get(key);
+    if (index == null) { calls.set(key, result.length); result.push({ ...event }); continue; }
+    const previous = result[index];
+    result[index] = { ...previous, ...event,
+      type: event.type === 'tool_started' && previous.type !== 'tool_started' ? previous.type : event.type,
+      seq: previous.seq,
+      toolName: event.toolName ?? previous.toolName,
+      toolInput: event.toolInput ?? previous.toolInput,
+      toolResult: event.toolResult ?? previous.toolResult,
+      durationMs: event.durationMs ?? previous.durationMs,
+    };
+  }
+  return result;
+}
 function groupTurns(events: AgentEvent[]): Turn[] {
   const turns: Turn[] = [];
   let assistant: AgentEvent[] = [];
@@ -152,8 +185,9 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
     {turns.map((turn, index) => {
       if (turn.type === 'user') return <UserBubble key={`u-${index}`} text={turn.events[0].content} attachments={turn.events[0].attachments} />;
       const current = isStreaming && index === turns.length - 1;
-      const process = turn.events.filter(event => ['progress', 'tool_started', 'tool_finished'].includes(event.type)
-        || (event.type === 'error' && Boolean(event.toolUseId)));
+      const process = mergeToolEvents(turn.events.filter(event => ['progress', 'tool_started', 'tool_finished'].includes(event.type)
+        || (event.type === 'error' && Boolean(event.toolUseId))));
+      const toolCount = process.filter(event => event.type !== 'progress').length;
       const final = turn.events.filter(event => event.type === 'assistant_final' || event.type === 'assistant_text');
       const finalContents = new Set(final.map(event => event.content.trim()).filter(Boolean));
       const visibleProcess = process.slice(-200).map(event => (
@@ -183,7 +217,7 @@ export function AgentEventList({ events, userPrompt, reportUrl, reportMeta, runI
         <AssistantAvatar />
         <div style={{ flex: 1, minWidth: 0 }}>
           {process.length > 0 && <Fold instanceKey={key} openWhileRunning={current}
-            label={`已处理${duration ? ` ${duration}` : ''} · ${process.length}步${toolFailureCount ? ` · ${toolFailureCount}个工具失败` : ''}`}>
+            label={`已处理${duration ? ` ${duration}` : ''} · ${toolCount}次工具调用${toolFailureCount ? ` · ${toolFailureCount}个工具失败` : ''}`}>
             {process.length > visibleProcess.length && <div style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 8 }}>
               较早的 {process.length - visibleProcess.length} 个步骤已省略，可按事件分页接口查询。
             </div>}

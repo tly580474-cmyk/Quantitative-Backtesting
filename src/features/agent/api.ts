@@ -12,6 +12,8 @@ interface AgentEventRecord {
   content?: string;
   toolName?: string | null;
   toolUseId?: string | null;
+  toolInput?: string | null;
+  toolResult?: string | null;
   durationMs?: number | null;
   terminal?: AgentEvent['terminal'];
   seq?: number;
@@ -34,6 +36,8 @@ export function normalizeAgentEvent(event: AgentEventRecord): AgentEvent | null 
     runId: event.runId,
     toolName: event.toolName ?? undefined,
     toolUseId: event.toolUseId ?? undefined,
+    toolInput: event.toolInput ?? undefined,
+    toolResult: event.toolResult ?? undefined,
     durationMs: event.durationMs ?? undefined,
     terminal: event.terminal,
     seq: event.seq,

@@ -3,6 +3,16 @@ import type { Pool } from 'mysql2/promise';
 import { AgentRepository } from './agentRepository.js';
 
 describe('AgentRepository state machine', () => {
+  it('persists sanitized tool details for history replay', async () => {
+    const execute = vi.fn().mockResolvedValue([{ affectedRows: 1 }]);
+    const repo = new AgentRepository({ execute } as unknown as Pool);
+    await repo.addPublicEvent('run-1', 2, { type: 'tool_finished', publicContent: '完成', timestamp: 'now',
+      toolInput: 'node tool.mjs', toolResult: 'rows=42 password=private-value' });
+    const values = execute.mock.calls[0][1];
+    expect(values).toContain('node tool.mjs');
+    expect(values).toContain('rows=42 [已隐藏]');
+    expect(JSON.stringify(values)).not.toContain('private-value');
+  });
   it('persists the selected provider with each run', async () => {
     const execute = vi.fn().mockResolvedValue([{ affectedRows: 1 }]);
     const repo = new AgentRepository({ execute } as unknown as Pool);
@@ -38,7 +48,7 @@ describe('AgentRepository state machine', () => {
     });
     const [sql, values] = execute.mock.calls[0];
     expect(sql).toContain('tool_input, tool_result');
-    expect(sql).toContain('NULL, NULL');
+    expect(values.slice(-3, -1)).toEqual([null, null]);
     expect(JSON.stringify(values)).not.toContain('server/.env');
   });
 

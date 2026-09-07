@@ -25,6 +25,8 @@ export interface PublicAgentEvent {
   timestamp: string;
   toolName?: string;
   toolUseId?: string;
+  toolInput?: string;
+  toolResult?: string;
   durationMs?: number;
   terminal?: TerminalPayload;
   sessionId?: string;
@@ -39,12 +41,23 @@ export interface PublicAgentEvent {
 
 const MAX_PUBLIC_CONTENT = 12_000;
 const SECRET_PATTERNS: RegExp[] = [
+  /\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi,
+  /(?:\b[\w./\\-]{1,256}\/)?\.env(?:\.[\w-]+)?\b/g,
+  /\b(?:[\w-]{0,128}(?:token|secret|password|api[_-]?key)|authorization|cookie)["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;}]+)/gi,
+  /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g,
   /\b(?:sk|pk|rk)-[A-Za-z0-9_-]{12,}\b/g,
   /\b[A-Za-z0-9_-]*(?:token|secret|password|api[_-]?key)[A-Za-z0-9_-]*\s*[:=]\s*[^\s,;]+/gi,
   /\b(?:mysql|postgres(?:ql)?|mongodb|redis):\/\/[^\s'"<>]+/gi,
   /\b(?:authorization|proxy-authorization)\s*:\s*[^\r\n]+/gi,
   /(?:[A-Za-z]:\\|\/(?:home|Users|mnt)\/)[^\s'"<>]+/g,
 ];
+
+/** Only explicit tool input/output enters this channel; never forward provider envelopes. */
+export function sanitizeToolDetail(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  return sanitizePublicContent(text) || undefined;
+}
 
 export function sanitizePublicContent(value: unknown, fallback = ''): string {
   let text = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value);

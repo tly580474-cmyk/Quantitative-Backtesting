@@ -1,3 +1,5 @@
+import { buildDataRoutingPrompt } from '../../research/agentDataCatalog.js';
+
 export type TemplateStyle = 'classic-blue' | 'dark-pro' | 'minimal-white' | 'dashboard';
 
 export interface CodexDataAccessContext {
@@ -33,6 +35,7 @@ export function buildPrompt(
   provider: 'claude' | 'codex' = 'claude',
   codexData?: CodexDataAccessContext,
   attachments: PromptAttachment[] = [],
+  researchContext = '',
 ): string {
   const continuation = isResume
     ? '这是同一对话的后续消息。结合已有会话上下文继续回答；如信息已经过时或用户要求更新，可以重新查询。'
@@ -112,6 +115,8 @@ ${attachments.map(attachment => {
 - 是否生成报告由本轮任务价值决定，不要把普通问答扩写成长报告，也不要忽略用户明确的报告要求。
 ${codexAutonomous ? '- 对工作区内常规读写、命令、测试和只读网络取数自主完成，不要逐步请求人工确认；只有操作超出工作区、具有不可恢复影响或明显扩大用户授权范围时才停止。' : ''}
 ${codexDataPolicy}
+${buildDataRoutingPrompt()}
+${researchContext}
 ${attachmentContext}
 
 ## 需要用户确认时

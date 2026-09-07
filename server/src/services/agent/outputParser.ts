@@ -1,6 +1,7 @@
 import {
   sanitizePublicContent,
   sanitizeToolName,
+  sanitizeToolDetail,
   type PublicAgentEvent,
 } from './eventProtocol.js';
 
@@ -13,6 +14,7 @@ interface StreamBlock {
   name?: string;
   text?: string;
   content?: unknown;
+  input?: unknown;
   is_error?: boolean;
 }
 
@@ -150,6 +152,7 @@ function parseBlocks(blocks: StreamBlock[]): ParsedEvent[] {
         timestamp: now(),
         toolName,
         toolUseId: typeof block.id === 'string' ? block.id.slice(0, 128) : undefined,
+        toolInput: sanitizeToolDetail(block.input),
       });
       continue;
     }
@@ -163,6 +166,7 @@ function parseBlocks(blocks: StreamBlock[]): ParsedEvent[] {
           : '工具执行完成',
         timestamp: now(),
         toolUseId: typeof block.tool_use_id === 'string' ? block.tool_use_id.slice(0, 128) : undefined,
+        toolResult: sanitizeToolDetail(toolResultErrorContent(block.content)),
       });
     }
   }

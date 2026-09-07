@@ -20,10 +20,10 @@ describe('agent public event protocol', () => {
     expect(JSON.stringify(events)).not.toContain('server/.env');
   });
 
-  it('parses nested tool results and preserves the pairing id without raw output', () => {
+  it('parses nested tool results and preserves the pairing id and sanitized output', () => {
     const events = parseStreamLine(JSON.stringify({
       type: 'user',
-      message: { content: [{ type: 'tool_result', tool_use_id: 'call-1', content: 'SECRET_OUTPUT' }] },
+      message: { content: [{ type: 'tool_result', tool_use_id: 'call-1', content: 'rows=12 password=SECRET_OUTPUT' }] },
     }));
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: 'tool_finished', toolUseId: 'call-1' });
@@ -137,6 +137,6 @@ describe('agent public event protocol', () => {
     const events = fixture.trim().split('\n').flatMap(parseStreamLine);
     expect(events.map(event => event.type)).toEqual(['progress', 'progress', 'tool_started', 'tool_finished', 'assistant_final']);
     expect(JSON.stringify(events)).not.toContain('never public');
-    expect(JSON.stringify(events)).not.toContain('raw result is not public');
+    expect(events.find(event => event.type === 'tool_finished')?.toolResult).toBe('raw result is not public');
   });
 });
