@@ -159,7 +159,7 @@ const NAV_ITEMS: MenuProps['items'] = [
       { key: '/market-data', icon: <DatabaseOutlined />, label: '市场数据' },
       { key: '/watchlist', icon: <StarOutlined />, label: '我的自选' },
       { key: '/data', icon: <ControlOutlined />, label: '数据管理' },
-      { key: '/stock-selection', icon: <FilterOutlined />, label: '选股' },
+      { key: '/stock-selection', icon: <FilterOutlined />, label: '砂里淘金' },
     ],
   },
   {
@@ -199,7 +199,7 @@ const NAV_ITEMS: MenuProps['items'] = [
 const PAGE_LABELS: Record<string, string> = {
   '/market-data': '市场数据',
   '/watchlist': '我的自选',
-  '/stock-selection': '选股',
+  '/stock-selection': '砂里淘金',
   '/analysis': '行情分析',
   '/data': '数据管理',
   '/backtest': '策略回测',
