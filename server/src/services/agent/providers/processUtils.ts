@@ -8,6 +8,13 @@ export function terminateProcessTree(child: ChildProcess): void {
       stdio: 'ignore',
     }).unref();
   } else {
-    child.kill('SIGTERM');
+    // Providers create a separate POSIX process group so tools are canceled too.
+    try { process.kill(-child.pid, 'SIGTERM'); }
+    catch { child.kill('SIGTERM'); }
+    const pid = child.pid;
+    const timer = setTimeout(() => {
+      try { process.kill(-pid, 'SIGKILL'); } catch { /* Group already exited. */ }
+    }, 5_000);
+    timer.unref();
   }
 }

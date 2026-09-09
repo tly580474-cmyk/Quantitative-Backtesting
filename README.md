@@ -59,7 +59,7 @@
 - 深度分析报告，Markdown 渲染
 
 ### 🧠 智能体系统
-- 支持 Windows 原生 **Claude Code** 与 **Codex App Server** 双 Provider，可按新对话选择
+- 支持 Windows / Ubuntu Linux 的 **Claude Code** 与 **Codex App Server** 双 Provider，可按新对话选择
 - 输入问题后自动执行多步研究，并按任务复杂度与用户要求判断是否生成结构化 HTML 报告
 - 实时 SSE 展示执行进度、工具调用与输出，支持事件持久化、刷新恢复和取消运行
 - 对话历史管理、整段删除和会话续接；迁移前的 Claude 历史对话保留为只读，新对话固定沿用创建时的 Provider
@@ -134,6 +134,8 @@ Fastify 5 Server (localhost:3001)
 双击 `start.bat`，自动安装依赖、启动后端（3001）和前端（5173/5558）。
 
 ### 手动启动
+
+Ubuntu Linux 的 systemd、nginx、独立测试库和小样本部署步骤见 [Linux 部署说明](deploy/linux/README.md)，实际适配验证见 [2026-09-08 验收记录](deploy/linux/ACCEPTANCE-2026-09-08.md)。
 
 ```bash
 # 安装前端依赖

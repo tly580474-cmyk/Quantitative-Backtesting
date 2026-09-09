@@ -39,6 +39,11 @@ export function buildClaudeEnvironment(
   gitBashPath?: string,
 ): NodeJS.ProcessEnv {
   return {
+    HOME: source.HOME,
+    USER: source.USER,
+    LANG: source.LANG,
+    LC_ALL: source.LC_ALL,
+    TMPDIR: source.TMPDIR,
     SystemRoot: source.SystemRoot,
     WINDIR: source.WINDIR,
     PATH: source.PATH,
@@ -71,11 +76,10 @@ export class ClaudeAgentProvider implements AgentProvider {
 
   health(): AgentProviderHealth {
     let reason: string | null = null;
-    if (process.platform !== 'win32') reason = 'Claude Provider 需要 Windows 原生运行环境';
-    else if (!isAbsolute(this.config.workingDirectory) || !existsSync(this.config.workingDirectory)) {
+    if (!isAbsolute(this.config.workingDirectory) || !existsSync(this.config.workingDirectory)) {
       reason = 'Claude 工作目录无效';
     } else if (!canResolveCommand(this.config.claudePath)) reason = 'Claude 可执行文件不可用';
-    else if (this.config.gitBashPath && (!isAbsolute(this.config.gitBashPath) || !existsSync(this.config.gitBashPath))) {
+    else if (process.platform === 'win32' && this.config.gitBashPath && (!isAbsolute(this.config.gitBashPath) || !existsSync(this.config.gitBashPath))) {
       reason = 'Claude Git Bash 路径无效';
     }
     return {
@@ -95,10 +99,11 @@ export class ClaudeAgentProvider implements AgentProvider {
       ...(params.resumeSessionId ? ['--resume', params.resumeSessionId] : []),
     ];
     const child = spawn(this.config.claudePath, args, {
+      detached: process.platform !== 'win32',
       cwd: this.config.workingDirectory,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
-      env: buildClaudeEnvironment(process.env, this.config.gitBashPath),
+      env: buildClaudeEnvironment(process.env, process.platform === 'win32' ? this.config.gitBashPath : undefined),
     });
     this.children.add(child);
 

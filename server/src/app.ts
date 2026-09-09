@@ -154,7 +154,9 @@ async function main(): Promise<void> {
   });
 
   await app.register(cors, {
-    origin: /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
+    origin: (origin, callback) => callback(null, !origin
+      || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      || config.CORS_ORIGINS.split(',').map(value => value.trim()).includes(origin)),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
@@ -449,7 +451,7 @@ async function main(): Promise<void> {
 
   const port = parseInt(config.PORT, 10);
   try {
-    await app.listen({ port, host: '0.0.0.0' });
+    await app.listen({ port, host: config.HOST });
     console.log(`Server listening on http://localhost:${port}`);
     // 只有成功取得监听端口的服务实例才有权接管后台任务。监督器可能在旧实例
     // 仍存活时先启动替代实例；若在 listen 之前恢复，会误杀旧实例管理的 worker。

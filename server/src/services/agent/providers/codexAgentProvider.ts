@@ -79,6 +79,11 @@ export function buildCodexEnvironment(
 ): NodeJS.ProcessEnv {
   const pythonDirectory = pythonPath ? dirname(pythonPath) : '';
   return {
+    HOME: source.HOME,
+    USER: source.USER,
+    LANG: source.LANG,
+    LC_ALL: source.LC_ALL,
+    TMPDIR: source.TMPDIR,
     SystemRoot: source.SystemRoot,
     WINDIR: source.WINDIR,
     PATH: pythonDirectory ? `${pythonDirectory}${delimiter}${source.PATH ?? ''}` : source.PATH,
@@ -321,6 +326,7 @@ export class CodexAgentProvider implements AgentProvider {
       ? ['/d', '/s', '/c', executable, ...appServerArgs]
       : appServerArgs;
     const child = spawn(command, args, {
+      detached: process.platform !== 'win32',
       cwd: this.config.workingDirectory,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,

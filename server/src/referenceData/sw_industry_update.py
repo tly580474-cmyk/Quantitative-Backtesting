@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import math
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -46,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Import SW2021 industry taxonomy, memberships, and bars")
     parser.add_argument(
         "--local-zip",
-        default=r"C:\Users\qjmzc\Downloads\申万分类.zip",
+        default=os.getenv("SW_INDUSTRY_ZIP", str(Path.home() / "Downloads" / "申万分类.zip")),
         help="optional local level-1 membership event archive used for validation",
     )
     parser.add_argument("--workers", type=int, default=8)

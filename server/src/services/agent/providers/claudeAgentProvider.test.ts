@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { buildClaudeEnvironment, ClaudeAgentProvider } from './claudeAgentProvider.js';
 
 describe('ClaudeAgentProvider native Windows boundary', () => {
+  it('preserves Linux login and locale context without backend secrets', () => {
+    expect(buildClaudeEnvironment({ HOME: '/home/quant', LANG: 'C.UTF-8', DB_PASSWORD: 'secret' }))
+      .toMatchObject({ HOME: '/home/quant', LANG: 'C.UTF-8' });
+    expect(buildClaudeEnvironment({ DB_PASSWORD: 'secret' })).not.toHaveProperty('DB_PASSWORD');
+  });
   it('uses a minimal host environment without backend credentials', () => {
     const env = buildClaudeEnvironment({
       SystemRoot: 'C:/Windows', PATH: 'safe-path', USERPROFILE: 'C:/Users/test',
@@ -20,6 +25,6 @@ describe('ClaudeAgentProvider native Windows boundary', () => {
     const provider = new ClaudeAgentProvider({
       workingDirectory: process.cwd(), claudePath: process.execPath,
     });
-    expect(provider.health()).toMatchObject({ enabled: true, available: process.platform === 'win32' });
+    expect(provider.health()).toMatchObject({ enabled: true, available: true });
   });
 });

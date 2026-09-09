@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Import locally downloaded TongdaXin .lc1 files into the minute Parquet lake",
     )
-    parser.add_argument("--tdx-root", default=os.getenv("TDX_DATA_ROOT", "D:/tdx"))
+    parser.add_argument("--tdx-root", default=os.getenv("TDX_DATA_ROOT", "D:/tdx" if os.name == "nt" else "./data/tdx"))
     parser.add_argument(
         "--output-root",
         default=os.getenv("MINUTE_DATA_ROOT", "../../所有股票的历史数据/1m_price_parquet"),

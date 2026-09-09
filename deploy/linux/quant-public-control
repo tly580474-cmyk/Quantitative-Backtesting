@@ -1,0 +1,18 @@
+#!/usr/bin/python3
+"""Root-owned, fixed-service helper. Never accepts paths or arbitrary unit names."""
+import json
+import subprocess
+import sys
+
+action = sys.argv[1] if len(sys.argv) == 2 else ''
+if action not in ('status', 'enable', 'disable'):
+    sys.exit('Expected status, enable, or disable')
+unit = 'quant-public.service'
+if action != 'status':
+    subprocess.run(['/usr/bin/systemctl', 'enable' if action == 'enable' else 'disable', '--now', unit], check=True, stdout=subprocess.DEVNULL)
+def query(verb):
+    return subprocess.run(['/usr/bin/systemctl', verb, unit], text=True, capture_output=True).stdout.strip()
+enabled = query('is-enabled') == 'enabled'
+running = query('is-active') == 'active'
+print(json.dumps(dict(available=True, enabled=enabled, running=running, domain='', message=None,
+    tasks=[dict(name=unit, found=True, enabled=enabled, running=running, state='active' if running else 'inactive')])) )

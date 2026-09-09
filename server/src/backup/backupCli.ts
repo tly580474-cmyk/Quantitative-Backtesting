@@ -246,6 +246,7 @@ async function dumpMysql(config: EnvConfig, outputPath: string): Promise<void> {
     '--hex-blob',
     '--default-character-set=utf8mb4',
     '--set-gtid-purged=OFF',
+    '--no-tablespaces',
     config.DB_NAME,
   ];
   const child = spawn('mysqldump', args, {

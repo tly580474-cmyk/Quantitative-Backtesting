@@ -1,6 +1,6 @@
 import type { AdminConfigItem, AdminHealth, AdminOverview, AgentOperations, BackendRestartResult, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressResponse, MetricsHistoryResponse, PublicAccessStatus } from './types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3001';
+const API_BASE_URL = import.meta.env.VITE_API_URL?.trim() ?? '';
 
 export class AdminApiError extends Error {
   constructor(

@@ -9,11 +9,13 @@ export default defineConfig({
   root: adminRoot,
   plugins: [react()],
   server: {
+    proxy: { '/api': 'http://127.0.0.1:3001' },
     host: '127.0.0.1',
     port: 5559,
     strictPort: true,
   },
   preview: {
+    proxy: { '/api': 'http://127.0.0.1:3001' },
     host: '127.0.0.1',
     port: 5559,
     strictPort: true,

@@ -1,0 +1,6 @@
+# Shared scientific stack constraints must be applied before provider dependencies.
+-r ../../tools/factor-miner/requirements.txt
+-r ../../server/src/referenceData/requirements.txt
+-r ../../server/src/minuteData/requirements.txt
+duckdb>=1.5,<2
+scipy>=1.15,<2

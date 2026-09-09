@@ -119,6 +119,8 @@ const envSchema = z.object({
   AGENT_ATTACHMENT_MAX_FILES: z.string().regex(/^\d+$/).default('8'),
   AGENT_ATTACHMENT_MAX_CONTEXT_CHARS: z.string().regex(/^\d+$/).default('300000'),
 
+  HOST: z.string().default('0.0.0.0'),
+  CORS_ORIGINS: z.string().default(''),
   PORT: z.string().default('3001'),
 });
 

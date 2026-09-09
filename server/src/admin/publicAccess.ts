@@ -37,6 +37,12 @@ interface PublicAccessControlOptions {
 }
 
 async function invokePowerShell(action: PublicAccessAction): Promise<PublicAccessStatus> {
+  if (process.platform === 'linux') {
+    const { stdout } = await execFileAsync('sudo', ['-n', '/usr/local/sbin/quant-public-control', action], {
+      timeout: 20_000, encoding: 'utf8',
+    });
+    return { ...JSON.parse(stdout.trim()), domain: process.env.PUBLIC_ACCESS_URL || '' } as PublicAccessStatus;
+  }
   if (process.platform !== 'win32') {
     return {
       available: false,

@@ -33,6 +33,20 @@ export async function synchronizeScheduleConfig(
   const needsMinute = updatedKeys.some((key) => MINUTE_KEYS.has(key));
   const needsFundFlow = updatedKeys.some((key) => FUND_FLOW_KEYS.has(key));
   if (!needsResearch && !needsMinute && !needsFundFlow) return { updatedTasks: [], warnings: [] };
+  if (process.platform === 'linux') {
+    const names = [needsResearch && 'research', needsMinute && 'minute', needsFundFlow && 'fund-flow'].filter(Boolean);
+    const updatedTasks: string[] = [];
+    const warnings: string[] = [];
+    for (const name of names) {
+      const unit = `quant-job@${name}.timer`;
+      try {
+        await execFileAsync('systemctl', ['is-active', '--quiet', unit], { timeout: 5_000 });
+        updatedTasks.push(unit);
+      } catch { warnings.push(`${unit} 未运行，请部署并启用 Linux timer`); }
+    }
+    // Each timer checks the persisted .env every minute; no privileged re-registration.
+    return { updatedTasks, warnings };
+  }
   if (process.platform !== 'win32') {
     return {
       updatedTasks: [],
