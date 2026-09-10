@@ -25,6 +25,7 @@ import type { KlinePoint } from '@/features/marketData/types';
 import type { ImportResult } from '@/models';
 import { useCandleStore } from '@/stores/useCandleStore';
 import { useDarkMode } from '@/theme';
+import { createUuid } from '@/utils/uuid';
 import TrainingChart, {
   type TrainingChartSnapshot,
   type TrainingDrawingMode,
@@ -400,7 +401,7 @@ export default function MarketSenseTrainingPage() {
   const handleChartPoint = useCallback((point: TrainingDrawingPoint) => {
     if (drawingMode === 'horizontal') {
       setDrawings((current) => [...current, {
-        id: crypto.randomUUID(),
+        id: createUuid(),
         type: 'horizontal',
         points: [point],
       }]);
@@ -413,7 +414,7 @@ export default function MarketSenseTrainingPage() {
       return;
     }
     setDrawings((current) => [...current, {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       type: 'trend',
       points: [draftPoint, point],
     }]);

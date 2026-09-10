@@ -144,7 +144,7 @@ export default function StockSelectionPage() {
 
   const openDetail = useCallback((stock: StockSearchItem) => {
     marketDataCache.selectedCode = stock.code;
-    navigate(`/market-detail/${stock.code}`);
+    navigate(`/market-detail/${stock.code}`, { state: { detailReturnTo: '/stock-selection' } });
   }, [navigate]);
 
   const latestCount = history?.batches[0]?.items.length;

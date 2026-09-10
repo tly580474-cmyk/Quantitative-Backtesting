@@ -2,6 +2,7 @@ import { useRef, useState, useCallback } from 'react';
 import type { BacktestResult, Candle, BacktestConfig } from '@/models';
 import type { VisualStrategyDocument } from '@/features/visualStrategies/types';
 import type { WorkerRequest, WorkerResponse, StrategySource } from '@/workers/protocol';
+import { createUuid } from '@/utils/uuid';
 
 export interface BacktestProgress {
   current: number;
@@ -44,7 +45,7 @@ export function useBacktest() {
       setResult(null);
       setError(null);
 
-      const taskId = crypto.randomUUID();
+      const taskId = createUuid();
       taskIdRef.current = taskId;
 
       const worker = new Worker(

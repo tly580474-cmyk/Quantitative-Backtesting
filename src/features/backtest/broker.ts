@@ -1,5 +1,6 @@
 import type { Order, Trade, BacktestConfig } from '@/models';
 import { roundTo } from '@/utils/number';
+import { createUuid } from '@/utils/uuid';
 import {
   applySlippage,
   calculateCommission,
@@ -193,7 +194,7 @@ function createBuyFill(
 ): FillResult {
   return {
     trade: {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       orderId: order.id,
       time: order.executeTime,
       side: 'buy',
@@ -242,7 +243,7 @@ function fillSell(
 
   return {
     trade: {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       orderId: order.id,
       time: order.executeTime,
       side: 'sell',
@@ -259,7 +260,7 @@ function fillSell(
 
 function createRejectedTrade(order: Order, fillPrice: number, reason: string): Trade {
   return {
-    id: crypto.randomUUID(),
+    id: createUuid(),
     orderId: order.id,
     time: order.executeTime,
     side: order.side,

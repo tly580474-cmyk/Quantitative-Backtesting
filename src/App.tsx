@@ -768,7 +768,8 @@ function MarketDataRoute() {
     navigate('/analysis');
   }, [navigate]);
 
-  return <MarketDataPage view="overview" onOpenInAnalysis={handleOpenInAnalysis} onOpenDetail={(stock) => navigate(`/market-detail/${stock.code}`)} />;
+  return <MarketDataPage view="overview" onOpenInAnalysis={handleOpenInAnalysis}
+    onOpenDetail={(stock) => navigate(`/market-detail/${stock.code}`, { state: { detailReturnTo: '/market-data' } })} />;
 }
 
 function WatchlistRoute() {
@@ -781,11 +782,12 @@ function WatchlistRoute() {
   }, [navigate]);
 
   return <MarketDataPage view="watchlist" onOpenInAnalysis={handleOpenInAnalysis}
-    onOpenDetail={mobileLayout ? (stock) => navigate(`/market-detail/${stock.code}`) : undefined} />;
+    onOpenDetail={mobileLayout ? (stock) => navigate(`/market-detail/${stock.code}`, { state: { detailReturnTo: '/watchlist' } }) : undefined} />;
 }
 
 export function MarketDetailRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { code = '' } = useParams();
   const handleOpenInAnalysis = useCallback((result: ImportResult) => {
     useCandleStore.getState().setCandles(result.candles);
@@ -797,7 +799,9 @@ export function MarketDetailRoute() {
     view="detail"
     instrumentCode={code}
     onOpenInAnalysis={handleOpenInAnalysis}
-    onOpenDetail={(stock) => navigate(`/market-detail/${stock.code}`)}
+    onOpenDetail={(stock) => navigate(`/market-detail/${stock.code}`, {
+      state: { detailReturnTo: `${location.pathname}${location.search}` },
+    })}
   />;
 }
 
@@ -808,6 +812,10 @@ function AppContent() {
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [batchSummary, setBatchSummary] = useState<string[] | null>(null);
   const location = useLocation();
+  const detailReturnTo = typeof location.state?.detailReturnTo === 'string'
+    && location.state.detailReturnTo.startsWith('/')
+    ? location.state.detailReturnTo
+    : '/market-data';
   const navigate = useNavigate();
   const factorNavRef = useRef<HTMLElement | null>(null);
   const [colorMode, setColorMode] = useState<ColorMode>(() => readColorMode());
@@ -962,7 +970,7 @@ function AppContent() {
           onNavigate={(key) => navigate(key)}
           colorMode={colorMode}
           onToggleColorMode={handleToggleColorMode}
-          onBack={location.pathname.startsWith('/market-detail/') ? () => navigate('/market-data') : undefined}
+          onBack={location.pathname.startsWith('/market-detail/') ? () => navigate(detailReturnTo) : undefined}
           topBar={topBar}
           headerNav={agentWorkspaceActive ? <AgentWorkspaceNav /> : factorHeaderNav}
           hidePageIdentity={factorWorkspaceActive || agentWorkspaceActive}

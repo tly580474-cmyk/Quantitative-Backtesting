@@ -265,7 +265,7 @@ export class DrawingPrimitive implements ISeriesPrimitive<Time> {
     this.series = undefined;
   }
 
-  updateAllViews(): void { this.requestUpdate?.(); }
+  updateAllViews(): void {}
 
   private adapter(): DrawingCoordinateAdapter {
     return {

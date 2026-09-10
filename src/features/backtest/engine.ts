@@ -20,6 +20,7 @@ import {
 } from './portfolio';
 import { calculateMetrics } from './metrics';
 import { validateBacktestInput } from './validation';
+import { createUuid } from '@/utils/uuid';
 import {
   applySlippage,
   calculateCommission,
@@ -131,7 +132,7 @@ function createBuyOrder(
       * (config.minimumTradeAmount ?? 1) / estimatedFillPrice;
   if (quantity <= 0) return null;
   return {
-    id: crypto.randomUUID(),
+    id: createUuid(),
     signalTime: signal.time,
     executeTime: '',
     side: 'buy',
@@ -162,7 +163,7 @@ function createSellOrder(
     : positionQuantity;
   if (quantity <= 0) return null;
   return {
-    id: crypto.randomUUID(),
+    id: createUuid(),
     signalTime: signal.time,
     executeTime: '',
     side: 'sell',
@@ -209,7 +210,7 @@ function createTargetPositionOrder(
   if (quantity <= 0) return null;
 
   return {
-    id: crypto.randomUUID(),
+    id: createUuid(),
     signalTime: signal.time,
     executeTime: '',
     side,
@@ -239,7 +240,7 @@ function executeDcaPurchase(
   );
 
   const order: Order = {
-    id: crypto.randomUUID(),
+    id: createUuid(),
     signalTime: signal.time,
     executeTime: candle.time,
     side: 'buy',
@@ -382,7 +383,7 @@ function processBar(
       state.pendingOrder = createBuyOrder(signal, nextCandle, state.portfolio.cash, config);
       if (!state.pendingOrder) {
         state.orders.push({
-          id: crypto.randomUUID(),
+          id: createUuid(),
           signalTime: signal.time,
           executeTime: nextCandle.time,
           side: 'buy',
@@ -402,7 +403,7 @@ function processBar(
         );
       } else {
         state.orders.push({
-          id: crypto.randomUUID(),
+          id: createUuid(),
           signalTime: signal.time,
           executeTime: nextCandle.time,
           side: 'sell',
@@ -433,7 +434,7 @@ function processBar(
     state.pendingOrder = null;
 
     const forceCloseTrade: Trade = {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       orderId: 'force-close',
       time: candle.time,
       side: 'sell',
@@ -491,7 +492,7 @@ function buildResult(input: BacktestInput, state: BacktestState): BacktestResult
 
   const now = new Date().toISOString();
   return {
-    id: crypto.randomUUID(),
+    id: createUuid(),
     name: resultName,
     status: 'completed',
     datasetSnapshot: {
@@ -596,7 +597,7 @@ function createCancelledResult(input: BacktestInput): BacktestResult {
   const now = new Date().toISOString();
   const { candles, strategy, strategyParams, config, datasetId, datasetName, datasetChecksum, resultName } = input;
   return {
-    id: crypto.randomUUID(),
+    id: createUuid(),
     name: resultName,
     status: 'cancelled',
     datasetSnapshot: {
@@ -624,7 +625,7 @@ function createFailedResult(input: BacktestInput, error: string): BacktestResult
   const now = new Date().toISOString();
   const { candles, strategy, strategyParams, config, datasetId, datasetName, datasetChecksum, resultName } = input;
   return {
-    id: crypto.randomUUID(),
+    id: createUuid(),
     name: resultName,
     status: 'failed',
     datasetSnapshot: {

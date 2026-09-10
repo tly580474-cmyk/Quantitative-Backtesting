@@ -100,7 +100,7 @@ export class TrainingDrawingPrimitive implements ISeriesPrimitive<Time> {
     this.series = undefined;
   }
 
-  updateAllViews(): void { this.requestUpdate?.(); }
+  updateAllViews(): void {}
 
   paneViews(): IPrimitivePaneView[] {
     return [new TrainingDrawingPaneView(new TrainingDrawingRenderer(
