@@ -97,10 +97,11 @@ def _attach_point_in_time_financials(
     reports = pd.read_parquet(snapshot_root / metadata["relativePath"])
     if reports.empty:
         return bars
-    reports["announcementDate"] = pd.to_datetime(reports["announcementDate"])
-    reports["reportPeriod"] = pd.to_datetime(reports["reportPeriod"])
+    # merge_asof requires identical timestamp units across pandas/Arrow versions.
+    reports["announcementDate"] = pd.to_datetime(reports["announcementDate"]).astype("datetime64[ns]")
+    reports["reportPeriod"] = pd.to_datetime(reports["reportPeriod"]).astype("datetime64[ns]")
     bars = bars.copy()
-    bars["tradeDate"] = pd.to_datetime(bars["tradeDate"])
+    bars["tradeDate"] = pd.to_datetime(bars["tradeDate"]).astype("datetime64[ns]")
     output = []
     for instrument_key, group in bars.groupby("instrumentKey", sort=False):
         history = reports[reports["instrumentKey"] == instrument_key].sort_values(
@@ -144,7 +145,8 @@ def _map_snapshot_columns(df: pd.DataFrame, list_dates: dict | None = None) -> p
                    if name in out.columns]
     if roe_columns:
         out["roe"] = out[roe_columns].bfill(axis=1).iloc[:, 0]
-    if "freeCashFlow" in out.columns:
+    # Price-only materializations intentionally project out totalMarketCap.
+    if "freeCashFlow" in out.columns and "market_cap" in out.columns:
         debt = sum((out.get(name, 0) for name in
                     ["shortTermBorrowings", "longTermBorrowings", "bondsPayable"]))
         enterprise_value = out["market_cap"] + debt - out.get("cashAndEquivalents", 0)

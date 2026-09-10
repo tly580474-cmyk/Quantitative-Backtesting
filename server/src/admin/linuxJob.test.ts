@@ -38,6 +38,9 @@ it.skipIf(process.platform !== 'linux')('preserves research job dependency order
 it.skipIf(process.platform !== 'linux')('does not fetch data in test mode', async () => {
   expect((await run('research', { QUANT_TEST_MODE: 'true' })).calls).toEqual([]);
 });
+it.skipIf(process.platform !== 'linux')('does not fetch data on a full-data staging host', async () => {
+  expect((await run('research', { QUANT_TEST_MODE: 'false', BACKGROUND_JOBS_ENABLED: 'false' })).calls).toEqual([]);
+});
 it.skipIf(process.platform !== 'linux')('wait deadline prevents publication through a fallback', async () => {
   const result = await run('minute', { TEST_PRIMARY_EXIT: '3', MINUTE_REFERENCE_WAIT_MINUTES: '0' });
   expect(result.failed).toBe(true);

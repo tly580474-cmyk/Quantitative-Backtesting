@@ -90,6 +90,17 @@ PY
 then systemctl enable --now quant-public.service
 else systemctl disable --now quant-public.service
 fi
-for job in research minute fund-flow tdx-shadow; do systemctl enable --now "quant-job@$job.timer"; done
+if python3 - <<'PY'
+import pathlib, sys
+for line in pathlib.Path('server/.env').read_text().splitlines():
+    key, separator, value = line.partition('=')
+    if separator and key.strip() == 'BACKGROUND_JOBS_ENABLED':
+        sys.exit(1 if value.strip().strip('\"\'') == 'false' else 0)
+PY
+then
+  for job in research minute fund-flow tdx-shadow; do systemctl enable --now "quant-job@$job.timer"; done
+else
+  for job in research minute fund-flow tdx-shadow; do systemctl disable --now "quant-job@$job.timer"; done
+fi
 systemctl reload nginx
 echo 'Installed. UI :8080, admin :8081. Gateway Basic auth file: /etc/nginx/quant.htpasswd'

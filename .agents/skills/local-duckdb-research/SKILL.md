@@ -5,7 +5,7 @@ description: Use this repository's DuckDB CLI to inspect, query, analyze, or exp
 
 # Local DuckDB Research
 
-Run commands from `D:\github_public_repo\量化回测\server`. Treat the CLI as a read-only research layer over published Parquet; a request to query or export data does not authorize data ingestion, snapshot publishing, scheduled-task changes, or edits to upstream MySQL/Parquet data.
+Run commands from this repository's `server` directory (for example, `/opt/quant-backtest/server` on Ubuntu). Treat the CLI as a read-only research layer over published Parquet; a request to query or export data does not authorize data ingestion, snapshot publishing, scheduled-task changes, or edits to upstream MySQL/Parquet data.
 
 ## Rules
 

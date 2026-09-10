@@ -24,8 +24,8 @@ if (!process.argv.includes('--run-now')) {
   await writeFile(`${statePath}.tmp`, now);
   await rename(`${statePath}.tmp`, statePath);
 }
-if (process.env.QUANT_TEST_MODE === 'true') {
-  console.log(`[${job}] Test mode: automatic external collection disabled; use smoke tests for bounded fixtures.`);
+if (process.env.QUANT_TEST_MODE === 'true' || process.env.BACKGROUND_JOBS_ENABLED === 'false') {
+  console.log(`[${job}] Automatic collection disabled by test mode or BACKGROUND_JOBS_ENABLED=false.`);
   process.exit(0);
 }
 async function run(script, capture = false) {

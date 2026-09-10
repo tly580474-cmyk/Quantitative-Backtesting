@@ -29,12 +29,22 @@ def test_nested_factor_is_materialized_to_partitioned_parquet(tmp_path: Path):
             })
     parquet = bars / "data.parquet"
     pd.DataFrame(rows).to_parquet(parquet, index=False)
+    # Real snapshots include financial data even when the formula only selects close.
+    # The optional EV-derived terminal must not require a projected-out market cap.
+    financials = root / snapshot_id / "financial_reports" / "data.parquet"
+    financials.parent.mkdir()
+    pd.DataFrame([{
+        "instrumentKey": instrument, "reportPeriod": "2023-12-31",
+        "announcementDate": "2024-01-01", "updateFlag": "0",
+        "fetchedAt": "2024-01-01T00:00:00Z", "freeCashFlow": 100.0,
+    } for instrument in range(1, 5)]).to_parquet(financials, index=False)
     digest = hashlib.sha256(parquet.read_bytes()).hexdigest()
     manifest = {
         "schemaVersion": 1, "snapshotId": snapshot_id, "sourceVersion": "source-test",
         "sourcePublishedAt": None, "createdAt": "2024-01-20T00:00:00Z", "status": "validated",
         "rowCount": len(rows), "instrumentCount": 4,
         "minDate": str(dates.min().date()), "maxDate": str(dates.max().date()),
+        "datasets": [{"name": "financial_reports", "relativePath": "financial_reports/data.parquet"}],
         "partitions": [{"year": 2024, "relativePath": "bars/year=2024/data.parquet",
                         "rows": len(rows), "bytes": parquet.stat().st_size,
                         "minDate": str(dates.min().date()), "maxDate": str(dates.max().date()),

@@ -58,6 +58,7 @@ import { parseAiModelList } from './services/aiModelList.js';
 async function main(): Promise<void> {
   let requestedExitCode = 0;
   const config = loadConfig();
+  if (config.BACKGROUND_JOBS_ENABLED === 'false') console.log('[BackgroundJobs] Disabled: no collectors, paper-trading scheduler, mining recovery or mining scheduler will start.');
   try {
     const publicAccess = await publicAccessControl.reconcile();
     console.log(`[PublicAccess] Startup state: ${publicAccess.enabled ? 'enabled' : 'disabled'}`);
@@ -200,7 +201,7 @@ async function main(): Promise<void> {
       console.log(`[MarketData] Registered provider: ${marketProvider.id}`);
     }
 
-    if (config.MARKET_DATA_ENABLED === 'true' && config.MARKET_DATA_SYNC_TIME) {
+    if (config.BACKGROUND_JOBS_ENABLED === 'true' && config.MARKET_DATA_ENABLED === 'true' && config.MARKET_DATA_SYNC_TIME) {
       startScheduler({
         enabled: true,
         dailySyncTime: config.MARKET_DATA_SYNC_TIME,
@@ -223,7 +224,7 @@ async function main(): Promise<void> {
       }
     }
 
-    if (config.MARKET_INDEX_AUTO_UPDATE_ENABLED === 'true') {
+    if (config.BACKGROUND_JOBS_ENABLED === 'true' && config.MARKET_INDEX_AUTO_UPDATE_ENABLED === 'true') {
       startIndexDatasetScheduler({
         enabled: true,
         cnUpdateTime: config.MARKET_CN_INDEX_UPDATE_TIME,
@@ -231,7 +232,7 @@ async function main(): Promise<void> {
       }, tencentProvider);
     }
 
-    if (config.FINANCIAL_DATA_ENABLED === 'true') {
+    if (config.BACKGROUND_JOBS_ENABLED === 'true' && config.FINANCIAL_DATA_ENABLED === 'true') {
       startFinancialDataScheduler({
         updateTime: config.FINANCIAL_DATA_UPDATE_TIME,
         lookbackDays: Math.max(7, parseInt(config.FINANCIAL_DATA_LOOKBACK_DAYS, 10) || 21),
@@ -242,7 +243,7 @@ async function main(): Promise<void> {
       );
     }
 
-    if (config.MARKET_HEALTH_ENABLED === 'true') {
+    if (config.BACKGROUND_JOBS_ENABLED === 'true' && config.MARKET_HEALTH_ENABLED === 'true') {
       startMarketHealthScheduler({
         enabled: true,
         macroCheckTime: config.MARKET_HEALTH_MACRO_CHECK_TIME,
@@ -256,21 +257,21 @@ async function main(): Promise<void> {
       );
     }
 
-    if (config.DRAGON_TIGER_ENABLED === 'true') {
+    if (config.BACKGROUND_JOBS_ENABLED === 'true' && config.DRAGON_TIGER_ENABLED === 'true') {
       startDragonTigerScheduler({
         syncTime: config.DRAGON_TIGER_SYNC_TIME,
         recheckTime: config.DRAGON_TIGER_RECHECK_TIME,
       });
       console.log(`[DragonTiger] Collector started at ${config.DRAGON_TIGER_SYNC_TIME}/${config.DRAGON_TIGER_RECHECK_TIME}`);
     }
-    if (config.MARKET_NEWS_ENABLED === 'true') {
+    if (config.BACKGROUND_JOBS_ENABLED === 'true' && config.MARKET_NEWS_ENABLED === 'true') {
       startMarketNewsScheduler({
         refreshIntervalMinutes: parseInt(config.MARKET_NEWS_REFRESH_INTERVAL_MINUTES, 10),
         retentionDays: parseInt(config.MARKET_NEWS_RETENTION_DAYS, 10),
       });
       console.log(`[MarketNews] Collector started every ${config.MARKET_NEWS_REFRESH_INTERVAL_MINUTES} minute(s)`);
     }
-    if (config.MARKET_OPINION_PUSH_ENABLED === 'true') {
+    if (config.BACKGROUND_JOBS_ENABLED === 'true' && config.MARKET_OPINION_PUSH_ENABLED === 'true') {
       if (!aiConfigured || !opinionEmailSender.isConfigured()) {
         console.warn('[MarketOpinionPush] Disabled: AI or SMTP configuration is incomplete.');
       } else {
@@ -315,7 +316,7 @@ async function main(): Promise<void> {
     pool,
     minuteDataRoot: config.MINUTE_DATA_ROOT,
   });
-  if (dbOnline) {
+  if (dbOnline && config.BACKGROUND_JOBS_ENABLED === 'true') {
     startPaperTradingScheduler({
       pool,
       minuteDataRoot: config.MINUTE_DATA_ROOT,
@@ -455,7 +456,7 @@ async function main(): Promise<void> {
     console.log(`Server listening on http://localhost:${port}`);
     // 只有成功取得监听端口的服务实例才有权接管后台任务。监督器可能在旧实例
     // 仍存活时先启动替代实例；若在 listen 之前恢复，会误杀旧实例管理的 worker。
-    if (dbOnline) {
+    if (dbOnline && config.BACKGROUND_JOBS_ENABLED === 'true') {
       const recoveredTests = await recoverInterruptedCandidateTests();
       if (recoveredTests > 0) {
         console.warn(`[FactorResearch] Recovered ${recoveredTests} interrupted locked test(s).`);

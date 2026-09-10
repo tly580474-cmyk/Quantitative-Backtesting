@@ -19,6 +19,7 @@ const envSchema = z.object({
   OPENAI_TIMEOUT_MS: z.string().default('60000'),
 
   // Market Data
+  BACKGROUND_JOBS_ENABLED: z.enum(['true', 'false']).default('true'),
   MARKET_DATA_ENABLED: z.enum(['true', 'false']).default('false'),
   MARKET_DATA_PROVIDER: z.string().default('tencent'),
   MARKET_DATA_API_KEY: z.string().default(''),

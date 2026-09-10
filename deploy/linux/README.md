@@ -1,5 +1,7 @@
 # Ubuntu Linux 部署与小样本验收
 
+全量数据副本（`192.168.2.218`）使用独立的 [全量部署说明](FULL-DATA-STAGING.md)，不要执行下列样本 seed。
+
 部署目录固定为 `/opt/quant-backtest`。测试主机为 `192.168.171.140`；SSH 使用 root，应用和任务使用独立 `quant` 服务账户。默认只创建 `quant_backtest_linux_test`，不读取、导出或复制 Windows 的数据库。
 
 ## 首次安装

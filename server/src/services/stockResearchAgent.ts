@@ -155,7 +155,7 @@ export class StockResearchAgent {
           { role: 'user', content: buildTradingSystemPrompt(context) },
         ],
         temperature: 0.15,
-        max_tokens: 7_000,
+        max_tokens: 1_000_000,
         stream: true,
         reasoning_effort: 'low',
         thinking: { type: 'enabled' },
