@@ -44,6 +44,7 @@ import { getChartSurfaceColors } from '@/theme';
 import { DrawingPrimitive } from './drawing/DrawingPrimitive';
 import type { Drawing, DrawingDraft, DrawingPoint, DrawingTool } from './drawing/types';
 import { useDrawingStore } from '@/stores/useDrawingStore';
+import DailyIntradayModal from './DailyIntradayModal';
 
 interface IndicatorPaneEntry {
   chart: IChartApi;
@@ -191,6 +192,7 @@ export default function ChartContainer({
   const overlayLinesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
   const indicatorPanesRef = useRef<Map<string, IndicatorPaneEntry>>(new Map());
   const [mainChartHeight, setMainChartHeight] = useState(MAIN_CHART_MIN_HEIGHT);
+  const [intradayDate, setIntradayDate] = useState<string | null>(null);
 
   const storedCandles = useCandleStore((s) => s.candles);
   const sourceCandles = sourceCandlesOverride ?? storedCandles;
@@ -588,6 +590,18 @@ export default function ChartContainer({
     };
     container.addEventListener('mousedown', handleRangeMouseDown, true);
 
+    const handleDailyDoubleClick = (event: MouseEvent) => {
+      if (periodRef.current !== 'day' || drawingToolRef.current !== 'select') return;
+      const rect = container.getBoundingClientRect();
+      const logical = chart.timeScale().coordinateToLogical(event.clientX - rect.left);
+      const currentCandles = candlesRef.current;
+      if (logical == null || logical < -0.5 || logical > currentCandles.length - 0.5) return;
+      const candle = currentCandles[Math.round(logical)];
+      if (!candle?.symbol || !/^\d{4}-\d{2}-\d{2}/.test(candle.time)) return;
+      setIntradayDate(candle.time.slice(0, 10));
+    };
+    container.addEventListener('dblclick', handleDailyDoubleClick);
+
     const pointFromPointerEvent = (event: PointerEvent): { x: number; y: number; point: DrawingPoint | null } => {
       const rect = container.getBoundingClientRect();
       const x = event.clientX - rect.left;
@@ -903,6 +917,7 @@ export default function ChartContainer({
       if (visibleRangeTimerRef.current) clearTimeout(visibleRangeTimerRef.current);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       container.removeEventListener('mousedown', handleRangeMouseDown, true);
+      container.removeEventListener('dblclick', handleDailyDoubleClick);
       container.removeEventListener('pointerdown', handleDrawingPointerDown, true);
       container.removeEventListener('pointermove', handleDrawingPointerMove, true);
       container.removeEventListener('pointerleave', handleDrawingPointerLeave, true);
@@ -1286,6 +1301,7 @@ export default function ChartContainer({
         }}
       >
         <div ref={mainRef} className="analysis-main-chart" />
+        {period === 'day' && sourceCandles[0]?.symbol && <span className="daily-kline-drilldown-hint">双击 K 线查看分时</span>}
         {(showChanPens || showChanFractals || showChanSegments || showChanPenCenters || showChanSegmentCenters) && (
           <div className="chan-chart-legend" aria-label="缠论结构图例">
             <span className="chan-version-badge">{chanAnalysis.config.algorithmVersion}</span>
@@ -1349,6 +1365,12 @@ export default function ChartContainer({
         }}
       />
       <CandleDetail left={8} />
+      <DailyIntradayModal
+        open={intradayDate !== null}
+        symbol={sourceCandles[0]?.symbol ?? ''}
+        date={intradayDate}
+        onClose={() => setIntradayDate(null)}
+      />
     </div>
   );
 }

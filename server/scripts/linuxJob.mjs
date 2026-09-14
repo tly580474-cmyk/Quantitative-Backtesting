@@ -45,7 +45,9 @@ const guard = await run('schedule:trading-day:check', true);
 if (guard.code) throw new Error(`Trading calendar check failed: ${guard.code}`);
 const decision = guard.output.split(/\r?\n/).reverse().find(line => line.trim().startsWith('{'));
 if (!decision) throw new Error('Missing trading calendar decision');
-if (!JSON.parse(decision).shouldRun) process.exit(0);
+const calendarDecision = JSON.parse(decision);
+console.log(`[${job}] Trading calendar: ${JSON.stringify(calendarDecision)}`);
+if (!calendarDecision.shouldRun) process.exit(0);
 if (job === 'research') {
   for (const script of ['index:update', 'index:constituents:update', 'sw-industry:update', 'dividend:current:update', 'dividend:update', 'snapshot:build', 'snapshot:verify']) await required(script);
 } else if (job === 'fund-flow') await required('fund-flow:update');

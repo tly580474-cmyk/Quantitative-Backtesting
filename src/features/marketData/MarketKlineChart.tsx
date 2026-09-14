@@ -18,6 +18,7 @@ import ChipProfile from './ChipProfile';
 import { analyzeChanlun } from '@/features/chanlun';
 import { ChanStructurePrimitive } from '@/features/chart/ChanStructurePrimitive';
 import { getChartSurfaceColors } from '@/theme';
+import DailyIntradayModal from '@/features/chart/DailyIntradayModal';
 
 interface IndicatorPoint {
   ma5: number | null;
@@ -169,6 +170,8 @@ function timeKey(time: Time): string {
 interface MarketKlineChartProps {
   data: KlinePoint[];
   period: MarketKlinePeriod;
+  symbol?: string;
+  name?: string;
   previousClose?: number | null;
   showChipProfile?: boolean;
   showChanStructures?: boolean;
@@ -207,6 +210,8 @@ const DEFAULT_CHAN_VISIBILITY: MarketChanVisibility = {
 export default function MarketKlineChart({
   data,
   period,
+  symbol = '',
+  name,
   previousClose,
   showChipProfile = false,
   showChanStructures = false,
@@ -227,6 +232,7 @@ export default function MarketKlineChart({
   const [chipChartLayout, setChipChartLayout] = useState({ height: 0, revision: 0 });
   const [hover, setHover] = useState<HoverPoint | null>(null);
   const [subIndicator, setSubIndicator] = useState<IntradayIndicator>('volumeRatio');
+  const [intradayDate, setIntradayDate] = useState<string | null>(null);
   const chartSurface = useMemo(() => getChartSurfaceColors(), []);
   const indicators = useMemo(() => calculateIndicators(data), [data]);
   const latest = indicators[indicators.length - 1];
@@ -440,6 +446,15 @@ export default function MarketKlineChart({
     });
     const clearHover = () => setHover(null);
     el.addEventListener('pointerleave', clearHover);
+    const handleDailyDoubleClick = (event: MouseEvent) => {
+      if (period !== 'day' || !symbol) return;
+      const rect = el.getBoundingClientRect();
+      const logical = chart.timeScale().coordinateToLogical(event.clientX - rect.left);
+      if (logical == null || logical < -0.5 || logical > data.length - 0.5) return;
+      const item = data[Math.round(logical)];
+      if (item?.date) setIntradayDate(item.date.slice(0, 10));
+    };
+    el.addEventListener('dblclick', handleDailyDoubleClick);
     let chipCoordinateFrame: number | undefined;
     const updateChipCoordinates = () => {
       if (chipCoordinateFrame !== undefined) return;
@@ -474,6 +489,7 @@ export default function MarketKlineChart({
     return () => {
       observer.disconnect();
       el.removeEventListener('pointerleave', clearHover);
+      el.removeEventListener('dblclick', handleDailyDoubleClick);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(updateChipCoordinates);
       chart.timeScale().unsubscribeSizeChange(updateChipCoordinates);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(rememberVisibleRange);
@@ -739,6 +755,7 @@ export default function MarketKlineChart({
     <div className="market-kline-stack">
       <div className="market-kline-stage">
         <div ref={ref} className="market-kline" aria-label="股票 K 线图，移动鼠标查看每日数据" />
+        {period === 'day' && symbol && <span className="daily-kline-drilldown-hint">双击 K 线查看分时</span>}
         {showChipProfile && period === 'day' && (
           <ChipProfile
             distribution={chipDistribution}
@@ -784,5 +801,12 @@ export default function MarketKlineChart({
         {indicatorVisibility.macd && <><dt>MACD</dt><dd>{fmt(hover.macd)}</dd></>}
       </dl>
     </div>}
+    <DailyIntradayModal
+      open={intradayDate !== null}
+      symbol={symbol}
+      name={name}
+      date={intradayDate}
+      onClose={() => setIntradayDate(null)}
+    />
   </div>;
 }

@@ -1964,6 +1964,8 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
             <MarketKlineChart
               data={klines}
               period={period}
+              symbol={selectedCode}
+              name={quote?.name}
               previousClose={quote?.previousClose}
               showChipProfile={showChipProfile}
               showChanStructures={isEnhancedStockView && showChanStructures}
