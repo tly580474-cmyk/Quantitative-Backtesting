@@ -44,7 +44,7 @@ import { getChartSurfaceColors } from '@/theme';
 import { DrawingPrimitive } from './drawing/DrawingPrimitive';
 import type { Drawing, DrawingDraft, DrawingPoint, DrawingTool } from './drawing/types';
 import { useDrawingStore } from '@/stores/useDrawingStore';
-import DailyIntradayModal from './DailyIntradayModal';
+import DailyIntradayModal, { supportsHistoricalIntraday, type IntradayInstrumentType } from './DailyIntradayModal';
 
 interface IndicatorPaneEntry {
   chart: IChartApi;
@@ -56,6 +56,7 @@ interface IndicatorPaneEntry {
 
 interface ChartContainerProps {
   sourceCandles?: readonly Candle[];
+  instrumentType?: IntradayInstrumentType;
   drawingContextKey?: string;
   showRangeLines?: boolean;
   period?: ChartPeriod;
@@ -172,6 +173,7 @@ function shiftDrawingPoints(
 
 export default function ChartContainer({
   sourceCandles: sourceCandlesOverride,
+  instrumentType,
   drawingContextKey,
   showRangeLines = false,
   period = 'day',
@@ -192,7 +194,7 @@ export default function ChartContainer({
   const overlayLinesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
   const indicatorPanesRef = useRef<Map<string, IndicatorPaneEntry>>(new Map());
   const [mainChartHeight, setMainChartHeight] = useState(MAIN_CHART_MIN_HEIGHT);
-  const [intradayDate, setIntradayDate] = useState<string | null>(null);
+  const [intradaySelection, setIntradaySelection] = useState<{ date: string; previousClose: number | null } | null>(null);
 
   const storedCandles = useCandleStore((s) => s.candles);
   const sourceCandles = sourceCandlesOverride ?? storedCandles;
@@ -203,6 +205,7 @@ export default function ChartContainer({
   const actives = useIndicatorStore((s) => s.actives);
   const signals = useBacktestStore((s) => s.signals);
   const candlesRef = useRef(candles);
+  const instrumentTypeRef = useRef(instrumentType);
   const sourceCandlesRef = useRef(sourceCandles);
   const periodRef = useRef(period);
   const showChipProfileRef = useRef(showChipProfile);
@@ -413,6 +416,7 @@ export default function ChartContainer({
   candlesRef.current = candles;
   sourceCandlesRef.current = sourceCandles;
   periodRef.current = period;
+  instrumentTypeRef.current = instrumentType;
   showChipProfileRef.current = showChipProfile;
   activesRef.current = actives;
   indicatorResultsRef.current = indicatorResults;
@@ -596,9 +600,15 @@ export default function ChartContainer({
       const logical = chart.timeScale().coordinateToLogical(event.clientX - rect.left);
       const currentCandles = candlesRef.current;
       if (logical == null || logical < -0.5 || logical > currentCandles.length - 0.5) return;
-      const candle = currentCandles[Math.round(logical)];
+      const index = Math.round(logical);
+      const candle = currentCandles[index];
       if (!candle?.symbol || !/^\d{4}-\d{2}-\d{2}/.test(candle.time)) return;
-      setIntradayDate(candle.time.slice(0, 10));
+      const currentType = instrumentTypeRef.current ?? candle.instrumentType;
+      if (!supportsHistoricalIntraday(currentType)) return;
+      setIntradaySelection({
+        date: candle.time.slice(0, 10),
+        previousClose: index > 0 ? currentCandles[index - 1].close : null,
+      });
     };
     container.addEventListener('dblclick', handleDailyDoubleClick);
 
@@ -1301,7 +1311,11 @@ export default function ChartContainer({
         }}
       >
         <div ref={mainRef} className="analysis-main-chart" />
-        {period === 'day' && sourceCandles[0]?.symbol && <span className="daily-kline-drilldown-hint">双击 K 线查看分时</span>}
+        {period === 'day' && sourceCandles[0]?.symbol && <span className="daily-kline-drilldown-hint">
+          {supportsHistoricalIntraday(instrumentType ?? sourceCandles[0]?.instrumentType)
+            ? '双击 K 线查看分时'
+            : '指数历史分时暂不可用'}
+        </span>}
         {(showChanPens || showChanFractals || showChanSegments || showChanPenCenters || showChanSegmentCenters) && (
           <div className="chan-chart-legend" aria-label="缠论结构图例">
             <span className="chan-version-badge">{chanAnalysis.config.algorithmVersion}</span>
@@ -1366,10 +1380,11 @@ export default function ChartContainer({
       />
       <CandleDetail left={8} />
       <DailyIntradayModal
-        open={intradayDate !== null}
+        open={intradaySelection !== null}
         symbol={sourceCandles[0]?.symbol ?? ''}
-        date={intradayDate}
-        onClose={() => setIntradayDate(null)}
+        date={intradaySelection?.date ?? null}
+        previousClose={intradaySelection?.previousClose}
+        onClose={() => setIntradaySelection(null)}
       />
     </div>
   );

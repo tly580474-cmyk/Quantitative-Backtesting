@@ -15,6 +15,7 @@ export interface ImportResult {
   fileName: string;
   symbol: string;
   name?: string;
+  instrumentType?: 'stock' | 'index' | 'etf';
   dateRange: { from: string; to: string };
   totalRows: number;
   validRows: number;

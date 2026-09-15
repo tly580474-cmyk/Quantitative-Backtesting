@@ -723,6 +723,7 @@ export function MarketAnalysisRoute() {
         <div className="market-analysis-chart">
           {displayCandles.length > 0 ? <ChartContainer
             sourceCandles={activeSourceCandles}
+            instrumentType={importResult?.instrumentType ?? sourceCandles[0]?.instrumentType}
             showRangeLines={rangeSelectionEnabled}
             period={period}
             showChipProfile={showChipProfile && period === 'day'}

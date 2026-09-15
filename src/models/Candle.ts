@@ -1,6 +1,8 @@
 export interface Candle {
   time: string;
   symbol: string;
+  /** Security category used to avoid resolving an index as a same-code stock. */
+  instrumentType?: 'stock' | 'index' | 'etf';
   open: number;
   high: number;
   low: number;

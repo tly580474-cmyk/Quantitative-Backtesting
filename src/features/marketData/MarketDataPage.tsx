@@ -1681,6 +1681,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
       fileName: `${currentQuote.code}-${currentQuote.name}-市场数据`,
       symbol: currentQuote.code,
       name: currentQuote.name,
+      instrumentType: currentQuote.type,
       dateRange: { from: candles[0]?.time ?? '', to: candles[candles.length - 1]?.time ?? '' },
       totalRows: candles.length,
       validRows: candles.length,
@@ -1966,6 +1967,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
               period={period}
               symbol={selectedCode}
               name={quote?.name}
+              instrumentType={quote?.type}
               previousClose={quote?.previousClose}
               showChipProfile={showChipProfile}
               showChanStructures={isEnhancedStockView && showChanStructures}

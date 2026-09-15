@@ -40,6 +40,7 @@ export function aggregateCandles(
     result.push({
       time: last.time,
       symbol: last.symbol || first.symbol,
+      instrumentType: last.instrumentType ?? first.instrumentType,
       open: first.open,
       high: Math.max(...group.map((item) => item.high)),
       low: Math.min(...group.map((item) => item.low)),

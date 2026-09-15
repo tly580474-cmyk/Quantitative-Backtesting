@@ -22,6 +22,10 @@ export interface IntradayBar {
   close: number;
   volume: number;
   amount: number;
+  previousClose: number | null;
+  change: number | null;
+  changePct: number | null;
+  isTradable: boolean;
 }
 
 interface MinuteBarsResponse {
@@ -37,7 +41,33 @@ interface DailyIntradayModalProps {
   symbol: string;
   name?: string;
   date: string | null;
+  previousClose?: number | null;
   onClose: () => void;
+}
+
+export type IntradayInstrumentType = 'stock' | 'index' | 'etf';
+
+export function supportsHistoricalIntraday(type?: IntradayInstrumentType): boolean {
+  // Imported files may not carry a category; retain their existing stock workflow.
+  return type == null || type === 'stock';
+}
+
+export function resolveIntradayChange(
+  bar: Pick<IntradayBar, 'close' | 'previousClose' | 'change' | 'changePct'>,
+  fallbackPreviousClose?: number | null,
+) {
+  // The selected daily candle is the source of truth: every intraday point must
+  // stay anchored to the previous trading day's close. Some minute providers
+  // expose a rolling or otherwise incorrect pre_close value.
+  const base = fallbackPreviousClose ?? bar.previousClose;
+  if (base != null && Number.isFinite(base) && base !== 0) {
+    const change = bar.close - base;
+    return { change, changePct: change / base * 100 };
+  }
+  return {
+    change: bar.change != null && Number.isFinite(bar.change) ? bar.change : null,
+    changePct: bar.changePct != null && Number.isFinite(bar.changePct) ? bar.changePct : null,
+  };
 }
 
 export function buildDailyIntradayPath(symbol: string, date: string): string {
@@ -91,7 +121,7 @@ function formatVolume(value: number) {
   return `${formatNumber(value, 0)} 股`;
 }
 
-function DailyIntradayChart({ data }: { data: IntradayBar[] }) {
+function DailyIntradayChart({ data, previousClose }: { data: IntradayBar[]; previousClose?: number | null }) {
   const priceRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef<HTMLDivElement>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -203,10 +233,17 @@ function DailyIntradayChart({ data }: { data: IntradayBar[] }) {
 
   const active = data[hoverIndex ?? data.length - 1];
   const average = averagePrices[hoverIndex ?? data.length - 1];
+  const activeChange = resolveIntradayChange(active, previousClose);
   return <div className="daily-intraday-chart-shell">
     <div className="daily-intraday-legend" aria-live="polite">
       <span className="price">价格 {formatNumber(active.close)}</span>
       <span className="average">均价 {formatNumber(average)}</span>
+      <span className={(activeChange.change ?? 0) >= 0 ? 'market-up' : 'market-down'}>
+        涨跌 {activeChange.change == null ? '—' : `${activeChange.change >= 0 ? '+' : ''}${formatNumber(activeChange.change)}`}
+      </span>
+      <span className={(activeChange.changePct ?? 0) >= 0 ? 'market-up' : 'market-down'}>
+        涨跌幅 {activeChange.changePct == null ? '—' : `${activeChange.changePct >= 0 ? '+' : ''}${formatNumber(activeChange.changePct)}%`}
+      </span>
       <span>成交量 {formatVolume(active.volume)}</span>
       <span>{active.date.slice(11, 16)}</span>
     </div>
@@ -215,7 +252,7 @@ function DailyIntradayChart({ data }: { data: IntradayBar[] }) {
   </div>;
 }
 
-export default function DailyIntradayModal({ open, symbol, name, date, onClose }: DailyIntradayModalProps) {
+export default function DailyIntradayModal({ open, symbol, name, date, previousClose, onClose }: DailyIntradayModalProps) {
   const [data, setData] = useState<IntradayBar[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -247,7 +284,7 @@ export default function DailyIntradayModal({ open, symbol, name, date, onClose }
 
   const first = data[0];
   const last = data[data.length - 1];
-  const changePct = first?.open ? (last.close - first.open) / first.open * 100 : null;
+  const dailyChange = last ? resolveIntradayChange(last, previousClose) : { change: null, changePct: null };
   return <Modal
     className="daily-intraday-modal"
     open={open}
@@ -267,8 +304,8 @@ export default function DailyIntradayModal({ open, symbol, name, date, onClose }
         <Text>高 {formatNumber(Math.max(...data.map((item) => item.high)))}</Text>
         <Text>低 {formatNumber(Math.min(...data.map((item) => item.low)))}</Text>
         <Text>收 {formatNumber(last.close)}</Text>
-        <Text className={(changePct ?? 0) >= 0 ? 'market-up' : 'market-down'}>
-          {changePct == null ? '—' : `${changePct >= 0 ? '+' : ''}${formatNumber(changePct)}%`}
+        <Text className={(dailyChange.changePct ?? 0) >= 0 ? 'market-up' : 'market-down'}>
+          {dailyChange.changePct == null ? '—' : `${dailyChange.changePct >= 0 ? '+' : ''}${formatNumber(dailyChange.changePct)}%`}
         </Text>
       </>}
       {meta && <Text type="secondary">{data.length} 根 · {meta.elapsedMs}ms{meta.truncated ? ' · 数据已截断' : ''}</Text>}
@@ -284,6 +321,6 @@ export default function DailyIntradayModal({ open, symbol, name, date, onClose }
       action={<Button onClick={() => setRetry((value) => value + 1)}>重新加载</Button>}
     />}
     {!loading && !error && data.length === 0 && <Empty description="该交易日暂无分钟数据" />}
-    {!loading && !error && data.length > 0 && <DailyIntradayChart data={data} />}
+    {!loading && !error && data.length > 0 && <DailyIntradayChart data={data} previousClose={previousClose} />}
   </Modal>;
 }

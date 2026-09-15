@@ -4,7 +4,10 @@ import type { Candle } from '@/models';
 import { fetchHistoryCandles, type AdjustmentMode } from '@/features/dataLibrary/historyBar';
 import type { KlinePoint, StockQuote } from './types';
 
-export function toCandles(points: KlinePoint[], quote: Pick<StockQuote, 'code'>): Candle[] {
+export function toCandles(
+  points: KlinePoint[],
+  quote: Pick<StockQuote, 'code'> & Partial<Pick<StockQuote, 'type'>>,
+): Candle[] {
   return points.map((point, index) => {
     const previous = index > 0 ? points[index - 1] : undefined;
     const change = previous ? point.close - previous.close : undefined;
@@ -12,12 +15,13 @@ export function toCandles(points: KlinePoint[], quote: Pick<StockQuote, 'code'>)
     return {
       time: point.date,
       symbol: quote.code,
+      instrumentType: quote.type,
       open: point.open,
       high: point.high,
       low: point.low,
       close: point.close,
-      change,
-      changePercent,
+      change: point.change ?? change,
+      changePercent: point.changePct ?? changePercent,
       volume: point.volume,
       turnoverRatePct: point.turnoverRatePct,
     };
