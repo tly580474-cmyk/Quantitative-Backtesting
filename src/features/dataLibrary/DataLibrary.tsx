@@ -270,6 +270,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
       success: true,
       fileName: dataset.sourceFileName ?? dataset.name,
       symbol: dataset.symbol,
+      instrumentType: dataset.assetType,
       dateRange: { from: dataset.startTime, to: dataset.endTime },
       totalRows: dataset.count,
       validRows: dataset.count,
@@ -298,6 +299,7 @@ export default function DataLibrary({ onOpen }: DataLibraryProps) {
         fileName: `MySQL历史库 · ${instrument.name}`,
         symbol: instrument.symbol,
         name: instrument.name,
+        instrumentType: 'stock',
         dateRange: {
           from: instrument.startDate ?? candles[0]?.time ?? '',
           to: instrument.endDate ?? candles[candles.length - 1]?.time ?? '',

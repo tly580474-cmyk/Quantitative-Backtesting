@@ -1,7 +1,7 @@
 .daily-intraday-modal .ant-modal-body { min-height: 480px; }
 .daily-intraday-summary { display: flex; min-height: 32px; align-items: center; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 8px; font-variant-numeric: tabular-nums; }
-.daily-intraday-chart-shell { position: relative; height: 460px; overflow: hidden; border: 1px solid var(--wb-border); border-radius: 8px; background: var(--wb-surface); }
-.daily-intraday-legend { display: flex; height: 36px; align-items: center; flex-wrap: wrap; gap: 6px 16px; padding: 0 12px; border-bottom: 1px solid var(--wb-border); color: var(--wb-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.daily-intraday-chart-shell { position: relative; min-height: 460px; overflow: hidden; border: 1px solid var(--wb-border); border-radius: 8px; background: var(--wb-surface); }
+.daily-intraday-legend { display: flex; min-height: 36px; align-items: center; flex-wrap: wrap; gap: 6px 16px; padding: 6px 12px; border-bottom: 1px solid var(--wb-border); color: var(--wb-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .daily-intraday-legend .price { color: #2563eb; }
 .daily-intraday-legend .average { color: #d97706; }
 .daily-intraday-price-chart { height: 316px; }
@@ -15,7 +15,7 @@ html[data-theme='dark'] .daily-intraday-legend .average { color: #fbbf24; }
 @media (max-width: 767px) {
   .daily-intraday-modal { max-width: calc(100vw - 16px); margin: 8px auto; }
   .daily-intraday-modal .ant-modal-body { min-height: 420px; }
-  .daily-intraday-chart-shell { height: 400px; }
+  .daily-intraday-chart-shell { min-height: 400px; }
   .daily-intraday-price-chart { height: 270px; }
   .daily-intraday-volume-chart { height: 94px; }
   .daily-kline-drilldown-hint { display: none; }

@@ -18,6 +18,33 @@ afterEach(async () => {
 });
 
 describe('minute data service', () => {
+  it('anchors all minutes to the opening daily baseline instead of rolling pre_close', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'minute-baseline-'));
+    roots.push(root);
+    const path = join(root, 'minute.parquet').replaceAll('\\', '/');
+    const instance = await DuckDBInstance.create(':memory:');
+    const connection = await instance.connect();
+    try {
+      await connection.run(`COPY (
+        SELECT '002212.SZ' AS code, t AS trade_time, c AS close,
+          c AS open, c AS high, c AS low, 100 AS vol, c*100 AS amount, p AS pre_close
+        FROM (VALUES
+          (TIMESTAMP '2026-09-15 09:31:00', 7.90, 7.40),
+          (TIMESTAMP '2026-09-15 09:32:00', 8.14, 7.90),
+          (TIMESTAMP '2026-09-15 15:00:00', 7.77, 7.77)
+        ) rows(t,c,p)
+      ) TO '${path}' (FORMAT parquet)`);
+      const query = buildMinuteQuery([path], { code: '002212', startDate: '2026-09-15', endDate: '2026-09-15', limit: 1000, includeZeroVolume: true });
+      const result = await connection.runAndReadAll(query.sql, query.values);
+      const rows = result.getRowObjectsJson();
+      assert.equal(rows.length, 3);
+      for (const row of rows) assert.equal(Number(row.previousClose), 7.4);
+      assert.ok(Math.abs(Number(rows[2].changePct) - 5) < 0.00001);
+    } finally {
+      connection.closeSync();
+      instance.closeSync();
+    }
+  });
   it('normalizes provider symbols and parameterizes the stock filter', () => {
     assert.equal(normalizeMinuteProviderSymbol('600519'), '600519.SH');
     assert.equal(normalizeMinuteProviderSymbol('sz000001'), '000001.SZ');

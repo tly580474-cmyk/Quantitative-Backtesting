@@ -44,7 +44,7 @@ import { getChartSurfaceColors } from '@/theme';
 import { DrawingPrimitive } from './drawing/DrawingPrimitive';
 import type { Drawing, DrawingDraft, DrawingPoint, DrawingTool } from './drawing/types';
 import { useDrawingStore } from '@/stores/useDrawingStore';
-import DailyIntradayModal, { supportsHistoricalIntraday, type IntradayInstrumentType } from './DailyIntradayModal';
+import DailyIntradayModal, { hitsCandle, supportsHistoricalIntraday, type IntradayInstrumentType } from './DailyIntradayModal';
 
 interface IndicatorPaneEntry {
   chart: IChartApi;
@@ -194,7 +194,7 @@ export default function ChartContainer({
   const overlayLinesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
   const indicatorPanesRef = useRef<Map<string, IndicatorPaneEntry>>(new Map());
   const [mainChartHeight, setMainChartHeight] = useState(MAIN_CHART_MIN_HEIGHT);
-  const [intradaySelection, setIntradaySelection] = useState<{ date: string; previousClose: number | null } | null>(null);
+  const [intradaySelection, setIntradaySelection] = useState<{ date: string; symbol: string } | null>(null);
 
   const storedCandles = useCandleStore((s) => s.candles);
   const sourceCandles = sourceCandlesOverride ?? storedCandles;
@@ -605,9 +605,10 @@ export default function ChartContainer({
       if (!candle?.symbol || !/^\d{4}-\d{2}-\d{2}/.test(candle.time)) return;
       const currentType = instrumentTypeRef.current ?? candle.instrumentType;
       if (!supportsHistoricalIntraday(currentType)) return;
+      if (!hitsCandle(event.clientY - rect.top, candleSeries.priceToCoordinate(candle.high), candleSeries.priceToCoordinate(candle.low))) return;
       setIntradaySelection({
         date: candle.time.slice(0, 10),
-        previousClose: index > 0 ? currentCandles[index - 1].close : null,
+        symbol: candle.symbol,
       });
     };
     container.addEventListener('dblclick', handleDailyDoubleClick);
@@ -1314,7 +1315,7 @@ export default function ChartContainer({
         {period === 'day' && sourceCandles[0]?.symbol && <span className="daily-kline-drilldown-hint">
           {supportsHistoricalIntraday(instrumentType ?? sourceCandles[0]?.instrumentType)
             ? '双击 K 线查看分时'
-            : '指数历史分时暂不可用'}
+            : '仅支持已识别股票的日内走势'}
         </span>}
         {(showChanPens || showChanFractals || showChanSegments || showChanPenCenters || showChanSegmentCenters) && (
           <div className="chan-chart-legend" aria-label="缠论结构图例">
@@ -1380,10 +1381,10 @@ export default function ChartContainer({
       />
       <CandleDetail left={8} />
       <DailyIntradayModal
-        open={intradaySelection !== null}
+        open={intradaySelection !== null && intradaySelection.symbol === sourceCandles[0]?.symbol && period === 'day'}
         symbol={sourceCandles[0]?.symbol ?? ''}
+        instrumentType={instrumentType ?? sourceCandles[0]?.instrumentType}
         date={intradaySelection?.date ?? null}
-        previousClose={intradaySelection?.previousClose}
         onClose={() => setIntradaySelection(null)}
       />
     </div>

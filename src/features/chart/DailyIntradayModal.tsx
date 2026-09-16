@@ -41,32 +41,73 @@ interface DailyIntradayModalProps {
   symbol: string;
   name?: string;
   date: string | null;
-  previousClose?: number | null;
+  instrumentType?: IntradayInstrumentType;
   onClose: () => void;
 }
 
 export type IntradayInstrumentType = 'stock' | 'index' | 'etf';
 
+export interface RawDailyBar {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  previousClose?: number | null;
+}
+
+export function assessIntraday(items: IntradayBar[], daily: RawDailyBar[], date: string, truncated: boolean) {
+  const rows = daily.filter(row => row.date <= date).sort((a, b) => a.date.localeCompare(b.date));
+  const index = rows.findIndex(row => row.date === date);
+  const selected = rows[index];
+  const base = index > 0 ? rows[index - 1].close : selected?.previousClose;
+  const previousClose = base != null && Number.isFinite(base) && base > 0 ? base : null;
+  const warnings: string[] = [];
+  if (previousClose == null) warnings.push('缺少上一交易日未复权收盘价，涨跌幅暂不可用');
+  if (!selected) warnings.push('缺少所选交易日日线，无法校验完整性');
+  const times = items.map(item => item.date.slice(11, 16));
+  const expected: string[] = [];
+  for (const [start, end] of [[571, 690], [781, 900]]) {
+    for (let minute = start; minute <= end; minute++) {
+      expected.push(`${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`);
+    }
+  }
+  const available = new Set(times);
+  if (truncated || expected.some(time => !available.has(time))) warnings.push('分钟数据未覆盖完整交易时段，末价不代表收盘价');
+  if (items.some((item, i) => !item.date.startsWith(date) || (i > 0 && item.date <= items[i - 1].date)
+      || ![item.open, item.high, item.low, item.close, item.volume, item.amount].every(Number.isFinite))) {
+    throw new Error('分钟行情日期、顺序或数值异常');
+  }
+  if (selected && items.length) {
+    const actual = [items[0].open, Math.max(...items.map(x => x.high)), Math.min(...items.map(x => x.low)), items[items.length - 1].close];
+    const reference = [selected.open, selected.high, selected.low, selected.close];
+    if (actual.some((value, i) => Math.abs(value - reference[i]) > 0.011)) warnings.push('分钟价格与未复权日线不一致，请核对数据');
+  }
+  return { previousClose, warnings };
+}
+
+export function hitsCandle(y: number, highY: number | null, lowY: number | null): boolean {
+  return highY != null && lowY != null && y >= Math.min(highY, lowY) - 3 && y <= Math.max(highY, lowY) + 3;
+}
+
 export function supportsHistoricalIntraday(type?: IntradayInstrumentType): boolean {
-  // Imported files may not carry a category; retain their existing stock workflow.
-  return type == null || type === 'stock';
+  // Unknown imported securities must not resolve to a same-code stock.
+  return type === 'stock';
 }
 
 export function resolveIntradayChange(
   bar: Pick<IntradayBar, 'close' | 'previousClose' | 'change' | 'changePct'>,
   fallbackPreviousClose?: number | null,
 ) {
-  // The selected daily candle is the source of truth: every intraday point must
-  // stay anchored to the previous trading day's close. Some minute providers
-  // expose a rolling or otherwise incorrect pre_close value.
-  const base = fallbackPreviousClose ?? bar.previousClose;
-  if (base != null && Number.isFinite(base) && base !== 0) {
+  // Only the independently fetched unadjusted daily baseline is acceptable.
+  const base = fallbackPreviousClose;
+  if (base != null && Number.isFinite(base) && base > 0) {
     const change = bar.close - base;
     return { change, changePct: change / base * 100 };
   }
   return {
-    change: bar.change != null && Number.isFinite(bar.change) ? bar.change : null,
-    changePct: bar.changePct != null && Number.isFinite(bar.changePct) ? bar.changePct : null,
+    change: null,
+    changePct: null,
   };
 }
 
@@ -252,7 +293,9 @@ function DailyIntradayChart({ data, previousClose }: { data: IntradayBar[]; prev
   </div>;
 }
 
-export default function DailyIntradayModal({ open, symbol, name, date, previousClose, onClose }: DailyIntradayModalProps) {
+export default function DailyIntradayModal({ open, symbol, name, date, instrumentType, onClose }: DailyIntradayModalProps) {
+  const [previousClose, setPreviousClose] = useState<number | null>(null);
+  const [quality, setQuality] = useState<string[]>([]);
   const [data, setData] = useState<IntradayBar[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -260,17 +303,27 @@ export default function DailyIntradayModal({ open, symbol, name, date, previousC
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
-    if (!open || !symbol || !date) return undefined;
+    if (!open || !symbol || !date || !supportsHistoricalIntraday(instrumentType)) return undefined;
     const controller = new AbortController();
     setLoading(true);
     setError(null);
     setData([]);
     setMeta(null);
-    void apiFetch<MinuteBarsResponse>(buildDailyIntradayPath(symbol, date), {
-      signal: controller.signal,
-      timeoutMs: 60_000,
-    }).then((response) => {
+    setPreviousClose(null);
+    setQuality([]);
+    const options = { signal: controller.signal, timeoutMs: 60_000 };
+    const dailyQuery = new URLSearchParams({ period: 'day', fullHistory: 'true', adjustmentMode: 'none', endDate: date });
+    void Promise.all([
+      apiFetch<MinuteBarsResponse>(buildDailyIntradayPath(symbol, date), options),
+      apiFetch<{ adjustmentMode: string; items: RawDailyBar[] }>(
+        `/api/market-data/stocks/${encodeURIComponent(symbol)}/kline?${dailyQuery}`, options),
+    ]).then(([response, daily]) => {
+      if (controller.signal.aborted) return;
       if (response.intervalMinutes !== 1) throw new Error('服务端未返回 1 分钟行情');
+      if (daily.adjustmentMode !== 'none') throw new Error('无法获得未复权日线基准');
+      const assessment = assessIntraday(response.items, daily.items, date, response.truncated);
+      setPreviousClose(assessment.previousClose);
+      setQuality(assessment.warnings);
       setData(response.items);
       setMeta({ sourceFiles: response.sourceFiles, elapsedMs: response.elapsedMs, truncated: response.truncated });
     }).catch((reason: unknown) => {
@@ -280,14 +333,14 @@ export default function DailyIntradayModal({ open, symbol, name, date, previousC
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [date, open, retry, symbol]);
+  }, [date, open, retry, symbol, instrumentType]);
 
   const first = data[0];
   const last = data[data.length - 1];
   const dailyChange = last ? resolveIntradayChange(last, previousClose) : { change: null, changePct: null };
   return <Modal
     className="daily-intraday-modal"
-    open={open}
+    open={open && supportsHistoricalIntraday(instrumentType)}
     onCancel={onClose}
     footer={null}
     destroyOnHidden
@@ -299,11 +352,12 @@ export default function DailyIntradayModal({ open, symbol, name, date, previousC
   >
     <div className="daily-intraday-summary">
       <Text type="secondary">{symbol}</Text>
+      <Text>昨收（不复权） {previousClose == null ? '—' : formatNumber(previousClose)}</Text>
       {first && last && <>
         <Text>开 {formatNumber(first.open)}</Text>
         <Text>高 {formatNumber(Math.max(...data.map((item) => item.high)))}</Text>
         <Text>低 {formatNumber(Math.min(...data.map((item) => item.low)))}</Text>
-        <Text>收 {formatNumber(last.close)}</Text>
+        <Text>{quality.length ? '末价' : '收'} {formatNumber(last.close)}</Text>
         <Text className={(dailyChange.changePct ?? 0) >= 0 ? 'market-up' : 'market-down'}>
           {dailyChange.changePct == null ? '—' : `${dailyChange.changePct >= 0 ? '+' : ''}${formatNumber(dailyChange.changePct)}%`}
         </Text>
@@ -320,6 +374,7 @@ export default function DailyIntradayModal({ open, symbol, name, date, previousC
       description={error}
       action={<Button onClick={() => setRetry((value) => value + 1)}>重新加载</Button>}
     />}
+    {!loading && !error && quality.length > 0 && <Alert type="warning" showIcon message={quality.join('；')} />}
     {!loading && !error && data.length === 0 && <Empty description="该交易日暂无分钟数据" />}
     {!loading && !error && data.length > 0 && <DailyIntradayChart data={data} previousClose={previousClose} />}
   </Modal>;

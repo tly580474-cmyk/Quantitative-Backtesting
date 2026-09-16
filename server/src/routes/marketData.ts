@@ -771,6 +771,10 @@ export function registerMarketDataRoutes(
   });
 
   app.get<{ Params: { code: string } }>('/api/market-data/stocks/:code/minute', async (req, reply) => {
+    const security = resolveSecurity(req.params.code);
+    if (inferType(security.code, security.market) !== 'stock') {
+      return reply.status(422).send({ message: '仅支持股票历史分钟行情' });
+    }
     const query = z.object({
       startDate: z.string().date(),
       endDate: z.string().date().optional(),

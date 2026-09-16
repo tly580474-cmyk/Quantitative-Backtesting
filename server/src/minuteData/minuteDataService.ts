@@ -155,7 +155,13 @@ export function buildMinuteQuery(
                close,
                vol,
                amount,
-               pre_close,
+               CASE WHEN FIRST_VALUE(CAST(trade_time AS TIME)) OVER (
+                 PARTITION BY CAST(trade_time AS DATE) ORDER BY trade_time
+               ) IN (TIME '09:30:00', TIME '09:31:00') THEN
+                 FIRST_VALUE(pre_close) OVER (
+                   PARTITION BY CAST(trade_time AS DATE) ORDER BY trade_time
+                 )
+               ELSE NULL END AS day_previous_close,
                CASE WHEN CAST(trade_time AS TIME) <= TIME '11:30:00' THEN 'AM' ELSE 'PM' END AS session_name
         FROM read_parquet([${fileList}], union_by_name = true)
         WHERE code = $providerSymbol
@@ -184,7 +190,7 @@ export function buildMinuteQuery(
                LAST(close ORDER BY trade_time) AS close,
                SUM(vol) AS volume,
                SUM(amount) AS amount,
-               FIRST(pre_close ORDER BY trade_time) AS previousClose
+               FIRST(day_previous_close ORDER BY trade_time) AS previousClose
         FROM numbered
         GROUP BY trade_date, session_name, bar_index
       )
