@@ -80,8 +80,9 @@ def render(spec, output, revision="initial", font=None):
                     axes[1].set_ylabel("回撤 (%)")
                 if kind != "histogram" and len(x) > 12:
                     ticks = list(range(0, len(x), max(1, len(x)//8)))
-                    ax.set_xticks(ticks, [str(x[i]) for i in ticks], rotation=30, ha="right")
-                    if kind == "nav-drawdown": axes[1].set_xticks(ticks, [str(x[i]) for i in ticks], rotation=30, ha="right")
+                    positions = [x[i] for i in ticks] if all(isinstance(v, (int,float)) for v in x) else ticks
+                    ax.set_xticks(positions, [str(x[i]) for i in ticks], rotation=30, ha="right")
+                    if kind == "nav-drawdown": axes[1].set_xticks(positions, [str(x[i]) for i in ticks], rotation=30, ha="right")
             if any(item.get("label") for item in series): ax.legend(loc="best", frameon=False)
         ax.set_title(spec["title"], loc="left", fontweight="bold")
         ax.set_ylabel(spec["yLabel"])

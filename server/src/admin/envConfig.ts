@@ -25,6 +25,16 @@ export interface AdminConfigDefinition {
 }
 
 export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
+  ...([
+    ['AGENT_PI_PATH', 'Pi 可执行文件', 'Pi CLI 的绝对路径。'],
+    ['AGENT_PI_WORKING_DIRECTORY', 'Pi 工作目录', 'Pi 可操作的项目目录；此 Provider 无操作系统沙箱。'],
+    ['AGENT_PI_AGENT_DIRECTORY', 'Pi 专用配置目录', '服务账户独享的认证、模型配置和会话目录，不使用 root HOME。'],
+    ['AGENT_PI_MODEL_PROVIDER', 'Pi 模型来源', 'Pi models.json 中配置的来源名称；留空使用 Pi 默认设置。'],
+    ['AGENT_PI_MODEL', 'Pi 模型', '模型ID；留空使用 Pi 默认模型。'],
+  ] as const).map(([key, label, description]): AdminConfigDefinition => ({ key, label, description,
+    category:'ai', secret:false, editable:true, restartRequired:true, restartScope:'ai' })),
+  {key:'AGENT_PI_ENABLED',label:'Pi Provider 开关',description:'启用可选 Pi JSON Harness。',category:'ai',secret:false,
+    editable:true,restartRequired:true,restartScope:'ai',inputType:'boolean',defaultValue:'false'},
   {
     key: 'ADMIN_API_TOKEN',
     label: '管理台访问令牌',

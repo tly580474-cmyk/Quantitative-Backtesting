@@ -1,6 +1,7 @@
 import { Marked } from 'marked';
 import { sanitizePublicContent } from './eventProtocol.js';
 import type { TemplateStyle } from './promptBuilder.js';
+import { cleanReportPresentation, type ReportPresentation } from './outputParser.js';
 
 function escapeHtml(value: string): string {
   return value
@@ -55,7 +56,14 @@ export function renderStaticAgentReport(
   content: string,
   templateStyle: TemplateStyle = 'classic-blue',
   assets: ReadonlyMap<string, string> = new Map(),
+  presentation: ReportPresentation = {},
 ): { html: string; title: string; summary: string; chartsCount: number } {
+  const custom = cleanReportPresentation(presentation);
+  templateStyle = custom.templateStyle ?? templateStyle;
+  const rgb = custom.accentColor?.slice(1).match(/../g)?.map((v: string) => parseInt(v, 16)) ?? [];
+  const ink = rgb.length && rgb[0]*.299+rgb[1]*.587+rgb[2]*.114 > 160 ? '#101827' : '#ffffff';
+  const customCss = (custom.accentColor ? `body[data-style]{--accent:${custom.accentColor};--accent-2:${custom.accentColor}}body[data-style] .hero{background:${custom.accentColor};color:${ink}}` : '')
+    + (custom.wide ? '.report{width:min(1400px,calc(100% - 40px))}.content{max-width:none}' : '');
   let chartsCount = 0;
   const markdown = new Marked({ async: false, gfm: true, breaks: false, renderer: {
     ...staticRenderer,
@@ -90,5 +98,5 @@ export function renderStaticAgentReport(
 @media print{html,body{background:#fff}.report{width:100%;padding:0}.hero{border-radius:0;box-shadow:none;print-color-adjust:exact}.paper{margin-top:0;padding:30px 0;border:0;box-shadow:none}.content{max-width:none}.content table{white-space:normal}.footer{border-top:1px solid var(--line);padding-top:10px}h2,h3,blockquote,table{break-inside:avoid}}
 </style></head><body data-style="${resolvedStyle}"><main class="report"><header class="hero"><p class="eyebrow">WANHANG RESEARCH</p><h1>${escapeHtml(title)}</h1></header><article class="paper"><div class="content">${article}</div></article><footer class="footer"><span>由万行智研生成</span><span>生成时间 ${escapeHtml(generatedAt)}</span></footer></main>
 <!-- REPORT_SUMMARY: ${summaryComment} --></body></html>`;
-  return { html, title, summary, chartsCount };
+  return { html: customCss ? html.replace('</style>', `${customCss}</style>`) : html, title, summary, chartsCount };
 }

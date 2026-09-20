@@ -54,7 +54,7 @@ export interface ProviderEventSink {
   telemetry?(value: import('../runMetrics.js').ProviderTelemetry): void;
   event(event: PublicAgentEvent): Promise<void>;
   session(sessionId: string): Promise<void>;
-  reportDecision(generate: boolean): Promise<void>;
+  reportDecision(generate: boolean, presentation?: import('../outputParser.js').ReportPresentation): Promise<void>;
   approval?(request: ProviderApprovalRequest): Promise<ApprovalDecision>;
 }
 

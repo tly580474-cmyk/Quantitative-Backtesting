@@ -42,7 +42,8 @@ function now(): string {
 interface ConfirmationOption { label: string; value: string; description?: string; }
 interface ConfirmationQuestion { id: string; question: string; options: ConfirmationOption[]; allowCustom: boolean; }
 
-export interface ReportDecision { generate: boolean; reason: string; }
+export interface ReportPresentation { templateStyle?: import('./promptBuilder.js').TemplateStyle; accentColor?: string; wide?: boolean; }
+export interface ReportDecision { generate: boolean; reason: string; presentation?: ReportPresentation; }
 
 export function extractReportDirective(content: string): { answer: string; decision: ReportDecision | null } {
   const match = content.match(/```agent-report\s*([\s\S]*?)```/i);
@@ -56,11 +57,20 @@ export function extractReportDirective(content: string): { answer: string; decis
       decision: {
         generate: raw.generate,
         reason: sanitizePublicContent(raw.reason, '').slice(0, 120),
+        ...(raw.presentation && typeof raw.presentation === 'object' ? { presentation: cleanReportPresentation(raw.presentation) } : {}),
       },
     };
   } catch {
     return { answer, decision: null };
   }
+}
+
+export function cleanReportPresentation(raw: any): ReportPresentation {
+  return {
+    ...(['classic-blue', 'dark-pro', 'minimal-white', 'dashboard'].includes(raw?.templateStyle) ? { templateStyle: raw.templateStyle } : {}),
+    ...(typeof raw?.accentColor === 'string' && /^#[a-f0-9]{6}$/i.test(raw.accentColor) ? { accentColor: raw.accentColor } : {}),
+    ...(raw?.wide === true ? { wide: true } : {}),
+  };
 }
 
 function stripControlBlocks(content: string): string {

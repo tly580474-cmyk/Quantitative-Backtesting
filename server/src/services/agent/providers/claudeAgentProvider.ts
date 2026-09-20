@@ -130,7 +130,7 @@ export class ClaudeAgentProvider implements AgentProvider {
       const telemetry = claudeTelemetry(line);
       if (telemetry) sink.telemetry?.(telemetry);
       const report = extractReportDecision(line);
-      if (report) await sink.reportDecision(report.generate);
+      if (report) await sink.reportDecision(report.generate, report.presentation);
       if (!sessionCaptured) {
         const sessionId = extractSessionId(line);
         if (sessionId) {

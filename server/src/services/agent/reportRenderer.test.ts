@@ -3,6 +3,15 @@ import { renderStaticAgentReport } from './reportRenderer.js';
 import { validateAgentReport } from './reportValidator.js';
 
 describe('renderStaticAgentReport', () => {
+  it('honors bounded presentation preferences without allowing CSS injection', () => {
+    const report = renderStaticAgentReport('# 风格报告', 'classic-blue', new Map(), { templateStyle: 'minimal-white', accentColor:'#176b58', wide:true });
+    expect(report.html).toContain('data-style="minimal-white"');
+    expect(report.html).toContain('--accent:#176b58');
+    expect(report.html).toContain('1400px');
+    expect(validateAgentReport(report.html, Buffer.byteLength(report.html)).valid).toBe(true);
+    const unsafe = renderStaticAgentReport('# 风格报告', 'classic-blue', new Map(), {accentColor:'red;}body{background:url(https://evil.test)'});
+    expect(unsafe.html).not.toContain('evil.test');
+  });
   it('escapes model HTML and produces a valid static report', () => {
     const report = renderStaticAgentReport('# 验收结论\n<script>steal()</script>\n结果正常。', 'classic-blue');
     expect(report.html).not.toContain('<script>');

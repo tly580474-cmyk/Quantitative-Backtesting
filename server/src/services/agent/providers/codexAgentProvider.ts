@@ -459,7 +459,7 @@ export class CodexAgentProvider implements AgentProvider {
             return;
           }
           const parsed = extractReportDirective(finalMessage);
-          if (parsed.decision) await sink.reportDecision(parsed.decision.generate);
+          if (parsed.decision) await sink.reportDecision(parsed.decision.generate, parsed.decision.presentation);
           if (parsed.answer) await sink.event({ type: 'assistant_final', publicContent: parsed.answer, timestamp: now() });
           finish(result.completion);
         } else if (status === 'interrupted') {

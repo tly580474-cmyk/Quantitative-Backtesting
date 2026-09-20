@@ -73,7 +73,8 @@ export class PiAgentProvider implements AgentProvider {
         toolUseId: event.toolCallId, toolInput: sanitizeToolDetail(event.args) });
       if (event.type === 'tool_execution_end') {
         const raw = textBlocks(event.result?.content);
-        const failed = detectToolFailure(raw, event.isError === true);
+        const failed = event.isError === true || ['bash', 'powershell'].includes(event.toolName)
+          ? detectToolFailure(raw, event.isError === true) : undefined;
         await sink.event({ type: failed ? 'error' : 'tool_finished', timestamp: now(),
           publicContent: `${sanitizeToolName(event.toolName)} ${failed ? '执行失败' : '执行完成'}`,
           toolName: sanitizeToolName(event.toolName), toolUseId: event.toolCallId, toolResult: sanitizeToolDetail(raw),
@@ -107,7 +108,7 @@ export class PiAgentProvider implements AgentProvider {
         if (code !== 0 || failure || !ended || !lastText) return finish({ status: 'failed', exitCode: code,
           errorCode: errorCode ?? 'PI_INCOMPLETE', errorMessage: failure ?? sanitizePublicContent(stderr, 'Pi没有完成有效回答') });
         const directive = extractReportDirective(lastText);
-        if (directive.decision) await sink.reportDecision(directive.decision.generate);
+        if (directive.decision) await sink.reportDecision(directive.decision.generate, directive.decision.presentation);
         for (const event of parseStreamLine(JSON.stringify({ type: 'result', result: lastText }))) await sink.event(event);
         finish({ status: 'completed', exitCode: 0 });
       }).catch(error => finish({ status: 'failed', exitCode: code, errorCode: 'PI_OUTPUT_ERROR', errorMessage: sanitizePublicContent(error.message) }));

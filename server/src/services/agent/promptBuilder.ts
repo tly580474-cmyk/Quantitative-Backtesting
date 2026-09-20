@@ -71,6 +71,7 @@ ${artifactDirectory ? `- 本轮图表和研究中间产物目录：${artifactDir
 \`\`\`
 
 将 generate 改为你的实际判断。reason 不超过 120 个汉字。如果还需要 agent-confirmation 代码块，把确认代码块放在 agent-report 之前，agent-report 始终是最后一个代码块。
+用户明确要求自定义外观时，可在决策JSON中追加 presentation，例如 {"templateStyle":"minimal-white","accentColor":"#176b58","wide":true}；templateStyle仅支持classic-blue/dark-pro/minimal-white/dashboard，accentColor只接受六位十六进制颜色。章节和图表顺序按用户要求组织Markdown，不生成任意CSS或HTML。
 `;
 
   const codexAutonomous = provider === 'codex' && codexData?.sandboxMode === 'workspace-write';

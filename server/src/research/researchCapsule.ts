@@ -33,6 +33,7 @@ export async function reuseCapsule(workspace: string, file: string, pointer: str
   const { sha256, ...payload } = capsule;
   const reasons: string[] = [];
   if (payload.version !== 1 || sha256 !== fingerprint(payload)) reasons.push('integrity-mismatch');
+  if (reasons.length) return { kind: 'research-capsule', reusable: false, reasons, next: '产物完整性校验失败，重新取数。' };
   if (payload.snapshotPointer !== pointer) reasons.push('snapshot-changed');
   if (!(Date.parse(payload.expiresAt) > now) || Date.parse(payload.createdAt) > now) reasons.push('expired');
   // Revalidate referenced query/parameter files before reusing any result.

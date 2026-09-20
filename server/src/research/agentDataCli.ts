@@ -40,14 +40,15 @@ async function duckdb(args: string[]) {
 
 async function main(argv: string[]): Promise<Record<string, unknown>> {
   const [command = 'catalog', ...args] = argv;
-  if (command === 'recipes' && !args.length) return { recipes: EFFICIENT_RECIPES };
+  if (command === 'recipes' && !args.length) return { recipes: EFFICIENT_RECIPES, usage: usage.recipe };
+  if (command === 'recipe' && args.length === 2 && ['--help','-h'].includes(args[1])) return { usage: usage.recipe, recipe: args[0] };
   if (command === 'recipe' && !['--help', '-h'].includes(args[0])) {
     const name = args[0];
     const flags = new Map<string, string>();
     for (let i = 1; i < args.length; i++) {
       const flag = args[i];
       const allowed = name === 'pe-dca' ? ['--input', '--window'] : ['--start', '--end', '--top', '--min-amount', '--dry-run'];
-      if (!allowed.includes(flag) || flags.has(flag)) throw new Error('INVALID_ARGUMENT: 配方参数无效或重复');
+      if (!allowed.includes(flag) || flags.has(flag)) throw new Error(`INVALID_ARGUMENT: 配方参数无效或重复 ${flag}；支持 ${allowed.join(' ')}；查看 recipe ${name} --help`);
       const value = flag === '--dry-run' ? 'true' : args[++i];
       if (!value || value.startsWith('--')) throw new Error('INVALID_ARGUMENT: 配方参数缺值');
       flags.set(flag, value);

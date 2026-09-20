@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { Pool } from 'mysql2/promise';
 import { buildPrompt, type TemplateStyle } from './promptBuilder.js';
-import type { ParsedEvent } from './outputParser.js';
+import type { ParsedEvent, ReportPresentation } from './outputParser.js';
 import { sanitizeToolDetail, type TerminalPayload, type TerminalStatus } from './eventProtocol.js';
 import { AgentRepository } from './agentRepository.js';
 import { buildResearchContext } from './researchContext.js';
@@ -82,6 +82,7 @@ interface ActiveRun {
   lastEventContent?: string;
   templateStyle: TemplateStyle;
   workingDirectory?: string;
+  presentation?: ReportPresentation;
 }
 
 interface PendingApprovalRuntime {
@@ -180,7 +181,7 @@ export class AgentOrchestrator {
         telemetry: value => active.metrics.telemetry(value),
         event: event => this.publish(params.runId, active, repo, event),
         session: sessionId => repo.updateSessionId(params.runId, sessionId),
-        reportDecision: async generate => { active.shouldGenerateReport = generate; },
+        reportDecision: async (generate, presentation) => { active.shouldGenerateReport = generate; active.presentation = presentation; },
         approval: async request => {
           const approvalId = crypto.randomUUID();
           const timeoutMs = Math.max(10_000, this.config.codex?.approvalTimeoutMs ?? 300_000);
@@ -337,7 +338,7 @@ export class AgentOrchestrator {
     if (status === 'completed' && active.shouldGenerateReport === true) {
       const renderStarted = Date.now();
       const reportSaved = active.finalContent
-        ? await this.createStaticReport(runId, active.finalContent, repo, active.templateStyle, active.workingDirectory!)
+        ? await this.createStaticReport(runId, active.finalContent, repo, active.templateStyle, active.workingDirectory!, active.presentation)
         : false;
       active.metrics.reportRenderMs = Date.now() - renderStarted;
       if (!reportSaved) {
@@ -368,11 +369,11 @@ export class AgentOrchestrator {
   }
 
   private async createStaticReport(
-    runId: string, content: string, repo: AgentRepository, templateStyle: TemplateStyle, workingDirectory: string,
+    runId: string, content: string, repo: AgentRepository, templateStyle: TemplateStyle, workingDirectory: string, presentation?: ReportPresentation,
   ): Promise<boolean> {
     try {
       const assets = await collectReportAssets(content, workingDirectory, runId);
-      const rendered = renderStaticAgentReport(content, templateStyle, assets);
+      const rendered = renderStaticAgentReport(content, templateStyle, assets, presentation);
       const bytes = Buffer.byteLength(rendered.html);
       const validation = validateAgentReport(rendered.html, bytes);
       if (!validation.valid) return false;

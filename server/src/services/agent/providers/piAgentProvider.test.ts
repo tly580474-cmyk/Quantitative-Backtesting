@@ -34,7 +34,7 @@ it('maps Pi events, excludes thinking, preserves failures and resumes exact sess
     expect(await run.completion).toMatchObject({status:'completed'});
     expect(JSON.stringify(events)).not.toContain('private-chain');
     expect(events).toEqual(expect.arrayContaining([expect.objectContaining({type:'assistant_final',publicContent:'# 结果'}),expect.objectContaining({type:'error',toolFailure:expect.objectContaining({category:'invalid_argument'})})]));
-    expect(decision).toHaveBeenCalledWith(true);
+    expect(decision).toHaveBeenCalledWith(true, undefined);
     expect(session).toHaveBeenCalledWith(id);
     expect(vi.mocked(spawn).mock.calls.at(-1)?.[1]).toEqual(expect.arrayContaining(['--session',id,'--no-extensions']));
     expect(telemetry).toHaveBeenCalledWith(expect.objectContaining({usageScope:'message'}));
