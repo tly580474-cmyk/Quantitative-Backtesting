@@ -137,17 +137,19 @@ export interface AdminConfigItem {
   editable: boolean;
   restartRequired: boolean;
   inputType?: 'text' | 'time' | 'boolean' | 'number';
+  options?: Array<{ value: string; label: string }>;
   restartScope: 'db' | 'ai' | 'runtime' | 'market' | 'access';
   configured: boolean;
   maskedValue: string | null;
 }
 
+export type AgentProviderId = 'claude' | 'codex' | 'pi';
 export interface AgentOperations {
   enabled: boolean;
-  defaultProvider: 'claude' | 'codex';
+  defaultProvider: AgentProviderId;
   runtime: { active: number; capacity: number };
   providers: Array<{
-    id: 'claude' | 'codex'; enabled: boolean; available: boolean; reason: string | null;
+    id: AgentProviderId; enabled: boolean; available: boolean; reason: string | null;
     capabilities: Record<string, boolean>;
   }>;
   codex: {
@@ -158,10 +160,15 @@ export interface AgentOperations {
     marketDataCliConfigured: boolean;
     externalDataSkillEnabled: boolean; isolatedPythonConfigured: boolean;
   };
+  pi?: {
+    enabled: boolean; version: string | null; model: string | null; modelProvider: string | null;
+    configurationDirectoryConfigured: boolean; authFileReadable: boolean;
+    latestRun: { id: string; status: string; finishedAt: string | null } | null;
+  };
   persistence: { statuses: Record<string, number>; events: number; eventBytes: number; conversations: number } | null;
   pendingApprovals: number;
   recentFailures: Array<{
-    runId: string; provider: 'claude' | 'codex'; errorCode: string; category: string;
+    runId: string; provider: AgentProviderId; errorCode: string; category: string;
     message: string; finishedAt: string | null;
   }>;
   observedAt: string;

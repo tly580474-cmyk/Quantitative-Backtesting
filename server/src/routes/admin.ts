@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, accessSync, constants } from 'node:fs';
+import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Pool } from 'mysql2/promise';
 import { z } from 'zod';
@@ -180,12 +181,18 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     const enabled = options.agent?.enabled === true;
     const orchestrator = options.agent?.orchestrator ?? null;
     const repo = new AgentRepository(options.pool);
-    const [metrics, recentRuns, pendingApprovals, codexVersion] = await Promise.all([
+    const [metrics, recentRuns, pendingApprovals, codexVersion, piVersion] = await Promise.all([
       options.dbOnline ? repo.getMetrics() : Promise.resolve(null),
       options.dbOnline ? repo.listRuns(50) : Promise.resolve([]),
       options.dbOnline ? repo.listPendingApprovals() : Promise.resolve([]),
       readCommandVersion(options.config.AGENT_CODEX_PATH),
+      options.config.AGENT_PI_ENABLED === 'true' ? readCommandVersion(options.config.AGENT_PI_PATH) : Promise.resolve(null),
     ]);
+    let piAuthFileReadable = false;
+    if (options.config.AGENT_PI_AGENT_DIRECTORY) {
+      try { accessSync(join(options.config.AGENT_PI_AGENT_DIRECTORY, 'auth.json'), constants.R_OK); piAuthFileReadable = true; } catch { /* Readiness only; never read or expose credential contents. */ }
+    }
+    const latestPiRun = recentRuns.find(run => run.provider === 'pi');
     const failures = recentRuns.filter(run => run.status === 'failed').slice(0, 10).map(run => ({
       runId: run.id, provider: run.provider, errorCode: run.errorCode ?? 'UNKNOWN',
       category: classifyAgentFailure(run.errorCode, run.errorMessage),
@@ -197,6 +204,12 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       defaultProvider: orchestrator?.getDefaultProvider() ?? options.config.AGENT_PROVIDER,
       runtime: orchestrator?.getRuntimeStats() ?? { active: 0, capacity: Number(options.config.AGENT_MAX_CONCURRENT) || 1 },
       providers: orchestrator?.getProviderHealth() ?? [],
+      pi: {
+        enabled: options.config.AGENT_PI_ENABLED === 'true', version: piVersion,
+        model: options.config.AGENT_PI_MODEL || null, modelProvider: options.config.AGENT_PI_MODEL_PROVIDER || null,
+        configurationDirectoryConfigured: Boolean(options.config.AGENT_PI_AGENT_DIRECTORY), authFileReadable: piAuthFileReadable,
+        latestRun: latestPiRun ? { id: latestPiRun.id, status: latestPiRun.status, finishedAt: latestPiRun.finishedAt } : null,
+      },
       codex: {
         enabled: options.config.AGENT_CODEX_ENABLED === 'true', version: codexVersion,
         model: options.config.AGENT_CODEX_MODEL || null,

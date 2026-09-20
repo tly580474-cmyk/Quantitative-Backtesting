@@ -587,24 +587,25 @@ function RestartDialog({ pid, onCancel, onConfirm }: { pid: number; onCancel: ()
 }
 
 function AgentOperationsSection({ operations }: { operations: AgentOperations }) {
-  const codexProvider = operations.providers.find(provider => provider.id === 'codex');
+  const defaultProvider = operations.providers.find(provider => provider.id === operations.defaultProvider);
+  const availableProviders = operations.providers.filter(provider => provider.available);
   const status: HealthLevel = !operations.enabled ? 'disabled'
-    : codexProvider?.available ? 'healthy' : 'warning';
+    : defaultProvider?.available ? 'healthy' : 'warning';
   return <>
     <section className={`system-banner status-surface-${status}`}>
       <div className="banner-status-icon"><RobotOutlined /></div>
       <div className="banner-copy">
-        <span className="eyebrow">Codex Harness</span>
-        <h2>{operations.enabled ? (codexProvider?.available ? '项目 Agent 服务可用' : 'Agent 已启用，Codex 尚不可用') : 'Agent 系统当前关闭'}</h2>
+        <span className="eyebrow">Agent Providers</span>
+        <h2>{operations.enabled ? (defaultProvider?.available ? '项目 Agent 服务可用' : `Agent 已启用，默认 Provider ${operations.defaultProvider} 尚不可用`) : 'Agent 系统当前关闭'}</h2>
         <p>默认 Provider：{operations.defaultProvider} · 活跃 {operations.runtime.active}/{operations.runtime.capacity} · 待审批 {operations.pendingApprovals}</p>
       </div>
       <StatusBadge level={status} />
     </section>
     <div className="metric-grid metric-grid--agent" aria-label="Agent 运行指标">
-      <MetricCard icon={<RobotOutlined />} label="Codex CLI" value={operations.codex.version ?? '不可用'} detail={operations.codex.model ?? '未指定模型'} level={operations.codex.version ? 'healthy' : 'warning'} />
-      <MetricCard icon={<CloudServerOutlined />} label="API Provider" value={operations.codex.modelProvider} detail={operations.codex.apiKeyConfigured ? '项目 Key 已配置' : '项目 Key 未配置'} level={operations.codex.apiKeyConfigured ? 'healthy' : 'critical'} />
-      <MetricCard icon={<SafetyCertificateOutlined />} label="工作区自治" value={operations.codex.sandboxMode} detail={`Windows ${operations.codex.windowsSandbox} · 审批 ${operations.codex.approvalsEnabled ? '逐步开启' : '无需逐步审批'} · 网络 ${operations.codex.networkEnabled ? '开放' : '关闭'}`} level={operations.codex.isolatedHome && operations.codex.sandboxMode === 'workspace-write' && !operations.codex.approvalsEnabled ? 'healthy' : 'warning'} />
-      <MetricCard icon={<DatabaseOutlined />} label="行情数据入口" value={operations.codex.marketDataCliConfigured ? '本地优先' : '未配置'} detail={`外部补缺 ${operations.codex.externalDataSkillEnabled ? '已启用' : '已关闭'} · 隔离 Python ${operations.codex.isolatedPythonConfigured ? '可用' : '未配置'}`} level={operations.codex.marketDataCliConfigured && operations.codex.isolatedPythonConfigured ? 'healthy' : 'warning'} />
+      <MetricCard icon={<RobotOutlined />} label="默认 Provider" value={operations.defaultProvider} detail={defaultProvider?.reason ?? '用于新建对话，历史会话保持原 Provider'} level={status} />
+      <MetricCard icon={<CloudServerOutlined />} label="可用 Provider" value={String(availableProviders.length)} detail={availableProviders.map(provider => provider.id).join(' · ') || '暂无可用 Provider'} level={availableProviders.length ? 'healthy' : 'warning'} />
+      <MetricCard icon={<SafetyCertificateOutlined />} label="待审批" value={String(operations.pendingApprovals)} detail="仅支持审批的 Provider 会产生审批请求" level={operations.pendingApprovals ? 'warning' : 'healthy'} />
+      <MetricCard icon={<DatabaseOutlined />} label="运行容量" value={`${operations.runtime.active}/${operations.runtime.capacity}`} detail="活跃任务 / 并发上限" level={operations.runtime.active >= operations.runtime.capacity ? 'warning' : 'healthy'} />
       <MetricCard icon={<BarChartOutlined />} label="持久化事件" value={String(operations.persistence?.events ?? 0)} detail={`${operations.persistence?.conversations ?? 0} 个对话`} level="healthy" />
     </div>
     <Panel title="Provider 状态" subtitle="能力、可用性与运行容量" icon={<CloudServerOutlined />}>
@@ -612,6 +613,19 @@ function AgentOperationsSection({ operations }: { operations: AgentOperations })
         <div><strong>{provider.id}</strong><span>{provider.reason ?? Object.entries(provider.capabilities).filter(([, enabled]) => enabled).map(([name]) => name).join(' · ')}</span></div>
         <StatusBadge level={provider.available ? 'healthy' : provider.enabled ? 'warning' : 'disabled'} compact />
       </div>) : <EmptyState icon={<RobotOutlined />} title="Provider 未启动" description="启用 Agent 并重启后端后可查看实时 Provider 状态。" />}
+    </Panel>
+    <Panel title="Pi 运行环境" subtitle="配置就绪不代表上游认证通过；实际任务状态用于核对运行结果" icon={<RobotOutlined />}>
+      {operations.pi ? <>
+        <div className="resource-row"><div><strong>Pi CLI</strong><span>{operations.pi.version ?? (operations.pi.enabled ? '版本不可用' : '未启用')}</span></div><StatusBadge compact level={operations.pi.version ? 'healthy' : operations.pi.enabled ? 'warning' : 'disabled'} /></div>
+        <div className="resource-row"><div><strong>模型与来源</strong><span>{operations.pi.modelProvider ?? '使用 Pi 默认来源'} · {operations.pi.model ?? '使用 Pi 默认模型'}</span></div></div>
+        <div className="resource-row"><div><strong>独立配置与认证文件</strong><span>配置目录{operations.pi.configurationDirectoryConfigured ? '已配置' : '未配置'} · 认证文件{operations.pi.authFileReadable ? '可读' : '不可读'}；认证内容不展示</span></div></div>
+        <div className="resource-row"><div><strong>运行能力</strong><span>会话续接、取消、工具事件与报告；无操作系统沙箱、MCP或交互审批</span></div></div>
+        <div className="resource-row"><div><strong>最近 Pi 任务</strong><span>{operations.pi.latestRun ? `${operations.pi.latestRun.status} · ${operations.pi.latestRun.id}${operations.pi.latestRun.finishedAt ? ` · ${new Date(operations.pi.latestRun.finishedAt).toLocaleString('zh-CN', {hour12:false})}` : ''}` : '暂无 Pi 运行记录'}</span></div></div>
+      </> : <EmptyState icon={<RobotOutlined />} title="Pi 状态暂不可用" description="更新后端后可查看 Pi 运行配置。" />}
+    </Panel>
+    <Panel title="Codex 运行环境" subtitle="仅反映 Codex 的配置，不作为其他 Provider 的可用性依据" icon={<CloudServerOutlined />}>
+      <div className="resource-row"><div><strong>CLI 与模型</strong><span>{operations.codex.version ?? '版本不可用'} · {operations.codex.modelProvider} · {operations.codex.model ?? '未指定模型'}</span></div></div>
+      <div className="resource-row"><div><strong>工作区与数据</strong><span>{operations.codex.sandboxMode} · 审批{operations.codex.approvalsEnabled ? '开启' : '关闭'} · 网络{operations.codex.networkEnabled ? '开放' : '关闭'} · 本地行情入口{operations.codex.marketDataCliConfigured ? '已配置' : '未配置'}</span></div></div>
     </Panel>
     <Panel title="近期失败" subtitle="仅展示脱敏错误分类，不包含提示词、推理或密钥" icon={<AlertOutlined />}>
       {operations.recentFailures.length ? operations.recentFailures.map(failure => <div className="resource-row" key={failure.runId}>
@@ -1300,8 +1314,8 @@ function ConfigDialog({
   onSaved: (message: string) => Promise<void>;
 }) {
   const [value, setValue] = useState(() =>
-    item.inputType === 'time' || item.inputType === 'boolean'
-      ? (item.maskedValue ?? (item.inputType === 'boolean' ? 'true' : ''))
+    item.options?.length || item.inputType === 'time' || item.inputType === 'boolean'
+      ? (item.maskedValue ?? item.options?.[0]?.value ?? (item.inputType === 'boolean' ? 'true' : ''))
       : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -1353,10 +1367,12 @@ function ConfigDialog({
         </div>
         <form onSubmit={submit} autoComplete="off">
           <label htmlFor="config-value">
-            {item.inputType === 'boolean' ? '选择状态' : (item.secret ? '输入新密钥' : '输入新值')}
+            {item.options?.length ? '选择选项' : item.inputType === 'boolean' ? '选择状态' : (item.secret ? '输入新密钥' : '输入新值')}
           </label>
           <div className="input-with-toggle">
-            {item.inputType === 'boolean' ? (
+            {item.options?.length ? <select id="config-value" autoFocus value={value} onChange={event => setValue(event.target.value)}>
+              {item.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select> : item.inputType === 'boolean' ? (
               <select
                 id="config-value"
                 autoFocus

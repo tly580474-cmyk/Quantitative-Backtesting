@@ -146,6 +146,44 @@ beforeEach(() => {
 });
 
 describe('admin operations states', () => {
+  it('uses the selected Pi provider for health even when Codex is unavailable', async () => {
+    api.getAgentOperations.mockResolvedValue({ ...agentOperations, defaultProvider: 'pi',
+      providers: [{ id: 'pi', enabled: true, available: true, reason: null, capabilities: { resume: true } }],
+      codex: { ...agentOperations.codex, enabled: false, version: null },
+      pi: { enabled: true, version: '0.85.1', model: 'test-model', modelProvider: 'test-source',
+        configurationDirectoryConfigured: true, authFileReadable: true, latestRun: null },
+    });
+    render(<AdminShell token="test-token" onLogout={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Agent 运维/ }));
+    expect(await screen.findByText('项目 Agent 服务可用')).toBeInTheDocument();
+    expect(screen.getByText('0.85.1')).toBeInTheDocument();
+    expect(screen.getByText('test-source · test-model')).toBeInTheDocument();
+    expect(screen.getByText(/认证文件可读/)).toBeInTheDocument();
+  });
+
+  it('warns when the default provider is unavailable despite a healthy alternative', async () => {
+    api.getAgentOperations.mockResolvedValue({ ...agentOperations, defaultProvider: 'pi' });
+    render(<AdminShell token="test-token" onLogout={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Agent 运维/ }));
+    expect(await screen.findByText('Agent 已启用，默认 Provider pi 尚不可用')).toBeInTheDocument();
+  });
+
+  it('saves Pi from the provider selector', async () => {
+    api.getAdminConfig.mockResolvedValue([{ key: 'AGENT_PROVIDER', label: '默认研究 Provider', category: 'ai',
+      description: '选择新对话使用的 Provider', secret: false, configured: true, maskedValue: 'claude',
+      editable: true, restartRequired: true, restartScope: 'backend', inputType: 'text',
+      options: [{ value: 'claude', label: 'Claude' }, { value: 'codex', label: 'Codex' }, { value: 'pi', label: 'Pi' }],
+    }]);
+    render(<AdminShell token="test-token" onLogout={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /配置与密钥/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '更新' }));
+    const selector = screen.getByLabelText('选择选项');
+    expect(selector).toHaveValue('claude');
+    fireEvent.change(selector, { target: { value: 'pi' } });
+    fireEvent.submit(selector.closest('form')!);
+    await waitFor(() => expect(api.updateAdminConfig).toHaveBeenCalledWith('test-token', { AGENT_PROVIDER: 'pi' }));
+  });
+
   it('renders the healthy Agent workspace with five metric cards', async () => {
     render(<AdminShell token="test-token" onLogout={vi.fn()} />);
 

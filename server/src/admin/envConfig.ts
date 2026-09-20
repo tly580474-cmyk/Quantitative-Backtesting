@@ -12,6 +12,7 @@ export interface AdminConfigDefinition {
   editable: boolean;
   restartRequired: boolean;
   inputType?: 'text' | 'time' | 'boolean' | 'number';
+  options?: Array<{ value: string; label: string }>;
   defaultValue?: string;
   /**
    * 重启影响范围标签（见 §4.3）：
@@ -166,6 +167,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
   },
   {
     key: 'AGENT_PROVIDER', label: '默认 Agent Provider', category: 'ai',
+    options: [{value:'claude',label:'Claude'},{value:'codex',label:'Codex'},{value:'pi',label:'Pi'}],
     description: '默认使用 claude、codex 或 pi；已有对话始终保持原 Provider。', secret: false, editable: true,
     restartRequired: true, restartScope: 'ai', defaultValue: 'claude',
   },

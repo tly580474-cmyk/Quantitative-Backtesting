@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Pool } from 'mysql2/promise';
 import { loadConfig } from '../config.js';
 import { registerAdminRoutes } from './admin.js';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const previousToken = process.env.ADMIN_API_TOKEN;
 
@@ -13,6 +16,29 @@ afterEach(() => {
 });
 
 describe('admin routes', () => {
+  it('exposes Pi readiness only to admins without exposing its credentials', async () => {
+    process.env.ADMIN_API_TOKEN = 'test-admin-token';
+    const directory = await mkdtemp(join(tmpdir(), 'admin-pi-'));
+    const app = Fastify();
+    try {
+      await writeFile(join(directory, 'auth.json'), '{"apiKey":"never-expose-this-credential"}');
+      registerAdminRoutes(app, { pool: {} as Pool, dbOnline: false, envFilePath: '.env',
+        config: { ...loadConfig(), AGENT_PROVIDER: 'pi', AGENT_PI_ENABLED: 'true',
+          AGENT_PI_PATH: process.execPath, AGENT_CODEX_PATH: process.execPath,
+          AGENT_PI_AGENT_DIRECTORY: directory, AGENT_PI_MODEL: 'test-model', AGENT_PI_MODEL_PROVIDER: 'test-source' },
+      });
+      expect((await app.inject({ method: 'GET', url: '/api/admin/agent' })).statusCode).toBe(401);
+      const response = await app.inject({ method: 'GET', url: '/api/admin/agent',
+        headers: { authorization: 'Bearer test-admin-token' } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ defaultProvider: 'pi', pi: { enabled: true,
+        version: expect.any(String), model: 'test-model', modelProvider: 'test-source',
+        configurationDirectoryConfigured: true, authFileReadable: true, latestRun: null } });
+      expect(response.body).not.toContain('never-expose-this-credential');
+      expect(response.body).not.toContain(directory.replaceAll('\\', '\\\\'));
+    } finally { await app.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+
   it('reports disabled state when no token is configured', async () => {
     process.env.ADMIN_API_TOKEN = '';
     const app = Fastify();

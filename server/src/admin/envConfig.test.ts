@@ -17,6 +17,14 @@ afterEach(async () => {
 });
 
 describe('admin env config', () => {
+  it('offers Pi alongside existing providers and exposes its editable runtime settings', () => {
+    const items = listAdminConfig({ AGENT_PROVIDER: 'pi', AGENT_PI_ENABLED: 'true' });
+    expect(items.find(item => item.key === 'AGENT_PROVIDER')).toMatchObject({ maskedValue: 'pi',
+      options: [{ value: 'claude', label: 'Claude' }, { value: 'codex', label: 'Codex' }, { value: 'pi', label: 'Pi' }] });
+    expect(items.filter(item => item.key.startsWith('AGENT_PI_'))).toHaveLength(6);
+    expect(items.filter(item => item.key.startsWith('AGENT_PI_')).every(item => item.editable && item.restartRequired)).toBe(true);
+  });
+
   it('never exposes a full secret', () => {
     expect(maskConfigValue('sk-example-12345678', true)).toBe('••••5678');
     expect(maskConfigValue('', true)).toBeNull();
