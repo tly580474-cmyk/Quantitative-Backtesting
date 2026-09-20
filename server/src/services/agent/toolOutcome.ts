@@ -39,7 +39,17 @@ export function detectToolFailure(output: unknown, failed = false, exitCode?: nu
         try { structured ||= JSON.parse(value.output)?.ok === false; } catch { /* Plain nested stdout. */ }
       }
     }
-  } catch { /* Plain stdout is expected. */ }
+  } catch {
+    // A shell fallback may print multiple compact JSON results. Inspect complete
+    // result lines, not arbitrary JSON fragments or mentions in ordinary prose.
+    for (const line of text.split('\n')) {
+      if (!line.trim().startsWith('{')) continue;
+      try {
+        const value = JSON.parse(line);
+        if (value?.ok === false) { structured = true; text = resultText(value.error ?? value); break; }
+      } catch { /* Plain stdout is expected. */ }
+    }
+  }
   const rules: Array<[ToolFailureCategory, RegExp]> = [
     ['invalid_argument', /^(?:INVALID_ARGUMENT:|未知命令：|npm (?:ERR!|error) Missing script:)/m],
     ['query_error', /^(?:(?:Error: )?Failed to (?:extract statements|prepare statement): )?(?:Binder|Parser|Catalog|Conversion|Invalid Input) Error:/m],

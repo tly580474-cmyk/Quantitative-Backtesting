@@ -6,6 +6,11 @@ import { describe, expect, it } from 'vitest';
 const entry = fileURLToPath(new URL('../../scripts/researchData.mjs', import.meta.url));
 const run = (...args: string[]) => promisify(execFile)(process.execPath, [entry, ...args], { cwd: fileURLToPath(new URL('../../../', import.meta.url)) });
 describe('unified research CLI contract', () => {
+  it.each([['--help'], ['fund-flows', '--help'], ['query', '--help']])('provides discoverable help for %j without data access', async (...args) => {
+    const result = JSON.parse((await run(...args)).stdout);
+    expect(result.prefix).toBe('node server/scripts/researchData.mjs');
+    expect(result.usage).toBeTruthy();
+  });
   it('discovers fund flows without connecting to the database', async () => {
     const result = JSON.parse((await run('catalog', '--task', 'fund-flow')).stdout);
     expect(result.datasets).toHaveLength(1);

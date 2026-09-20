@@ -18,6 +18,12 @@ const commands: Record<string, string[]> = {
   catalog: ['--task'], describe: [], coverage: ['--start', '--end'], doctor: [],
   'fund-flows': ['--end', '--days', '--top', '--group', '--symbol'],
 };
+const usage: Record<string, string> = {
+  catalog: 'catalog [--task fund-flow|cross-sectional|factor|fundamental|event|intraday|quote]',
+  describe: 'describe <dataset>', coverage: 'coverage <dataset> [--start YYYY-MM-DD] [--end YYYY-MM-DD]',
+  doctor: 'doctor <dataset>', query: 'query --sql "SELECT ..." | --file tmp_output/query.sql [--param name=value] [--params-file file.json]',
+  'fund-flows': 'fund-flows [--end YYYY-MM-DD] [--days 1..60] [--group stock|industry] [--top 1..50] [--symbol 600000]',
+};
 async function duckdb(args: string[]) {
   return exec(process.execPath, [fileURLToPath(new URL('../../node_modules/tsx/dist/cli.mjs', import.meta.url)),
     fileURLToPath(new URL('./duckdbCli.ts', import.meta.url)), ...args],
@@ -26,6 +32,11 @@ async function duckdb(args: string[]) {
 
 async function main() {
   const [command = 'catalog', ...args] = process.argv.slice(2);
+  if ((['help', '--help', '-h'].includes(command) && !args.length)
+    || (usage[command] && args.length === 1 && ['--help', '-h'].includes(args[0]))) {
+    return { usage: usage[command] ?? usage, prefix: 'node server/scripts/researchData.mjs',
+      note: '从项目根目录执行；文件参数相对根目录；fund-flows已附逐日覆盖，金额由库内元换算为亿元；coverage资金流最多60个交易日。' };
+  }
   if (command === 'query') {
     // Fixed cwd and path semantics; no shell or output-truncating pipeline.
     const forwarded: string[] = [];

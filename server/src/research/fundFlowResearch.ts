@@ -3,7 +3,7 @@ import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 export interface FundFlowOptions { end: string; days: number; top: number; group: 'stock' | 'industry'; symbol?: string; start?: string; }
 export const FUND_FLOW_FIELDS = {
   tradeDate: '交易日 YYYY-MM-DD，最近N日按SH交易日历选择，缺数据不向更早日期补齐',
-  mainNetInYi: '主力净流入，超大单+大单，单位亿元；负数为净流出',
+  mainNetInYi: '主力净流入，超大单+大单；库内main_net_in单位为元，除以100000000后输出亿元；负数为净流出',
   sampleCount: '实际有资金流记录的股票数量，不保证全市场覆盖',
   expectedCount: '同期本地日线的股票数量，仅作覆盖参照；停牌等原因可导致差异',
   referenceCountDifference: '同期日线参照数减资金流样本数；只是数量之差，不是逐股核实的缺失名单',
