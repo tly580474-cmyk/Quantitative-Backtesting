@@ -4,7 +4,7 @@ import {
   sanitizeToolDetail,
   type PublicAgentEvent,
 } from './eventProtocol.js';
-import { detectToolFailure } from './toolOutcome.js';
+import { detectToolFailure, researchDataUsable } from './toolOutcome.js';
 
 export type ParsedEvent = PublicAgentEvent;
 
@@ -169,6 +169,7 @@ function parseBlocks(blocks: StreamBlock[]): ParsedEvent[] {
         toolUseId: typeof block.tool_use_id === 'string' ? block.tool_use_id.slice(0, 128) : undefined,
         toolResult: sanitizeToolDetail(toolResultErrorContent(block.content)),
         toolFailure: detectToolFailure(block.content, block.is_error),
+        toolDataUsable: researchDataUsable(block.content),
       });
     }
   }

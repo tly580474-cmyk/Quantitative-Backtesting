@@ -5,7 +5,7 @@ import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { extractReportDirective } from '../outputParser.js';
 import { sanitizePublicContent, sanitizeToolName, sanitizeToolDetail } from '../eventProtocol.js';
 import { terminateProcessTree } from './processUtils.js';
-import { detectToolFailure, isExecutedCommand } from '../toolOutcome.js';
+import { detectToolFailure, isExecutedCommand, researchDataUsable } from '../toolOutcome.js';
 import type {
   AgentProvider,
   AgentProviderCapabilities,
@@ -117,12 +117,13 @@ function publicToolName(item: Record<string, any>): string {
 }
 
 function isToolItem(item: Record<string, any>): boolean {
-  return ['commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall', 'webSearch'].includes(item.type);
+  return ['commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall', 'webSearch', 'imageView'].includes(item.type);
 }
 
 export function codexToolDetails(item: Record<string, any>) {
   // Whitelist actual tool payloads; never expose reasoning or provider/session metadata.
   const input = item.type === 'commandExecution' ? item.command
+    : item.type === 'imageView' ? item.path
     : item.type === 'fileChange' ? item.changes
     : item.type === 'webSearch' ? (item.action ?? item.query)
     : item.arguments;
@@ -434,6 +435,7 @@ export class CodexAgentProvider implements AgentProvider {
             timestamp: now(), toolName,
             ...codexToolDetails(item),
             toolFailure: failed ? toolFailure : undefined,
+            toolDataUsable: researchDataUsable(item.aggregatedOutput ?? item.result),
             toolUseId: String(item.id ?? '').slice(0, 128) || undefined,
             durationMs: typeof item.durationMs === 'number' ? item.durationMs : undefined,
           });

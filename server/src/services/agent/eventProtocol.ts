@@ -22,6 +22,7 @@ export interface TerminalPayload {
 export interface PublicAgentEvent {
   /** Provider observation used by the orchestrator before persistence/display truncation. */
   toolFailure?: import('./toolOutcome.js').ToolFailure;
+  toolDataUsable?: boolean;
   runId?: string;
   type: PublicAgentEventType;
   publicContent: string;

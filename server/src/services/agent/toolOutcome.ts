@@ -14,6 +14,15 @@ function resultText(value: unknown): string {
   return value == null ? '' : JSON.stringify(value);
 }
 
+export function researchDataUsable(output: unknown): boolean | undefined {
+  try {
+    let value = JSON.parse(resultText(output));
+    if (typeof value.output === 'string') value = JSON.parse(value.output);
+    if (value.kind === 'research-data' && value.ok === true && typeof value.usable === 'boolean') return value.usable;
+  } catch { /* No structured result, so usefulness is unknown. */ }
+  return undefined;
+}
+
 /** Inspect before display truncation. Narrow runtime signatures avoid matching ordinary mentions of errors. */
 export function detectToolFailure(output: unknown, failed = false, exitCode?: number | null): ToolFailure | undefined {
   let text = resultText(output);

@@ -18,6 +18,13 @@ describe('tool execution outcomes', () => {
     expect(event.toolResult).not.toContain('Binder Error');
     expect(event.toolFailure?.category).toBe('query_error');
   });
+  it('captures valid data before a large JSON result is truncated for display', () => {
+    const [event] = parseStreamLine(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'q',
+      content: JSON.stringify({ kind: 'research-data', ok: true, usable: true, sample: ['x'.repeat(16000)] }),
+    }] } }));
+    expect(event.toolResult).toContain('内容已截断');
+    expect(event.toolDataUsable).toBe(true);
+  });
   it('does not treat data, warnings, or reading source files as failed execution', () => {
     expect(detectToolFailure('error_count=0\nWarning: missing optional field')).toBeUndefined();
     expect(detectToolFailure('The guide explains Binder Error: ...')).toBeUndefined();

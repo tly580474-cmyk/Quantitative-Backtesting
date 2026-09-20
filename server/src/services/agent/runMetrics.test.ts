@@ -37,6 +37,14 @@ describe('research run metrics', () => {
     metrics.telemetry({ usageScope: 'provider_total', usage: { inputTokens: NaN, cachedInputTokens: 0, outputTokens: 1 } });
     expect(metrics.snapshot().usage?.outputTokens).toBe(40);
   });
+  it('uses raw data availability metadata when the display result was truncated', () => {
+    let time = 0; const metrics = new AgentRunMetrics(() => time);
+    metrics.observe({ type: 'tool_started', toolUseId: 'd', toolInput: 'researchData.mjs query', publicContent: '', timestamp: '' });
+    time = 25;
+    metrics.observe({ type: 'tool_finished', toolUseId: 'd', toolResult: '{"kind":"research-data",…',
+      toolDataUsable: true, publicContent: '', timestamp: '' });
+    expect(metrics.snapshot().firstValidDataMs).toBe(25);
+  });
   it('extracts only model and numeric usage metadata', () => {
     const result = claudeTelemetry(JSON.stringify({ type: 'assistant', message: {
       id: 'm', model: 'test-model', content: [{ type: 'thinking', thinking: 'private' }],

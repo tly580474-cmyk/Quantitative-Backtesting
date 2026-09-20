@@ -1,4 +1,5 @@
 import type { PublicAgentEvent } from './eventProtocol.js';
+import { researchDataUsable } from './toolOutcome.js';
 
 export interface ProviderTelemetry {
   model?: string;
@@ -82,13 +83,7 @@ export class AgentRunMetrics {
     } else if (span.phase === 'data') {
       this.firstSuccess ??= span.end - this.began;
       // Only an explicit validated data envelope proves useful data; exit 0 alone does not.
-      try {
-        let result = JSON.parse(event.toolResult ?? '');
-        if (typeof result.output === 'string') result = JSON.parse(result.output);
-        if (result.kind === 'research-data' && result.ok === true && result.usable === true) {
-          this.firstData ??= span.end - this.began;
-        }
-      } catch { /* Unknown is intentionally retained as null. */ }
+      if ((event.toolDataUsable ?? researchDataUsable(event.toolResult)) === true) this.firstData ??= span.end - this.began;
     }
   }
 

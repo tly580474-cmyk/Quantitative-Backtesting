@@ -130,6 +130,15 @@ describe('agent public event protocol', () => {
     expect(value).not.toContain('abcdefghijklmnop');
     expect(value).not.toContain('root:pass');
   });
+  it('preserves useful-data metadata before truncating a large research result', () => {
+    const events = parseStreamLine(JSON.stringify({ type: 'user', message: { content: [{
+      type: 'tool_result', tool_use_id: 'data-1', content: JSON.stringify({
+        kind: 'research-data', ok: true, usable: true, sample: 'x'.repeat(20000),
+      }),
+    }] } }));
+    expect(events[0]).toMatchObject({ type: 'tool_finished', toolDataUsable: true });
+    expect(events[0].toolResult!.length).toBeLessThan(20000);
+  });
 
   it('keeps the supported stream-json sample contract stable', () => {
     const fixtureRoot = process.cwd().endsWith('server') ? process.cwd() : resolve(process.cwd(), 'server');
