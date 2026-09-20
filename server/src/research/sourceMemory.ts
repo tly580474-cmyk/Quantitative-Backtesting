@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile, rename, readdir, rm } from 'node:fs/promise
 import { join } from 'node:path';
 
 export interface ResearchOutcome { value: Record<string, unknown>; exitCode: number; }
-export const fingerprint = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+export const fingerprint = (value: unknown) => createHash('sha256').update(JSON.stringify(value) ?? 'undefined').digest('hex');
 export function outcomeTtl(outcome: ResearchOutcome): number {
   if (outcome.value.status === 'unsupported') return 300_000;
   if (outcome.exitCode) return outcome.value.errorCategory === 'upstream_unavailable' ? 15_000 : 60_000;

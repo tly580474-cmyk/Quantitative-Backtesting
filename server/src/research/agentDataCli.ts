@@ -10,9 +10,11 @@ import { DATASETS, catalogDataset, datasetCoverage, datasetEntry } from './agent
 import { FUND_FLOW_FIELDS, queryFundFlows } from './fundFlowResearch.js';
 import { sanitizePublicContent } from '../services/agent/eventProtocol.js';
 import { detectToolFailure } from '../services/agent/toolOutcome.js';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdir, stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { fingerprint, withSourceMemory, type ResearchOutcome } from './sourceMemory.js';
+import { saveCapsule, reuseCapsule } from './researchCapsule.js';
 
 const exec = promisify(execFile);
 const server = fileURLToPath(new URL('../../', import.meta.url));
@@ -52,14 +54,20 @@ async function main(argv: string[]) {
       if (['--file', '--params-file'].includes(flag)) value = resolve(workspace, value);
       forwarded.push(flag, value);
     }
-    const result = await duckdb(['query', ...forwarded, '--format', 'json']);
-    const data = JSON.parse(result.stdout) as unknown[];
+    const outputDirectory = resolve(workspace, 'tmp_output', 'research-results');
+    await mkdir(outputDirectory, { recursive: true });
+    const output = resolve(outputDirectory, `${randomUUID()}.json`);
+    await duckdb(['query', ...forwarded, '--format', 'json', '--out', output]);
+    const manifestPath = `${output}.manifest.json`;
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    const large = (await stat(output)).size > 8_000_000;
+    const data = large ? [] : JSON.parse(await readFile(output, 'utf8')) as unknown[];
     if (!Array.isArray(data)) throw new Error('DATA_UNAVAILABLE: 查询结果不是行数组');
-    const current = await readCurrentSnapshot(loadConfig().RESEARCH_SNAPSHOT_ROOT);
-    return { kind: 'research-data', ok: true, usable: data.length > 0, source: 'published-duckdb-snapshot',
-      snapshotIdObservedAfterQuery: current?.manifest.snapshotId ?? null, retrievedAt: new Date().toISOString(),
-      rowCount: data.length, truncated: data.length > 50, sample: data.slice(0, 50),
-      note: data.length > 50 ? '仅展示前50行；完整分析请在SQL内聚合或使用DuckDB --out导出，不能把sample当全量。' : '全部结果行；字段语义以所查询视图和SQL为准。' };
+    const rowCount = manifest.outputs?.[0]?.rows ?? data.length;
+    return { kind: 'research-data', ok: true, usable: rowCount > 0, source: 'published-duckdb-snapshot',
+      snapshotId: manifest.snapshot?.snapshotId ?? null, retrievedAt: new Date().toISOString(),
+      resultPath: output, manifestPath, rowCount, truncated: large || data.length > 50, sample: data.slice(0, 50),
+      note: '完整结果和实际连接快照保存在导出文件及manifest；sample最多50行，超过8MB时不注入预览。字段口径由SQL决定。' };
   }
   if (!commands[command]) throw new Error('INVALID_ARGUMENT: 使用 catalog、describe、coverage、doctor、query 或 fund-flows');
   const flags = new Map<string, string>();
@@ -128,14 +136,26 @@ async function run() {
   const raw = process.argv.slice(2);
   const refresh = raw.includes('--refresh');
   const argv = raw.filter(arg => arg !== '--refresh');
+  const saveIndex = argv.indexOf('--save');
+  const save = saveIndex < 0 ? undefined : argv.splice(saveIndex, 2)[1];
+  if (saveIndex >= 0 && !save) throw new Error('INVALID_ARGUMENT: --save 缺少路径');
   // File contents, scope, implementation version and published pointer all invalidate memory.
   const files: string[] = [];
   for (let i = 0; i < argv.length; i++) if (['--file', '--params-file'].includes(argv[i]) && argv[i + 1]) {
     files.push(await readFile(resolve(workspace, argv[i + 1]), 'utf8').catch(() => 'missing'));
   }
   const pointer = await readFile(resolve(loadConfig().RESEARCH_SNAPSHOT_ROOT, 'current.json'), 'utf8').catch(() => 'missing');
+  if (argv[0] === 'reuse') {
+    if (argv.length !== 3 || argv[1] !== '--file') throw new Error('INVALID_ARGUMENT: reuse --file <产物.json>');
+    const reused = await reuseCapsule(workspace, argv[2], pointer);
+    process.stdout.write(`${JSON.stringify(reused, null, 2)}\n`);
+    process.exitCode = reused.reusable ? 0 : 2;
+    return;
+  }
   const outcome = await withSourceMemory(resolve(workspace, 'tmp_output', 'source-memory', fingerprint(homedir())),
     { version: 1, argv, files, pointer, workspace }, () => execute(argv), { refresh });
+  if (save) outcome.value.artifact = await saveCapsule(workspace, save, outcome.value,
+    { argv, snapshotPointer: pointer, inputHashes: files.map(fingerprint) });
   process.stdout.write(`${JSON.stringify(outcome.value, null, 2)}\n`);
   process.exitCode = outcome.exitCode;
 }
