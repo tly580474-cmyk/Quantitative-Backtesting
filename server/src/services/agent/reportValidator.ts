@@ -19,5 +19,10 @@ export function validateAgentReport(html: string, bytes: number): ReportValidati
   if (/https?:\/\/|@import\b|url\(\s*["']?(?!data:)/i.test(html)) {
     return { valid: false, reason: '报告包含外部资源' };
   }
+  for (const image of html.matchAll(/<img\b[^>]*>/gi)) {
+    if (!/\ssrc="data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/=]+"/.test(image[0]) || /\bsrcset\s*=/i.test(image[0])) {
+      return { valid: false, reason: '报告图片必须为内嵌PNG/JPEG' };
+    }
+  }
   return { valid: true };
 }

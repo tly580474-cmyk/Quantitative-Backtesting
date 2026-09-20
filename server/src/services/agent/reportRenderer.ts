@@ -25,13 +25,6 @@ const staticRenderer = {
   },
 };
 
-const markdown = new Marked({
-  async: false,
-  gfm: true,
-  breaks: false,
-  renderer: staticRenderer,
-});
-
 function reportTitle(content: string): string {
   const lines = content.split('\n');
   const heading = lines.map(line => line.match(/^#\s+(.+)$/)?.[1]?.trim()).find(Boolean);
@@ -61,7 +54,18 @@ function plainSummary(content: string): string {
 export function renderStaticAgentReport(
   content: string,
   templateStyle: TemplateStyle = 'classic-blue',
-): { html: string; title: string; summary: string } {
+  assets: ReadonlyMap<string, string> = new Map(),
+): { html: string; title: string; summary: string; chartsCount: number } {
+  let chartsCount = 0;
+  const markdown = new Marked({ async: false, gfm: true, breaks: false, renderer: {
+    ...staticRenderer,
+    image({ href, text }: { href: string; text: string }): string {
+      const src = assets.get(href);
+      if (!src || !/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(src)) return staticRenderer.image({ text });
+      chartsCount++;
+      return `<figure><img style="max-width:100%;height:auto" src="${src}" alt="${escapeHtml(text)}"><figcaption>${escapeHtml(text)}</figcaption></figure>`;
+    },
+  } });
   const resolvedStyle: TemplateStyle = (
     ['classic-blue', 'dark-pro', 'minimal-white', 'dashboard'] as const
   ).includes(templateStyle) ? templateStyle : 'classic-blue';
@@ -86,5 +90,5 @@ export function renderStaticAgentReport(
 @media print{html,body{background:#fff}.report{width:100%;padding:0}.hero{border-radius:0;box-shadow:none;print-color-adjust:exact}.paper{margin-top:0;padding:30px 0;border:0;box-shadow:none}.content{max-width:none}.content table{white-space:normal}.footer{border-top:1px solid var(--line);padding-top:10px}h2,h3,blockquote,table{break-inside:avoid}}
 </style></head><body data-style="${resolvedStyle}"><main class="report"><header class="hero"><p class="eyebrow">WANHANG RESEARCH</p><h1>${escapeHtml(title)}</h1></header><article class="paper"><div class="content">${article}</div></article><footer class="footer"><span>由万行智研生成</span><span>生成时间 ${escapeHtml(generatedAt)}</span></footer></main>
 <!-- REPORT_SUMMARY: ${summaryComment} --></body></html>`;
-  return { html, title, summary };
+  return { html, title, summary, chartsCount };
 }

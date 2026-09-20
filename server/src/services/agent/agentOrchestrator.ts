@@ -8,6 +8,7 @@ import { AgentRepository } from './agentRepository.js';
 import { buildResearchContext } from './researchContext.js';
 import { validateAgentReport } from './reportValidator.js';
 import { renderStaticAgentReport } from './reportRenderer.js';
+import { collectReportAssets, taskArtifactDirectory } from './reportAssets.js';
 import { detectToolFailure, isExecutedCommand } from './toolOutcome.js';
 import { AgentRunMetrics } from './runMetrics.js';
 import { fundFlowAmountMismatch, verifiedFundFlowReport, type FundFlowEvidence } from './fundFlowReportGuard.js';
@@ -78,6 +79,7 @@ interface ActiveRun {
   lastEventType?: ParsedEvent['type'];
   lastEventContent?: string;
   templateStyle: TemplateStyle;
+  workingDirectory?: string;
 }
 
 interface PendingApprovalRuntime {
@@ -151,6 +153,9 @@ export class AgentOrchestrator {
       const workingDirectory = providerId === 'codex'
         ? this.config.codex?.workingDirectory ?? ''
         : this.config.claudeWorkingDirectory;
+      active.workingDirectory = workingDirectory;
+      const artifactDirectory = taskArtifactDirectory(workingDirectory, params.runId);
+      await mkdir(artifactDirectory, { recursive: true });
       const researchContext = params.parentRunId
         ? buildResearchContext(await repo.getRecentResearchEvents(params.parentRunId)) : '';
       const prompt = buildPrompt(
@@ -163,7 +168,7 @@ export class AgentOrchestrator {
           approvalsEnabled: this.config.codex?.approvalsEnabled,
           networkEnabled: this.config.codex?.networkEnabled,
         } : undefined,
-        params.attachments ?? [], researchContext,
+        params.attachments ?? [], researchContext, artifactDirectory,
       );
       const providerRun = await provider.start({
         runId: params.runId, prompt, maxTurns: params.maxTurns, resumeSessionId: params.resumeSessionId,
@@ -329,7 +334,7 @@ export class AgentOrchestrator {
     if (status === 'completed' && active.shouldGenerateReport === true) {
       const renderStarted = Date.now();
       const reportSaved = active.finalContent
-        ? await this.createStaticReport(runId, active.finalContent, repo, active.templateStyle)
+        ? await this.createStaticReport(runId, active.finalContent, repo, active.templateStyle, active.workingDirectory!)
         : false;
       active.metrics.reportRenderMs = Date.now() - renderStarted;
       if (!reportSaved) {
@@ -360,16 +365,17 @@ export class AgentOrchestrator {
   }
 
   private async createStaticReport(
-    runId: string, content: string, repo: AgentRepository, templateStyle: TemplateStyle,
+    runId: string, content: string, repo: AgentRepository, templateStyle: TemplateStyle, workingDirectory: string,
   ): Promise<boolean> {
     try {
-      const rendered = renderStaticAgentReport(content, templateStyle);
+      const assets = await collectReportAssets(content, workingDirectory, runId);
+      const rendered = renderStaticAgentReport(content, templateStyle, assets);
       const bytes = Buffer.byteLength(rendered.html);
       const validation = validateAgentReport(rendered.html, bytes);
       if (!validation.valid) return false;
       const reportPath = resolve(this.config.reportRoot, 'reports', `${runId}.html`);
       await writeFile(reportPath, rendered.html, 'utf8');
-      await repo.saveReport(runId, rendered.title, reportPath, bytes, rendered.summary, 0);
+      await repo.saveReport(runId, rendered.title, reportPath, bytes, rendered.summary, rendered.chartsCount);
       return true;
     } catch {
       return false;

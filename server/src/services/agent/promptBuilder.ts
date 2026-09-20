@@ -36,6 +36,7 @@ export function buildPrompt(
   codexData?: CodexDataAccessContext,
   attachments: PromptAttachment[] = [],
   researchContext = '',
+  artifactDirectory = '',
 ): string {
   const continuation = isResume
     ? '这是同一对话的后续消息。结合已有会话上下文继续回答；如信息已经过时或用户要求更新，可以重新查询。'
@@ -60,7 +61,8 @@ export function buildPrompt(
 
 报告不是增加篇幅的理由。generate=false 时直接给出与问题匹配的简洁回答。
 ${reportWorkflow}
-- 不要自行写报告文件，不要输出 HTML、脚本、外链或网络请求。
+- 不要自行写报告 HTML 文件或样式代码；报告正文使用 Markdown，可按用户要求调整章节、表格和图表顺序。
+${artifactDirectory ? `- 本轮图表和研究中间产物目录：${artifactDirectory}。仅此目录的 PNG/JPEG 图片可以进入报告；正文用 Markdown 图片引用实际文件路径。最多12张、每张2MB、合计6MB；不要引用外部图片、SVG或其他任务图片。后端将嵌入图片，下载后无需联网。` : ''}
 - 风格偏好：${STYLE_GUIDANCE[templateStyle]}。风格只影响确实需要报告时的呈现，不影响是否生成。
 - 最终回答末尾必须追加且只追加一个报告决策代码块；该代码块供后端读取，不要在正文解释它：
 
