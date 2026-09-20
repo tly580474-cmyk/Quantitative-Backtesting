@@ -13,11 +13,22 @@ Claude 与 Codex 共用 `agentDataCatalog.ts` 中的数据目录与选择规则�
 项目根目录可以执行：
 
 ```text
+node server/scripts/researchData.mjs fund-flows --end 2026-09-18 --days 5 --top 5
+node server/scripts/researchData.mjs fund-flows --end 2026-09-18 --days 5 --group industry
+node server/scripts/researchData.mjs fund-flows --days 1 --symbol 600000
+node server/scripts/researchData.mjs query --sql "SELECT symbol, tradeDate, adjustedClose FROM stock_prices_qfq LIMIT 5"
+node server/scripts/researchData.mjs query --file tmp_output/query.sql
 node server/scripts/researchData.mjs catalog --task cross-sectional
 node server/scripts/researchData.mjs describe daily_bars
 node server/scripts/researchData.mjs coverage financials --start 2020-01-01 --end 2026-09-04
 node server/scripts/researchData.mjs doctor daily_bars
 ```
+
+资金流由项目 CLI 内部的参数化 SELECT 读取 `stock_fund_flows`，事务为只读，不触发采集或更新。窗口按 SH 交易日历选取，缺失日期保留为 null 而非补零或向前凑齐；金额为亿元。逐日返回实际样本数、同期本地日线参照数、非最终记录数、来源，以及正流入和负流出排名。`available` 不保证全市场完整覆盖。行业聚合使用查询时 `instruments.industry`，并非历史时点分类或官方板块资金流。
+
+统一 `query` 入口固定在 server 工作目录执行，`--file/--params-file` 路径相对项目根目录；返回总行数及最多50行样例，`truncated=true` 时不能将样例当全量。大结果用原 DuckDB CLI 的 `--out` 导出。`snapshotIdObservedAfterQuery` 仅为查询完成后观察到的快照指针，不作为查询使用快照的锁定证明；要求严格可追溯时使用带 manifest 的 DuckDB 导出。
+
+目录中的 `index_valuations` 显式标记当前没有统一官方历史指数估值入口；个股估值不能默认替代官方指数估值。查询缺少 `--sql/--file` 时立即报错；原 DuckDB 的行情预览通过 `preview --view bars` 显式执行。
 
 `catalog` 只读静态目录，不联网或扫描行情。`describe` 为研究视图读取当前实际 schema。`coverage` 为快照数据读取该数据集 manifest；总体边界不证明逐股票覆盖、字段非空或连续性。估值视图由日线派生；财报与分红 manifest 的日期为报告期，事件日期覆盖返回 unknown。分钟覆盖由项目分钟目录返回；市场/新闻 doctor 的 health 只检查后端，不代表每个上游可用。执行查询继续复用原有 CLI，目录命令不发布或更新数据。
 
