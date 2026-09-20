@@ -15,7 +15,7 @@ AGENT_PI_MODEL=deepseek-v4.1-flash
 # AGENT_PROVIDER=pi
 ```
 
-默认关闭，不改变原默认 Provider。管理设置支持以上字段；配置应用需要按现有后端部署流程重启。已有对话保持原 Provider，新对话可在前端选择 Pi。
+代码默认关闭，不改变原默认 Provider。2026-09-20 正式服务器已启用可选 Pi，默认仍为 Claude；管理台可查看 Pi 版本、模型和认证文件可读状态，并通过下拉选项修改默认 Provider。管理设置支持以上字段；配置应用需要按现有后端部署流程重启。已有对话保持原 Provider，新对话可在前端选择 Pi。
 
 Pi 配置目录应由服务账户独享（目录 0700、认证文件 0600），包含该 Provider 必需的 `auth.json`、`models.json`、`settings.json`，只保留实际使用的认证项。不要把 root HOME 设为服务账户 HOME，不要提交认证文件或在命令行参数里传令牌。`sessions/` 由适配器创建。模型与认证配置遵循已安装 Pi 的格式。
 
@@ -39,7 +39,7 @@ Pi 配置目录应由服务账户独享（目录 0700、认证文件 0600），�
 .venv/bin/python server/scripts/testResearchPlot.py
 ```
 
-使用现有 `.venv`；缺 Matplotlib 时在该环境中安装并先执行上面的集成测试。字体可以是系统字体，或放置在项目 `tmp_output/fonts/wqy-microhei.ttc`，也可显式传 `--font <路径>`。此次只在隔离测试目录预置字体，没有改动生产系统字体或 Python 依赖。
+使用现有 `.venv`；缺 Matplotlib 时在该环境中安装并先执行上面的集成测试。字体可以是系统字体，或放置在项目 `tmp_output/fonts/wqy-microhei.ttc`，也可显式传 `--font <路径>`。2026-09-20 上线时已将验证过的字体复制到正式项目的该路径，没有改动系统字体或 Python 依赖。
 
 绘图输入包含 `type,title,source,yLabel`，普通图为 `series:[{label,x:[],y:[]}]`；热力图使用 `matrix,x,y`。支持 line、bar、histogram、heatmap、nav-drawdown、factor-layers。缺失值使用 null，单位写在轴名中。净值图的输入须已完成收益/现金流计算，工具只计算净值的峰值回撤。
 

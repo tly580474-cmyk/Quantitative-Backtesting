@@ -1,0 +1,140 @@
+{
+  "predeployment": {
+    "startedAt": "2026-09-20T05:21:04.531Z",
+    "mode": "--isolated",
+    "checks": [
+      "provider-discovery",
+      "attachment",
+      "tool-events",
+      "SSE-terminal",
+      "persistence",
+      "exact-session-resume",
+      "provider-mismatch-guard",
+      "SSE-resume",
+      "report-html",
+      "embedded-chart",
+      "custom-presentation",
+      "report-download",
+      "cancel",
+      "child-process-termination",
+      "invalid-model-fails"
+    ],
+    "runs": [
+      {
+        "id": "71ff361f-819e-4f95-ace7-609bbe9d3092",
+        "parent": null,
+        "status": "completed",
+        "elapsedMs": 3683,
+        "eventCount": 6,
+        "sessionId": "01a0bd42-c89d-71a5-95f9-6d4e8adcaa66"
+      },
+      {
+        "id": "05779406-43e4-4589-a9a5-1d45e1159720",
+        "parent": "71ff361f-819e-4f95-ace7-609bbe9d3092",
+        "status": "completed",
+        "elapsedMs": 2152,
+        "eventCount": 3,
+        "sessionId": "01a0bd42-c89d-71a5-95f9-6d4e8adcaa66"
+      },
+      {
+        "id": "e5e85919-4c60-453a-ae3e-b194fe4ff973",
+        "parent": null,
+        "status": "completed",
+        "elapsedMs": 13314,
+        "eventCount": 15,
+        "sessionId": "01a0bd42-df54-70b1-890c-5fab7d1b5383"
+      },
+      {
+        "id": "284dc79d-48e3-424d-a5cc-dbeb9651b2ce",
+        "parent": null,
+        "status": "canceled",
+        "elapsedMs": 3372,
+        "cancelMs": 42,
+        "eventCount": 2,
+        "sessionId": "01a0bd43-1363-7603-abdf-e605d6cf93ad"
+      }
+    ],
+    "defaultProvider": "pi",
+    "status": "passed",
+    "finishedAt": "2026-09-20T05:21:28.514Z"
+  },
+  "production": {
+    "startedAt": "2026-09-20T05:25:52.886Z",
+    "mode": "live",
+    "checks": [
+      "provider-discovery",
+      "attachment",
+      "tool-events",
+      "SSE-terminal",
+      "persistence",
+      "exact-session-resume",
+      "provider-mismatch-guard",
+      "SSE-resume",
+      "report-html",
+      "embedded-chart",
+      "custom-presentation",
+      "report-download",
+      "cancel",
+      "child-process-termination",
+      "invalid-model-fails"
+    ],
+    "runs": [
+      {
+        "id": "88a925c8-fd3c-4598-90aa-5a7c91bafdfe",
+        "parent": null,
+        "status": "completed",
+        "elapsedMs": 3921,
+        "eventCount": 6,
+        "sessionId": "01a0bd47-2d28-7456-a1be-dd2fc8e20a69"
+      },
+      {
+        "id": "d2f4dd0a-de4c-4b69-890f-8d74caf92ca1",
+        "parent": "88a925c8-fd3c-4598-90aa-5a7c91bafdfe",
+        "status": "completed",
+        "elapsedMs": 2317,
+        "eventCount": 3,
+        "sessionId": "01a0bd47-2d28-7456-a1be-dd2fc8e20a69"
+      },
+      {
+        "id": "6df61f4c-915e-4c93-aec8-a68f6292a90a",
+        "parent": null,
+        "status": "completed",
+        "elapsedMs": 16157,
+        "eventCount": 17,
+        "sessionId": "01a0bd47-457f-70bd-b8bd-ac681678a7af"
+      },
+      {
+        "id": "ac4ac63b-7b7c-46b2-af93-7555314e2ce2",
+        "parent": null,
+        "status": "canceled",
+        "elapsedMs": 3636,
+        "cancelMs": 40,
+        "eventCount": 2,
+        "sessionId": "01a0bd47-84a9-746c-9471-dc3b7ba229e3"
+      }
+    ],
+    "defaultProvider": "claude",
+    "status": "passed",
+    "finishedAt": "2026-09-20T05:26:19.995Z"
+  },
+  "deployment": {
+    "status": "passed",
+    "checks": [
+      "admin-agent-3001",
+      "admin-config-3001",
+      "admin-agent-8081",
+      "admin-config-8081",
+      "gateway-auth-required-8080",
+      "gateway-auth-required-8081",
+      "static-readable-dist",
+      "static-readable-admin/dist",
+      "deployed-source-hashes",
+      "preserved-production-hotfixes",
+      "runtime-idle-after-acceptance"
+    ],
+    "defaultProvider": "claude",
+    "staticBrowserLogin": "not-tested: saved gateway password does not match existing htpasswd; authentication unchanged",
+    "deployedRevision": "1ea07d7",
+    "backup": "/opt/quant-backtest/.deploy-backups/20260920-pi-admin"
+  }
+}
