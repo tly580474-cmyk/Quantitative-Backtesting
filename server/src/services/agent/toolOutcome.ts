@@ -26,13 +26,15 @@ export function researchDataUsable(output: unknown): boolean | undefined {
 /** Inspect before display truncation. Narrow runtime signatures avoid matching ordinary mentions of errors. */
 export function detectToolFailure(output: unknown, failed = false, exitCode?: number | null): ToolFailure | undefined {
   let text = resultText(output);
+  const exitPrefix = /^Exit code (\d+)\r?\n/.exec(text);
+  if (exitPrefix) { exitCode ??= Number(exitPrefix[1]); text = text.slice(exitPrefix[0].length); }
   let structured = false;
   try {
     const value = JSON.parse(text);
     if (value && !Array.isArray(value) && typeof value === 'object') {
       structured = value.ok === false;
       if (typeof value.exitCode === 'number') exitCode = value.exitCode;
-      text = resultText(value.error ?? value.output ?? output);
+      text = resultText(value.error ?? value.output ?? value);
       if (typeof value.output === 'string') {
         try { structured ||= JSON.parse(value.output)?.ok === false; } catch { /* Plain nested stdout. */ }
       }

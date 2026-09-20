@@ -35,4 +35,15 @@ describe('fund flow read-only research', () => {
     expect(connection.rollback).toHaveBeenCalledOnce();
     expect(connection.release).toHaveBeenCalledOnce();
   });
+  it('checks a bounded explicit coverage range without requiring the default last-N length', async () => {
+    const dateRows = rows([{ tradeDate: '2026-09-17' }, { tradeDate: '2026-09-18' }]);
+    const query = vi.fn().mockResolvedValue([[]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([dateRows])
+      .mockResolvedValueOnce([rows(dateRows.map(row => ({ ...row, sampleCount: 1, mainNetInYi: 1 })))]);
+    const connection = { query, beginTransaction: vi.fn(), rollback: vi.fn(), release: vi.fn() };
+    const result = await queryFundFlows({ getConnection: async () => connection } as unknown as Pool,
+      { ...options, days: 5, start: '2026-09-17', end: '2026-09-18' });
+    expect(query.mock.calls[1][1]).toEqual(['2026-09-18', '2026-09-17', 61]);
+    expect(result).toMatchObject({ status: 'available', windowComplete: true, calendarDaysFound: 2 });
+    expect(result.requested.days).toBeUndefined();
+  });
 });

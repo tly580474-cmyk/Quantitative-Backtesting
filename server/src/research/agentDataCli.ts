@@ -68,11 +68,11 @@ async function main() {
       coverage: '执行fund-flows时一次返回逐日样本、来源和缺失日期；不以服务health代替覆盖检查。' };
     const pool = createPool(loadConfig());
     try {
-      if (flags.has('--start')) throw new Error('INVALID_ARGUMENT: 资金流覆盖使用 fund-flows --end YYYY-MM-DD --days N，以交易日窗口查询');
       return await queryFundFlows(pool, {
         end: flags.get('--end') ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
         days: Number(flags.get('--days') ?? 5), top: Number(flags.get('--top') ?? 10),
         group: (flags.get('--group') ?? 'stock') as 'stock' | 'industry', symbol: flags.get('--symbol'),
+        ...(command === 'coverage' && flags.has('--start') ? { start: flags.get('--start') } : {}),
       });
     } finally { await pool.end(); }
   }

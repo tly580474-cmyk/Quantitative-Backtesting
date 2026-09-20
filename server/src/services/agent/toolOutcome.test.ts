@@ -19,6 +19,8 @@ describe('tool execution outcomes', () => {
     expect(event.toolFailure?.category).toBe('query_error');
   });
   it('recognizes actual DuckDB wrapper errors and structured content blocks', () => {
+    expect(detectToolFailure('Exit code 1\n{"ok":false,"error":"INVALID_ARGUMENT: incorrect window"}', true))
+      .toEqual({ category: 'invalid_argument', evidence: 'exit_status', reportedExitCode: 1 });
     expect(detectToolFailure('Failed to extract statements: Parser Error: syntax error', false, 0))
       .toMatchObject({ category: 'query_error', reportedExitCode: 0 });
     expect(detectToolFailure([{ type: 'text', text: '{"ok":false,"error":"unknown failure"}' }]))

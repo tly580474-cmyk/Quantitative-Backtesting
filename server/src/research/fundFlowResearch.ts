@@ -1,6 +1,6 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 
-export interface FundFlowOptions { end: string; days: number; top: number; group: 'stock' | 'industry'; symbol?: string; }
+export interface FundFlowOptions { end: string; days: number; top: number; group: 'stock' | 'industry'; symbol?: string; start?: string; }
 export const FUND_FLOW_FIELDS = {
   tradeDate: '交易日 YYYY-MM-DD，最近N日按SH交易日历选择，缺数据不向更早日期补齐',
   mainNetInYi: '主力净流入，超大单+大单，单位亿元；负数为净流出',
@@ -17,6 +17,8 @@ export function validateFundFlowOptions(input: FundFlowOptions): void {
   if (!Number.isInteger(input.top) || input.top < 1 || input.top > 50) throw new Error('INVALID_ARGUMENT: top 必须为 1..50');
   if (!['stock', 'industry'].includes(input.group)) throw new Error('INVALID_ARGUMENT: group 使用 stock 或 industry');
   if (input.symbol != null && !/^\d{6}$/.test(input.symbol)) throw new Error('INVALID_ARGUMENT: symbol 必须是6位股票代码');
+  if (input.start && (!/^\d{4}-\d{2}-\d{2}$/.test(input.start) || !Number.isFinite(Date.parse(input.start))
+    || new Date(input.start).toISOString().slice(0, 10) !== input.start || input.start > input.end)) throw new Error('INVALID_ARGUMENT: start 必须为不晚于 end 的有效日期');
 }
 
 export function buildFundFlowResult(input: FundFlowOptions, dates: string[], dailyRows: RowDataPacket[],
@@ -44,14 +46,14 @@ export function buildFundFlowResult(input: FundFlowOptions, dates: string[], dai
     industry: row.industry == null ? undefined : String(row.industry),
     mainNetInYi: Number(row.mainNetInYi), daysCovered: Number(row.daysCovered), sampleCount: Number(row.sampleCount),
   })).sort((a, b) => b.mainNetInYi - a.mainNetInYi || String(a.symbol ?? a.industry).localeCompare(String(b.symbol ?? b.industry)));
-  const partial = dates.length < input.days || missingDates.length > 0 || daily.some(row => row.nonFinalCount > 0);
+  const partial = (!input.start && dates.length < input.days) || missingDates.length > 0 || daily.some(row => row.nonFinalCount > 0);
   return {
     kind: 'research-data', ok: true, usable: known.length > 0, dataset: 'fund_flows',
     status: !known.length ? 'no-data' : partial ? 'partial' : 'available',
-    retrievedAt: capturedAt, requested: input, unit: '亿元', fields: FUND_FLOW_FIELDS,
+    retrievedAt: capturedAt, requested: { ...input, ...(input.start ? { days: undefined } : {}) }, unit: '亿元', fields: FUND_FLOW_FIELDS,
     source: { table: 'stock_fund_flows', scope: '本地落库A股（SH/SZ/BJ stock）；只读，不触发上游更新', providers: sources },
     dates, missingDates, calendarDaysFound: dates.length, windowComplete: !partial,
-    coverageNote: 'available仅表示选定交易日有记录；逐日样本数、覆盖率、非最终记录及排名对象daysCovered需单独检查。',
+    coverageNote: 'available仅表示选定交易日有记录；逐日样本数、覆盖率、非最终记录及排名对象daysCovered需单独检查。样本差异的原因尚未逐股核实，不得归因为停牌或来源遗漏。',
     classification: input.group === 'industry' ? {
       basis: 'current_instrument_industry', asOf: capturedAt,
       note: '按查询时instruments.industry聚合；不是历史时点分类，也不是供应商行业板块资金流接口。',
@@ -73,8 +75,10 @@ export async function queryFundFlows(pool: Pool, input: FundFlowOptions) {
     await connection.beginTransaction();
     const dates = (await rows(connection,
       `SELECT DISTINCT trade_date AS tradeDate FROM trading_calendar
-       WHERE market='SH' AND is_open=1 AND trade_date<=? ORDER BY trade_date DESC LIMIT ?`, [input.end, input.days]))
+       WHERE market='SH' AND is_open=1 AND trade_date<=? ${input.start ? 'AND trade_date>=?' : ''}
+       ORDER BY trade_date DESC LIMIT ?`, [input.end, ...(input.start ? [input.start] : []), input.start ? 61 : input.days]))
       .map(row => String(row.tradeDate)).reverse();
+    if (input.start && dates.length > 60) throw new Error('INVALID_ARGUMENT: 资金流 coverage 范围最多60个交易日，请缩小 start/end');
     if (!dates.length) return buildFundFlowResult(input, [], [], [], [], [], new Date().toISOString());
     const marks = dates.map(() => '?').join(',');
     const filter = `i.type='stock' AND i.market IN ('SH','SZ','BJ')${input.symbol ? ' AND i.symbol=?' : ''}`;

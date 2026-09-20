@@ -56,7 +56,7 @@ export function buildDataRoutingPrompt(): string {
 - 资金流直接执行 node server/scripts/researchData.mjs fund-flows --days 5 --group stock --top 10；--days 1 查最近交易日，--end YYYY-MM-DD 固定截止日，--group industry 查当前行业聚合，--symbol 600000 查单股。返回实际来源、逐日样本、日期、亿元金额和流入/流出排名。缺失交易日不自动回填更早日期。
 - 全市场历史规律、筛选和因子验证优先 DuckDB；不要逐股调用行情 API。根目录直接执行 node server/scripts/researchData.mjs query --sql "SELECT ..." 或 query --file tmp_output/query.sql；文件路径相对项目根目录。查看字段用 describe daily_bars；复杂查询可在 server 目录使用 npm run duckdb -- query --file <文件> --dry-run。
 - 数据映射：${DATASETS.map(item => `${item.id} → ${item.view || item.source}（${item.purpose}）`).join('；')}。
-- describe <数据集> 返回实际 schema 与示例；coverage <数据集> --start YYYY-MM-DD --end YYYY-MM-DD 返回该数据集覆盖；doctor <数据集> 检查所选入口，不探测全部来源。
+- describe <数据集> 返回实际 schema 与示例；coverage <数据集> --start YYYY-MM-DD --end YYYY-MM-DD 返回该数据集覆盖；doctor <数据集> 检查所选入口，不探测全部来源。fund-flows 已同时返回请求窗口的逐日覆盖，不必再并行或重复查询相同窗口的 coverage；资金流 coverage 的日期范围最多60个交易日。
 - 个股报价与最新消息：node server/scripts/agentMarketData.mjs catalog；批量分钟研究：在 server 目录 npm run duckdb -- minute --symbol 002155 --days 30 --interval 5m。
 - 推荐顺序：选择数据 → 检查字段和覆盖 → 小样本验证 → 批量执行 → 检查样本数、日期与空值。条件收益、因子分层、事件研究优先复用 npm run duckdb -- recipes；复杂多步骤用 pipeline，重复参数用 batch。
 - 原始价格复权使用 raw*factor+priceOffset；财报按公告时间，指数成分按有效日期；日线最大日期不能代表财报、分红等其他数据的时效。
