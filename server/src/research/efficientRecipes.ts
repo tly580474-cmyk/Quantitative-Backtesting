@@ -65,7 +65,8 @@ export function efficientRecipeSql(name: string, flags: Map<string, string>) {
 
 export function peDca(input: any, window = 252) {
   if (!input || input.source?.valuationType !== 'official-index-pe' || input.source?.availability !== 'point-in-time'
-    || input.source?.priceBasis !== 'official-price-index' || !input.source?.name || !input.source?.instrument
+    || input.source?.priceBasis !== 'official-price-index' || typeof input.source?.name !== 'string' || !input.source.name.trim()
+    || typeof input.source?.instrument !== 'string' || !input.source.instrument.trim()
     || !Array.isArray(input.rows) || !Array.isArray(input.tradingDates)) throw new Error('DATA_UNAVAILABLE: 需要可核验官方指数PE来源、PIT声明、价格指数口径及完整tradingDates；禁止个股PE静默代替');
   if (!Number.isInteger(window) || window < 2 || window > 2520 || input.rows.length > 30000) throw new Error('INVALID_ARGUMENT: window 2..2520，最多30000行');
   const rows: Array<{date: string; pe: number | null; close: number}> = input.rows;
@@ -74,7 +75,10 @@ export function peDca(input: any, window = 252) {
     || r.date !== input.tradingDates[i] || (i > 0 && rows[i-1].date >= r.date)
     || typeof r.close !== 'number' || !Number.isFinite(r.close) || r.close <= 0
     || (r.pe !== null && (typeof r.pe !== 'number' || !Number.isFinite(r.pe) || r.pe <= 0)))) throw new Error('INVALID_ARGUMENT: 日期须唯一有序且匹配完整交易日历，价格为正，PE缺失用null');
-  let units = 0, fixedUnits = 0, invested = 0, fixedInvested = 0, missedSignals = 0;
+  const highAction = input.strategy?.highAction ?? 'half-buy';
+  const sellFraction = input.strategy?.sellFraction ?? .25;
+  if (!['half-buy','sell-fraction'].includes(highAction) || typeof sellFraction !== 'number' || !Number.isFinite(sellFraction) || sellFraction <= 0 || sellFraction > 1) throw new Error('INVALID_ARGUMENT: highAction=half-buy|sell-fraction，sellFraction为(0,1]');
+  let units = 0, cash = 0, fixedUnits = 0, invested = 0, fixedInvested = 0, missedSignals = 0;
   const series: Array<Record<string, unknown>> = [];
   for (let i = 1; i < rows.length; i++) {
     if (rows[i].date.slice(0,7) === rows[i-1].date.slice(0,7)) continue;
@@ -82,16 +86,21 @@ export function peDca(input: any, window = 252) {
     const signal = rows[i-1].pe;
     if (history.length !== window || history.some(v => v === null) || signal === null) { missedSignals++; continue; }
     const percentile = history.filter(v => v! <= signal).length / window;
-    const contribution = 1000 * (percentile <= .2 ? 2 : percentile >= .8 ? .5 : 1);
+    const selling = percentile >= .8 && highAction === 'sell-fraction';
+    const contribution = selling ? 0 : 1000 * (percentile <= .2 ? 2 : percentile >= .8 ? .5 : 1);
+    const unitsSold = selling ? units * sellFraction : 0;
+    const proceeds = unitsSold * rows[i].close;
+    units -= unitsSold; cash += proceeds;
     invested += contribution; fixedInvested += 1000;
     units += contribution / rows[i].close; fixedUnits += 1000 / rows[i].close;
     series.push({ date: rows[i].date, signalDate: rows[i-1].date, percentile, contribution,
-      invested, value: units*rows[i].close, fixedInvested, fixedValue: fixedUnits*rows[i].close });
+      action: selling ? 'sell' : 'buy', unitsSold, proceeds, cash, units,
+      invested, value: units*rows[i].close+cash, fixedInvested, fixedValue: fixedUnits*rows[i].close });
   }
   const close = rows.at(-1)?.close ?? 0;
   return { kind: 'research-data', ok: true, usable: series.length > 0, source: input.source, window,
-    rowCount: series.length, missedSignals, invested, value: units*close, profit: units*close-invested,
+    rowCount: series.length, missedSignals, strategy: {highAction,sellFraction}, invested, cash, value: units*close+cash, profit: units*close+cash-invested,
     fixedInvested, fixedValue: fixedUnits*close, fixedProfit: fixedUnits*close-fixedInvested,
     end: rows.at(-1)?.date ?? null, series,
-    semantics: '每月首个交易日以昨收可知PE在过去window日(含昨收)的<=分位决策，今日收盘按1000×低20%两倍/高80%半倍/中间一倍投入，允许碎股。基准在相同有效日期投1000；缺PE或预热不足时两组都跳过。无费用/分红，不是年化或时间加权收益。来源及日历为输入方声明，须外部核验。' };
+    semantics: '每月首个交易日以昨收可知PE在过去window日(含昨收)的<=分位决策，今日收盘按1000×低20%两倍/高80%半倍/中间一倍投入，允许碎股。strategy.highAction=sell-fraction时，高80%改为卖出当时份额的sellFraction（默认25%），卖出款留在零息现金账户、不重复记作投入，后续买入仍为外部新增资金。基准在相同有效日期投1000；缺PE或预热不足时两组都跳过。两策略外部现金流不同；无费用/分红，不是年化或时间加权收益。来源及日历为输入方声明，须外部核验。' };
 }

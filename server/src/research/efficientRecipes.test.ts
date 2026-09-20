@@ -36,3 +36,14 @@ it('PE decisions exclude execution-day and future PE, reject proxies and preserv
   expect(() => peDca({...input,source:{...input.source,valuationType:'stock-pe-proxy'}},2)).toThrow('DATA_UNAVAILABLE');
   expect(peDca({...input,rows:input.rows.map((r,i)=>i===0?{...r,pe:null}:r)},2).missedSignals).toBe(1);
 });
+it('PE high-percentile partial sales retain cash without counting proceeds as new contributions', () => {
+  const dates=['2026-01-26','2026-01-27','2026-01-28','2026-01-29','2026-01-30','2026-02-02','2026-02-27','2026-03-02'];
+  const pes=[5,4,3,2,1,1,10,10];
+  const result=peDca({source:{name:'synthetic',instrument:'fixture',valuationType:'official-index-pe',priceBasis:'official-price-index',availability:'point-in-time'},
+    tradingDates:dates,rows:dates.map((date,i)=>({date,pe:pes[i],close:i===7?110:100})),strategy:{highAction:'sell-fraction',sellFraction:.25}},5);
+  expect(result.invested).toBe(2000);
+  expect(result.cash).toBe(550);
+  expect(result.value).toBe(2200);
+  expect(result.profit).toBe(200);
+  expect(result.series[1]).toMatchObject({action:'sell',unitsSold:5,proceeds:550,contribution:0,units:15});
+});

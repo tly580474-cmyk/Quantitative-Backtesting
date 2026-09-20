@@ -59,6 +59,7 @@ async function main(argv: string[]): Promise<Record<string, unknown>> {
         next: '请提供来源已核验的 --input JSON。不得用个股PE代替；不重复试探不支持的入口。',
         inputContract: { source: {name:'来源机构',instrument:'指数标识',valuationType:'official-index-pe',priceBasis:'official-price-index',availability:'point-in-time'},
           tradingDates:['YYYY-MM-DD（完整交易日历）'],rows:[{date:'YYYY-MM-DD',pe:'正数或null',close:'正数指数点位'}],
+          strategy:{highAction:'half-buy（默认）或sell-fraction（高分位分批卖出）',sellFraction:'卖出当时份额比例，默认0.25'},
           constraints:'日期唯一有序且与日历逐行匹配；最多30000行；--window 2..2520 默认252。格式校验不证明来源声明真实。' } };
       return peDca(JSON.parse(await readFile(resolve(workspace, flags.get('--input')!), 'utf8')), Number(flags.get('--window') ?? 252));
     }
