@@ -5,6 +5,7 @@ import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { extractReportDirective } from '../outputParser.js';
 import { sanitizePublicContent, sanitizeToolName, sanitizeToolDetail } from '../eventProtocol.js';
 import { terminateProcessTree } from './processUtils.js';
+import { detectToolFailure, isExecutedCommand } from '../toolOutcome.js';
 import type {
   AgentProvider,
   AgentProviderCapabilities,
@@ -412,8 +413,10 @@ export class CodexAgentProvider implements AgentProvider {
         if (isToolItem(item)) {
           const toolName = publicToolName(item);
           finalResponse.finishTool(item.id);
-          const failed = item.success === false || (typeof item.exitCode === 'number' && item.exitCode !== 0)
+          const reportedFailed = item.success === false || (typeof item.exitCode === 'number' && item.exitCode !== 0)
             || ['failed', 'declined', 'error'].includes(String(item.status ?? '').toLowerCase());
+          const toolFailure = detectToolFailure(item.aggregatedOutput ?? item.result ?? item.error, reportedFailed, item.exitCode);
+          const failed = reportedFailed || Boolean(toolFailure && isExecutedCommand(toolName, String(item.command ?? '')));
           const errorDetail = failed ? codexToolErrorContent(item) : '';
           await sink.event({
             type: failed ? 'error' : 'tool_finished',
@@ -422,6 +425,7 @@ export class CodexAgentProvider implements AgentProvider {
               : `${toolName} 执行完成`,
             timestamp: now(), toolName,
             ...codexToolDetails(item),
+            toolFailure: failed ? toolFailure : undefined,
             toolUseId: String(item.id ?? '').slice(0, 128) || undefined,
             durationMs: typeof item.durationMs === 'number' ? item.durationMs : undefined,
           });

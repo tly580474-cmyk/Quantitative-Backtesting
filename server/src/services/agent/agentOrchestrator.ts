@@ -8,6 +8,7 @@ import { AgentRepository } from './agentRepository.js';
 import { buildResearchContext } from './researchContext.js';
 import { validateAgentReport } from './reportValidator.js';
 import { renderStaticAgentReport } from './reportRenderer.js';
+import { detectToolFailure, isExecutedCommand } from './toolOutcome.js';
 import { ClaudeAgentProvider } from './providers/claudeAgentProvider.js';
 import { CodexAgentProvider } from './providers/codexAgentProvider.js';
 import type { AgentProvider, AgentProviderHealth, AgentProviderId, ProviderAttachment, ProviderRun } from './providers/types.js';
@@ -64,6 +65,7 @@ interface ActiveRun {
   timer?: NodeJS.Timeout;
   toolStartedAt: Map<string, number>;
   toolNames: Map<string, string>;
+  toolInputs: Map<string, string>;
   shouldGenerateReport: boolean | null;
   finalContent: string;
   lastEventType?: ParsedEvent['type'];
@@ -125,7 +127,7 @@ export class AgentOrchestrator {
     const templateStyle = params.templateStyle as TemplateStyle ?? 'classic-blue';
     const active: ActiveRun = {
       providerId, providerRun: null, seq: 0, finalized: false, cancelRequested: false, timeoutRequested: false,
-      toolStartedAt: new Map(), toolNames: new Map(), shouldGenerateReport: null,
+      toolStartedAt: new Map(), toolNames: new Map(), toolInputs: new Map(), shouldGenerateReport: null,
       finalContent: '', templateStyle,
     };
     this.activeRuns.set(params.runId, active);
@@ -259,14 +261,23 @@ export class AgentOrchestrator {
       if (active.toolStartedAt.has(event.toolUseId) && !event.toolInput) return;
       if (!active.toolStartedAt.has(event.toolUseId)) active.toolStartedAt.set(event.toolUseId, Date.now());
       if (event.toolName) active.toolNames.set(event.toolUseId, event.toolName);
+      if (event.toolInput && event.toolInput !== '{}') active.toolInputs.set(event.toolUseId, event.toolInput);
     }
     if (event.type === 'assistant_final') active.finalContent = event.publicContent;
     if ((event.type === 'tool_finished' || event.type === 'error') && event.toolUseId) {
       const started = active.toolStartedAt.get(event.toolUseId);
       if (started && event.durationMs == null) event.durationMs = Math.max(0, Date.now() - started);
       event.toolName = event.toolName ?? active.toolNames.get(event.toolUseId);
+      event.toolInput = event.toolInput ?? active.toolInputs.get(event.toolUseId);
+      const failure = event.toolFailure ?? detectToolFailure(event.toolResult, event.type === 'error');
+      if (failure && (event.type === 'error' || isExecutedCommand(event.toolName, event.toolInput))) {
+        event.type = 'error';
+        event.toolFailure = failure;
+        event.publicContent = `[${failure.category}; ${failure.evidence}; exit=${failure.reportedExitCode ?? 'unknown'}] ${/执行完成$/.test(event.publicContent) ? '工具输出包含失败，可能被后续命令掩盖' : event.publicContent}`;
+      } else event.toolFailure = undefined;
       active.toolStartedAt.delete(event.toolUseId);
       active.toolNames.delete(event.toolUseId);
+      active.toolInputs.delete(event.toolUseId);
     }
     const seq = ++active.seq;
     await repo.addPublicEvent(runId, seq, event);
