@@ -10,6 +10,9 @@ import { DATASETS, catalogDataset, datasetCoverage, datasetEntry } from './agent
 import { FUND_FLOW_FIELDS, queryFundFlows } from './fundFlowResearch.js';
 import { sanitizePublicContent } from '../services/agent/eventProtocol.js';
 import { detectToolFailure } from '../services/agent/toolOutcome.js';
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { fingerprint, withSourceMemory, type ResearchOutcome } from './sourceMemory.js';
 
 const exec = promisify(execFile);
 const server = fileURLToPath(new URL('../../', import.meta.url));
@@ -30,8 +33,8 @@ async function duckdb(args: string[]) {
   { cwd: server, timeout: 60_000, maxBuffer: 8_000_000, windowsHide: true });
 }
 
-async function main() {
-  const [command = 'catalog', ...args] = process.argv.slice(2);
+async function main(argv: string[]) {
+  const [command = 'catalog', ...args] = argv;
   if ((['help', '--help', '-h'].includes(command) && !args.length)
     || (usage[command] && args.length === 1 && ['--help', '-h'].includes(args[0]))) {
     return { usage: usage[command] ?? usage, prefix: 'node server/scripts/researchData.mjs',
@@ -112,10 +115,28 @@ async function main() {
     'node server/scripts/researchData.mjs query --file tmp_output/query.sql',
   ], checkedAt: new Date().toISOString() };
 }
-main().then(result => process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)).catch(error => {
+async function execute(argv: string[]): Promise<ResearchOutcome> {
+  try { return { value: await main(argv), exitCode: 0 }; } catch (error: any) {
   const detail = sanitizePublicContent(error.stderr || error.message);
-  process.stdout.write(`${JSON.stringify({ kind: 'research-data', ok: false,
+  return { value: { kind: 'research-data', ok: false,
     errorCategory: detectToolFailure(detail, true)?.category, error: detail,
-    next: '参数错误按命令示例修正；覆盖不足说明缺失项；服务不可用检查入口，不重复原样调用。' })}\n`);
-  process.exitCode = typeof error.code === 'number' && error.code > 0 && error.code < 256 ? error.code : 1;
-});
+    next: '参数错误按示例修正；字段错误查schema；覆盖不足说明缺失项；短暂网络故障最多自动重试1次。替代来源最多1个且必须验证口径，仍不可用则交付缺失说明。' },
+    exitCode: typeof error.code === 'number' && error.code > 0 && error.code < 256 ? error.code : 1 };
+  }
+}
+async function run() {
+  const raw = process.argv.slice(2);
+  const refresh = raw.includes('--refresh');
+  const argv = raw.filter(arg => arg !== '--refresh');
+  // File contents, scope, implementation version and published pointer all invalidate memory.
+  const files: string[] = [];
+  for (let i = 0; i < argv.length; i++) if (['--file', '--params-file'].includes(argv[i]) && argv[i + 1]) {
+    files.push(await readFile(resolve(workspace, argv[i + 1]), 'utf8').catch(() => 'missing'));
+  }
+  const pointer = await readFile(resolve(loadConfig().RESEARCH_SNAPSHOT_ROOT, 'current.json'), 'utf8').catch(() => 'missing');
+  const outcome = await withSourceMemory(resolve(workspace, 'tmp_output', 'source-memory', fingerprint(homedir())),
+    { version: 1, argv, files, pointer, workspace }, () => execute(argv), { refresh });
+  process.stdout.write(`${JSON.stringify(outcome.value, null, 2)}\n`);
+  process.exitCode = outcome.exitCode;
+}
+run().catch(error => { process.stderr.write(`${sanitizePublicContent(error.message)}\n`); process.exitCode = 1; });
