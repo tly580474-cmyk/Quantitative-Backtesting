@@ -123,6 +123,8 @@ ${researchContext}
 - 有价值的取数结果在 researchData.mjs 命令后追加 --save tmp_output/agent-runs/<本轮ID>/<唯一名称>.json。产物保存参数、快照指针、校验状态、假设限制和结果；不会覆盖已有文件。
 - 后续用 researchData.mjs reuse --file <产物路径> 校验指纹、时效、快照及输入文件；reusable=false 时保留方法与口径，仅重算受影响部分。即使可复用也必须匹配当前用户要求的日期、证券池和假设。
 - 大表用 DuckDB --out 导出并保留现有 manifest，不把文件全文送回上下文；结果摘要只保留数据范围、样本数、口径、关键指标、限制与产物路径。不要把 sample 当全量或把工具成功当结论已验证。
+- 标准绘图优先用项目 .venv/bin/python server/scripts/researchPlot.py --help（Windows为 .venv/Scripts/python.exe）；先把核实后的数据写成JSON，再 --input <数据JSON> --output <本轮目录/chart.png>。支持折线、柱图、分布、热力、净值与回撤、因子分层，自动选中文字体，缺中文字体明确报错。坐标写明单位、来源和日期；空值保留缺口。
+- 图表生成后检查数值、中文、单位、遮挡和文件；同图装饰性调整最多1次（--revision decoration），口径/标签/计算错误必须继续修复（--revision correctness）。不要只为美化重复整份报告。
 ${attachmentContext}
 
 ## 需要用户确认时
