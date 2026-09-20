@@ -11,6 +11,8 @@ describe('fund flow read-only research', () => {
     ]), rows([{ tradeDate: '2026-09-18', expectedCount: 5 }]), [], [], 'now');
     expect(result).toMatchObject({ status: 'partial', usable: true, totalMainNetInYi: 3, missingDates: ['2026-09-18'], windowComplete: false });
     expect(result.daily[1]).toMatchObject({ mainNetInYi: null, sampleCount: 0, expectedCount: 5 });
+    expect(result.daily[1].referenceCountDifference).toBe(5);
+    expect(result.dailyDirection).toMatchObject({ inflowDays: 1, outflowDays: 0, flatDays: 0, inflowTotalYi: 3, outflowTotalYi: 0 });
   });
   it('preserves negative outflows, sample days, and non-historical industry semantics', () => {
     const result = buildFundFlowResult({ ...options, group: 'industry', days: 1 }, ['2026-09-18'], rows([
@@ -20,6 +22,7 @@ describe('fund flow read-only research', () => {
     expect(result.topOutflow[0].mainNetInYi).toBe(-5);
     expect(result.topInflow).toHaveLength(1);
     expect(result.classification?.basis).toBe('current_instrument_industry');
+    expect(result.dailyDirection).toMatchObject({ inflowDays: 0, outflowDays: 1, outflowTotalYi: -4 });
   });
   it.each([{ days: 0 }, { days: 1.5 }, { days: 61 }, { end: '2026-02-30' }, { symbol: "600000' OR 1=1" }, { top: 51 }])('rejects invalid input %j', extra => {
     expect(() => validateFundFlowOptions({ ...options, ...extra })).toThrow('INVALID_ARGUMENT');

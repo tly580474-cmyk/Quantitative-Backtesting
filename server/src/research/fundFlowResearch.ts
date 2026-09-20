@@ -6,6 +6,9 @@ export const FUND_FLOW_FIELDS = {
   mainNetInYi: '主力净流入，超大单+大单，单位亿元；负数为净流出',
   sampleCount: '实际有资金流记录的股票数量，不保证全市场覆盖',
   expectedCount: '同期本地日线的股票数量，仅作覆盖参照；停牌等原因可导致差异',
+  referenceCountDifference: '同期日线参照数减资金流样本数；只是数量之差，不是逐股核实的缺失名单',
+  rowsCount: '本次选定窗口的来源记录数，不是数据库历史总行数',
+  latestFetchedAtUtc: '采集器按UTC写入fetched_at，显式Z后缀；北京时间见latestFetchedAtShanghai，不把UTC小时当作北京时间',
   daysCovered: '排名对象实际有数据的交易日数；不足请求窗口时为部分样本',
   industry: 'instruments.industry 当前来源行业；查询时映射，非历史时点行业或官方板块资金流',
 };
@@ -30,6 +33,7 @@ export function buildFundFlowResult(input: FundFlowOptions, dates: string[], dai
     const sampleCount = Number(row?.sampleCount ?? 0);
     const expectedCount = expected.get(tradeDate) ?? null;
     return { tradeDate, sampleCount, expectedCount,
+      referenceCountDifference: expectedCount == null ? null : expectedCount - sampleCount,
       coverageRatio: expectedCount ? sampleCount / expectedCount : null,
       mainNetInYi: row ? Number(row.mainNetInYi) : null,
       superLargeNetInYi: row ? Number(row.superLargeNetInYi) : null,
@@ -59,6 +63,14 @@ export function buildFundFlowResult(input: FundFlowOptions, dates: string[], dai
       note: '按查询时instruments.industry聚合；不是历史时点分类，也不是供应商行业板块资金流接口。',
     } : null,
     daily,
+    dailyDirection: {
+      inflowDays: known.filter(row => row.mainNetInYi! > 0).length,
+      outflowDays: known.filter(row => row.mainNetInYi! < 0).length,
+      flatDays: known.filter(row => row.mainNetInYi === 0).length,
+      inflowTotalYi: known.filter(row => row.mainNetInYi! > 0).reduce((sum, row) => sum + row.mainNetInYi!, 0),
+      outflowTotalYi: known.filter(row => row.mainNetInYi! < 0).reduce((sum, row) => sum + row.mainNetInYi!, 0),
+      note: '仅统计已取得净额的日期，缺失日期不计为零；此处为整个样本的逐日方向，不是逐股票方向。',
+    },
     totalMainNetInYi: known.length ? known.reduce((sum, row) => sum + row.mainNetInYi!, 0) : null,
     totalMeaning: partial ? '仅已取得日期的部分合计，不代表完整请求窗口' : '所列样本及日期的主力净流入合计',
     topInflow: sorted.filter(row => row.mainNetInYi > 0).slice(0, input.top),
@@ -104,7 +116,8 @@ export async function queryFundFlows(pool: Pool, input: FundFlowOptions) {
       SUM(f.main_net_in)/100000000 mainNetInYi, COUNT(DISTINCT f.trade_date) daysCovered,
       COUNT(DISTINCT f.instrument_key) sampleCount ${from} GROUP BY ${group}`, params);
     const sources = await rows(connection, `SELECT f.source_key sourceKey, f.source_version sourceVersion,
-      COUNT(*) rowsCount, DATE_FORMAT(MAX(f.fetched_at),'%Y-%m-%d %H:%i:%s') latestFetchedAtStored
+      COUNT(*) rowsCount, DATE_FORMAT(MAX(f.fetched_at),'%Y-%m-%dT%H:%i:%sZ') latestFetchedAtUtc,
+      DATE_FORMAT(DATE_ADD(MAX(f.fetched_at), INTERVAL 8 HOUR),'%Y-%m-%dT%H:%i:%s+08:00') latestFetchedAtShanghai
       ${from} GROUP BY f.source_key,f.source_version`, params);
     return buildFundFlowResult(input, dates, daily, expected, rankings, sources, new Date().toISOString());
   } finally {
