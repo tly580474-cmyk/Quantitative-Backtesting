@@ -37,6 +37,7 @@ import {
   type ArtifactQuery,
 } from './researchArtifactManifest.js';
 import { RETURN_BASES } from './returnBasis.js';
+import { validateDuckdbArguments } from './duckdbCliArguments.js';
 import {
   estimateMinutePatterns,
   estimateSnapshotScan,
@@ -54,6 +55,7 @@ type Command =
   | 'schema'
   | 'views'
   | 'query'
+  | 'preview'
   | 'pipeline'
   | 'batch'
   | 'minute'
@@ -272,7 +274,7 @@ async function main(): Promise<void> {
       }
       return;
     }
-    if (args.command === 'query') {
+    if (args.command === 'query' || args.command === 'preview') {
       const startedAt = new Date().toISOString();
       const sql = await loadQuerySql(args, snapshot);
       const executableSql = args.explain ? explainSql(sql) : sql;
@@ -993,15 +995,13 @@ async function registerSnapshotViews(
 async function loadQuerySql(args: CliArgs, snapshot: SnapshotContext | null): Promise<string> {
   if (args.sql) return args.sql;
   if (args.file) return readFile(resolve(args.file), 'utf8');
-  if (snapshot) {
-    return `
-      SELECT market, symbol, name, tradeDate, close, volume, amount
-      FROM bars
-      ORDER BY tradeDate DESC, instrumentKey
-      LIMIT 20
-    `;
+  if (args.command === 'preview') {
+    const view = args.view ?? 'bars';
+    assertIdentifier(view, 'view');
+    if (!snapshot && view === 'bars') throw new Error('尚未发布可用的研究快照，无法预览 bars');
+    return `SELECT * FROM ${view} LIMIT 20`;
   }
-  return 'SELECT current_date AS today, current_timestamp AS now';
+  throw new Error('INVALID_ARGUMENT: query 必须提供 --sql 或 --file');
 }
 
 async function outputRows(
@@ -1120,6 +1120,7 @@ function parseArgs(
     recipeName = normalizeRecipeName(optionArgs[0]);
     optionArgs = optionArgs.slice(1);
   }
+  validateDuckdbArguments(command, optionArgs);
   const reader = new ArgReader(optionArgs);
   const format = reader.value('--format', '-f')
     ?? (reader.value('--out', '-o') ? inferOutputFormat(reader.value('--out', '-o')!, 'table') : 'table');
@@ -1177,7 +1178,7 @@ function normalizeCommand(value: string | undefined): Command {
   if (value === 'current') return 'status';
   if (value === 'fields' || value === 'columns') return 'schema';
   if (value === 'sql') return 'query';
-  if (['status', 'schema', 'views', 'query', 'pipeline', 'batch', 'minute', 'recipes', 'recipe'].includes(value)) {
+  if (['status', 'schema', 'views', 'query', 'preview', 'pipeline', 'batch', 'minute', 'recipes', 'recipe'].includes(value)) {
     return value as Command;
   }
   throw new Error(`未知命令：${value}`);
@@ -1252,6 +1253,7 @@ function printHelp(): void {
   npm run duckdb -- status
   npm run duckdb -- views
   npm run duckdb -- schema --view bars
+  npm run duckdb -- preview --view bars
   npm run duckdb -- query --sql "SELECT * FROM bars WHERE symbol=$symbol" --param symbol=002155
   npm run duckdb -- query --file ./query.sql --params-file ./params.json --transaction
 
