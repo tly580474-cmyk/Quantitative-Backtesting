@@ -73,10 +73,8 @@ describe('MarketSenseTrainingPage analysis navigation', () => {
       expect(useCandleStore.getState().importResult).toMatchObject({
         symbol: '000001',
         name: '平安银行',
-        instrumentType: 'stock',
         dateRange: { from: bars[0].date, to: bars[bars.length - 1].date },
       });
-      expect(useCandleStore.getState().candles.every((item) => item.instrumentType === 'stock')).toBe(true);
       expect(useCandleStore.getState().candles.map((item) => item.time)).toEqual(bars.map((item) => item.date));
       expect(screen.getByTestId('training-range').textContent).toBe(
         `${bars[79].date}/${bars[bars.length - 1].date}`,

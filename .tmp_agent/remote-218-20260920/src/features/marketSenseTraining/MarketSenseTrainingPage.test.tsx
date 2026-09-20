@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { App as AntApp } from 'antd';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/api/client';
 import { createTrainingPortfolio } from './engine';
@@ -13,20 +13,10 @@ vi.mock('./TrainingChart', () => ({
 }));
 
 const fetchMock = vi.mocked(apiFetch);
-const bars = Array.from({ length: 82 }, (_, index) => {
-  const date = new Date(Date.UTC(2026, 5, 1 + index)).toISOString().slice(0, 10);
-  const open = 10 + index / 10;
-  return { date, open, high: open + 1, low: open - 1, close: open + 0.5, volume: 1000 + index };
-});
-
-function AnalysisTarget() {
-  const location = useLocation();
-  const range = location.state?.marketSenseTrainingRange;
-  return <div>
-    行情分析目标页
-    <span data-testid="training-range">{range ? `${range.startTime}/${range.endTime}` : ''}</span>
-  </div>;
-}
+const bars = [
+  { date: '2026-08-01', open: 10, high: 11, low: 9, close: 10.5, volume: 1000 },
+  { date: '2026-08-02', open: 10.5, high: 12, low: 10, close: 11.5, volume: 1200 },
+];
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -34,7 +24,7 @@ beforeEach(() => {
     phase: 'finished',
     instrument: { code: '000001', name: '平安银行', market: '深市' },
     sessionBars: bars,
-    cursor: bars.length - 1,
+    cursor: 1,
     lots: 1,
     portfolio: createTrainingPortfolio(),
     indicators: ['ma'],
@@ -59,7 +49,7 @@ describe('MarketSenseTrainingPage analysis navigation', () => {
         <AntApp>
           <Routes>
             <Route path="/market-sense-training" element={<MarketSenseTrainingPage />} />
-            <Route path="/analysis" element={<AnalysisTarget />} />
+            <Route path="/analysis" element={<div>行情分析目标页</div>} />
           </Routes>
         </AntApp>
       </MemoryRouter>,
@@ -73,14 +63,9 @@ describe('MarketSenseTrainingPage analysis navigation', () => {
       expect(useCandleStore.getState().importResult).toMatchObject({
         symbol: '000001',
         name: '平安银行',
-        instrumentType: 'stock',
-        dateRange: { from: bars[0].date, to: bars[bars.length - 1].date },
+        dateRange: { from: '2026-08-01', to: '2026-08-02' },
       });
-      expect(useCandleStore.getState().candles.every((item) => item.instrumentType === 'stock')).toBe(true);
-      expect(useCandleStore.getState().candles.map((item) => item.time)).toEqual(bars.map((item) => item.date));
-      expect(screen.getByTestId('training-range').textContent).toBe(
-        `${bars[79].date}/${bars[bars.length - 1].date}`,
-      );
+      expect(useCandleStore.getState().candles.map((item) => item.time)).toEqual(['2026-08-01', '2026-08-02']);
     });
   });
 });

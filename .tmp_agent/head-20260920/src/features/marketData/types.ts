@@ -462,8 +462,6 @@ export interface IndexConstituent {
   nameEn: string | null;
   exchange: string | null;
   weightPct: number | null;
-  price: number | null;
-  changePct: number | null;
 }
 
 export interface IndexConstituentSnapshot {

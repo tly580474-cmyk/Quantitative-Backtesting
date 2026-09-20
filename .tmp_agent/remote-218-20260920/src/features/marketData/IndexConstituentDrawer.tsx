@@ -22,12 +22,8 @@ function marketOfCode(code: string): StockSearchItem['market'] {
   return /^(6|9)/.test(code) ? 'SH' : 'SZ';
 }
 
-function priceText(value: number | null) {
-  return value == null ? '—' : value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function changeText(value: number | null) {
-  return value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+function weightText(value: number | null) {
+  return value == null ? '—' : `${value.toLocaleString('zh-CN', { maximumFractionDigits: 4 })}%`;
 }
 
 export default function IndexConstituentDrawer({
@@ -106,7 +102,7 @@ export default function IndexConstituentDrawer({
       <Input
         allowClear
         prefix={<SearchOutlined />}
-        placeholder="搜索股票名称或代码"
+        placeholder="搜索股票名称、英文名或代码"
         aria-label={`搜索${index.name}成分股`}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
@@ -148,19 +144,25 @@ export default function IndexConstituentDrawer({
           </div>,
         },
         {
-          title: '实时价',
-          dataIndex: 'price',
-          width: 120,
-          align: 'right',
-          render: priceText,
+          title: '英文简称',
+          dataIndex: 'nameEn',
+          width: 220,
+          ellipsis: true,
+          render: (value: string | null) => value || '—',
         },
         {
-          title: '涨跌幅',
-          dataIndex: 'changePct',
-          width: 120,
+          title: '交易所',
+          dataIndex: 'exchange',
+          width: 150,
+          render: (value: string | null) => value || '—',
+        },
+        {
+          title: '权重',
+          dataIndex: 'weightPct',
+          width: 92,
           align: 'right',
-          sorter: (left, right) => (left.changePct ?? -Infinity) - (right.changePct ?? -Infinity),
-          render: (value: number | null) => <span className={value == null ? undefined : value > 0 ? 'market-up' : value < 0 ? 'market-down' : undefined}>{changeText(value)}</span>,
+          sorter: (left, right) => (left.weightPct ?? -Infinity) - (right.weightPct ?? -Infinity),
+          render: weightText,
         },
       ]}
       locale={{

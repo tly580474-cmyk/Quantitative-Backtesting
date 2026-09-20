@@ -339,13 +339,12 @@ export default function MarketSenseTrainingPage() {
       );
       const daily = cleanBars(response.items ?? []);
       if (daily.length === 0) throw new Error('当前标的暂无可导入的日 K 数据');
-      const candles = toCandles(daily, { code: instrument.code, type: 'stock' });
+      const candles = toCandles(daily, { code: instrument.code });
       const result: ImportResult = {
         success: true,
         fileName: `${instrument.code}-${instrument.name}-盘感训练复盘`,
         symbol: instrument.code,
         name: instrument.name,
-        instrumentType: 'stock',
         dateRange: { from: candles[0]?.time ?? '', to: candles[candles.length - 1]?.time ?? '' },
         totalRows: candles.length,
         validRows: candles.length,

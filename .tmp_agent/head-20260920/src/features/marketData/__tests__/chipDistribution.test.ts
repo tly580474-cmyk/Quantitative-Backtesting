@@ -54,17 +54,4 @@ describe('calculateChipDistribution', () => {
     expect(result!.peakPrice).toBeGreaterThan(18);
     expect(result!.averageCost).toBeGreaterThan(16);
   });
-
-  it('uses the covered recent window when legacy full history has no turnover rate', () => {
-    const legacy = Array.from({ length: 600 }, (_, index) =>
-      candle(`2020-${String(Math.floor(index / 28) + 1).padStart(2, '0')}-${String(index % 28 + 1).padStart(2, '0')}`, 8, undefined));
-    const recent = Array.from({ length: 480 }, (_, index) =>
-      candle(`2026-${String(Math.floor(index / 28) + 1).padStart(2, '0')}-${String(index % 28 + 1).padStart(2, '0')}`, 10 + index / 100, 3));
-
-    const result = calculateChipDistribution([...legacy, ...recent]);
-
-    expect(result).not.toBeNull();
-    expect(result!.coverageRatio).toBe(1);
-    expect(result!.latestClose).toBe(recent[recent.length - 1].close);
-  });
 });

@@ -1,0 +1,389 @@
+diff --git a/server/src/marketData/aStockDataService.test.ts b/server/src/marketData/aStockDataService.test.ts
+index 8e3db0d..3ae4ac5 100644
+--- a/server/src/marketData/aStockDataService.test.ts
++++ b/server/src/marketData/aStockDataService.test.ts
+@@ -1,6 +1,7 @@
+ import { afterEach, describe, expect, it, vi } from 'vitest';
+ import {
+   fetchMarketIndexQuotes,
++  fetchStockQuotes,
+   fetchStockKline,
+   fetchStockQuote,
+   inferType,
+@@ -84,6 +85,52 @@ describe('A-share stock quote service', () => {
+     });
+   });
+ 
++  it('loads constituent prices and changes in one Tencent quote request', async () => {
++    const sh = Array.from({ length: 55 }, () => '');
++    sh[1] = '贵州茅台';
++    sh[3] = '1500.50';
++    sh[32] = '1.25';
++    const sz = Array.from({ length: 55 }, () => '');
++    sz[1] = '平安银行';
++    sz[3] = '12.30';
++    sz[32] = '-0.80';
++    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
++      expect(String(url)).toContain('sh600519,sz000001');
++      return new Response(
++        `v_sh600519="${sh.join('~')}";\nv_sz000001="${sz.join('~')}";`,
++        { status: 200 },
++      );
++    }));
++
++    const quotes = await fetchStockQuotes(['600519', '000001']);
++
++    expect(quotes).toHaveLength(2);
++    expect(quotes[0]).toMatchObject({ code: '600519', price: 1500.5, changePct: 1.25 });
++    expect(quotes[1]).toMatchObject({ code: '000001', price: 12.3, changePct: -0.8 });
++  });
++
++  it('uses the same live Eastmoney quote for CSI 2000 as the detail page', async () => {
++    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
++      if (String(url).includes('qt.gtimg.cn')) return new Response('', { status: 200 });
++      if (String(url).includes('push2.eastmoney.com')) {
++        return new Response(JSON.stringify({ data: {
++          f43: 3192.21, f44: 3194.39, f45: 3159.89, f46: 3159.89,
++          f48: 442709000000, f60: 3136.58, f169: 55.63, f170: 1.77, f171: 1.1,
++        } }), { status: 200, headers: { 'content-type': 'application/json' } });
++      }
++      return new Response(JSON.stringify({ data: null }), { status: 200 });
++    }));
++
++    const quotes = await fetchMarketIndexQuotes();
++
++    expect(quotes.find((quote) => quote.code === '932000')).toMatchObject({
++      price: 3192.21,
++      changeAmount: 55.63,
++      changePct: 1.77,
++      source: ['东方财富'],
++    });
++  });
++
+   it('respects explicit market prefixes when loading a quote', async () => {
+     const fields = Array.from({ length: 55 }, () => '');
+     fields[1] = 'SHINDEX';
+diff --git a/server/src/marketData/aStockDataService.ts b/server/src/marketData/aStockDataService.ts
+index f28a920..f805402 100644
+--- a/server/src/marketData/aStockDataService.ts
++++ b/server/src/marketData/aStockDataService.ts
+@@ -447,6 +447,50 @@ export async function searchStocks(keyword: string, limit = 12): Promise<StockSe
+   return items;
+ }
+ 
++/** Fetch a constituent list in bounded Tencent batches instead of issuing one
++ * upstream call per table row. Missing or malformed rows are simply omitted so
++ * the caller can keep the reference-data snapshot visible. */
++export async function fetchStockQuotes(inputs: string[]): Promise<StockQuote[]> {
++  const securities = Array.from(new Set(inputs))
++    .filter((code) => /^\d{6}$/.test(code))
++    .map((code) => ({ code, prefixed: tencentMarketPrefix(code) }));
++  if (securities.length === 0) return [];
++  const chunks: typeof securities[] = [];
++  for (let index = 0; index < securities.length; index += 70) {
++    chunks.push(securities.slice(index, index + 70));
++  }
++  let cursor = 0;
++  const workers = Array.from({ length: Math.min(6, chunks.length) }, async () => {
++    const quotes: StockQuote[] = [];
++    while (cursor < chunks.length) {
++      const chunk = chunks[cursor++];
++      try {
++        const text = await fetchText(
++          `${TENCENT_QUOTE_URL}${chunk.map((item) => item.prefixed).join(',')}`,
++          'gbk',
++        );
++        for (const item of chunk) {
++          const values = text.match(new RegExp(`v_${item.prefixed}="([\\s\\S]*?)";`))?.[1]?.split('~') ?? [];
++          if (values.length < 53 || !values[1]) continue;
++          const market = item.prefixed.startsWith('sh') ? 'SH' : item.prefixed.startsWith('bj') ? 'BJ' : 'SZ';
++          quotes.push(parseTencentQuote(values, {
++            code: item.code,
++            market,
++            type: inferType(item.code, market),
++            industry: null,
++            listDate: null,
++            source: ['腾讯财经'],
++          }));
++        }
++      } catch {
++        // Keep successfully loaded chunks; the drawer renders missing quotes as dashes.
++      }
++    }
++    return quotes;
++  });
++  return (await Promise.all(workers)).flat();
++}
++
+ export async function fetchStockQuote(input: string, withProfile = true): Promise<StockQuote> {
+   const security = resolveSecurity(input);
+   const { code, market, prefixed } = security;
+@@ -641,11 +685,18 @@ async function fetchMarketIndexQuotesLive(): Promise<StockQuote[]> {
+     }
+   }
+ 
+-  // 2. 补齐腾讯未返回的指数，并从本地数据读取日经/KOSPI。
+-  // 避免把会串行重试的东方财富实时请求放进 15 秒一次的总览轮询。
+-  const resolvedCodes = new Set(tencentQuotes.map((item) => item.code));
++  // 2. 中证2000在详情页使用东方财富实时价，总览也必须使用同一口径；
++  // 否则盘中会用上一根本地日线展示成两个不同点位。国际指数仍使用
++  // 本地日线，避免在 15 秒轮询中串行调用多个东财接口。
++  const eastmoneyLive = (await Promise.all(
++    eastmoneyIndices
++      .filter((item) => item.market === 'SH' || item.market === 'SZ')
++      .map((item) => fetchEastmoneyIndexQuote(item)),
++  )).filter((quote): quote is StockQuote => quote !== null);
++  const resolvedCodes = new Set([...tencentQuotes, ...eastmoneyLive].map((item) => item.code));
+   const localFallbacks = await Promise.all(
+-    [...tencentIndices.filter((item) => !resolvedCodes.has(item.code)), ...eastmoneyIndices]
++    [...tencentIndices, ...eastmoneyIndices]
++      .filter((item) => !resolvedCodes.has(item.code))
+       .map(async (item) => {
+         const local = await getLatestDatasetCandlesBySymbol(item.code, 'index', 2).catch(() => null);
+         if (!local?.data.length) return null;
+@@ -665,7 +716,7 @@ async function fetchMarketIndexQuotesLive(): Promise<StockQuote[]> {
+       }),
+   );
+ 
+-  return [...tencentQuotes, ...localFallbacks.filter((q): q is StockQuote => q !== null)];
++  return [...tencentQuotes, ...eastmoneyLive, ...localFallbacks.filter((q): q is StockQuote => q !== null)];
+ }
+ 
+ /** 通过东方财富 API 获取单个国际指数行情 */
+diff --git a/server/src/research/duckdbResearchService.ts b/server/src/research/duckdbResearchService.ts
+index 9caffc0..7096e04 100644
+--- a/server/src/research/duckdbResearchService.ts
++++ b/server/src/research/duckdbResearchService.ts
+@@ -110,6 +110,8 @@ export interface IndexConstituentSnapshot {
+     nameEn: string | null;
+     exchange: string | null;
+     weightPct: number | null;
++    price: number | null;
++    changePct: number | null;
+   }>;
+ }
+ 
+@@ -165,6 +167,8 @@ export async function queryLatestIndexConstituents(
+         nameEn: row.constituentNameEn == null ? null : String(row.constituentNameEn),
+         exchange: row.exchange == null ? null : String(row.exchange),
+         weightPct: finiteNumber(row.weightPct),
++        price: null,
++        changePct: null,
+       })),
+     };
+   } finally {
+diff --git a/server/src/routes/marketData.ts b/server/src/routes/marketData.ts
+index b791dde..8adc70f 100644
+--- a/server/src/routes/marketData.ts
++++ b/server/src/routes/marketData.ts
+@@ -28,6 +28,7 @@ import {
+   readWatchlistTradingDateEvidence,
+   fetchStockIntraday,
+   fetchStockKline,
++  fetchStockQuotes,
+   fetchStockQuote,
+   inferType,
+   resolveSecurity,
+@@ -982,7 +983,19 @@ export function registerMarketDataRoutes(
+     if (!parsed.success) return reply.status(400).send({ message: '指数代码必须为 6 位数字' });
+     try {
+       const snapshot = await queryLatestIndexConstituents(storageConfig.snapshotRoot, parsed.data);
+-      return reply.send(snapshot ?? {
++      if (snapshot) {
++        const quotes = await fetchStockQuotes(snapshot.items.map((item) => item.code)).catch(() => []);
++        const quoteByCode = new Map(quotes.map((quote) => [quote.code, quote]));
++        return reply.send({
++          ...snapshot,
++          items: snapshot.items.map((item) => ({
++            ...item,
++            price: quoteByCode.get(item.code)?.price ?? null,
++            changePct: quoteByCode.get(item.code)?.changePct ?? null,
++          })),
++        });
++      }
++      return reply.send({
+         indexCode: parsed.data,
+         indexName: parsed.data,
+         constituentDate: '',
+diff --git a/src/features/marketData/IndexConstituentDrawer.tsx b/src/features/marketData/IndexConstituentDrawer.tsx
+index e453feb..6636a2e 100644
+--- a/src/features/marketData/IndexConstituentDrawer.tsx
++++ b/src/features/marketData/IndexConstituentDrawer.tsx
+@@ -22,8 +22,12 @@ function marketOfCode(code: string): StockSearchItem['market'] {
+   return /^(6|9)/.test(code) ? 'SH' : 'SZ';
+ }
+ 
+-function weightText(value: number | null) {
+-  return value == null ? '—' : `${value.toLocaleString('zh-CN', { maximumFractionDigits: 4 })}%`;
++function priceText(value: number | null) {
++  return value == null ? '—' : value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
++}
++
++function changeText(value: number | null) {
++  return value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+ }
+ 
+ export default function IndexConstituentDrawer({
+@@ -102,7 +106,7 @@ export default function IndexConstituentDrawer({
+       <Input
+         allowClear
+         prefix={<SearchOutlined />}
+-        placeholder="搜索股票名称、英文名或代码"
++        placeholder="搜索股票名称或代码"
+         aria-label={`搜索${index.name}成分股`}
+         value={query}
+         onChange={(event) => setQuery(event.target.value)}
+@@ -144,25 +148,19 @@ export default function IndexConstituentDrawer({
+           </div>,
+         },
+         {
+-          title: '英文简称',
+-          dataIndex: 'nameEn',
+-          width: 220,
+-          ellipsis: true,
+-          render: (value: string | null) => value || '—',
+-        },
+-        {
+-          title: '交易所',
+-          dataIndex: 'exchange',
+-          width: 150,
+-          render: (value: string | null) => value || '—',
++          title: '实时价',
++          dataIndex: 'price',
++          width: 120,
++          align: 'right',
++          render: priceText,
+         },
+         {
+-          title: '权重',
+-          dataIndex: 'weightPct',
+-          width: 92,
++          title: '涨跌幅',
++          dataIndex: 'changePct',
++          width: 120,
+           align: 'right',
+-          sorter: (left, right) => (left.weightPct ?? -Infinity) - (right.weightPct ?? -Infinity),
+-          render: weightText,
++          sorter: (left, right) => (left.changePct ?? -Infinity) - (right.changePct ?? -Infinity),
++          render: (value: number | null) => <span className={value == null ? undefined : value > 0 ? 'market-up' : value < 0 ? 'market-down' : undefined}>{changeText(value)}</span>,
+         },
+       ]}
+       locale={{
+diff --git a/src/features/marketData/__tests__/chipDistribution.test.ts b/src/features/marketData/__tests__/chipDistribution.test.ts
+index 985237b..377f1f0 100644
+--- a/src/features/marketData/__tests__/chipDistribution.test.ts
++++ b/src/features/marketData/__tests__/chipDistribution.test.ts
+@@ -54,4 +54,17 @@ describe('calculateChipDistribution', () => {
+     expect(result!.peakPrice).toBeGreaterThan(18);
+     expect(result!.averageCost).toBeGreaterThan(16);
+   });
++
++  it('uses the covered recent window when legacy full history has no turnover rate', () => {
++    const legacy = Array.from({ length: 600 }, (_, index) =>
++      candle(`2020-${String(Math.floor(index / 28) + 1).padStart(2, '0')}-${String(index % 28 + 1).padStart(2, '0')}`, 8, undefined));
++    const recent = Array.from({ length: 480 }, (_, index) =>
++      candle(`2026-${String(Math.floor(index / 28) + 1).padStart(2, '0')}-${String(index % 28 + 1).padStart(2, '0')}`, 10 + index / 100, 3));
++
++    const result = calculateChipDistribution([...legacy, ...recent]);
++
++    expect(result).not.toBeNull();
++    expect(result!.coverageRatio).toBe(1);
++    expect(result!.latestClose).toBe(recent[recent.length - 1].close);
++  });
+ });
+diff --git a/src/features/marketData/chipDistribution.ts b/src/features/marketData/chipDistribution.ts
+index 517679f..e5f18b3 100644
+--- a/src/features/marketData/chipDistribution.ts
++++ b/src/features/marketData/chipDistribution.ts
+@@ -38,16 +38,22 @@ export function calculateChipDistribution(
+   binCount = 240,
+ ): ChipDistribution | null {
+   if (candles.length === 0 || binCount < 2) return null;
+-  const coveredCount = candles.filter((item) =>
++  // CYQ is a current-position estimate. Very old database history often
++  // predates the turnover-rate field; counting those rows against coverage
++  // made an otherwise complete recent window disappear after a full-history
++  // import. A bounded recent window is both the useful horizon and resilient
++  // to that legacy-data gap.
++  const calculationCandles = candles.slice(-480);
++  const coveredCount = calculationCandles.filter((item) =>
+     item.turnoverRatePct != null
+     && Number.isFinite(item.turnoverRatePct)
+     && item.turnoverRatePct >= 0
+   ).length;
+-  const coverageRatio = coveredCount / candles.length;
++  const coverageRatio = coveredCount / calculationCandles.length;
+   if (coverageRatio < 0.9) return null;
+ 
+-  const minPrice = Math.min(...candles.map((item) => item.low));
+-  const maxPrice = Math.max(...candles.map((item) => item.high));
++  const minPrice = Math.min(...calculationCandles.map((item) => item.low));
++  const maxPrice = Math.max(...calculationCandles.map((item) => item.high));
+   if (!Number.isFinite(minPrice) || !Number.isFinite(maxPrice) || minPrice <= 0 || maxPrice < minPrice) {
+     return null;
+   }
+@@ -56,7 +62,7 @@ export function calculateChipDistribution(
+   const prices = Array.from({ length: binCount }, (_, index) => minPrice + step * index);
+   const chips = new Array<number>(binCount).fill(0);
+ 
+-  for (const candle of candles) {
++  for (const candle of calculationCandles) {
+     const turnover = candle.turnoverRatePct == null || !Number.isFinite(candle.turnoverRatePct)
+       ? 0
+       : Math.min(1, Math.max(0, candle.turnoverRatePct / 100));
+@@ -91,7 +97,7 @@ export function calculateChipDistribution(
+   const total = chips.reduce((sum, value) => sum + value, 0);
+   if (total <= 0) return null;
+   const bins = prices.map((price, index) => ({ price, weight: chips[index] / total }));
+-  const latestClose = candles[candles.length - 1].close;
++  const latestClose = calculationCandles[calculationCandles.length - 1].close;
+   const peak = bins.reduce((best, bin) => bin.weight > best.weight ? bin : best, bins[0]);
+   const lower70 = quantilePrice(bins, 0.15);
+   const upper70 = quantilePrice(bins, 0.85);
+diff --git a/src/features/marketData/types.ts b/src/features/marketData/types.ts
+index ae66f95..c812bd6 100644
+--- a/src/features/marketData/types.ts
++++ b/src/features/marketData/types.ts
+@@ -462,6 +462,8 @@ export interface IndexConstituent {
+   nameEn: string | null;
+   exchange: string | null;
+   weightPct: number | null;
++  price: number | null;
++  changePct: number | null;
+ }
+ 
+ export interface IndexConstituentSnapshot {
+diff --git a/src/features/marketSenseTraining/MarketSenseTrainingPage.test.tsx b/src/features/marketSenseTraining/MarketSenseTrainingPage.test.tsx
+index 638dbfc..dd82d90 100644
+--- a/src/features/marketSenseTraining/MarketSenseTrainingPage.test.tsx
++++ b/src/features/marketSenseTraining/MarketSenseTrainingPage.test.tsx
+@@ -73,8 +73,10 @@ describe('MarketSenseTrainingPage analysis navigation', () => {
+       expect(useCandleStore.getState().importResult).toMatchObject({
+         symbol: '000001',
+         name: '平安银行',
++        instrumentType: 'stock',
+         dateRange: { from: bars[0].date, to: bars[bars.length - 1].date },
+       });
++      expect(useCandleStore.getState().candles.every((item) => item.instrumentType === 'stock')).toBe(true);
+       expect(useCandleStore.getState().candles.map((item) => item.time)).toEqual(bars.map((item) => item.date));
+       expect(screen.getByTestId('training-range').textContent).toBe(
+         `${bars[79].date}/${bars[bars.length - 1].date}`,
+diff --git a/src/features/marketSenseTraining/MarketSenseTrainingPage.tsx b/src/features/marketSenseTraining/MarketSenseTrainingPage.tsx
+index 96265d7..704db53 100644
+--- a/src/features/marketSenseTraining/MarketSenseTrainingPage.tsx
++++ b/src/features/marketSenseTraining/MarketSenseTrainingPage.tsx
+@@ -339,12 +339,13 @@ export default function MarketSenseTrainingPage() {
+       );
+       const daily = cleanBars(response.items ?? []);
+       if (daily.length === 0) throw new Error('当前标的暂无可导入的日 K 数据');
+-      const candles = toCandles(daily, { code: instrument.code });
++      const candles = toCandles(daily, { code: instrument.code, type: 'stock' });
+       const result: ImportResult = {
+         success: true,
+         fileName: `${instrument.code}-${instrument.name}-盘感训练复盘`,
+         symbol: instrument.code,
+         name: instrument.name,
++        instrumentType: 'stock',
+         dateRange: { from: candles[0]?.time ?? '', to: candles[candles.length - 1]?.time ?? '' },
+         totalRows: candles.length,
+         validRows: candles.length,

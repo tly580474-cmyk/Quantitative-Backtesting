@@ -447,50 +447,6 @@ export async function searchStocks(keyword: string, limit = 12): Promise<StockSe
   return items;
 }
 
-/** Fetch a constituent list in bounded Tencent batches instead of issuing one
- * upstream call per table row. Missing or malformed rows are simply omitted so
- * the caller can keep the reference-data snapshot visible. */
-export async function fetchStockQuotes(inputs: string[]): Promise<StockQuote[]> {
-  const securities = Array.from(new Set(inputs))
-    .filter((code) => /^\d{6}$/.test(code))
-    .map((code) => ({ code, prefixed: tencentMarketPrefix(code) }));
-  if (securities.length === 0) return [];
-  const chunks: typeof securities[] = [];
-  for (let index = 0; index < securities.length; index += 70) {
-    chunks.push(securities.slice(index, index + 70));
-  }
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(6, chunks.length) }, async () => {
-    const quotes: StockQuote[] = [];
-    while (cursor < chunks.length) {
-      const chunk = chunks[cursor++];
-      try {
-        const text = await fetchText(
-          `${TENCENT_QUOTE_URL}${chunk.map((item) => item.prefixed).join(',')}`,
-          'gbk',
-        );
-        for (const item of chunk) {
-          const values = text.match(new RegExp(`v_${item.prefixed}="([\\s\\S]*?)";`))?.[1]?.split('~') ?? [];
-          if (values.length < 53 || !values[1]) continue;
-          const market = item.prefixed.startsWith('sh') ? 'SH' : item.prefixed.startsWith('bj') ? 'BJ' : 'SZ';
-          quotes.push(parseTencentQuote(values, {
-            code: item.code,
-            market,
-            type: inferType(item.code, market),
-            industry: null,
-            listDate: null,
-            source: ['腾讯财经'],
-          }));
-        }
-      } catch {
-        // Keep successfully loaded chunks; the drawer renders missing quotes as dashes.
-      }
-    }
-    return quotes;
-  });
-  return (await Promise.all(workers)).flat();
-}
-
 export async function fetchStockQuote(input: string, withProfile = true): Promise<StockQuote> {
   const security = resolveSecurity(input);
   const { code, market, prefixed } = security;
@@ -504,8 +460,28 @@ export async function fetchStockQuote(input: string, withProfile = true): Promis
     const quote = await fetchEastmoneyIndexQuote(definition);
     if (quote) return quote;
 
-    const fallback = await fetchLatestIndexKlineQuote(definition);
-    if (fallback) return fallback;
+    const local = await getLatestDatasetCandlesBySymbol(code, 'index', 2);
+    if (local.data.length > 0) {
+      return buildIndexQuoteFromKlines(
+        definition,
+        local.data.map((bar) => ({
+          date: bar.time,
+          open: Number(bar.open),
+          close: Number(bar.close),
+          high: Number(bar.high),
+          low: Number(bar.low),
+          volume: Number(bar.volume ?? 0),
+          amount: bar.turnover == null ? undefined : Number(bar.turnover) * 100_000_000,
+        })),
+        ['本地指数数据'],
+      );
+    }
+
+    const online = await fetchEastmoneyIndexKline(security.eastmoneySecid, 'day', 2)
+      .catch(() => []);
+    if (online.length > 0) {
+      return buildIndexQuoteFromKlines(definition, online, ['东方财富K线']);
+    }
     throw new Error(`指数 ${code} 行情暂不可用`);
   }
   const text = await fetchText(`${TENCENT_QUOTE_URL}${prefixed}`, 'gbk');
@@ -665,21 +641,11 @@ async function fetchMarketIndexQuotesLive(): Promise<StockQuote[]> {
     }
   }
 
-  // 2. 中证2000在详情页使用东方财富实时价，总览也必须使用同一口径；
-  // 否则盘中会用上一根本地日线展示成两个不同点位。国际指数仍使用
-  // 本地日线，避免在 15 秒轮询中串行调用多个东财接口。
-  const eastmoneyLive = (await Promise.all(
-    eastmoneyIndices
-      .filter((item) => item.market === 'SH' || item.market === 'SZ')
-      .map(async (item) => (
-        await fetchEastmoneyIndexQuote(item)
-        ?? await fetchLatestIndexKlineQuote(item)
-      )),
-  )).filter((quote): quote is StockQuote => quote !== null);
-  const resolvedCodes = new Set([...tencentQuotes, ...eastmoneyLive].map((item) => item.code));
+  // 2. 补齐腾讯未返回的指数，并从本地数据读取日经/KOSPI。
+  // 避免把会串行重试的东方财富实时请求放进 15 秒一次的总览轮询。
+  const resolvedCodes = new Set(tencentQuotes.map((item) => item.code));
   const localFallbacks = await Promise.all(
-    [...tencentIndices, ...eastmoneyIndices]
-      .filter((item) => !resolvedCodes.has(item.code))
+    [...tencentIndices.filter((item) => !resolvedCodes.has(item.code)), ...eastmoneyIndices]
       .map(async (item) => {
         const local = await getLatestDatasetCandlesBySymbol(item.code, 'index', 2).catch(() => null);
         if (!local?.data.length) return null;
@@ -699,38 +665,7 @@ async function fetchMarketIndexQuotesLive(): Promise<StockQuote[]> {
       }),
   );
 
-  return [...tencentQuotes, ...eastmoneyLive, ...localFallbacks.filter((q): q is StockQuote => q !== null)];
-}
-
-/** Select the newest dated K-line fallback. The published local snapshot can
- * lag the online daily series by one session, so local-first would regress an
- * index header even while the chart already displayed the newer bar. */
-async function fetchLatestIndexKlineQuote(item: IndexDefinition): Promise<StockQuote | null> {
-  const [online, local] = await Promise.all([
-    item.eastmoneySecid
-      ? fetchEastmoneyIndexKline(item.eastmoneySecid, 'day', 2).catch(() => [])
-      : Promise.resolve([]),
-    getLatestDatasetCandlesBySymbol(item.code, 'index', 2).catch(() => null),
-  ]);
-  const localPoints: KlinePoint[] = (local?.data ?? []).map((bar) => ({
-    date: bar.time,
-    open: Number(bar.open),
-    close: Number(bar.close),
-    high: Number(bar.high),
-    low: Number(bar.low),
-    volume: Number(bar.volume ?? 0),
-    amount: bar.turnover == null ? undefined : Number(bar.turnover) * 100_000_000,
-    turnoverRatePct: bar.turnoverRatePct == null ? undefined : Number(bar.turnoverRatePct),
-  }));
-  const onlineDate = online.at(-1)?.date ?? '';
-  const localDate = localPoints.at(-1)?.date ?? '';
-  if (online.length > 0 && onlineDate >= localDate) {
-    return buildIndexQuoteFromKlines(item, online, ['东方财富K线']);
-  }
-  if (localPoints.length > 0) {
-    return buildIndexQuoteFromKlines(item, localPoints, ['本地指数数据']);
-  }
-  return null;
+  return [...tencentQuotes, ...localFallbacks.filter((q): q is StockQuote => q !== null)];
 }
 
 /** 通过东方财富 API 获取单个国际指数行情 */

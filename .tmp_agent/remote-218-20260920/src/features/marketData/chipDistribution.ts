@@ -38,22 +38,16 @@ export function calculateChipDistribution(
   binCount = 240,
 ): ChipDistribution | null {
   if (candles.length === 0 || binCount < 2) return null;
-  // CYQ is a current-position estimate. Very old database history often
-  // predates the turnover-rate field; counting those rows against coverage
-  // made an otherwise complete recent window disappear after a full-history
-  // import. A bounded recent window is both the useful horizon and resilient
-  // to that legacy-data gap.
-  const calculationCandles = candles.slice(-480);
-  const coveredCount = calculationCandles.filter((item) =>
+  const coveredCount = candles.filter((item) =>
     item.turnoverRatePct != null
     && Number.isFinite(item.turnoverRatePct)
     && item.turnoverRatePct >= 0
   ).length;
-  const coverageRatio = coveredCount / calculationCandles.length;
+  const coverageRatio = coveredCount / candles.length;
   if (coverageRatio < 0.9) return null;
 
-  const minPrice = Math.min(...calculationCandles.map((item) => item.low));
-  const maxPrice = Math.max(...calculationCandles.map((item) => item.high));
+  const minPrice = Math.min(...candles.map((item) => item.low));
+  const maxPrice = Math.max(...candles.map((item) => item.high));
   if (!Number.isFinite(minPrice) || !Number.isFinite(maxPrice) || minPrice <= 0 || maxPrice < minPrice) {
     return null;
   }
@@ -62,7 +56,7 @@ export function calculateChipDistribution(
   const prices = Array.from({ length: binCount }, (_, index) => minPrice + step * index);
   const chips = new Array<number>(binCount).fill(0);
 
-  for (const candle of calculationCandles) {
+  for (const candle of candles) {
     const turnover = candle.turnoverRatePct == null || !Number.isFinite(candle.turnoverRatePct)
       ? 0
       : Math.min(1, Math.max(0, candle.turnoverRatePct / 100));
@@ -97,7 +91,7 @@ export function calculateChipDistribution(
   const total = chips.reduce((sum, value) => sum + value, 0);
   if (total <= 0) return null;
   const bins = prices.map((price, index) => ({ price, weight: chips[index] / total }));
-  const latestClose = calculationCandles[calculationCandles.length - 1].close;
+  const latestClose = candles[candles.length - 1].close;
   const peak = bins.reduce((best, bin) => bin.weight > best.weight ? bin : best, bins[0]);
   const lower70 = quantilePrice(bins, 0.15);
   const upper70 = quantilePrice(bins, 0.85);

@@ -28,7 +28,6 @@ import {
   readWatchlistTradingDateEvidence,
   fetchStockIntraday,
   fetchStockKline,
-  fetchStockQuotes,
   fetchStockQuote,
   inferType,
   resolveSecurity,
@@ -983,19 +982,7 @@ export function registerMarketDataRoutes(
     if (!parsed.success) return reply.status(400).send({ message: '指数代码必须为 6 位数字' });
     try {
       const snapshot = await queryLatestIndexConstituents(storageConfig.snapshotRoot, parsed.data);
-      if (snapshot) {
-        const quotes = await fetchStockQuotes(snapshot.items.map((item) => item.code)).catch(() => []);
-        const quoteByCode = new Map(quotes.map((quote) => [quote.code, quote]));
-        return reply.send({
-          ...snapshot,
-          items: snapshot.items.map((item) => ({
-            ...item,
-            price: quoteByCode.get(item.code)?.price ?? null,
-            changePct: quoteByCode.get(item.code)?.changePct ?? null,
-          })),
-        });
-      }
-      return reply.send({
+      return reply.send(snapshot ?? {
         indexCode: parsed.data,
         indexName: parsed.data,
         constituentDate: '',

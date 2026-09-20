@@ -110,8 +110,6 @@ export interface IndexConstituentSnapshot {
     nameEn: string | null;
     exchange: string | null;
     weightPct: number | null;
-    price: number | null;
-    changePct: number | null;
   }>;
 }
 
@@ -167,8 +165,6 @@ export async function queryLatestIndexConstituents(
         nameEn: row.constituentNameEn == null ? null : String(row.constituentNameEn),
         exchange: row.exchange == null ? null : String(row.exchange),
         weightPct: finiteNumber(row.weightPct),
-        price: null,
-        changePct: null,
       })),
     };
   } finally {

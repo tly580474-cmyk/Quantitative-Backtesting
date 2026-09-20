@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchMarketIndexQuotes,
-  fetchStockQuotes,
   fetchStockKline,
   fetchStockQuote,
   inferType,
@@ -82,89 +81,6 @@ describe('A-share stock quote service', () => {
       type: 'index',
       price: 16109.81,
       changePct: 0.36,
-    });
-  });
-
-  it('loads constituent prices and changes in one Tencent quote request', async () => {
-    const sh = Array.from({ length: 55 }, () => '');
-    sh[1] = '贵州茅台';
-    sh[3] = '1500.50';
-    sh[32] = '1.25';
-    const sz = Array.from({ length: 55 }, () => '');
-    sz[1] = '平安银行';
-    sz[3] = '12.30';
-    sz[32] = '-0.80';
-    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
-      expect(String(url)).toContain('sh600519,sz000001');
-      return new Response(
-        `v_sh600519="${sh.join('~')}";\nv_sz000001="${sz.join('~')}";`,
-        { status: 200 },
-      );
-    }));
-
-    const quotes = await fetchStockQuotes(['600519', '000001']);
-
-    expect(quotes).toHaveLength(2);
-    expect(quotes[0]).toMatchObject({ code: '600519', price: 1500.5, changePct: 1.25 });
-    expect(quotes[1]).toMatchObject({ code: '000001', price: 12.3, changePct: -0.8 });
-  });
-
-  it('uses the same live Eastmoney quote for CSI 2000 as the detail page', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
-      if (String(url).includes('qt.gtimg.cn')) return new Response('', { status: 200 });
-      if (String(url).includes('push2.eastmoney.com')) {
-        return new Response(JSON.stringify({ data: {
-          f43: 3192.21, f44: 3194.39, f45: 3159.89, f46: 3159.89,
-          f48: 442709000000, f60: 3136.58, f169: 55.63, f170: 1.77, f171: 1.1,
-        } }), { status: 200, headers: { 'content-type': 'application/json' } });
-      }
-      return new Response(JSON.stringify({ data: null }), { status: 200 });
-    }));
-
-    const quotes = await fetchMarketIndexQuotes();
-
-    expect(quotes.find((quote) => quote.code === '932000')).toMatchObject({
-      price: 3192.21,
-      changeAmount: 55.63,
-      changePct: 1.77,
-      source: ['东方财富'],
-    });
-  });
-
-  it('prefers a newer Eastmoney CSI 2000 daily bar over the stale local snapshot', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
-      const value = String(url);
-      if (value.includes('qt.gtimg.cn')) return new Response('', { status: 200 });
-      if (value.includes('push2his.eastmoney.com')) {
-        return new Response(JSON.stringify({ data: { klines: [
-          '2026-09-17,3123.52,3136.58,3145.91,3110.14,297697716,407222000000,1.14,0.12,3.61,3.35',
-          '2026-09-18,3159.89,3192.21,3194.39,3159.89,312946428,442709000000,1.10,1.77,55.63,3.53',
-        ] } }), { status: 200, headers: { 'content-type': 'application/json' } });
-      }
-      if (value.includes('push2.eastmoney.com')) {
-        return new Response(JSON.stringify({ data: null }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        });
-      }
-      return new Response(JSON.stringify({ data: null }), { status: 200 });
-    }));
-
-    const detail = await fetchStockQuote('ft932000', false);
-    const overview = (await fetchMarketIndexQuotes()).find((quote) => quote.code === '932000');
-
-    expect(detail).toMatchObject({
-      price: 3192.21,
-      previousClose: 3136.58,
-      source: ['东方财富K线'],
-      updatedAt: '2026-09-18T15:00:00.000Z',
-    });
-    expect(detail.changePct).toBeCloseTo(1.77, 2);
-    expect(overview).toMatchObject({
-      price: detail.price,
-      changePct: detail.changePct,
-      updatedAt: detail.updatedAt,
-      source: detail.source,
     });
   });
 
