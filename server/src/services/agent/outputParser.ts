@@ -5,6 +5,7 @@ import {
   type PublicAgentEvent,
 } from './eventProtocol.js';
 import { detectToolFailure, researchDataUsable } from './toolOutcome.js';
+import { fundFlowEvidence } from './fundFlowReportGuard.js';
 
 export type ParsedEvent = PublicAgentEvent;
 
@@ -170,6 +171,7 @@ function parseBlocks(blocks: StreamBlock[]): ParsedEvent[] {
         toolResult: sanitizeToolDetail(toolResultErrorContent(block.content)),
         toolFailure: detectToolFailure(block.content, block.is_error),
         toolDataUsable: researchDataUsable(block.content),
+        toolFundFlowEvidence: fundFlowEvidence(block.content),
       });
     }
   }

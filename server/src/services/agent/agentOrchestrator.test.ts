@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Pool } from 'mysql2/promise';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentOrchestrator } from './agentOrchestrator.js';
+import { fundFlowEvidence } from './fundFlowReportGuard.js';
 import type {
   AgentProvider, AgentProviderHealth, ProviderCompletion, ProviderEventSink, ProviderRun,
 } from './providers/types.js';
@@ -62,10 +63,35 @@ function harness() {
     claudeWorkingDirectory: process.cwd(), claudePath: process.execPath, reportRoot: root,
     maxConcurrent: 1, defaultProvider: 'codex',
   }, [provider]);
-  return { orchestrator, provider, terminalPayloads, execute };
+  return { orchestrator, provider, terminalPayloads, execute, root };
 }
 
 describe('AgentOrchestrator provider contract', () => {
+  it('replaces a tenfold fund-flow table error in both the public answer and saved report', async () => {
+    const { orchestrator, provider, terminalPayloads, root } = harness();
+    const publicEvents: any[] = [];
+    orchestrator.addEventListener('run-guard', event => publicEvents.push(event));
+    await orchestrator.start({ runId: 'run-guard', prompt: '最近5日主力资金流，前5只股票，生成报告', maxTurns: 1, timeoutMs: 5000 });
+    await provider.sink!.reportDecision(true);
+    const base = { publicContent: '', timestamp: new Date().toISOString(), toolUseId: 'data' };
+    await provider.sink!.event({ ...base, type: 'tool_started', toolName: 'Bash', toolInput: 'node server/scripts/researchData.mjs fund-flows' });
+    await provider.sink!.event({ ...base, type: 'tool_finished', toolFundFlowEvidence: fundFlowEvidence({
+      kind: 'research-data', dataset: 'fund_flows', ok: true, usable: true, unit: '亿元', requested: { group: 'stock' },
+      windowComplete: true, daily: [{ tradeDate: '2026-09-14', mainNetInYi: -165.2556, sampleCount: 5207, expectedCount: 5550 }],
+      topInflow: [], topOutflow: [], source: { providers: [] },
+    }) });
+    const bad = '| 业务日期 | 主力净额（亿元） |\n|---|---:|\n| 2026-09-14 | -16.53 |';
+    for (const type of ['progress', 'assistant_final'] as const) await provider.sink!.event({ type, publicContent: bad, timestamp: base.timestamp });
+    provider.complete();
+    for (let i = 0; i < 100 && orchestrator.isRunning('run-guard'); i++) await new Promise(resolve => setTimeout(resolve, 10));
+    const final = publicEvents.find(event => event.type === 'assistant_final').publicContent;
+    expect(final).toContain('未通过一致性检查');
+    expect(final).toContain('-165.26');
+    expect(JSON.stringify(publicEvents)).not.toContain('-16.53');
+    expect(JSON.stringify(publicEvents)).not.toContain('toolFundFlowEvidence');
+    expect(readFileSync(join(root, 'reports', 'run-guard.html'), 'utf8')).toContain('-165.26');
+    expect(terminalPayloads).toEqual([expect.objectContaining({ status: 'completed', metrics: expect.objectContaining({ fundFlowReportFallbacks: 1 }) })]);
+  });
   it('persists masked failures and terminal metrics with deduplicated tool starts', async () => {
     const { orchestrator, provider, terminalPayloads, execute } = harness();
     await orchestrator.start({ runId: 'run-metrics', prompt: 'test', maxTurns: 1, timeoutMs: 5000 });

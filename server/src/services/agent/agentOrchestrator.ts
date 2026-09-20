@@ -10,6 +10,7 @@ import { validateAgentReport } from './reportValidator.js';
 import { renderStaticAgentReport } from './reportRenderer.js';
 import { detectToolFailure, isExecutedCommand } from './toolOutcome.js';
 import { AgentRunMetrics } from './runMetrics.js';
+import { fundFlowAmountMismatch, verifiedFundFlowReport, type FundFlowEvidence } from './fundFlowReportGuard.js';
 import { ClaudeAgentProvider } from './providers/claudeAgentProvider.js';
 import { CodexAgentProvider } from './providers/codexAgentProvider.js';
 import type { AgentProvider, AgentProviderHealth, AgentProviderId, ProviderAttachment, ProviderRun } from './providers/types.js';
@@ -57,6 +58,10 @@ export interface StartParams {
 }
 
 interface ActiveRun {
+  fundFlowOnly: boolean;
+  fundFlowRankLimit: number;
+  fundFlows: Map<string, FundFlowEvidence>;
+  otherResearchData: boolean;
   metrics: AgentRunMetrics;
   providerId: AgentProviderId;
   providerRun: ProviderRun | null;
@@ -128,6 +133,9 @@ export class AgentOrchestrator {
     if (this.activeRuns.has(params.runId)) throw new Error('运行已启动');
     const templateStyle = params.templateStyle as TemplateStyle ?? 'classic-blue';
     const active: ActiveRun = {
+      fundFlowOnly: /资金流|主力.*净额/.test(params.prompt) && !/回测|收益率|财报|估值|基本面/.test(params.prompt),
+      fundFlowRankLimit: Math.min(50, Math.max(1, Number(params.prompt.match(/前\s*(\d{1,2})(?!\d)/)?.[1] ?? 50))),
+      fundFlows: new Map(), otherResearchData: false,
       metrics: new AgentRunMetrics(),
       providerId, providerRun: null, seq: 0, finalized: false, cancelRequested: false, timeoutRequested: false,
       toolStartedAt: new Map(), toolNames: new Map(), toolInputs: new Map(), shouldGenerateReport: null,
@@ -268,7 +276,6 @@ export class AgentOrchestrator {
       if (event.toolName) active.toolNames.set(event.toolUseId, event.toolName);
       if (event.toolInput && event.toolInput !== '{}') active.toolInputs.set(event.toolUseId, event.toolInput);
     }
-    if (event.type === 'assistant_final') active.finalContent = event.publicContent;
     if ((event.type === 'tool_finished' || event.type === 'error') && event.toolUseId) {
       const started = active.toolStartedAt.get(event.toolUseId);
       if (started && event.durationMs == null) event.durationMs = Math.max(0, Date.now() - started);
@@ -280,10 +287,26 @@ export class AgentOrchestrator {
         event.toolFailure = failure;
         event.publicContent = `[${failure.category}; ${failure.evidence}; exit=${failure.reportedExitCode ?? 'unknown'}] ${/执行完成$/.test(event.publicContent) ? '工具输出包含失败，可能被后续命令掩盖' : event.publicContent}`;
       } else event.toolFailure = undefined;
+      if (event.type === 'tool_finished' && isExecutedCommand(event.toolName, event.toolInput)) {
+        if (event.toolFundFlowEvidence && /researchData\.mjs/.test(event.toolInput ?? '')) {
+          if (active.fundFlows.size < 2) active.fundFlows.set(event.toolFundFlowEvidence.scope, event.toolFundFlowEvidence);
+        } else if (event.toolDataUsable === true) active.otherResearchData = true;
+      }
       active.toolStartedAt.delete(event.toolUseId);
       active.toolNames.delete(event.toolUseId);
       active.toolInputs.delete(event.toolUseId);
     }
+    delete event.toolFundFlowEvidence; // Private validation evidence never enters public event payloads.
+    if (['assistant_final', 'assistant_text', 'progress'].includes(event.type)
+      && active.fundFlowOnly && !active.otherResearchData && active.fundFlows.size === 1) {
+      const evidence = active.fundFlows.values().next().value!;
+      if (fundFlowAmountMismatch(event.publicContent, evidence)) {
+        event.publicContent = verifiedFundFlowReport({ ...evidence,
+          inflows: evidence.inflows.slice(0, active.fundFlowRankLimit), outflows: evidence.outflows.slice(0, active.fundFlowRankLimit) });
+        if (event.type === 'assistant_final') active.metrics.fundFlowReportFallbacks = 1;
+      }
+    }
+    if (event.type === 'assistant_final') active.finalContent = event.publicContent;
     active.metrics.observe(event);
     const seq = ++active.seq;
     await repo.addPublicEvent(runId, seq, event);

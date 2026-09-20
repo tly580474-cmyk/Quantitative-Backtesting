@@ -6,6 +6,7 @@ import { extractReportDirective } from '../outputParser.js';
 import { sanitizePublicContent, sanitizeToolName, sanitizeToolDetail } from '../eventProtocol.js';
 import { terminateProcessTree } from './processUtils.js';
 import { detectToolFailure, isExecutedCommand, researchDataUsable } from '../toolOutcome.js';
+import { fundFlowEvidence } from '../fundFlowReportGuard.js';
 import type {
   AgentProvider,
   AgentProviderCapabilities,
@@ -436,6 +437,7 @@ export class CodexAgentProvider implements AgentProvider {
             ...codexToolDetails(item),
             toolFailure: failed ? toolFailure : undefined,
             toolDataUsable: researchDataUsable(item.aggregatedOutput ?? item.result),
+            toolFundFlowEvidence: fundFlowEvidence(item.aggregatedOutput ?? item.result),
             toolUseId: String(item.id ?? '').slice(0, 128) || undefined,
             durationMs: typeof item.durationMs === 'number' ? item.durationMs : undefined,
           });

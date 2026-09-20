@@ -26,6 +26,7 @@ export interface RunMetrics {
   unattributedMs: number;
   phases: Record<Phase, { calls: number; failed: number; toolMs: number }>;
   reportRenderMs: number;
+  fundFlowReportFallbacks: number;
   models: string[];
   usage: ProviderTelemetry['usage'] | null;
   usageScope: 'provider_total' | 'observed_messages' | null;
@@ -53,6 +54,7 @@ export class AgentRunMetrics {
   private totalUsage: ProviderTelemetry['usage'];
   private messages = new Map<string, NonNullable<ProviderTelemetry['usage']>>();
   reportRenderMs = 0;
+  fundFlowReportFallbacks = 0;
 
   constructor(private readonly clock = Date.now) { this.began = clock(); }
   providerStarted(): void { this.startup = this.clock() - this.began; }
@@ -120,7 +122,7 @@ export class AgentRunMetrics {
       toolCalls: this.spans.size, failedToolCalls: failed, unfinishedToolCalls: unfinished,
       failureCategories: { ...this.failures }, toolWallMs,
       unattributedMs: Math.max(0, now - this.began - toolWallMs - this.reportRenderMs), phases,
-      reportRenderMs: this.reportRenderMs, models: [...this.models], usage,
+      reportRenderMs: this.reportRenderMs, fundFlowReportFallbacks: this.fundFlowReportFallbacks, models: [...this.models], usage,
       usageScope: this.totalUsage ? 'provider_total' : usage ? 'observed_messages' : null,
       note: '阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。',
     };
