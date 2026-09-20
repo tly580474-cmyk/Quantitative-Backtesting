@@ -19,14 +19,29 @@ export function createPool(config: EnvConfig) {
 export async function checkConnection(
   pool: mysql.Pool,
 ): Promise<{ ok: boolean; error?: string }> {
+  let connection: mysql.PoolConnection | undefined;
+  let expired = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const conn = await pool.getConnection();
-    await conn.ping();
-    conn.release();
+    await Promise.race([
+      (async () => {
+        const conn = await pool.getConnection();
+        if (expired) { conn.release(); return; }
+        connection = conn;
+        await conn.ping();
+      })(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { expired = true; reject(new Error('Database probe timed out')); }, 3_000);
+      }),
+    ]);
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };
+  } finally {
+    clearTimeout(timer);
+    if (expired) connection?.destroy();
+    else connection?.release();
   }
 }
 

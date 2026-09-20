@@ -75,6 +75,8 @@ const envSchema = z.object({
   MINUTE_DATA_ROOT: z.string().default('../../所有股票的历史数据/1m_price_parquet'),
   MINUTE_QUERY_MAX_ROWS: z.string().default('100000'),
   BACKUP_ROOT: z.string().default('./data/backups'),
+  ADMIN_BACKUP_RETAIN_COUNT: z.string().regex(/^[1-9]\d*$/).default('3'),
+  ADMIN_BACKUP_RETAIN_DAYS: z.string().regex(/^[1-9]\d*$/).default('7'),
   FACTOR_RESEARCH_ROOT: z.string().default('./data/factor-research'),
   FACTOR_MINER_PYTHON: z.string().default('python'),
   FACTOR_MINER_ROOT: z.string().default('../tools/factor-miner'),

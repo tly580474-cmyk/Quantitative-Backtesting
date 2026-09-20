@@ -24,7 +24,7 @@ describe('admin routes', () => {
       await writeFile(join(directory, 'auth.json'), '{"apiKey":"never-expose-this-credential"}');
       registerAdminRoutes(app, { pool: {} as Pool, dbOnline: false, envFilePath: '.env',
         config: { ...loadConfig(), AGENT_PROVIDER: 'pi', AGENT_PI_ENABLED: 'true',
-          AGENT_PI_PATH: process.execPath, AGENT_CODEX_PATH: process.execPath,
+          AGENT_PI_PATH: process.execPath, AGENT_CODEX_PATH: process.execPath, AGENT_CLAUDE_PATH: process.execPath,
           AGENT_PI_AGENT_DIRECTORY: directory, AGENT_PI_MODEL: 'test-model', AGENT_PI_MODEL_PROVIDER: 'test-source' },
       });
       expect((await app.inject({ method: 'GET', url: '/api/admin/agent' })).statusCode).toBe(401);
@@ -34,6 +34,7 @@ describe('admin routes', () => {
       expect(response.json()).toMatchObject({ defaultProvider: 'pi', pi: { enabled: true,
         version: expect.any(String), model: 'test-model', modelProvider: 'test-source',
         configurationDirectoryConfigured: true, authFileReadable: true, latestRun: null } });
+      expect(response.json().claude.version).toEqual(expect.any(String));
       expect(response.body).not.toContain('never-expose-this-credential');
       expect(response.body).not.toContain(directory.replaceAll('\\', '\\\\'));
     } finally { await app.close(); await rm(directory, { recursive: true, force: true }); }

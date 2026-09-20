@@ -8,7 +8,7 @@ export function sanitizeSecretReplacement(
   candidate: string,
   adminToken: string,
 ): SanitizedSecretReplacement {
-  if (adminToken.length > 0 && candidate === adminToken) {
+  if (adminToken.trim().length > 0 && candidate.includes(adminToken.trim())) {
     return { value: '', blocked: true };
   }
   return { value: candidate, blocked: false };

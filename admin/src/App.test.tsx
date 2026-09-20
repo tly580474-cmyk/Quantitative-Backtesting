@@ -87,6 +87,7 @@ const health: AdminHealth = {
 const agentOperations: AgentOperations = {
   enabled: true,
   defaultProvider: 'codex',
+  claude: { enabled: true, version: '2.0.0', workingDirectoryConfigured: true, gitBashConfigured: false },
   runtime: { active: 1, capacity: 4 },
   providers: [{ id: 'codex', enabled: true, available: true, reason: null, capabilities: { completion: true } }],
   codex: {
@@ -168,6 +169,53 @@ describe('admin operations states', () => {
     expect(await screen.findByText('Agent 已启用，默认 Provider pi 尚不可用')).toBeInTheDocument();
   });
 
+  it('keeps core controls usable when optional modules fail', async () => {
+    api.getAgentOperations.mockRejectedValue(new Error('Agent unavailable'));
+    api.getPublicAccessStatus.mockRejectedValue(new Error('Tunnel unavailable'));
+    api.getBackendRestartStatus.mockResolvedValue({ available: true, reason: null });
+    render(<AdminShell token="test-token" onLogout={vi.fn()} />);
+    expect(await screen.findByText('所有核心服务运行正常')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /重启后端/ })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: /配置与密钥/ }));
+    expect(screen.getByPlaceholderText(/搜索/)).toBeInTheDocument();
+    expect(screen.queryByText('无法读取管理台状态')).not.toBeInTheDocument();
+  });
+
+  it('allows configuration access even if overview fails', async () => {
+    api.getAdminOverview.mockRejectedValue(new Error('overview unavailable'));
+    render(<AdminShell token="test-token" onLogout={vi.fn()} />);
+    await screen.findByText('无法读取管理台状态');
+    fireEvent.click(screen.getByRole('button', { name: /配置与密钥/ }));
+    expect(screen.getByPlaceholderText(/搜索/)).toBeInTheDocument();
+  });
+
+  it('prefills ordinary values and refreshes the configuration after saving', async () => {
+    const item = { key: 'DB_HOST', label: 'MySQL 地址', category: 'database',
+      description: '数据库地址', secret: false, configured: true, maskedValue: 'old-host',
+      editable: true, restartRequired: true, restartScope: 'db', inputType: 'text' };
+    api.getAdminConfig.mockResolvedValueOnce([item]).mockResolvedValue([{ ...item, maskedValue: 'new-host' }]);
+    api.updateAdminConfig.mockResolvedValue({ updatedKeys: ['DB_HOST'], restartRequired: true, message: '保存成功' });
+    render(<AdminShell token="test-token" onLogout={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /配置与密钥/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '更新' }));
+    const input = screen.getByDisplayValue('old-host');
+    fireEvent.change(input, { target: { value: 'new-host' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+    expect(await screen.findByText('new-host')).toBeInTheDocument();
+    expect(api.getAdminConfig).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('never prefills masked business secrets', async () => {
+    api.getAdminConfig.mockResolvedValue([{ key: 'DB_PASSWORD', label: 'MySQL 密码', category: 'database',
+      description: '业务密码', secret: true, configured: true, maskedValue: '••••abcd',
+      editable: true, restartRequired: true, restartScope: 'db' }]);
+    render(<AdminShell token="test-token" onLogout={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /配置与密钥/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '更新' }));
+    expect(screen.getByLabelText('输入新密钥')).toHaveValue('');
+  });
+
   it('saves Pi from the provider selector', async () => {
     api.getAdminConfig.mockResolvedValue([{ key: 'AGENT_PROVIDER', label: '默认研究 Provider', category: 'ai',
       description: '选择新对话使用的 Provider', secret: false, configured: true, maskedValue: 'claude',
@@ -192,6 +240,8 @@ describe('admin operations states', () => {
     expect(await screen.findByText('项目 Agent 服务可用')).toBeInTheDocument();
     const agentGrid = screen.getByLabelText('Agent 运行指标');
 
+    expect(screen.getByText('Claude 运行环境')).toBeInTheDocument();
+    expect(screen.getByText('2.0.0')).toBeInTheDocument();
     expect(agentGrid.className).toContain('metric-grid--agent');
     expect(agentGrid.querySelectorAll('.metric-card')).toHaveLength(5);
   });
@@ -201,7 +251,7 @@ describe('admin operations states', () => {
     render(<AdminShell token="test-token" onLogout={vi.fn()} />);
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
-    expect(screen.getByText('模拟连接失败')).toBeInTheDocument();
+    expect(screen.getByText(/模拟连接失败/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /重新连接/ })).toBeInTheDocument();
   });
 

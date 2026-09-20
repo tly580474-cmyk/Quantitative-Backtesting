@@ -1,0 +1,209 @@
+{
+  "deployment": {
+    "status": "passed",
+    "checkedAt": "2026-09-20T14:23:05.576Z",
+    "checks": [
+      {
+        "name": "3001/api/admin/health",
+        "status": 200,
+        "durationMs": 83,
+        "pid": 188058,
+        "database": "healthy"
+      },
+      {
+        "name": "3001/api/admin/overview",
+        "status": 200,
+        "durationMs": 44,
+        "overall": "warning",
+        "issues": [
+          {
+            "id": "data-coverage",
+            "level": "warning",
+            "summary": "1/8 个数据域未通过覆盖检查。"
+          },
+          {
+            "id": "materialized-artifacts-stale",
+            "level": "warning",
+            "summary": "8 个结果引用旧快照，0 个结果 manifest 无效。"
+          }
+        ]
+      },
+      {
+        "name": "3001/api/admin/config",
+        "status": 200,
+        "durationMs": 3
+      },
+      {
+        "name": "3001/api/admin/agent",
+        "status": 200,
+        "durationMs": 570,
+        "claudeVersion": "2.1.142 (Claude Code)",
+        "defaultProvider": "claude"
+      },
+      {
+        "name": "3001/api/admin/data-update-progress",
+        "status": 200,
+        "durationMs": 19
+      },
+      {
+        "name": "3001/api/admin/database-backup",
+        "status": 200,
+        "durationMs": 3
+      },
+      {
+        "name": "8081/api/admin/health",
+        "status": 200,
+        "durationMs": 5,
+        "pid": 188058,
+        "database": "healthy"
+      },
+      {
+        "name": "8081/api/admin/overview",
+        "status": 200,
+        "durationMs": 3,
+        "overall": "warning",
+        "issues": [
+          {
+            "id": "data-coverage",
+            "level": "warning",
+            "summary": "1/8 个数据域未通过覆盖检查。"
+          },
+          {
+            "id": "materialized-artifacts-stale",
+            "level": "warning",
+            "summary": "8 个结果引用旧快照，0 个结果 manifest 无效。"
+          }
+        ]
+      },
+      {
+        "name": "8081/api/admin/config",
+        "status": 200,
+        "durationMs": 6
+      },
+      {
+        "name": "8081/api/admin/agent",
+        "status": 200,
+        "durationMs": 14,
+        "claudeVersion": "2.1.142 (Claude Code)",
+        "defaultProvider": "claude"
+      },
+      {
+        "name": "8081/api/admin/data-update-progress",
+        "status": 200,
+        "durationMs": 2
+      },
+      {
+        "name": "8081/api/admin/database-backup",
+        "status": 200,
+        "durationMs": 2
+      },
+      {
+        "name": "shared-progress-cache",
+        "passed": true
+      },
+      {
+        "name": "gateway-auth-8080",
+        "passed": true
+      },
+      {
+        "name": "gateway-auth-8081",
+        "passed": true
+      },
+      {
+        "name": "admin-bearer-required",
+        "passed": true
+      },
+      {
+        "name": "source-static-config-hashes-and-nginx-readability",
+        "passed": true,
+        "files": 24
+      },
+      {
+        "name": "timers-restored",
+        "passed": true,
+        "timers": [
+          "quant-job@fund-flow.timer",
+          "quant-job@minute.timer",
+          "quant-job@research.timer",
+          "quant-job@tdx-shadow.timer"
+        ]
+      }
+    ],
+    "staticLogin": "not-tested-no-matching-saved-gateway-password",
+    "backup": "/opt/quant-backtest/.deploy-backups/20260920-admin-hardening",
+    "configUnchanged": true
+  },
+  "browser": {
+    "status": "passed",
+    "checks": [
+      "optional-public-access-failure-does-not-break-dashboard",
+      "claude-card",
+      "prefill-and-save-refresh",
+      "secret-not-prefilled-and-embedded-token-blocked",
+      "1-GiB-native-download-with-bounded-renderer-heap"
+    ],
+    "downloadBytes": 1073741824,
+    "beforeHeap": 7431368,
+    "maximumHeap": 7431368,
+    "pageErrors": []
+  },
+  "backup": [
+    {
+      "name": "real-mysqldump-and-retention",
+      "passed": true,
+      "retained": 3,
+      "bytes": 2202
+    },
+    {
+      "name": "native-download-integrity-and-one-time-ticket",
+      "passed": true
+    },
+    {
+      "name": "real-mysql-restore",
+      "passed": true,
+      "rows": 2
+    },
+    {
+      "name": "external-file-deletion-detected",
+      "passed": true
+    }
+  ],
+  "resilience": {
+    "status": "passed",
+    "databaseRecovery": [
+      "healthy",
+      "critical",
+      "healthy"
+    ],
+    "limiterResponses": [
+      401,
+      401,
+      401,
+      401,
+      401,
+      401,
+      401,
+      401,
+      401,
+      429,
+      429
+    ],
+    "productionDatabaseUntouched": true
+  },
+  "linuxRegression": {
+    "passed": 81,
+    "note": "80 cases passed in initial run; node:sqlite test environment fixed and remaining case passed on Node 22.22.1"
+  },
+  "downloadIntegrity": {
+    "bytes": 1073741824,
+    "synthetic": true,
+    "sha256": "49bc20df15e412a64472421e13fe86ff1c5165e18b2afccf160d4dc19fe68a14"
+  },
+  "cleanup": {
+    "temporaryDatabaseRemoved": true,
+    "temporaryUserRemoved": true,
+    "acceptanceServiceStopped": true,
+    "localTunnelClosed": true,
+    "syntheticDownloadFilesRemoved": true
+  }
+}

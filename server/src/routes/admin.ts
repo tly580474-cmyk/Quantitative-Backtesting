@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream, accessSync, constants } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -6,7 +6,11 @@ import type { Pool } from 'mysql2/promise';
 import { z } from 'zod';
 import type { EnvConfig } from '../config.js';
 import { collectAdminOverview, collectAdminHealth } from '../admin/diagnostics.js';
-import { listAdminConfig, updateEnvFile } from '../admin/envConfig.js';
+import { ADMIN_CONFIG_DEFINITIONS, listAdminConfig, updateEnvFile } from '../admin/envConfig.js';
+import { checkConnection } from '../db/connection.js';
+import { initDb } from '../db/index.js';
+import { createAsyncCache } from '../admin/asyncCache.js';
+import { createAuthLimits } from '../admin/authLimits.js';
 import { createOverviewCache } from '../admin/overviewCache.js';
 import { metricsHistory } from '../admin/metricsHistory.js';
 import { synchronizeScheduleConfig } from '../admin/scheduleConfig.js';
@@ -51,6 +55,24 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
   const overviewCacheTtl = Number.parseInt(options.config.ADMIN_OVERVIEW_CACHE_TTL_MS, 10);
   const overviewCache = createOverviewCache(Number.isFinite(overviewCacheTtl) ? overviewCacheTtl : 10_000);
   const publicAccess = options.publicAccess ?? publicAccessControl;
+  const authLimits = createAuthLimits();
+  const databaseCache = createAsyncCache<boolean>(5_000);
+  const databaseOnline = () => databaseCache(async () => {
+    const online = (await checkConnection(options.pool)).ok;
+    if (online) initDb(options.pool);
+    return online;
+  });
+  const progressCaches = [false, true].map(() => createAsyncCache<Awaited<ReturnType<typeof collectDataUpdateProgress>>>(
+    value => value.items.some(item => item.status === 'running' || item.status === 'pending') ? 10_000 : 60_000,
+  ));
+  const versionCache = createAsyncCache<[string | null, string | null, string | null]>(60_000);
+  const downloadTickets = new Map<string, { id: string; expiresAt: number }>();
+  const rateLimit = (request: FastifyRequest, reply: FastifyReply, recordFailure = false) => {
+    const retryAfter = authLimits(request.raw.socket.remoteAddress ?? request.ip, recordFailure);
+    if (!retryAfter) return false;
+    reply.header('Retry-After', String(retryAfter)).status(429).send({ error: 'RATE_LIMITED', message: '验证失败次数过多，请稍后重试' });
+    return true;
+  };
 
   app.get('/api/admin/auth/status', async () => ({
     enabled: options.config.ADMIN_API_TOKEN.trim().length > 0,
@@ -64,8 +86,11 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
         message: '管理 API 未启用，请先配置 ADMIN_API_TOKEN 并重启服务',
       });
     }
+    reply.header('Cache-Control', 'no-store');
+    if (rateLimit(request, reply)) return reply;
     const provided = parseBearerToken(request.headers.authorization);
     if (!provided || !safeEqual(provided, expected)) {
+      if (rateLimit(request, reply, true)) return reply;
       return reply.status(401).send({
         error: 'UNAUTHORIZED',
         message: '管理台访问令牌无效',
@@ -79,7 +104,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
 
   app.get('/api/admin/health', { preHandler: authorize }, async (_request, reply) => {
     try {
-      return reply.send(await collectAdminHealth(options));
+      return reply.send(await collectAdminHealth({ ...options, dbOnline: await databaseOnline() }));
     } catch (error) {
       app.log.error({ err: error }, 'Admin health collection failed');
       return reply.status(503).send({
@@ -90,15 +115,16 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
   });
 
   app.get('/api/admin/overview', { preHandler: authorize }, async (_request, reply) => {
+    const dbOnline = await databaseOnline();
     // §1 TTL 缓存：命中时直接返回，失效时重算；重算失败时降级返回陈旧帧
-    const cached = overviewCache.get(options.dbOnline);
+    const cached = overviewCache.get(dbOnline);
     if (cached) return reply.send(cached);
     try {
-      const overview = await collectAdminOverview(options);
-      overviewCache.set(options.dbOnline, overview);
+      const overview = await collectAdminOverview({ ...options, dbOnline });
+      overviewCache.set(dbOnline, overview);
       return reply.send(overview);
     } catch (error) {
-      const stale = overviewCache.peek(options.dbOnline);
+      const stale = overviewCache.peek(dbOnline);
       if (stale) return reply.send(stale);
       app.log.error({ err: error }, 'Admin overview collection failed');
       return reply.status(503).send({
@@ -113,19 +139,20 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     return reply.send({ samples: metricsHistory.list(since) });
   });
 
-  app.get('/api/admin/data-update-progress', { preHandler: authorize }, async () => (
-    collectDataUpdateProgress(options.dbOnline, undefined, undefined, {
-      pool: options.dbOnline ? options.pool : null,
+  app.get('/api/admin/data-update-progress', { preHandler: authorize }, async () => {
+    const dbOnline = await databaseOnline();
+    return progressCaches[Number(dbOnline)](() => collectDataUpdateProgress(dbOnline, undefined, undefined, {
+      pool: dbOnline ? options.pool : null,
       minuteRoot: options.config.MINUTE_DATA_ROOT,
-    })
-  ));
+    }));
+  });
 
   app.get('/api/admin/database-backup', { preHandler: authorize }, async () => (
     getDatabaseBackupExportStatus(options.config)
   ));
 
   app.post('/api/admin/database-backup', { preHandler: authorize }, async (_request, reply) => {
-    if (!options.dbOnline) {
+    if (!await databaseOnline()) {
       return reply.status(503).send({ error: 'DATABASE_UNAVAILABLE', message: '数据库未连接，无法导出备份' });
     }
     try {
@@ -139,20 +166,47 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
   });
 
-  app.get<{ Params: { id: string } }>('/api/admin/database-backup/:id/download', { preHandler: authorize }, async (request, reply) => {
+  const sendDownload = async (id: string, reply: FastifyReply) => {
+    reply.header('Cache-Control', 'no-store');
     try {
-      const download = await resolveDatabaseBackupDownload(options.config, request.params.id);
+      const download = await resolveDatabaseBackupDownload(options.config, id);
       reply.header('Content-Type', 'application/sql; charset=utf-8');
       reply.header('Content-Length', String(download.bytes));
       reply.header('Content-Disposition', `attachment; filename="${download.fileName}"`);
       reply.header('X-Backup-SHA256', download.sha256);
       return reply.send(createReadStream(download.path));
     } catch (error) {
-      return reply.status(404).send({
-        error: 'BACKUP_NOT_FOUND',
-        message: error instanceof Error ? error.message : String(error),
-      });
+      return reply.status(404).send({ error: 'BACKUP_NOT_FOUND', message: error instanceof Error ? error.message : '数据库备份不可用' });
     }
+  };
+  app.get<{ Params: { id: string } }>('/api/admin/database-backup/:id/download', { preHandler: authorize },
+    async (request, reply) => sendDownload(request.params.id, reply));
+
+  // Native browser downloads use an expiring, single-use capability, never the admin token.
+  app.post<{ Params: { id: string } }>('/api/admin/database-backup/:id/download-ticket', { preHandler: authorize }, async (request, reply) => {
+    try { await resolveDatabaseBackupDownload(options.config, request.params.id); }
+    catch { return reply.status(404).send({ error: 'BACKUP_NOT_FOUND', message: '数据库备份不可用，请刷新状态' }); }
+    for (const [ticket, value] of downloadTickets) if (value.expiresAt <= Date.now()) downloadTickets.delete(ticket);
+    if (downloadTickets.size >= 100) return reply.status(429).send({ message: '下载请求过多，请稍后重试' });
+    const ticket = randomBytes(32).toString('hex');
+    downloadTickets.set(ticket, { id: request.params.id, expiresAt: Date.now() + 60_000 });
+    return { ticket };
+  });
+  app.register(async downloadApp => {
+    downloadApp.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string', bodyLimit: 1024 },
+      (_request, body, done) => done(null, Object.fromEntries(new URLSearchParams(String(body)))));
+    downloadApp.post<{ Params: { id: string }; Body: { ticket?: string } }>('/api/admin/database-backup/:id/download', async (request, reply) => {
+      reply.header('Cache-Control', 'no-store');
+      if (rateLimit(request, reply)) return reply;
+      const ticket = request.body?.ticket;
+      const grant = typeof ticket === 'string' ? downloadTickets.get(ticket) : undefined;
+      if (!grant || grant.id !== request.params.id || grant.expiresAt <= Date.now()) {
+        if (rateLimit(request, reply, true)) return reply;
+        return reply.status(401).send({ message: '下载授权已过期，请重新点击下载' });
+      }
+      downloadTickets.delete(ticket!);
+      return sendDownload(request.params.id, reply);
+    });
   });
 
   app.get('/api/admin/config', { preHandler: authorize }, async () => ({
@@ -181,12 +235,16 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     const enabled = options.agent?.enabled === true;
     const orchestrator = options.agent?.orchestrator ?? null;
     const repo = new AgentRepository(options.pool);
-    const [metrics, recentRuns, pendingApprovals, codexVersion, piVersion] = await Promise.all([
-      options.dbOnline ? repo.getMetrics() : Promise.resolve(null),
-      options.dbOnline ? repo.listRuns(50) : Promise.resolve([]),
-      options.dbOnline ? repo.listPendingApprovals() : Promise.resolve([]),
-      readCommandVersion(options.config.AGENT_CODEX_PATH),
-      options.config.AGENT_PI_ENABLED === 'true' ? readCommandVersion(options.config.AGENT_PI_PATH) : Promise.resolve(null),
+    const dbOnline = await databaseOnline();
+    const [metrics, recentRuns, pendingApprovals, [codexVersion, piVersion, claudeVersion]] = await Promise.all([
+      dbOnline ? repo.getMetrics() : Promise.resolve(null),
+      dbOnline ? repo.listRuns(50) : Promise.resolve([]),
+      dbOnline ? repo.listPendingApprovals() : Promise.resolve([]),
+      versionCache(() => Promise.all([
+        readCommandVersion(options.config.AGENT_CODEX_PATH),
+        options.config.AGENT_PI_ENABLED === 'true' ? readCommandVersion(options.config.AGENT_PI_PATH) : Promise.resolve(null),
+        readCommandVersion(options.config.AGENT_CLAUDE_PATH),
+      ])),
     ]);
     let piAuthFileReadable = false;
     if (options.config.AGENT_PI_AGENT_DIRECTORY) {
@@ -204,6 +262,11 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       defaultProvider: orchestrator?.getDefaultProvider() ?? options.config.AGENT_PROVIDER,
       runtime: orchestrator?.getRuntimeStats() ?? { active: 0, capacity: Number(options.config.AGENT_MAX_CONCURRENT) || 1 },
       providers: orchestrator?.getProviderHealth() ?? [],
+      claude: {
+        enabled, version: claudeVersion,
+        workingDirectoryConfigured: Boolean(options.config.AGENT_CLAUDE_WORKING_DIRECTORY),
+        gitBashConfigured: Boolean(options.config.AGENT_CLAUDE_GIT_BASH_PATH),
+      },
       pi: {
         enabled: options.config.AGENT_PI_ENABLED === 'true', version: piVersion,
         model: options.config.AGENT_PI_MODEL || null, modelProvider: options.config.AGENT_PI_MODEL_PROVIDER || null,
@@ -277,13 +340,16 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
         });
       }
       try {
+        const adminToken = options.config.ADMIN_API_TOKEN.trim();
+        for (const [key, value] of Object.entries(parsed.data.updates)) {
+          if (adminToken && ADMIN_CONFIG_DEFINITIONS.some(item => item.key === key && item.secret) && value.includes(adminToken)) {
+            throw new Error('已阻止将管理台访问令牌写入业务密钥');
+          }
+        }
         const updatedKeys = await updateEnvFile(options.envFilePath, parsed.data.updates);
         const scheduleSync = await synchronizeScheduleConfig(updatedKeys);
-        const restartRequired = updatedKeys.some((key) =>
-          !key.startsWith('RESEARCH_SNAPSHOT_')
-          && !key.startsWith('MINUTE_DATA_')
-          && !key.startsWith('FUND_FLOW_')
-          && key !== 'TINYSHARE_TOKEN');
+        const restartRequired = updatedKeys.some(key =>
+          ADMIN_CONFIG_DEFINITIONS.find(item => item.key === key)?.restartRequired !== false);
         request.log.warn({ updatedKeys, scheduleSync }, 'Admin configuration updated');
         overviewCache.invalidate();
         const scheduleMessage = scheduleSync.updatedTasks.length > 0
@@ -328,7 +394,7 @@ async function readCommandVersion(commandPath: string): Promise<string | null> {
       { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
     let output = '';
     const timer = setTimeout(() => { child.kill(); resolveVersion(null); }, 3_000);
-    child.stdout?.on('data', chunk => { output += String(chunk).slice(0, 200); });
+    child.stdout?.on('data', chunk => { output = (output + String(chunk)).slice(0, 200); });
     child.once('error', () => { clearTimeout(timer); resolveVersion(null); });
     child.once('close', code => { clearTimeout(timer); resolveVersion(code === 0 ? output.trim().slice(0, 120) || null : null); });
   });

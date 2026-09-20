@@ -116,7 +116,11 @@ export async function collectAdminOverview(input: {
   const [database, storage, tasks, governance] = await Promise.all([
     inspectDatabase(input.pool, input.dbOnline),
     inspectStorage(input.config),
-    inspectTasks(input.pool, input.dbOnline),
+    inspectTasks(input.pool, input.dbOnline).catch(() => ({
+      checks: [{ id: 'tasks-unavailable', title: '任务诊断', level: 'warning' as const,
+        summary: '任务统计暂不可用，请检查数据库连接和迁移 0024 是否已执行。' }],
+      summary: { syncJobs: {}, miningTasks: {}, recentFailures: { syncJobs: null, miningTasks: null } },
+    })),
     inspectDataGovernance(input.pool, input.dbOnline, input.config),
   ]);
   const configuration = inspectConfiguration(input.config, input.envFilePath);
@@ -238,7 +242,7 @@ export async function collectAdminHealth(input: {
       id: 'database-connection',
       title: 'MySQL 连接',
       level: 'critical',
-      summary: '服务启动时未能连接 MySQL。',
+      summary: '当前无法连接 MySQL。',
     });
     database = {
       status: 'critical',
@@ -509,7 +513,7 @@ async function inspectDatabase(pool: Pool, dbOnline: boolean) {
       id: 'database-connection',
       title: 'MySQL 连接',
       level: 'critical',
-      summary: '服务启动时未能连接 MySQL。',
+      summary: '当前无法连接 MySQL。',
       resolution: '检查 MySQL 服务、DB_HOST、DB_PORT、DB_USER、DB_PASSWORD 和 DB_NAME，修改后重启后端。',
     });
     return {
@@ -713,7 +717,7 @@ async function inspectStorage(config: EnvConfig) {
   return { checks, summary: { disk, roots: items } };
 }
 
-async function inspectTasks(pool: Pool, dbOnline: boolean) {
+export async function inspectTasks(pool: Pool, dbOnline: boolean) {
   const checks: DiagnosticCheck[] = [];
   if (!dbOnline) return { checks, summary: { syncJobs: {}, miningTasks: {}, recentFailures: { syncJobs: 0, miningTasks: 0 } } };
   const queryCounts = async (table: string, where = '') => {
@@ -727,80 +731,24 @@ async function inspectTasks(pool: Pool, dbOnline: boolean) {
     }
   };
 
-  // §3 近 24h 失败任务查询重写：
-  // 去掉 STR_TO_DATE(LEFT(...)) 包裹，改用字符串直接比较（created_at 是 varchar(24) 存 ISO 格式，
-  // 与 cutoff 字符串比较可走 idx_sj_status_created 索引）。
-  // runKey 恢复判定下推到应用层，避免相关子查询逐行 JSON_EXTRACT。
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 19);
-
-  const [syncJobs, miningTasks, recentMiningFailures, failedRows, completedRows] = await Promise.all([
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const count = async (sql: string) => {
+    const [rows] = await pool.query<RowDataPacket[]>(sql, [cutoff]);
+    return Number(rows[0]?.count ?? 0);
+  };
+  const [syncJobs, miningTasks, recentMiningFailures, recentSyncFailures] = await Promise.all([
     queryCounts('sync_jobs'),
     queryCounts('factor_mining_tasks', 'WHERE deleted_at IS NULL AND archived_at IS NULL'),
-    // factor_mining_tasks 已有 idx_fmt_status_created(status, created_at)，直接字符串比较走索引
-    (async () => {
-      try {
-        const [rows] = await pool.query<RowDataPacket[]>(
-          `SELECT COUNT(*) AS count FROM factor_mining_tasks
-           WHERE status='failed' AND deleted_at IS NULL AND archived_at IS NULL
-             AND created_at >= ?`,
-          [cutoff],
-        );
-        return Number(rows[0]?.count ?? 0);
-      } catch {
-        return 0;
-      }
-    })(),
-    // 近 24h 失败的 sync_jobs（走索引 idx_sj_status_created）
-    (async () => {
-      try {
-        const [rows] = await pool.query<RowDataPacket[]>(
-          `SELECT request_snapshot, created_at FROM sync_jobs
-           WHERE status='failed' AND created_at >= ?`,
-          [cutoff],
-        );
-        return rows as Array<{ request_snapshot: unknown; created_at: string }>;
-      } catch {
-        return [];
-      }
-    })(),
-    // 近 24h 完成的 sync_jobs（用于恢复判定，走索引）
-    (async () => {
-      try {
-        const [rows] = await pool.query<RowDataPacket[]>(
-          `SELECT request_snapshot, created_at FROM sync_jobs
-           WHERE status='completed' AND created_at >= ?`,
-          [cutoff],
-        );
-        return rows as Array<{ request_snapshot: unknown; created_at: string }>;
-      } catch {
-        return [];
-      }
-    })(),
+    count(`SELECT COUNT(*) AS count FROM factor_mining_tasks
+      WHERE status='failed' AND deleted_at IS NULL AND archived_at IS NULL AND created_at >= ?`),
+    // idx_sj_status_created selects failures; idx_sj_run_key resolves later recoveries.
+    count(`SELECT COUNT(*) AS count FROM sync_jobs f
+      WHERE f.status='failed' AND f.created_at >= ?
+        AND (f.run_key IS NULL OR f.run_key = '' OR NOT EXISTS (
+          SELECT 1 FROM sync_jobs c WHERE c.status='completed'
+            AND c.run_key = f.run_key AND c.created_at > f.created_at
+        ))`),
   ]);
-
-  // 应用层恢复判定：对每个失败任务，检查是否存在同 runKey 且更晚的 completed 任务
-  const completedRunKeyLatest = new Map<string, string>();
-  for (const row of completedRows) {
-    const runKey = extractRunKey(row.request_snapshot);
-    if (!runKey) continue;
-    const existing = completedRunKeyLatest.get(runKey);
-    if (!existing || row.created_at > existing) {
-      completedRunKeyLatest.set(runKey, row.created_at);
-    }
-  }
-  let recentSyncFailures = 0;
-  for (const failedRow of failedRows) {
-    const runKey = extractRunKey(failedRow.request_snapshot);
-    if (!runKey) {
-      // 没有 runKey 的失败任务无法被恢复，计入未恢复
-      recentSyncFailures += 1;
-      continue;
-    }
-    const latestCompleted = completedRunKeyLatest.get(runKey);
-    if (!latestCompleted || latestCompleted <= failedRow.created_at) {
-      recentSyncFailures += 1;
-    }
-  }
 
   const failed = recentSyncFailures + recentMiningFailures;
   if (failed > 0) {
@@ -829,13 +777,6 @@ async function inspectTasks(pool: Pool, dbOnline: boolean) {
       },
     },
   };
-}
-
-/** 从 sync_jobs.request_snapshot 中安全提取 runKey。 */
-function extractRunKey(snapshot: unknown): string | null {
-  if (snapshot == null || typeof snapshot !== 'object') return null;
-  const value = (snapshot as Record<string, unknown>).runKey;
-  return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 function inspectConfiguration(config: EnvConfig, envFilePath: string | URL) {

@@ -1,3 +1,4 @@
+import { createAsyncCache } from './asyncCache.js';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
@@ -328,7 +329,17 @@ async function readMinuteProgressFile(path: string): Promise<MinuteProgressFile 
   }
 }
 
+const snapshotCaches = new WeakMap<Pool, Map<string, ReturnType<typeof createAsyncCache<MinuteSnapshot>>>>();
+const offlineSnapshotCaches = new Map<string, ReturnType<typeof createAsyncCache<MinuteSnapshot>>>();
 async function readMinuteSnapshot(minute: MinuteProgressContext): Promise<MinuteSnapshot> {
+  let caches = minute.pool ? snapshotCaches.get(minute.pool) : offlineSnapshotCaches;
+  if (!caches) { caches = new Map(); snapshotCaches.set(minute.pool!, caches); }
+  const root = resolve(minute.minuteRoot);
+  let cache = caches.get(root);
+  if (!cache) { cache = createAsyncCache<MinuteSnapshot>(60_000); caches.set(root, cache); }
+  return cache(() => collectMinuteSnapshot(minute));
+}
+async function collectMinuteSnapshot(minute: MinuteProgressContext): Promise<MinuteSnapshot> {
   const [lastDate, authoritativeDate] = await Promise.all([
     readMinuteManifestLastDate(minute.minuteRoot),
     minute.pool ? latestAuthoritativeDailyDate(minute.pool).catch(() => null) : Promise.resolve(null),

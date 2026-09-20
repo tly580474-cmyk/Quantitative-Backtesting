@@ -1,3 +1,4 @@
+import { useAdaptivePolling } from './useAdaptivePolling';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   AlertOutlined,
@@ -244,28 +245,27 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
   const refreshOverview = useCallback(async () => {
     setLoading(true);
     setError('');
-    try {
-      const [nextOverview, nextConfig, nextRestartStatus, nextPublicAccess, nextAgentOperations] = await Promise.all([
-        getAdminOverview(token),
-        getAdminConfig(token),
-        getBackendRestartStatus(token),
-        getPublicAccessStatus(token),
-        getAgentOperations(token),
-      ]);
-      setOverview(nextOverview);
-      setConfig(nextConfig);
-      setRestartStatus(nextRestartStatus);
-      setPublicAccess(nextPublicAccess);
-      setAgentOperations(nextAgentOperations);
-      setLastRefresh(new Date());
-      prevOverallRef.current = nextOverview.overall;
-    } catch (refreshError) {
-      const message = refreshError instanceof Error ? refreshError.message : '刷新失败';
-      setError(message);
-      if (refreshError instanceof AdminApiError && refreshError.status === 401) onLogout();
-    } finally {
-      setLoading(false);
+    const failures: string[] = [];
+    async function load<T>(label: string, fetchValue: () => Promise<T>, apply: (value: T) => void) {
+      try { apply(await fetchValue()); }
+      catch (cause) {
+        failures.push(`${label}：${cause instanceof Error ? cause.message : '读取失败'}`);
+        if (cause instanceof AdminApiError && cause.status === 401) onLogout();
+      }
     }
+    await Promise.all([
+      load('运行总览', () => getAdminOverview(token), value => {
+        setOverview(value);
+        setLastRefresh(new Date());
+        prevOverallRef.current = value.overall;
+      }),
+      load('配置', () => getAdminConfig(token), setConfig),
+      load('重启状态', () => getBackendRestartStatus(token), setRestartStatus),
+      load('公网访问', () => getPublicAccessStatus(token), setPublicAccess),
+      load('Agent 运维', () => getAgentOperations(token), setAgentOperations),
+    ]);
+    setError(failures.join('；'));
+    setLoading(false);
   }, [onLogout, token]);
 
   // §2 轻量健康轮询（15 秒间隔，只调 /health）
@@ -295,6 +295,7 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
         setError(message);
       }
       if (refreshError instanceof AdminApiError && refreshError.status === 401) onLogout();
+      if (silent) throw refreshError;
     }
   }, [onLogout, token, notifyCritical]);
 
@@ -303,27 +304,30 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
     try {
       const response = await getMetricsHistory(token);
       setMetrics(response.samples);
-    } catch {
-      // 静默失败，不影响主流程
+    } catch (cause) {
+      if (cause instanceof AdminApiError && cause.status === 401) onLogout();
+      throw cause;
     }
-  }, [token]);
+  }, [onLogout, token]);
 
   const refreshDataUpdates = useCallback(async () => {
     try {
       const response = await getDataUpdateProgress(token);
       setDataUpdates(response.items);
-    } catch {
-      // Keep the last useful snapshot during a brief backend restart or network outage.
+    } catch (cause) {
+      if (cause instanceof AdminApiError && cause.status === 401) onLogout();
+      throw cause;
     }
-  }, [token]);
+  }, [onLogout, token]);
 
   const refreshBackupExport = useCallback(async () => {
     try {
       setBackupExport(await getDatabaseBackupExport(token));
-    } catch {
-      // Keep the last snapshot during transient outages.
+    } catch (cause) {
+      if (cause instanceof AdminApiError && cause.status === 401) onLogout();
+      throw cause;
     }
-  }, [token]);
+  }, [onLogout, token]);
 
   const createBackupExport = useCallback(async () => {
     if (backupStarting || backupExport?.status === 'running') return;
@@ -350,21 +354,12 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
     }
   }, [backupExport, token]);
 
-  useEffect(() => {
-    void refreshOverview();
-    void refreshDataUpdates();
-    void refreshBackupExport();
-    const healthTimer = window.setInterval(() => void refreshHealth(true), 15_000);
-    const metricsTimer = window.setInterval(() => void refreshMetrics(), 30_000);
-    const dataUpdateTimer = window.setInterval(() => void refreshDataUpdates(), 2_000);
-    const backupTimer = window.setInterval(() => void refreshBackupExport(), 3_000);
-    return () => {
-      window.clearInterval(healthTimer);
-      window.clearInterval(metricsTimer);
-      window.clearInterval(dataUpdateTimer);
-      window.clearInterval(backupTimer);
-    };
-  }, [refreshOverview, refreshHealth, refreshMetrics, refreshDataUpdates, refreshBackupExport]);
+  useEffect(() => { void refreshOverview(); }, [refreshOverview]);
+  useAdaptivePolling(() => refreshHealth(true), 15_000, false);
+  useAdaptivePolling(refreshMetrics, 30_000, true, section === 'overview');
+  const hasActiveUpdates = dataUpdates.some(item => item.status === 'running' || item.status === 'pending');
+  useAdaptivePolling(refreshDataUpdates, hasActiveUpdates ? 10_000 : 60_000, true, section === 'overview' || section === 'configuration');
+  useAdaptivePolling(refreshBackupExport, backupExport?.status === 'running' ? 3_000 : 60_000, true, section === 'overview');
 
   const navigate = (next: Section) => {
     setSection(next);
@@ -372,13 +367,13 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
   };
 
   const performRestart = async () => {
-    if (!overview || restarting) return;
+    if (restarting) return;
     setRestartDialogOpen(false);
     setRestarting(true);
     setError('');
     setNotice('后端正在优雅关闭并重新启动，页面会自动等待服务恢复。');
     try {
-      const previousPid = overview.service.pid;
+      const previousPid = overview?.service.pid ?? (await getAdminHealth(token)).service.pid;
       await restartBackend(token);
       const health = await waitForBackendRecovery(token, previousPid);
       setOverview((current) => current ? {
@@ -494,7 +489,7 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
         </header>
 
         <div className="admin-content">
-          {error && overview && <InlineMessage level="critical">{error}</InlineMessage>}
+          {error && (overview || section !== 'overview') && <InlineMessage level="critical">{error}</InlineMessage>}
           {notice && <InlineMessage level="warning" onClose={() => setNotice('')}>{notice}</InlineMessage>}
           {/* §4.2 critical 常驻横幅 */}
           {overview?.overall === 'critical' && (
@@ -502,11 +497,11 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
               <AlertOutlined /> 系统当前处于 critical 状态，请立即检查下方诊断项。
             </InlineMessage>
           )}
-          {loading && !overview ? (
+          {section === 'overview' ? (loading && !overview ? (
             <DashboardSkeleton />
           ) : !overview ? (
             <AdminLoadFailure error={error || '暂时无法读取管理台状态。'} onRetry={() => void refreshOverview()} />
-          ) : section === 'overview' ? (
+          ) : (
             <OverviewSection
               overview={overview}
               metrics={metrics}
@@ -515,12 +510,12 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
               backupStarting={backupStarting}
               onStartBackup={() => void createBackupExport()}
               onDownloadBackup={() => void downloadBackupExport()}
-              onRefreshMetrics={() => void refreshMetrics()}
+              onRefreshMetrics={() => void refreshMetrics().catch(() => undefined)}
             />
-          ) : section === 'agents' ? (
+          )) : section === 'agents' ? (
             agentOperations ? <AgentOperationsSection operations={agentOperations} /> : <SectionLoadFailure label="Agent 运维数据暂不可用" />
           ) : section === 'diagnostics' ? (
-            <DiagnosticsSection checks={overview.checks} />
+            overview ? <DiagnosticsSection checks={overview.checks} /> : <SectionLoadFailure label="诊断数据暂不可用" />
           ) : (
             <ConfigurationSection
               items={config}
@@ -544,13 +539,14 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
           onSaved={async (message) => {
             setEditing(null);
             setNotice(message);
-            await refreshHealth(true);
+            try { setConfig(await getAdminConfig(token)); }
+            catch (cause) { setError(`配置已保存，但列表刷新失败：${cause instanceof Error ? cause.message : '请刷新重试'}`); }
           }}
         />
       )}
-      {restartDialogOpen && overview && (
+      {restartDialogOpen && (
         <RestartDialog
-          pid={overview.service.pid}
+          pid={overview?.service.pid ?? 0}
           onCancel={() => setRestartDialogOpen(false)}
           onConfirm={() => void performRestart()}
         />
@@ -613,6 +609,12 @@ function AgentOperationsSection({ operations }: { operations: AgentOperations })
         <div><strong>{provider.id}</strong><span>{provider.reason ?? Object.entries(provider.capabilities).filter(([, enabled]) => enabled).map(([name]) => name).join(' · ')}</span></div>
         <StatusBadge level={provider.available ? 'healthy' : provider.enabled ? 'warning' : 'disabled'} compact />
       </div>) : <EmptyState icon={<RobotOutlined />} title="Provider 未启动" description="启用 Agent 并重启后端后可查看实时 Provider 状态。" />}
+    </Panel>
+    <Panel title="Claude 运行环境" subtitle="CLI 版本和环境就绪情况；实际可用性以 Provider 状态为准" icon={<RobotOutlined />}>
+      {operations.claude ? <>
+        <div className="resource-row"><div><strong>Claude CLI</strong><span>{operations.claude.version ?? '版本不可用'}</span></div><StatusBadge compact level={operations.claude.version ? 'healthy' : 'warning'} /></div>
+        <div className="resource-row"><div><strong>工作目录与 Git Bash</strong><span>工作目录{operations.claude.workingDirectoryConfigured ? '已配置' : '使用默认目录'} · Git Bash{operations.claude.gitBashConfigured ? '已配置' : '未指定（非 Windows 平台无需配置）'}</span></div></div>
+      </> : <SectionLoadFailure label="Claude 状态暂不可用" />}
     </Panel>
     <Panel title="Pi 运行环境" subtitle="配置就绪不代表上游认证通过；实际任务状态用于核对运行结果" icon={<RobotOutlined />}>
       {operations.pi ? <>
@@ -913,6 +915,7 @@ function DatabaseBackupPanel({ status, starting, onStart, onDownload }: {
           ) : (
             <p>{running ? '浏览器可以离开本页；后台会继续执行，状态每 3 秒刷新。' : '备份保存在服务器备份目录，完成后可下载到本机。'}</p>
           )}
+          {status?.cleanupWarning && <p className="database-backup-error">{status.cleanupWarning}</p>}
           {status?.updatedAt && <small>更新时间：{new Date(status.updatedAt).toLocaleString('zh-CN', { hour12: false })}</small>}
         </div>
         <div className="database-backup-actions">
@@ -1314,9 +1317,7 @@ function ConfigDialog({
   onSaved: (message: string) => Promise<void>;
 }) {
   const [value, setValue] = useState(() =>
-    item.options?.length || item.inputType === 'time' || item.inputType === 'boolean'
-      ? (item.maskedValue ?? item.options?.[0]?.value ?? (item.inputType === 'boolean' ? 'true' : ''))
-      : '');
+    item.secret ? '' : (item.maskedValue ?? item.options?.[0]?.value ?? (item.inputType === 'boolean' ? 'true' : '')));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showSecret, setShowSecret] = useState(false);

@@ -117,8 +117,8 @@ export interface AdminOverview {
     syncJobs: Record<string, number>;
     miningTasks: Record<string, number>;
     recentFailures?: {
-      syncJobs: number;
-      miningTasks: number;
+      syncJobs: number | null;
+      miningTasks: number | null;
     };
   };
   configuration: {
@@ -159,6 +159,9 @@ export interface AgentOperations {
     sandboxMode: 'read-only' | 'workspace-write'; windowsSandbox: 'elevated' | 'unelevated'; networkEnabled: boolean;
     marketDataCliConfigured: boolean;
     externalDataSkillEnabled: boolean; isolatedPythonConfigured: boolean;
+  };
+  claude?: {
+    enabled: boolean; version: string | null; workingDirectoryConfigured: boolean; gitBashConfigured: boolean;
   };
   pi?: {
     enabled: boolean; version: string | null; model: string | null; modelProvider: string | null;
@@ -224,6 +227,7 @@ export interface DataUpdateProgressResponse {
 }
 
 export interface DatabaseBackupExportStatus {
+  cleanupWarning?: string;
   id: string;
   status: 'idle' | 'running' | 'completed' | 'failed';
   createdAt: string | null;

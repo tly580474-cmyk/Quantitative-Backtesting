@@ -57,24 +57,26 @@ export async function startDatabaseBackupExport(token: string): Promise<Database
   }, token);
 }
 
-export async function downloadDatabaseBackupExport(token: string, id: string, suggestedName: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/admin/database-backup/${encodeURIComponent(id)}/download`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({})) as { message?: string };
-    throw new AdminApiError(body.message ?? `数据库备份下载失败（HTTP ${response.status}）`, response.status);
-  }
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  try {
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = suggestedName;
-    anchor.click();
-  } finally {
-    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-  }
+export async function downloadDatabaseBackupExport(token: string, id: string, _suggestedName: string): Promise<void> {
+  const path = `/api/admin/database-backup/${encodeURIComponent(id)}/download`;
+  const { ticket } = await request<{ ticket: string }>(`${path}-ticket`, { method: 'POST' }, token);
+  const frame = document.createElement('iframe');
+  frame.name = `backup-${crypto.randomUUID()}`;
+  frame.hidden = true;
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = `${API_BASE_URL}${path}`;
+  form.target = frame.name;
+  const input = document.createElement('input');
+  input.type = 'hidden';
+  input.name = 'ticket';
+  input.value = ticket;
+  form.append(input);
+  document.body.append(frame, form);
+  form.submit();
+  form.remove();
+  // Keep the browsing context alive while the browser takes ownership of the stream.
+  window.setTimeout(() => frame.remove(), 60_000);
 }
 
 export async function getAdminConfig(token: string): Promise<AdminConfigItem[]> {
@@ -140,6 +142,7 @@ async function request<T>(
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
+      signal: options.signal ?? AbortSignal.timeout(20_000),
       headers: {
         ...options.headers,
         ...(token ? { Authorization: `Bearer ${token}` } : {}),

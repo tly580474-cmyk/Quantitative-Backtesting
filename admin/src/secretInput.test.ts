@@ -9,6 +9,10 @@ describe('secret replacement input', () => {
     });
   });
 
+  it.each([' admin-secret ', 'Bearer admin-secret', 'prefix-admin-secret-suffix'])('blocks wrapped credentials: %s', candidate => {
+    expect(sanitizeSecretReplacement(candidate, ' admin-secret ')).toEqual({ value: '', blocked: true });
+  });
+
   it('allows a distinct provider key and does not treat two empty values as a credential leak', () => {
     expect(sanitizeSecretReplacement('provider-key', 'admin-secret')).toEqual({
       value: 'provider-key',
