@@ -79,7 +79,10 @@ export async function queryFundFlows(pool: Pool, input: FundFlowOptions) {
     const marks = dates.map(() => '?').join(',');
     const filter = `i.type='stock' AND i.market IN ('SH','SZ','BJ')${input.symbol ? ' AND i.symbol=?' : ''}`;
     const params = [...dates, ...(input.symbol ? [input.symbol] : [])];
-    const from = `FROM stock_fund_flows f JOIN instruments i ON i.instrument_key=f.instrument_key
+    // Bound work by the requested dates. The production optimizer otherwise chooses
+    // instruments first and scans every instrument's multi-year primary-key history.
+    const from = `FROM stock_fund_flows f FORCE INDEX (idx_sff_trade_date_instrument)
+      STRAIGHT_JOIN instruments i ON i.instrument_key=f.instrument_key
       WHERE f.trade_date IN (${marks}) AND ${filter}`;
     const daily = await rows(connection, `SELECT /*+ MAX_EXECUTION_TIME(30000) */
       DATE_FORMAT(f.trade_date,'%Y-%m-%d') tradeDate, COUNT(*) sampleCount,
@@ -87,7 +90,8 @@ export async function queryFundFlows(pool: Pool, input: FundFlowOptions) {
       SUM(f.large_net_in)/100000000 largeNetInYi, SUM(f.is_final<>1) nonFinalCount ${from} GROUP BY f.trade_date`, params);
     const expected = await rows(connection, `SELECT /*+ MAX_EXECUTION_TIME(30000) */
       DATE_FORMAT(b.trade_date,'%Y-%m-%d') tradeDate, COUNT(*) expectedCount
-      FROM daily_bars_v2 b JOIN instruments i ON i.instrument_key=b.instrument_key
+      FROM daily_bars_v2 b FORCE INDEX (idx_dbv2_trade_date_instrument)
+      STRAIGHT_JOIN instruments i ON i.instrument_key=b.instrument_key
       WHERE b.trade_date IN (${marks}) AND ${filter} GROUP BY b.trade_date`, params);
     const identity = input.group === 'industry' ? `COALESCE(NULLIF(i.industry,''),'未分类') industry`
       : 'i.market market,i.symbol symbol,i.name name';
