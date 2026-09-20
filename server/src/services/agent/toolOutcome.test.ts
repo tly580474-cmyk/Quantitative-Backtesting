@@ -18,6 +18,14 @@ describe('tool execution outcomes', () => {
     expect(event.toolResult).not.toContain('Binder Error');
     expect(event.toolFailure?.category).toBe('query_error');
   });
+  it('recognizes actual DuckDB wrapper errors and structured content blocks', () => {
+    expect(detectToolFailure('Failed to extract statements: Parser Error: syntax error', false, 0))
+      .toMatchObject({ category: 'query_error', reportedExitCode: 0 });
+    expect(detectToolFailure([{ type: 'text', text: '{"ok":false,"error":"unknown failure"}' }]))
+      .toMatchObject({ evidence: 'structured_result' });
+    expect(detectToolFailure({ exitCode: 0, output: '{"ok":false,"error":"unknown failure"}' }))
+      .toMatchObject({ evidence: 'structured_result', reportedExitCode: 0 });
+  });
   it('captures valid data before a large JSON result is truncated for display', () => {
     const [event] = parseStreamLine(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'q',
       content: JSON.stringify({ kind: 'research-data', ok: true, usable: true, sample: ['x'.repeat(16000)] }),

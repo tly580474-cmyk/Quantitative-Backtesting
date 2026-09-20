@@ -13,6 +13,10 @@ describe('strict research CLI arguments', () => {
     ['query', ['--sql', 'SELECT 1', '--file', 'query.sql']],
     ['query', ['--sql', 'SELECT 1', '-q', 'SELECT 2']],
     ['preview', ['--sql', 'SELECT 1']], ['pipeline', []],
+    ['query', ['--sql', 'SELECT 1', '--limit', '5']],
+    ['query', ['--sql', 'SELECT 1', '--symbol', '600000']],
+    ['query', ['--sql', 'SELECT 1', '--start', '2026-01-01']],
+    ['schema', ['--sql', 'SELECT 1']], ['recipe', ['--explain']],
   ] as Array<[string, string[]]>)('rejects %s %j instead of executing a fallback', (command, args) => {
     expect(() => validateDuckdbArguments(command, args)).toThrow('INVALID_ARGUMENT');
   });

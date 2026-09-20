@@ -12,6 +12,14 @@ const booleanOptions = [
 ];
 const repeatable = new Set(['--param', '--factor', '--weight', '--market', '--symbol', '--where']);
 const aliases: Record<string, string> = { '-q': '--sql', '-o': '--out', '-f': '--format', '-p': '--param', '--limit': '--top' };
+const commandOptions: Record<string, string[]> = {
+  '--sql': ['query'], '--file': ['query', 'pipeline', 'batch'], '--view': ['schema', 'preview'],
+  '--explain': ['query'], '--continue-on-error': ['batch'], '--factors': ['recipes'],
+  '--interval': ['minute'], '--days': ['minute'], '--include-auction': ['minute'], '--split-by-symbol': ['minute'],
+  ...Object.fromEntries(['--factor', '--weight', '--market', '--where', '--date', '--top', '--min-amount',
+    '--horizon', '--layers', '--period', '--rolling-window'].map(option => [option, ['recipe']])),
+  '--symbol': ['recipe', 'minute'], '--start': ['recipe', 'minute'], '--end': ['recipe', 'minute'],
+};
 
 export function validateDuckdbArguments(command: string, args: string[]): void {
   const seen = new Map<string, string>();
@@ -20,6 +28,9 @@ export function validateDuckdbArguments(command: string, args: string[]): void {
     const key = aliases[option] ?? option;
     if (!valueOptions.includes(option) && !booleanOptions.includes(option)) {
       throw new Error(`INVALID_ARGUMENT: 未识别参数 ${option}。查询使用 query --sql "SELECT ..." 或 query --file query.sql；字段使用 schema --view bars。`);
+    }
+    if (commandOptions[key] && !commandOptions[key].includes(command)) {
+      throw new Error(`INVALID_ARGUMENT: ${command} 不支持 ${option}；该参数仅用于 ${commandOptions[key].join('/')}。query 的日期、证券和 LIMIT 条件应写在 SQL 中。`);
     }
     if (seen.has(key) && !repeatable.has(key)) throw new Error(`INVALID_ARGUMENT: 参数 ${key} 不能重复`);
     if (valueOptions.includes(option)) {

@@ -28,16 +28,19 @@ export function detectToolFailure(output: unknown, failed = false, exitCode?: nu
   let text = resultText(output);
   let structured = false;
   try {
-    const value = typeof output === 'string' ? JSON.parse(output) : output;
+    const value = JSON.parse(text);
     if (value && !Array.isArray(value) && typeof value === 'object') {
       structured = value.ok === false;
       if (typeof value.exitCode === 'number') exitCode = value.exitCode;
       text = resultText(value.error ?? value.output ?? output);
+      if (typeof value.output === 'string') {
+        try { structured ||= JSON.parse(value.output)?.ok === false; } catch { /* Plain nested stdout. */ }
+      }
     }
   } catch { /* Plain stdout is expected. */ }
   const rules: Array<[ToolFailureCategory, RegExp]> = [
     ['invalid_argument', /^(?:INVALID_ARGUMENT:|未知命令：|npm (?:ERR!|error) Missing script:)/m],
-    ['query_error', /^(?:Binder|Parser|Catalog|Conversion|Invalid Input) Error:/m],
+    ['query_error', /^(?:(?:Error: )?Failed to (?:extract statements|prepare statement): )?(?:Binder|Parser|Catalog|Conversion|Invalid Input) Error:/m],
     ['permission_denied', /^(?:Error: )?(?:Access denied for user|Permission denied|EACCES\b)/m],
     ['data_unavailable', /^(?:DATA_UNAVAILABLE|COVERAGE_INSUFFICIENT|STALE_DATA):/m],
     ['upstream_unavailable', /^(?:UPSTREAM_UNAVAILABLE:|(?:Error: )?(?:ECONNREFUSED|ETIMEDOUT|ENOTFOUND)\b)/m],
