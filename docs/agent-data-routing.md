@@ -2,6 +2,8 @@
 
 普通研究报告由主代理直接生成一次 Markdown 正文，聊天与下载附件共用，后端完成静态排版。Claude 的 report-designer 保留为用户明确要求深度编辑时的可选工具，不再因 generate=true 强制调用。
 
+单一股票资金流任务会保留统一入口返回的少量结构化证据，检查明确以亿元计的每日净额表。识别到金额不一致时，聊天正文与报告共同替换为工具数据生成的核验简报，不再请求模型改写；终态记录 `fundFlowReportFallbacks`。该检查不覆盖任意文字统计、所有表格格式或混合数据研究，不等于通用事实校验器；原始证据不作为额外事件字段公开或持久化。
+
 ## 运行耗时与失败统计
 
 新运行的终态事件在 `terminal.metrics` 保存去重工具数、失败分类、未完成调用数、工具区间并集、按工具参数归类的阶段耗时、报告渲染及保存耗时、实际模型和 Provider 上报用量。统计复用已有 `terminal_json`，无需数据库迁移。历史任务没有指标时保持缺失，不补造耗时。
@@ -18,6 +20,7 @@ Claude 与 Codex 共用 `agentDataCatalog.ts` 中的数据目录与选择规则�
 node server/scripts/researchData.mjs fund-flows --end 2026-09-18 --days 5 --top 5
 node server/scripts/researchData.mjs fund-flows --end 2026-09-18 --days 5 --group industry
 node server/scripts/researchData.mjs fund-flows --days 1 --symbol 600000
+node server/scripts/researchData.mjs coverage fund_flows --start 2026-09-01 --end 2026-09-18
 node server/scripts/researchData.mjs query --sql "SELECT symbol, tradeDate, adjustedClose FROM stock_prices_qfq LIMIT 5"
 node server/scripts/researchData.mjs query --file tmp_output/query.sql
 node server/scripts/researchData.mjs catalog --task cross-sectional
@@ -26,9 +29,11 @@ node server/scripts/researchData.mjs coverage financials --start 2020-01-01 --en
 node server/scripts/researchData.mjs doctor daily_bars
 ```
 
-资金流由项目 CLI 内部的参数化 SELECT 读取 `stock_fund_flows`，事务为只读，不触发采集或更新。窗口按 SH 交易日历选取，缺失日期保留为 null 而非补零或向前凑齐；金额为亿元。逐日返回实际样本数、同期本地日线参照数、非最终记录数、来源，以及正流入和负流出排名。`available` 不保证全市场完整覆盖。行业聚合使用查询时 `instruments.industry`，并非历史时点分类或官方板块资金流。
+资金流由项目 CLI 内部的参数化 SELECT 读取 `stock_fund_flows`，事务为只读，不触发采集或更新。窗口按 SH 交易日历选取，缺失日期保留为 null 而非补零或向前凑齐；金额为亿元。逐日返回实际样本数、同期本地日线参照数、非最终记录数、来源，以及正流入和负流出排名。`available` 不保证全市场完整覆盖，样本差异原因未经逐股核实不能直接归因。`fund-flows` 已附带逐日覆盖；需要另查日期区间时可用 `coverage fund_flows --start ... --end ...`，最多 60 个交易日。行业聚合使用查询时 `instruments.industry`，并非历史时点分类或官方板块资金流。
 
 统一 `query` 入口固定在 server 工作目录执行，`--file/--params-file` 路径相对项目根目录；返回总行数及最多50行样例，`truncated=true` 时不能将样例当全量。大结果用原 DuckDB CLI 的 `--out` 导出。`snapshotIdObservedAfterQuery` 仅为查询完成后观察到的快照指针，不作为查询使用快照的锁定证明；要求严格可追溯时使用带 manifest 的 DuckDB 导出。
+
+资金流采集器以 UTC 写入 `fetched_at`，查询同时给出带 `Z` 的 `latestFetchedAtUtc` 和 `+08:00` 的 `latestFetchedAtShanghai`，不能将 UTC 09:20 当作北京时间早盘。`rowsCount` 为选定窗口记录数；`referenceCountDifference` 是参照数减样本数，不是逐股核实的缺失名单。`dailyDirection` 直接返回正负天数与金额合计，缺失日期不当作零。
 
 目录中的 `index_valuations` 显式标记当前没有统一官方历史指数估值入口；个股估值不能默认替代官方指数估值。查询缺少 `--sql/--file` 时立即报错；原 DuckDB 的行情预览通过 `preview --view bars` 显式执行。
 

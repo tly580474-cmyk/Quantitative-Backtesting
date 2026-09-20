@@ -1,0 +1,1063 @@
+{
+  "runs": [
+    {
+      "label": "baseline",
+      "case": "flows",
+      "repeat": 1,
+      "runId": "75805d0b-9084-4fb3-8825-ca3a169c3b52",
+      "status": "completed",
+      "seconds": 626.857,
+      "uniqueTools": 40,
+      "recordedToolErrors": 1,
+      "reportDesignerCalls": 1,
+      "reportDesignerMs": 173299,
+      "finalChars": 2407,
+      "hanCharacters": 737,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": null
+    },
+    {
+      "label": "baseline",
+      "case": "flows",
+      "repeat": 2,
+      "runId": "09c71816-c98b-425d-a05c-ec1b8ff96362",
+      "status": "completed",
+      "seconds": 503.269,
+      "uniqueTools": 22,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 1,
+      "reportDesignerMs": 143697,
+      "finalChars": 2276,
+      "hanCharacters": 705,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": null
+    },
+    {
+      "label": "baseline",
+      "case": "flows",
+      "repeat": 3,
+      "runId": "8d4ccb2f-60a2-4b4c-a591-fcbbb2d7861f",
+      "status": "completed",
+      "seconds": 275.411,
+      "uniqueTools": 14,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 1,
+      "reportDesignerMs": 90211,
+      "finalChars": 2332,
+      "hanCharacters": 752,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": null
+    },
+    {
+      "label": "baseline",
+      "case": "screen",
+      "repeat": 1,
+      "runId": "7081af64-2b21-418a-965e-30553a88904a",
+      "status": "completed",
+      "seconds": 446.897,
+      "uniqueTools": 20,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 1,
+      "reportDesignerMs": 155383,
+      "finalChars": 3100,
+      "hanCharacters": 1055,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": null
+    },
+    {
+      "label": "baseline",
+      "case": "screen",
+      "repeat": 2,
+      "runId": "73ca06a6-f114-40f9-8ef4-edbd23d0b892",
+      "status": "completed",
+      "seconds": 316.265,
+      "uniqueTools": 15,
+      "recordedToolErrors": 1,
+      "reportDesignerCalls": 1,
+      "reportDesignerMs": 82290,
+      "finalChars": 2153,
+      "hanCharacters": 767,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": null
+    },
+    {
+      "label": "baseline",
+      "case": "screen",
+      "repeat": 3,
+      "runId": "17ee41ab-917b-4f0b-a7f4-a4b536a24ec6",
+      "status": "completed",
+      "seconds": 412.585,
+      "uniqueTools": 16,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 1,
+      "reportDesignerMs": 196155,
+      "finalChars": 2759,
+      "hanCharacters": 941,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": null
+    },
+    {
+      "label": "after",
+      "case": "flows",
+      "repeat": 1,
+      "runId": "62d253d6-6e0d-4d10-933c-d2ab60b38650",
+      "status": "completed",
+      "seconds": 93.022,
+      "uniqueTools": 1,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 0,
+      "reportDesignerMs": 0,
+      "finalChars": 1397,
+      "hanCharacters": 452,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 76030,
+          "outputTokens": 6121,
+          "cachedInputTokens": 59749
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 1,
+            "failed": 0,
+            "toolMs": 2817
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "computation": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          }
+        },
+        "version": 1,
+        "elapsedMs": 93045,
+        "toolCalls": 1,
+        "toolWallMs": 2817,
+        "usageScope": "provider_total",
+        "providerApiMs": 110244,
+        "reportRenderMs": 64,
+        "unattributedMs": 90164,
+        "failedToolCalls": 0,
+        "firstValidDataMs": 18829,
+        "failureCategories": {},
+        "providerStartupMs": 17,
+        "unfinishedToolCalls": 0,
+        "firstSuccessfulDataToolMs": 18829
+      }
+    },
+    {
+      "label": "after",
+      "case": "flows",
+      "repeat": 2,
+      "runId": "971d845b-64e6-4555-a0c2-e8febf3e5571",
+      "status": "completed",
+      "seconds": 63.956,
+      "uniqueTools": 1,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 0,
+      "reportDesignerMs": 0,
+      "finalChars": 1871,
+      "hanCharacters": 569,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 75279,
+          "outputTokens": 3267,
+          "cachedInputTokens": 59749
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 1,
+            "failed": 0,
+            "toolMs": 2832
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "computation": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          }
+        },
+        "version": 1,
+        "elapsedMs": 63967,
+        "toolCalls": 1,
+        "toolWallMs": 2832,
+        "usageScope": "provider_total",
+        "providerApiMs": 61046,
+        "reportRenderMs": 6,
+        "unattributedMs": 61129,
+        "failedToolCalls": 0,
+        "firstValidDataMs": 7798,
+        "failureCategories": {},
+        "providerStartupMs": 8,
+        "unfinishedToolCalls": 0,
+        "firstSuccessfulDataToolMs": 7798
+      }
+    },
+    {
+      "label": "after",
+      "case": "flows",
+      "repeat": 3,
+      "runId": "b7829198-2dd0-4e67-94da-4b35cc20c0d2",
+      "status": "completed",
+      "seconds": 148.84,
+      "uniqueTools": 2,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 0,
+      "reportDesignerMs": 0,
+      "finalChars": 1470,
+      "hanCharacters": 443,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 118348,
+          "outputTokens": 4905,
+          "cachedInputTokens": 99174
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 2,
+            "failed": 0,
+            "toolMs": 7984
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "computation": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          }
+        },
+        "version": 1,
+        "elapsedMs": 148854,
+        "toolCalls": 2,
+        "toolWallMs": 7984,
+        "usageScope": "provider_total",
+        "providerApiMs": 149705,
+        "reportRenderMs": 9,
+        "unattributedMs": 140861,
+        "failedToolCalls": 0,
+        "firstValidDataMs": 27597,
+        "failureCategories": {},
+        "providerStartupMs": 9,
+        "unfinishedToolCalls": 0,
+        "firstSuccessfulDataToolMs": 27597
+      }
+    },
+    {
+      "label": "after",
+      "case": "screen",
+      "repeat": 1,
+      "runId": "39674081-af08-4754-91fc-aaab6d7fe678",
+      "status": "completed",
+      "seconds": 232.999,
+      "uniqueTools": 12,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 0,
+      "reportDesignerMs": 0,
+      "finalChars": 1959,
+      "hanCharacters": 694,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 429290,
+          "outputTokens": 11275,
+          "cachedInputTokens": 396770
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 8,
+            "failed": 0,
+            "toolMs": 45306
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 3,
+            "failed": 0,
+            "toolMs": 8783
+          },
+          "computation": {
+            "calls": 1,
+            "failed": 0,
+            "toolMs": 6763
+          }
+        },
+        "version": 1,
+        "elapsedMs": 233023,
+        "toolCalls": 12,
+        "toolWallMs": 44926,
+        "usageScope": "provider_total",
+        "providerApiMs": 218251,
+        "reportRenderMs": 11,
+        "unattributedMs": 188086,
+        "failedToolCalls": 0,
+        "firstValidDataMs": 71867,
+        "failureCategories": {},
+        "providerStartupMs": 19,
+        "unfinishedToolCalls": 0,
+        "firstSuccessfulDataToolMs": 71867
+      }
+    },
+    {
+      "label": "after",
+      "case": "screen",
+      "repeat": 2,
+      "runId": "f94737b9-5b87-4222-8768-a0e1fe861caa",
+      "status": "completed",
+      "seconds": 332.84,
+      "uniqueTools": 16,
+      "recordedToolErrors": 1,
+      "reportDesignerCalls": 0,
+      "reportDesignerMs": 0,
+      "finalChars": 1463,
+      "hanCharacters": 577,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 488049,
+          "outputTokens": 13241,
+          "cachedInputTokens": 466286
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 10,
+            "failed": 0,
+            "toolMs": 77743
+          },
+          "other": {
+            "calls": 1,
+            "failed": 0,
+            "toolMs": 4012
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 2,
+            "failed": 0,
+            "toolMs": 7385
+          },
+          "computation": {
+            "calls": 3,
+            "failed": 1,
+            "toolMs": 13680
+          }
+        },
+        "version": 1,
+        "elapsedMs": 332860,
+        "toolCalls": 16,
+        "toolWallMs": 63473,
+        "usageScope": "provider_total",
+        "providerApiMs": 324223,
+        "reportRenderMs": 10,
+        "unattributedMs": 269377,
+        "failedToolCalls": 1,
+        "firstValidDataMs": 42340,
+        "failureCategories": {
+          "execution_error": 1
+        },
+        "providerStartupMs": 16,
+        "unfinishedToolCalls": 0,
+        "firstSuccessfulDataToolMs": 42340
+      }
+    },
+    {
+      "label": "after",
+      "case": "screen",
+      "repeat": 3,
+      "runId": "9cba6e9e-2343-4550-ac00-58005a8cdc7d",
+      "status": "completed",
+      "seconds": 389.074,
+      "uniqueTools": 21,
+      "recordedToolErrors": 1,
+      "reportDesignerCalls": 0,
+      "reportDesignerMs": 0,
+      "finalChars": 1252,
+      "hanCharacters": 455,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 868551,
+          "outputTokens": 15401,
+          "cachedInputTokens": 825890
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 11,
+            "failed": 0,
+            "toolMs": 47049
+          },
+          "other": {
+            "calls": 1,
+            "failed": 0,
+            "toolMs": 554
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 3,
+            "failed": 0,
+            "toolMs": 8677
+          },
+          "computation": {
+            "calls": 6,
+            "failed": 1,
+            "toolMs": 23578
+          }
+        },
+        "version": 1,
+        "elapsedMs": 389088,
+        "toolCalls": 21,
+        "toolWallMs": 68618,
+        "usageScope": "provider_total",
+        "providerApiMs": 365082,
+        "reportRenderMs": 8,
+        "unattributedMs": 320462,
+        "failedToolCalls": 1,
+        "firstValidDataMs": 45430,
+        "failureCategories": {
+          "execution_error": 1
+        },
+        "providerStartupMs": 8,
+        "unfinishedToolCalls": 0,
+        "firstSuccessfulDataToolMs": 45430
+      }
+    },
+    {
+      "label": "after-timezone",
+      "case": "flows",
+      "repeat": 1,
+      "runId": "fa1ca575-cc7b-483f-a168-b0575ff064aa",
+      "status": "completed",
+      "seconds": 76.6,
+      "uniqueTools": 2,
+      "recordedToolErrors": 1,
+      "reportDesignerCalls": 0,
+      "reportDesignerMs": 0,
+      "finalChars": 1300,
+      "hanCharacters": 428,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 111868,
+          "outputTokens": 3996,
+          "cachedInputTokens": 96342
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 1,
+            "failed": 0,
+            "toolMs": 2634
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 1,
+            "failed": 1,
+            "toolMs": 2652
+          },
+          "computation": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          }
+        },
+        "version": 1,
+        "elapsedMs": 76620,
+        "toolCalls": 2,
+        "toolWallMs": 5286,
+        "usageScope": "provider_total",
+        "providerApiMs": 80468,
+        "reportRenderMs": 50,
+        "unattributedMs": 71284,
+        "failedToolCalls": 1,
+        "firstValidDataMs": 21966,
+        "failureCategories": {
+          "execution_error": 1
+        },
+        "providerStartupMs": 15,
+        "unfinishedToolCalls": 0,
+        "firstSuccessfulDataToolMs": 21966
+      }
+    },
+    {
+      "label": "after-timezone",
+      "case": "flows",
+      "repeat": 2,
+      "runId": "2b1a3997-73d7-497c-b1f2-5b1f288199b0",
+      "status": "completed",
+      "seconds": 53.158,
+      "uniqueTools": 1,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 0,
+      "reportDesignerMs": 0,
+      "finalChars": 1553,
+      "hanCharacters": 532,
+      "reportExists": true,
+      "missingExpectedLiterals": [
+        "-165.26",
+        "-257.75",
+        "305.56",
+        "-292.40",
+        "392.31",
+        "-17.54"
+      ],
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 75779,
+          "outputTokens": 3018,
+          "cachedInputTokens": 72030
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 1,
+            "failed": 0,
+            "toolMs": 4522
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "computation": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          }
+        },
+        "version": 1,
+        "elapsedMs": 53181,
+        "toolCalls": 1,
+        "toolWallMs": 4522,
+        "usageScope": "provider_total",
+        "providerApiMs": 56203,
+        "reportRenderMs": 9,
+        "unattributedMs": 48650,
+        "failedToolCalls": 0,
+        "firstValidDataMs": 17614,
+        "failureCategories": {},
+        "providerStartupMs": 19,
+        "unfinishedToolCalls": 0,
+        "firstSuccessfulDataToolMs": 17614
+      }
+    },
+    {
+      "label": "after-timezone",
+      "case": "flows",
+      "repeat": 3,
+      "runId": "80d57cd3-695b-4b00-80bb-a90aced018db",
+      "status": "completed",
+      "seconds": 94.53,
+      "uniqueTools": 2,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 0,
+      "reportDesignerMs": 0,
+      "finalChars": 1387,
+      "hanCharacters": 397,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 113792,
+          "outputTokens": 4910,
+          "cachedInputTokens": 109538
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 1,
+            "failed": 0,
+            "toolMs": 2940
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 1,
+            "failed": 0,
+            "toolMs": 2301
+          },
+          "computation": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          }
+        },
+        "version": 1,
+        "elapsedMs": 94542,
+        "toolCalls": 2,
+        "toolWallMs": 5241,
+        "usageScope": "provider_total",
+        "providerApiMs": 100468,
+        "reportRenderMs": 9,
+        "unattributedMs": 89292,
+        "failedToolCalls": 0,
+        "firstValidDataMs": 36732,
+        "failureCategories": {},
+        "providerStartupMs": 8,
+        "unfinishedToolCalls": 0,
+        "firstSuccessfulDataToolMs": 36732
+      }
+    },
+    {
+      "label": "after-guard",
+      "case": "flows",
+      "repeat": 1,
+      "runId": "cef96cb5-553f-404a-9d95-45035684cb22",
+      "status": "completed",
+      "seconds": 62.759,
+      "uniqueTools": 1,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 0,
+      "reportDesignerMs": 0,
+      "finalChars": 1661,
+      "hanCharacters": 541,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 75811,
+          "outputTokens": 3541,
+          "cachedInputTokens": 36015
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 1,
+            "failed": 0,
+            "toolMs": 3066
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "computation": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          }
+        },
+        "version": 1,
+        "elapsedMs": 62797,
+        "toolCalls": 1,
+        "toolWallMs": 3066,
+        "usageScope": "provider_total",
+        "providerApiMs": 65117,
+        "reportRenderMs": 52,
+        "unattributedMs": 59679,
+        "failedToolCalls": 0,
+        "firstValidDataMs": 14326,
+        "failureCategories": {},
+        "providerStartupMs": 31,
+        "unfinishedToolCalls": 0,
+        "fundFlowReportFallbacks": 0,
+        "firstSuccessfulDataToolMs": 14326
+      }
+    },
+    {
+      "label": "after-guard",
+      "case": "flows",
+      "repeat": 2,
+      "runId": "6677ab40-9605-41d4-83c2-8f4a4056fb0d",
+      "status": "completed",
+      "seconds": 65.189,
+      "uniqueTools": 1,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 0,
+      "reportDesignerMs": 0,
+      "finalChars": 1694,
+      "hanCharacters": 551,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 75706,
+          "outputTokens": 2799,
+          "cachedInputTokens": 72030
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 1,
+            "failed": 0,
+            "toolMs": 3237
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "computation": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          }
+        },
+        "version": 1,
+        "elapsedMs": 65201,
+        "toolCalls": 1,
+        "toolWallMs": 3237,
+        "usageScope": "provider_total",
+        "providerApiMs": 68705,
+        "reportRenderMs": 9,
+        "unattributedMs": 61955,
+        "failedToolCalls": 0,
+        "firstValidDataMs": 13236,
+        "failureCategories": {},
+        "providerStartupMs": 8,
+        "unfinishedToolCalls": 0,
+        "fundFlowReportFallbacks": 0,
+        "firstSuccessfulDataToolMs": 13236
+      }
+    },
+    {
+      "label": "after-guard",
+      "case": "flows",
+      "repeat": 3,
+      "runId": "79dc8aca-b634-467f-af43-8e6fad0d3c79",
+      "status": "completed",
+      "seconds": 80.51,
+      "uniqueTools": 1,
+      "recordedToolErrors": 0,
+      "reportDesignerCalls": 0,
+      "reportDesignerMs": 0,
+      "finalChars": 1551,
+      "hanCharacters": 544,
+      "reportExists": true,
+      "missingExpectedLiterals": [],
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 75993,
+          "outputTokens": 2972,
+          "cachedInputTokens": 72030
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 1,
+            "failed": 0,
+            "toolMs": 2912
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "computation": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          }
+        },
+        "version": 1,
+        "elapsedMs": 80530,
+        "toolCalls": 1,
+        "toolWallMs": 2912,
+        "usageScope": "provider_total",
+        "providerApiMs": 88248,
+        "reportRenderMs": 9,
+        "unattributedMs": 77609,
+        "failedToolCalls": 0,
+        "firstValidDataMs": 13633,
+        "failureCategories": {},
+        "providerStartupMs": 16,
+        "unfinishedToolCalls": 0,
+        "fundFlowReportFallbacks": 0,
+        "firstSuccessfulDataToolMs": 13633
+      }
+    }
+  ],
+  "summary": [
+    {
+      "case": "flows",
+      "beforeCount": 3,
+      "afterCount": 3,
+      "beforeMedian": 503.269,
+      "afterMedian": 65.189,
+      "reduction": 0.8704688744985286
+    },
+    {
+      "case": "screen",
+      "beforeCount": 3,
+      "afterCount": 3,
+      "beforeMedian": 412.585,
+      "afterMedian": 332.84,
+      "reduction": 0.19328138444199383
+    }
+  ],
+  "note": "Literal checks are a smoke check, not a replacement for row/semantics review. Baseline errors can be undercounted by the old event classifier.",
+  "cases": [
+    {
+      "id": "flows",
+      "prompt": "效率验收：截至2026-09-18，分析全市场A股最近5个交易日主力资金流向。请给出每日净额、5日合计，以及5日主力净流入和净流出各前5只股票。金额统一亿元，注明逐日样本数、实际来源、业务日期和缺失项。生成一份不超过1200字的可下载研究报告。仅使用项目已有数据，不联网补数，不修改项目代码、配置和权威数据。必要的临时脚本与产物仅存放在tmp_output/agent-efficiency-benchmark内。缺少数据时明确说明，不编造。"
+    },
+    {
+      "id": "screen",
+      "prompt": "效率验收：使用截至2026-09-17的已发布日线快照，从沪深A股中剔除ST，筛选最近20个交易日平均成交额超过1亿元的股票，计算前复权20交易日收益率，列出收益率最高的5只及其代码、名称、最新日期、收益率、平均成交额。生成不超过1000字的可下载研究报告，解释口径和风险。仅使用项目已有数据，不联网补数，不修改项目代码、配置和权威数据。必要的临时脚本与产物仅存放在tmp_output/agent-efficiency-benchmark内。缺少数据时明确说明，不编造。"
+    }
+  ],
+  "environment": {
+    "node": "v22.22.1",
+    "python": "Python 3.14.4",
+    "claude": "2.1.142 (Claude Code)",
+    "kernel": "Linux 7.0.0-31-generic",
+    "baseline-flows-1-models": [
+      "qwen3.8-flash"
+    ],
+    "baseline-flows-2-models": [
+      "qwen3.8-flash"
+    ],
+    "baseline-flows-3-models": [
+      "qwen3.8-flash"
+    ],
+    "baseline-screen-1-models": [
+      "qwen3.8-flash"
+    ],
+    "baseline-screen-2-models": [
+      "qwen3.8-flash"
+    ],
+    "baseline-screen-3-models": [
+      "qwen3.8-flash"
+    ]
+  },
+  "fundWindowFingerprint": {
+    "rows": 26036,
+    "sha256": "03e3b3d02f7967b61deda0dbdb2b8c08c2558a2fccc813e1c1bf315d18eb45f6"
+  },
+  "guardReplay": {
+    "originalRunId": "2b1a3997-73d7-497c-b1f2-5b1f288199b0",
+    "mismatch": true,
+    "htmlValid": true,
+    "guardAndRenderMs": 52.880870000000016
+  },
+  "selection": {
+    "flows": "after-guard (4d82f69)",
+    "screen": "after (9362446); subsequent changes only affect fund flows/help/error detail"
+  },
+  "qualityNotes": {
+    "after-timezone/flows/2": "FAILED: daily amounts incorrectly divided by 10 in model text. Preserved, not included in final-version comparison. Replayed against the added guard successfully.",
+    "after-guard/flows/2": "Core requested table correct; prose range says 657 instead of 684.71. Guard is not a general prose fact checker.",
+    "after/screen/1": "Duplicate results table; no second model/report-designer pass."
+  },
+  "codeFingerprint": {
+    "optimized": {
+      "revision": "4d82f694a20ba8a168eefd1f35241e84175e5f88",
+      "files": {
+        "server/src/research/agentDataCli.ts": "fe64b2ced38eb3381ca45022b07e8a9c03d45e41bb25d89e507e5cc462a60c72",
+        "server/src/research/duckdbCli.ts": "6111342c8345ab08a7b6e23de7ec8e55844d4012fd7ac7fdbc965a07e87d68da",
+        "server/scripts/benchmarkAgentEfficiency.ts": "d9ec339574171d2597faec918ded4aced0e5ddfa798eefa11fca3c7b49f649f0",
+        "server/src/services/agent/providers/claudeAgentProvider.ts": "96e14b72534f73e14b0805289c8099a8cf2595f9e5382aa1e5b0d6b678fcd452",
+        "server/src/services/agent/runMetrics.ts": "5e24a77c5ac5eaa870f51a35ba43c9080b43b3dcf33215725fc3f67f89ccd6d8",
+        "server/src/services/agent/agentOrchestrator.ts": "2aef861777bbb497a99db80438ad36052f2ca2499ac0918c9df44799d82d52d2",
+        "server/src/services/agent/fundFlowReportGuard.ts": "41a24ec09e6c8a31dcf0a5725c701a2d3ab9a55b826e41a7691420041f5f7a2d",
+        "server/src/services/agent/eventProtocol.ts": "e5024f16d458a0c8208e3e82e86b2798d3efabeb57dd188439f85e948426464d",
+        "server/src/services/agent/providers/codexAgentProvider.ts": "8379f6c3dad2ab6bb966b1a04e12b40b218dbb4461c40cbe59bd415abc9b8d2e",
+        "server/src/services/agent/toolOutcome.ts": "68fed70c06be1f856d9f378454b751925e4574d6242fd574de781c02a14faa78",
+        "server/src/services/agent/reportSubagent.ts": "863112c6b6f8e82cbb762c4bf35a87c763b603f4c3b3366d8706fb50b2dfc316",
+        "server/src/research/agentDataCatalog.ts": "ffbfaa99da69292697d0764dcb8f9a1350fc97ba02c41f344713ad1e21939c1b",
+        "server/src/research/duckdbCliArguments.ts": "99ebe3b907823bd281f3f4080c471d076d80157696e55ddc575fff37396afbb6",
+        "server/src/research/fundFlowResearch.ts": "2c60c6f5045a611e3b784f4484c8294a796e68a0d36367ec056402cdd6fe4e07",
+        "server/src/services/agent/outputParser.ts": "3a68aa6cfd514a716f9dbeff64e3c153fd64d6ca29a403ae2332026c5315b2d3",
+        "server/src/services/agent/promptBuilder.ts": "a667ee94274d7a4a2ee853c78bc82eec5854ff3682f9b2e2f00353f887a89c80",
+        "server/src/services/agent/providers/types.ts": "279c7bcc068c1216693045aa4187ed9c568663bf4feb084f03ecfe6fa0439267"
+      }
+    },
+    "baselineFiles": {
+      "server/src/research/agentDataCli.ts": "2e368b6550ee2bfb5ee9ae187ac671104eb1402f61f51178f1648ef18d178e79",
+      "server/src/research/duckdbCli.ts": "54ffe2038c7c21180a99e71437a6d64ec6de5f0b7f31cc619273d8ad9e5d9973",
+      "server/src/services/agent/providers/claudeAgentProvider.ts": "dbb1d5eb66523d7e6c909cf248f38231395a792ab0e530ec9eb9f61df516eebf",
+      "server/src/services/agent/agentOrchestrator.ts": "2b9181ed6264fc9c72324fd3709877c71a2aecaff2b1f6b3b243a1f849ef4299",
+      "server/src/services/agent/eventProtocol.ts": "3d47bca271785823fc319e2b64e23ac43c275c4ccb0d895bb3bb0326addfd6b2",
+      "server/src/services/agent/providers/codexAgentProvider.ts": "571ab649f68f820719baf8c8bc23fc5e5c24f8197b4ea12bdef6b1b7557a2468",
+      "server/src/services/agent/reportSubagent.ts": "58ccf47937fd16e44a7e82dd398bb888b999a3c7fefa653ac45d0e2648afa3e0",
+      "server/src/research/agentDataCatalog.ts": "052982ec0486bd20d27763a12d7f258a3495ee3be2f8a29060786c4f75488137",
+      "server/src/services/agent/outputParser.ts": "aa0514b2c6594d6060154d58046938d932e1cf1f2180db835c9d705ae7e5549d",
+      "server/src/services/agent/promptBuilder.ts": "9cbf2af053aa03b433219dee1c8367dd2bd5ad67a6c4b31a74aabec078928973",
+      "server/src/services/agent/providers/types.ts": "f6793603295b4637d2b9248899279236c818bb11efdfe3ea211dabc28ac77233"
+    }
+  },
+  "pilotRuns": [
+    {
+      "id": "6ac881ba-b05c-427a-ab97-89e356bc70c7",
+      "status": "completed",
+      "errorCode": null,
+      "startedAt": "2026-09-20T03:11:16.572Z",
+      "finishedAt": "2026-09-20T03:12:00.755Z"
+    },
+    {
+      "id": "97bc4e7a-37de-49d0-8868-021eeb515c04",
+      "status": "failed",
+      "errorCode": "PROCESS_EXIT",
+      "startedAt": "2026-09-20T03:12:01.777Z",
+      "finishedAt": "2026-09-20T03:14:12.169Z"
+    }
+  ]
+}
