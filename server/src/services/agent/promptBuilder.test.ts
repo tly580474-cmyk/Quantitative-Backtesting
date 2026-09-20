@@ -8,7 +8,10 @@ describe('agent prompt report policy', () => {
     expect(prompt).toContain('简单问答、解释、确认');
     expect(prompt).toContain('用户明确要求生成、输出、整理或交付报告');
     expect(prompt).toContain('report-designer');
-    expect(prompt).toContain('必须调用 Task 工具');
+    expect(prompt).not.toContain('必须调用 Task 工具');
+    expect(prompt).toContain('主代理直接一次生成');
+    expect(prompt).toContain('普通研究报告不要调用');
+    expect(prompt).toContain('只有用户明确要求独立深度编辑');
     expect(prompt).toContain('```agent-report');
     expect(prompt).not.toContain('本轮需要生成报告');
     expect(prompt).not.toContain('本轮是普通对话，不要创建');
