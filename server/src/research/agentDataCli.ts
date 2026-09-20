@@ -60,7 +60,10 @@ async function main(argv: string[]): Promise<Record<string, unknown>> {
     const recipe = efficientRecipeSql(name, flags);
     if (flags.has('--dry-run')) return { recipe: name, ...recipe, executed: false };
     const result = await main(['query', '--sql', recipe.sql, ...Object.entries(recipe.params).flatMap(([k,v]) => ['--param', `${k}=${v}`])]);
-    return { ...result, recipe: name, semantics: recipe.semantics };
+    const samples = (result.sample ?? []) as Array<Record<string, unknown>>;
+    const usable = name === 'factor-layer-14' ? samples.some(row => Number(row.samples) > 0) : result.usable;
+    return { ...result, usable, recipe: name, semantics: recipe.semantics,
+      status: result.rowCount === 0 ? 'valid-empty' : usable ? 'data-returned' : 'insufficient-exit-coverage' };
   }
   if ((['help', '--help', '-h'].includes(command) && !args.length)
     || (usage[command] && args.length === 1 && ['--help', '-h'].includes(args[0]))) {

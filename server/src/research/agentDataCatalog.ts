@@ -30,7 +30,7 @@ export function datasetEntry(id: string) {
 
 export function catalogDataset(id: string) {
   const dataset = DATASETS.find(item => item.id === id);
-  if (!dataset) throw new Error(`INVALID_ARGUMENT: 未知数据集 ${id}；运行 catalog 查看可选项`);
+  if (!dataset) throw new Error(`INVALID_ARGUMENT: 未知数据集 ${id}；可选项 ${DATASETS.map(item => item.id).join(', ')}；catalog 查看说明`);
   return dataset;
 }
 

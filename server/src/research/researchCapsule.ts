@@ -19,7 +19,10 @@ async function safePath(workspace: string, file: string, create: boolean) {
 export async function saveCapsule(workspace: string, file: string, result: Record<string, unknown>,
   context: { argv: string[]; snapshotPointer: string; inputHashes: string[] }, now = Date.now()) {
   const snapshotBound = typeof result.snapshotId === 'string' && typeof result.manifestPath === 'string';
-  const payload = { version: 1, createdAt: new Date(now).toISOString(), expiresAt: new Date(now + (snapshotBound ? 86_400_000 : 30_000)).toISOString(),
+  // Only built-in snapshot-only recipes have a known complete dependency set.
+  // Ad hoc SQL can read mutable files or use current_date even when a snapshot is registered.
+  const immutableRecipe = snapshotBound && context.argv[0] === 'recipe' && ['candidate-screen', 'factor-layer-14'].includes(context.argv[1]);
+  const payload = { version: 1, createdAt: new Date(now).toISOString(), expiresAt: new Date(now + (immutableRecipe ? 86_400_000 : 30_000)).toISOString(),
     ...context, result, validation: { state: result.ok === true && result.usable === true ? 'data-returned' : 'not-proven-usable',
       snapshotBinding: snapshotBound ? 'query-manifest' : 'observed-pointer-not-query-lock',
       semantics: '保留入口原始口径、缺失项和sample/truncated；不等于研究结论已审计。大结果使用DuckDB导出及其manifest。',
