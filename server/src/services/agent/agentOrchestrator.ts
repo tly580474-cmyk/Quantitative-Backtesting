@@ -9,6 +9,7 @@ import { buildResearchContext } from './researchContext.js';
 import { validateAgentReport } from './reportValidator.js';
 import { renderStaticAgentReport } from './reportRenderer.js';
 import { detectToolFailure, isExecutedCommand } from './toolOutcome.js';
+import { AgentRunMetrics } from './runMetrics.js';
 import { ClaudeAgentProvider } from './providers/claudeAgentProvider.js';
 import { CodexAgentProvider } from './providers/codexAgentProvider.js';
 import type { AgentProvider, AgentProviderHealth, AgentProviderId, ProviderAttachment, ProviderRun } from './providers/types.js';
@@ -56,6 +57,7 @@ export interface StartParams {
 }
 
 interface ActiveRun {
+  metrics: AgentRunMetrics;
   providerId: AgentProviderId;
   providerRun: ProviderRun | null;
   seq: number;
@@ -126,6 +128,7 @@ export class AgentOrchestrator {
     if (this.activeRuns.has(params.runId)) throw new Error('运行已启动');
     const templateStyle = params.templateStyle as TemplateStyle ?? 'classic-blue';
     const active: ActiveRun = {
+      metrics: new AgentRunMetrics(),
       providerId, providerRun: null, seq: 0, finalized: false, cancelRequested: false, timeoutRequested: false,
       toolStartedAt: new Map(), toolNames: new Map(), toolInputs: new Map(), shouldGenerateReport: null,
       finalContent: '', templateStyle,
@@ -158,6 +161,7 @@ export class AgentOrchestrator {
         runId: params.runId, prompt, maxTurns: params.maxTurns, resumeSessionId: params.resumeSessionId,
         attachments: params.attachments,
       }, {
+        telemetry: value => active.metrics.telemetry(value),
         event: event => this.publish(params.runId, active, repo, event),
         session: sessionId => repo.updateSessionId(params.runId, sessionId),
         reportDecision: async generate => { active.shouldGenerateReport = generate; },
@@ -193,6 +197,7 @@ export class AgentOrchestrator {
         },
       });
       active.providerRun = providerRun;
+      active.metrics.providerStarted();
       if (active.cancelRequested || active.finalized) {
         await providerRun.cancel();
         return;
@@ -279,6 +284,7 @@ export class AgentOrchestrator {
       active.toolNames.delete(event.toolUseId);
       active.toolInputs.delete(event.toolUseId);
     }
+    active.metrics.observe(event);
     const seq = ++active.seq;
     await repo.addPublicEvent(runId, seq, event);
     active.lastEventType = event.type;
@@ -298,9 +304,11 @@ export class AgentOrchestrator {
     let targetErrorCode = errorCode;
     let targetErrorMessage = errorMessage;
     if (status === 'completed' && active.shouldGenerateReport === true) {
+      const renderStarted = Date.now();
       const reportSaved = active.finalContent
         ? await this.createStaticReport(runId, active.finalContent, repo, active.templateStyle)
         : false;
+      active.metrics.reportRenderMs = Date.now() - renderStarted;
       if (!reportSaved) {
         targetStatus = 'failed';
         targetErrorCode = 'REPORT_INVALID_OR_MISSING';
@@ -317,6 +325,7 @@ export class AgentOrchestrator {
     }
     const terminal: TerminalPayload = {
       status: targetStatus, exitCode, ...(targetErrorCode ? { errorCode: targetErrorCode } : {}),
+      metrics: active.metrics.snapshot(),
     };
     active.finalized = false;
     await this.publish(runId, active, repo, {

@@ -386,6 +386,14 @@ export class CodexAgentProvider implements AgentProvider {
 
     const handleNotification = async (message: RpcMessage) => {
       const rpcParams = message.params ?? {};
+      if (message.method === 'thread/tokenUsage/updated') {
+        const usage = rpcParams.tokenUsage?.total;
+        if (usage) sink.telemetry?.({ usageScope: 'provider_total', usage: {
+          inputTokens: Number(usage.inputTokens ?? 0), cachedInputTokens: Number(usage.cachedInputTokens ?? 0),
+          outputTokens: Number(usage.outputTokens ?? 0), reasoningOutputTokens: Number(usage.reasoningOutputTokens ?? 0),
+        } });
+        return;
+      }
       if (message.method === 'turn/started') {
         turnId = String(rpcParams.turn?.id ?? turnId);
         await sink.event({ type: 'progress', publicContent: 'Codex 已启动，正在分析任务', timestamp: now() });
@@ -534,6 +542,7 @@ export class CodexAgentProvider implements AgentProvider {
             ephemeral: false, ...(this.config.model ? { model: this.config.model } : {}),
           });
       threadId = String(threadResult.thread?.id ?? params.resumeSessionId ?? '');
+      sink.telemetry?.({ model: threadResult.model ?? threadResult.thread?.model ?? this.config.model });
       if (!threadId) throw new Error('Codex 未返回 thread ID');
       await sink.session(threadId);
       const turnResult = await request('turn/start', {

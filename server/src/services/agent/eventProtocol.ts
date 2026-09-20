@@ -16,6 +16,7 @@ export interface TerminalPayload {
   status: TerminalStatus;
   exitCode: number | null;
   errorCode?: string;
+  metrics?: import('./runMetrics.js').RunMetrics;
 }
 
 export interface PublicAgentEvent {

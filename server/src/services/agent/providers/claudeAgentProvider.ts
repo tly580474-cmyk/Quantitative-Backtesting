@@ -8,6 +8,7 @@ import {
 } from '../outputParser.js';
 import { sanitizePublicContent } from '../eventProtocol.js';
 import { serializeReportSubagents } from '../reportSubagent.js';
+import { claudeTelemetry } from '../runMetrics.js';
 import { terminateProcessTree } from './processUtils.js';
 import type {
   AgentProvider,
@@ -126,6 +127,8 @@ export class ClaudeAgentProvider implements AgentProvider {
       });
     };
     const consumeLine = async (line: string) => {
+      const telemetry = claudeTelemetry(line);
+      if (telemetry) sink.telemetry?.(telemetry);
       const report = extractReportDecision(line);
       if (report) await sink.reportDecision(report.generate);
       if (!sessionCaptured) {

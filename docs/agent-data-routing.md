@@ -1,5 +1,13 @@
 # 智能体研究入口与工具详情
 
+## 运行耗时与失败统计
+
+新运行的终态事件在 `terminal.metrics` 保存去重工具数、失败分类、未完成调用数、工具区间并集、按工具参数归类的阶段耗时、报告渲染及保存耗时、实际模型和 Provider 上报用量。统计复用已有 `terminal_json`，无需数据库迁移。历史任务没有指标时保持缺失，不补造耗时。
+
+`firstValidDataMs` 只接受 `kind=research-data, ok=true, usable=true` 的有效数据结果；普通退出码 0 仅记为 `firstSuccessfulDataToolMs`，不能证明取到了所需数据。`unattributedMs` 包含模型生成、请求等待和编排开销，不等于纯思考时间；阶段工具时间可能重叠。用量为 Provider 自报，`provider_total` 可能是续接会话累计值，`observed_messages` 仅覆盖当前观测到的消息，不可直接当作计费依据。
+
+工具输出在截断前检查明确的运行时错误。被管道掩盖的失败保留原退出码，并在事件中标注 `output_signature`，而不是伪造非零退出码；读取源码和普通错误说明不作为执行失败。实际调用应直接使用项目入口，避免 `| head/tail` 掩盖退出状态。
+
 Claude 与 Codex 共用 `agentDataCatalog.ts` 中的数据目录与选择规则。单股报价、资讯走项目行情 API；全市场历史统计走 DuckDB；批量日内研究走分钟入口。外部补缺仍受各 Provider 已有配置约束。
 
 项目根目录可以执行：

@@ -9,6 +9,7 @@ import type {
 } from './providers/types.js';
 
 class FakeProvider implements AgentProvider {
+  sink?: ProviderEventSink;
   readonly id = 'codex' as const;
   readonly capabilities = {
     streaming: true, resume: true, cancel: true, approvals: false,
@@ -22,6 +23,7 @@ class FakeProvider implements AgentProvider {
   }
 
   async start(_params: unknown, sink: ProviderEventSink): Promise<ProviderRun> {
+    this.sink = sink;
     await sink.session('codex-thread');
     return {
       pid: 42,
@@ -60,22 +62,37 @@ function harness() {
     claudeWorkingDirectory: process.cwd(), claudePath: process.execPath, reportRoot: root,
     maxConcurrent: 1, defaultProvider: 'codex',
   }, [provider]);
-  return { orchestrator, provider, terminalPayloads };
+  return { orchestrator, provider, terminalPayloads, execute };
 }
 
 describe('AgentOrchestrator provider contract', () => {
+  it('persists masked failures and terminal metrics with deduplicated tool starts', async () => {
+    const { orchestrator, provider, terminalPayloads, execute } = harness();
+    await orchestrator.start({ runId: 'run-metrics', prompt: 'test', maxTurns: 1, timeoutMs: 5000 });
+    const base = { publicContent: '', timestamp: new Date().toISOString(), toolUseId: 'query' };
+    await provider.sink!.event({ ...base, type: 'tool_started', toolName: 'Bash', toolInput: '{}' });
+    await provider.sink!.event({ ...base, type: 'tool_started', toolName: 'Bash', toolInput: 'npm run duckdb -- query --file q.sql | tail -5' });
+    await provider.sink!.event({ ...base, type: 'tool_finished', publicContent: '工具执行完成', toolResult: 'Binder Error: no column' });
+    provider.complete();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(terminalPayloads).toEqual([expect.objectContaining({ metrics: expect.objectContaining({
+      toolCalls: 1, failedToolCalls: 1, failureCategories: { query_error: 1 },
+    }) })]);
+    expect(execute.mock.calls.some(([sql, values]) => sql.includes('INSERT INTO agent_events')
+      && values?.[2] === 'error' && String(values?.[3]).includes('query_error'))).toBe(true);
+  });
   it('emits one canceled terminal after provider interruption', async () => {
     const { orchestrator, terminalPayloads } = harness();
     await orchestrator.start({ runId: 'run-cancel', prompt: 'test', maxTurns: 1, timeoutMs: 5_000 });
     await expect(orchestrator.cancel('run-cancel')).resolves.toBe(true);
     await new Promise(resolve => setTimeout(resolve, 0));
-    expect(terminalPayloads).toEqual([{ status: 'canceled', exitCode: null, errorCode: 'CANCELED' }]);
+    expect(terminalPayloads).toEqual([expect.objectContaining({ status: 'canceled', exitCode: null, errorCode: 'CANCELED', metrics: expect.objectContaining({ version: 1 }) })]);
   });
 
   it('distinguishes timeout from user cancellation and keeps a unique terminal', async () => {
     const { orchestrator, terminalPayloads } = harness();
     await orchestrator.start({ runId: 'run-timeout', prompt: 'test', maxTurns: 1, timeoutMs: 10 });
     await new Promise(resolve => setTimeout(resolve, 40));
-    expect(terminalPayloads).toEqual([{ status: 'failed', exitCode: null, errorCode: 'TIMEOUT' }]);
+    expect(terminalPayloads).toEqual([expect.objectContaining({ status: 'failed', exitCode: null, errorCode: 'TIMEOUT', metrics: expect.objectContaining({ version: 1 }) })]);
   });
 });
