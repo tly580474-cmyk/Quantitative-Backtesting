@@ -32,7 +32,7 @@ export function buildPrompt(
   projectPath: string,
   templateStyle: TemplateStyle = 'classic-blue',
   isResume = false,
-  provider: 'claude' | 'codex' = 'claude',
+  provider: 'claude' | 'codex' | 'pi' = 'claude',
   codexData?: CodexDataAccessContext,
   attachments: PromptAttachment[] = [],
   researchContext = '',
@@ -74,7 +74,8 @@ ${artifactDirectory ? `- 本轮图表和研究中间产物目录：${artifactDir
 `;
 
   const codexAutonomous = provider === 'codex' && codexData?.sandboxMode === 'workspace-write';
-  const toolBoundary = provider === 'claude'
+  const toolBoundary = provider === 'pi' ? 'Pi 使用服务端配置的 read、bash、edit、write、grep、find、ls 工具，在当前工作区内完成任务；此 Provider 没有操作系统沙箱或交互审批。'
+    : provider === 'claude'
     ? '在当前工作区内可以使用服务端配置的 Claude Code 工具，可以创建、读取、修改、执行和删除文件，也可以运行任务所需命令。'
     : codexAutonomous
       ? 'Codex 在 workspace-write 沙箱中运行；可以在当前项目工作区内自主读取、创建、修改、执行和删除文件，并运行完成任务所需的命令与测试。'

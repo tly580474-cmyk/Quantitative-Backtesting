@@ -591,7 +591,7 @@ export default function AgentRunner() {
   const hasActiveRun = !!runId;
   const providerOptions = useMemo(() => providers.filter(item => item.enabled).map(item => ({
     value: item.id,
-    label: item.id === 'codex' ? 'Codex' : 'Claude',
+    label: item.id === 'pi' ? 'Pi' : item.id === 'codex' ? 'Codex' : 'Claude',
     disabled: !item.available,
     title: item.reason ?? undefined,
   })), [providers]);
@@ -1226,7 +1226,7 @@ export default function AgentRunner() {
                                 {statusText[run.status] ?? run.status}
                               </Tag>
                               <Tag color={run.provider === 'codex' ? 'geekblue' : 'purple'} style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>
-                                {run.provider === 'codex' ? 'Codex' : 'Claude'}
+                                {run.provider === 'pi' ? 'Pi' : run.provider === 'codex' ? 'Codex' : 'Claude'}
                               </Tag>
                               {run.provider === 'claude' && run.providerRuntime === 'legacy' && (
                                 <Tag style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>历史只读</Tag>

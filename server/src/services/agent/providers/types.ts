@@ -1,6 +1,6 @@
 import type { PublicAgentEvent } from '../eventProtocol.js';
 
-export type AgentProviderId = 'claude' | 'codex';
+export type AgentProviderId = 'claude' | 'codex' | 'pi';
 
 export interface AgentProviderCapabilities {
   streaming: boolean;

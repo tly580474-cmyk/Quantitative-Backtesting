@@ -122,7 +122,7 @@ export function registerAgentRoutes(
   const messageSchema = z.object({
     prompt: z.string().trim().min(1).max(100_000),
     timeoutMinutes: z.number().int().min(1).max(360).optional(),
-    provider: z.enum(['claude', 'codex']).optional(),
+    provider: z.enum(['claude', 'codex', 'pi']).optional(),
     attachmentIds: z.array(z.string().uuid()).max(attachmentService.maxFiles).default([]),
   });
 

@@ -17,7 +17,7 @@ const repeats = Number(repeatArg);
 if (!casesPath || !outputPath || extra.length || !Number.isInteger(repeats) || repeats < 1 || repeats > 10) {
   throw new Error('Usage: benchmarkAgentEfficiency.ts cases.json output-dir [repeats=3, 1..10]');
 }
-const cases: Array<{ id: string; prompt: string }> = JSON.parse(await readFile(resolve(casesPath), 'utf8'));
+const cases: Array<{ id: string; prompt: string; provider?: 'claude' | 'pi' }> = JSON.parse(await readFile(resolve(casesPath), 'utf8'));
 if (!Array.isArray(cases) || !cases.length || cases.some(item => !/^[a-z0-9-]+$/.test(item.id) || !item.prompt?.trim())
   || new Set(cases.map(item => item.id)).size !== cases.length) throw new Error('Invalid or duplicate benchmark cases');
 const config = loadConfig();
@@ -33,6 +33,9 @@ const orchestrator = new AgentOrchestrator(pool, {
   claudeWorkingDirectory: resolve(config.AGENT_CLAUDE_WORKING_DIRECTORY), claudePath: config.AGENT_CLAUDE_PATH,
   claudeGitBashPath: config.AGENT_CLAUDE_GIT_BASH_PATH || undefined,
   reportRoot: resolve(output, 'artifacts'), maxConcurrent: 1, defaultProvider: 'claude',
+  pi: { enabled: config.AGENT_PI_ENABLED === 'true', piPath: config.AGENT_PI_PATH,
+    workingDirectory: config.AGENT_PI_WORKING_DIRECTORY, agentDirectory: config.AGENT_PI_AGENT_DIRECTORY,
+    model: config.AGENT_PI_MODEL || undefined, modelProvider: config.AGENT_PI_MODEL_PROVIDER || undefined },
 });
 let stopped = false;
 const stop = () => { stopped = true; void orchestrator.shutdown(); };
@@ -44,10 +47,10 @@ try {
       if (stopped) break;
       const runId = randomUUID();
       const name = `after-${item.id}-${repeat}`;
-      await repo.createRun(runId, item.prompt, 0, 720_000);
+      await repo.createRun(runId, item.prompt, 0, 720_000, 'classic-blue', undefined, runId, 0, item.provider ?? 'claude');
       await writeFile(resolve(output, `${name}.started.json`), JSON.stringify({ id: runId, case: item.id, repeat }));
       console.log(name, runId);
-      try { await orchestrator.start({ runId, prompt: item.prompt, maxTurns: 0, timeoutMs: 720_000, provider: 'claude' }); }
+      try { await orchestrator.start({ runId, prompt: item.prompt, maxTurns: 0, timeoutMs: 720_000, provider: item.provider ?? 'claude' }); }
       catch (error) { console.error(name, 'startup failed; inspect persisted terminal event'); }
       let run = await repo.getRun(runId);
       while (run && (orchestrator.isRunning(runId) || !['completed', 'failed', 'canceled'].includes(run.status))) {

@@ -69,7 +69,7 @@ export function detectToolFailure(output: unknown, failed = false, exitCode?: nu
 }
 
 export function isExecutedCommand(toolName: string | undefined, input = ''): boolean {
-  if (!['Bash', 'command', 'exec_command', 'shell_command', 'Shell'].includes(toolName ?? '')) return false;
+  if (!['Bash', 'bash', 'powershell', 'command', 'exec_command', 'shell_command', 'Shell'].includes(toolName ?? '')) return false;
   // Source/document searches can legitimately print example errors; do not reclassify them.
   return !/(?:^|[;&|\s"'])(?:cat|rg|grep|head|tail|Get-Content|Select-String)\s/i.test(input.replace(/\|\s*(?:head|tail)\b[^;\n]*/g, ''));
 }

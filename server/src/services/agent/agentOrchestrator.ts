@@ -14,6 +14,7 @@ import { AgentRunMetrics } from './runMetrics.js';
 import { fundFlowAmountMismatch, verifiedFundFlowReport, type FundFlowEvidence } from './fundFlowReportGuard.js';
 import { ClaudeAgentProvider } from './providers/claudeAgentProvider.js';
 import { CodexAgentProvider } from './providers/codexAgentProvider.js';
+import { PiAgentProvider, type PiAgentProviderConfig } from './providers/piAgentProvider.js';
 import type { AgentProvider, AgentProviderHealth, AgentProviderId, ProviderAttachment, ProviderRun } from './providers/types.js';
 import type { AgentApprovalRecord } from './agentRepository.js';
 
@@ -24,6 +25,7 @@ export interface OrchestratorConfig {
   reportRoot: string;
   maxConcurrent: number;
   defaultProvider?: AgentProviderId;
+  pi?: PiAgentProviderConfig;
   codex?: {
     enabled: boolean;
     codexPath: string;
@@ -108,6 +110,7 @@ export class AgentOrchestrator {
       new CodexAgentProvider(config.codex ?? {
         enabled: false, codexPath: 'codex', workingDirectory: '', codexHome: '', apiKey: '', model: '',
       }),
+      new PiAgentProvider(config.pi ?? { enabled: false, piPath: '', workingDirectory: '', agentDirectory: '' }),
     ];
     for (const provider of configuredProviders) this.providers.set(provider.id, provider);
   }
@@ -150,7 +153,7 @@ export class AgentOrchestrator {
       if (!claimed) throw new Error('运行状态不允许启动');
       active.seq = await repo.getLastSeq(params.runId);
       await mkdir(resolve(this.config.reportRoot, 'reports'), { recursive: true });
-      const workingDirectory = providerId === 'codex'
+      const workingDirectory = providerId === 'pi' ? this.config.pi?.workingDirectory ?? '' : providerId === 'codex'
         ? this.config.codex?.workingDirectory ?? ''
         : this.config.claudeWorkingDirectory;
       active.workingDirectory = workingDirectory;

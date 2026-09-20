@@ -2,7 +2,7 @@ export type AgentEventType =
   | 'progress' | 'tool_started' | 'tool_finished' | 'assistant_text' | 'assistant_final'
   | 'confirmation_required' | 'error' | 'terminal' | 'user';
 
-export type AgentProviderId = 'claude' | 'codex';
+export type AgentProviderId = 'claude' | 'codex' | 'pi';
 
 export interface AgentProviderHealth {
   id: AgentProviderId;

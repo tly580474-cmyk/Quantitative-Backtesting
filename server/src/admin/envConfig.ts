@@ -156,7 +156,7 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
   },
   {
     key: 'AGENT_PROVIDER', label: '默认 Agent Provider', category: 'ai',
-    description: '默认使用 claude 或 codex；已有对话始终保持原 Provider。', secret: false, editable: true,
+    description: '默认使用 claude、codex 或 pi；已有对话始终保持原 Provider。', secret: false, editable: true,
     restartRequired: true, restartScope: 'ai', defaultValue: 'claude',
   },
   {
@@ -726,8 +726,8 @@ function validateEnvValue(key: string, value: string): void {
       throw new Error('OPENAI_BASE_URL 必须是有效的 HTTP 或 HTTPS 地址');
     }
   }
-  if (key === 'AGENT_PROVIDER' && !['claude', 'codex'].includes(value)) {
-    throw new Error('AGENT_PROVIDER 只能是 claude 或 codex');
+  if (key === 'AGENT_PROVIDER' && !['claude', 'codex', 'pi'].includes(value)) {
+    throw new Error('AGENT_PROVIDER 只能是 claude、codex 或 pi');
   }
   if (key === 'AGENT_CODEX_BASE_URL' && value) {
     try {

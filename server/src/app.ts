@@ -357,6 +357,10 @@ async function main(): Promise<void> {
       reportRoot: config.AGENT_REPORT_ROOT,
       maxConcurrent: Math.max(1, parseInt(config.AGENT_MAX_CONCURRENT, 10) || 1),
       defaultProvider: config.AGENT_PROVIDER,
+      pi: { enabled: config.AGENT_PI_ENABLED === 'true', piPath: config.AGENT_PI_PATH,
+        workingDirectory: config.AGENT_PI_WORKING_DIRECTORY,
+        agentDirectory: config.AGENT_PI_AGENT_DIRECTORY,
+        model: config.AGENT_PI_MODEL || undefined, modelProvider: config.AGENT_PI_MODEL_PROVIDER || undefined },
       codex: {
         enabled: config.AGENT_CODEX_ENABLED === 'true',
         codexPath: config.AGENT_CODEX_PATH,
