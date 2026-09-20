@@ -6,22 +6,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketAnalysisRoute } from './App';
 import { apiFetch } from './api/client';
 import { useCandleStore } from './stores/useCandleStore';
+import { useChartStore } from './stores/useChartStore';
 import { useDrawingStore } from './stores/useDrawingStore';
 import type { Candle } from './models';
 
 vi.mock('./api/client', () => ({ apiFetch: vi.fn() }));
 vi.mock('./components/IndicatorPanel', () => ({ default: () => <div>指标配置</div> }));
 vi.mock('./features/chart/ChartContainer', () => ({
-  default: ({ sourceCandles, period, drawingContextKey }: {
+  default: ({ sourceCandles, period, drawingContextKey, showRangeLines }: {
     sourceCandles: Candle[];
     period: string;
     drawingContextKey?: string;
-  }) => <div data-testid="chart-source" data-period={period} data-drawing-context={drawingContextKey}>
+    showRangeLines?: boolean;
+  }) => <div data-testid="chart-source" data-period={period} data-drawing-context={drawingContextKey}
+    data-range-lines={showRangeLines ? 'visible' : 'hidden'}>
     {sourceCandles.map((c) => c.close).join(',')}
   </div>,
 }));
 
 const daily: Candle[] = [
+  { symbol: 'TEST', time: '2026-08-27', open: 9, high: 11, low: 8, close: 10, volume: 90 },
   { symbol: 'TEST', time: '2026-08-28', open: 10, high: 12, low: 9, close: 11, volume: 100 },
 ];
 const catalog = { status: 'ready', firstDate: '2026-08-01', lastDate: '2026-08-28' };
@@ -31,8 +35,8 @@ const bars = (interval: number, close: number) => ({
 });
 const fetchMock = vi.mocked(apiFetch);
 
-function renderRoute() {
-  return render(<MemoryRouter><AntApp><Suspense fallback={<span>图表加载中</span>}>
+function renderRoute(initialEntries: Parameters<typeof MemoryRouter>[0]['initialEntries'] = ['/analysis']) {
+  return render(<MemoryRouter initialEntries={initialEntries}><AntApp><Suspense fallback={<span>图表加载中</span>}>
     <MarketAnalysisRoute />
   </Suspense></AntApp></MemoryRouter>);
 }
@@ -45,14 +49,40 @@ beforeEach(() => {
   });
   fetchMock.mockReset();
   useCandleStore.setState({ candles: daily, importResult: null });
+  useChartStore.getState().clear();
   Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((media: string) => ({
     matches: false, media, addEventListener: vi.fn(), removeEventListener: vi.fn(),
     addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(), onchange: null,
   })) });
 });
-afterEach(() => { cleanup(); useCandleStore.setState({ candles: [], importResult: null }); });
+afterEach(() => {
+  cleanup();
+  useCandleStore.setState({ candles: [], importResult: null });
+  useChartStore.getState().clear();
+});
 
 describe('MarketAnalysisRoute drawing tools', () => {
+  it('automatically marks the completed market-sense training interval', async () => {
+    useDrawingStore.setState({ tool: 'horizontal' });
+    renderRoute([{
+      pathname: '/analysis',
+      state: {
+        marketSenseTrainingRange: { startTime: '2026-08-27', endTime: '2026-08-28' },
+      },
+    }]);
+
+    const chart = await screen.findByTestId('chart-source');
+    expect(chart.getAttribute('data-period')).toBe('day');
+    expect(chart.getAttribute('data-range-lines')).toBe('visible');
+    expect(screen.getByRole('button', { name: /关闭区间选择/ })).toBeTruthy();
+    expect(await screen.findByText('2026-08-27 ~ 2026-08-28')).toBeTruthy();
+    expect(useChartStore.getState()).toMatchObject({
+      rangeLineStart: '2026-08-27',
+      rangeLineEnd: '2026-08-28',
+    });
+    expect(useDrawingStore.getState().tool).toBe('select');
+  });
+
   it('scopes drawings to the chart context and makes drawing mutually exclusive with range selection', async () => {
     renderRoute();
     const chart = await screen.findByTestId('chart-source');
@@ -92,10 +122,10 @@ describe('MarketAnalysisRoute minute loading', () => {
     await screen.findByRole('status', { name: '正在加载分钟行情' });
     expect(screen.queryByTestId('chart-source')).toBeNull();
     fireEvent.click(screen.getByRole('radio', { name: '日K' }));
-    await waitFor(() => expect(screen.getByTestId('chart-source').textContent).toBe('11'));
+    await waitFor(() => expect(screen.getByTestId('chart-source').textContent).toBe('10,11'));
     await act(async () => { resolveFive(bars(5, 99)); });
     expect(screen.getByTestId('chart-source').getAttribute('data-period')).toBe('day');
-    expect(screen.getByTestId('chart-source').textContent).toBe('11');
+    expect(screen.getByTestId('chart-source').textContent).toBe('10,11');
   });
 
   it('retries a failed catalog from an inline error state', async () => {

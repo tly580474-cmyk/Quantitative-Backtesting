@@ -972,6 +972,17 @@ export default function ChartContainer({
     }
     if (candles.length < 2) return;
     const availableTimes = new Set(candles.map((candle) => candle.time));
+    const storedRange = useChartStore.getState();
+    if (
+      storedRange.rangeLineStart
+      && storedRange.rangeLineEnd
+      && availableTimes.has(storedRange.rangeLineStart)
+      && availableTimes.has(storedRange.rangeLineEnd)
+    ) {
+      rangeLine.setStartTime(storedRange.rangeLineStart);
+      rangeLine.setEndTime(storedRange.rangeLineEnd);
+      return;
+    }
     if (
       rangeLine.getStartTime()
       && rangeLine.getEndTime()

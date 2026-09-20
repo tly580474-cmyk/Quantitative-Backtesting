@@ -355,13 +355,20 @@ export default function MarketSenseTrainingPage() {
       useCandleStore.getState().setCandles(candles);
       useCandleStore.getState().setImportResult(result);
       message.success(`已打开 ${instrument.name} 的行情分析`);
-      navigate('/analysis');
+      navigate('/analysis', {
+        state: trainingStartBar && currentBar ? {
+          marketSenseTrainingRange: {
+            startTime: trainingStartBar.date,
+            endTime: currentBar.date,
+          },
+        } : undefined,
+      });
     } catch (cause) {
       message.error(cause instanceof Error ? cause.message : '打开行情分析失败');
     } finally {
       setOpeningAnalysis(false);
     }
-  }, [instrument, message, navigate, openingAnalysis, phase]);
+  }, [currentBar, instrument, message, navigate, openingAnalysis, phase, trainingStartBar]);
 
   const nextBar = useCallback(() => {
     if (phase !== 'active' || !currentBar) return;

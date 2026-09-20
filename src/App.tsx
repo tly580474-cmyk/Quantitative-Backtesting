@@ -1,4 +1,4 @@
-import { useState, useCallback, lazy, Suspense, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, lazy, Suspense, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { HashRouter, Navigate, Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Checkbox, ConfigProvider, App as AntApp, Button, DatePicker, Dropdown, Modal, Popover, Segmented, Space, Tag, theme as antdTheme } from 'antd';
 import type { MenuProps } from 'antd';
@@ -43,6 +43,7 @@ import DrawingToolbar from './features/chart/drawing/DrawingToolbar';
 import SaveDatasetModal from './features/dataLibrary/SaveDatasetModal';
 import { useImport } from './features/import/useImport';
 import { useCandleStore } from './stores/useCandleStore';
+import { useChartStore } from './stores/useChartStore';
 import { useDrawingStore } from './stores/useDrawingStore';
 import { apiFetch } from '@/api/client';
 import { getRepository } from './api/useRepository';
@@ -220,8 +221,16 @@ function DataLibraryRoute() {
 
 export function MarketAnalysisRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { notification } = AntApp.useApp();
-  const [rangeSelectionEnabled, setRangeSelectionEnabled] = useState(false);
+  const trainingRange = useMemo(() => {
+    const candidate = location.state?.marketSenseTrainingRange;
+    if (!candidate || typeof candidate.startTime !== 'string' || typeof candidate.endTime !== 'string') {
+      return null;
+    }
+    return candidate.startTime <= candidate.endTime ? candidate : null;
+  }, [location.state]);
+  const [rangeSelectionEnabled, setRangeSelectionEnabled] = useState(() => trainingRange !== null);
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [showChipProfile, setShowChipProfile] = useState(false);
   const [chanEnabled, setChanEnabled] = useState(false);
@@ -299,9 +308,33 @@ export function MarketAnalysisRoute() {
     [activeSourceCandles, period],
   );
 
+  useLayoutEffect(() => {
+    if (!trainingRange) return;
+    useChartStore.getState().setRangeLineState({
+      startTime: trainingRange.startTime,
+      endTime: trainingRange.endTime,
+      dragging: null,
+    });
+    const drawingState = useDrawingStore.getState();
+    drawingState.clearDraft();
+    drawingState.setTool('select');
+    setPeriod('day');
+    setRangeSelectionEnabled(true);
+  }, [trainingRange]);
+
   useEffect(() => {
-    if (drawingTool !== 'select') setRangeSelectionEnabled(false);
-  }, [drawingTool]);
+    if (!trainingRange) return;
+    const nextState = { ...(location.state ?? {}) };
+    delete nextState.marketSenseTrainingRange;
+    navigate(`${location.pathname}${location.search}`, {
+      replace: true,
+      state: Object.keys(nextState).length > 0 ? nextState : null,
+    });
+  }, [location.pathname, location.search, location.state, navigate, trainingRange]);
+
+  useEffect(() => {
+    if (drawingTool !== 'select' && !trainingRange) setRangeSelectionEnabled(false);
+  }, [drawingTool, trainingRange]);
 
   const handleRangeSelectionEnabledChange = useCallback((enabled: boolean) => {
     if (enabled) {
