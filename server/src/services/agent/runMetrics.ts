@@ -3,6 +3,7 @@ import { researchDataUsable } from './toolOutcome.js';
 
 export interface ProviderTelemetry {
   model?: string;
+  apiDurationMs?: number;
   usage?: { inputTokens: number; cachedInputTokens: number; outputTokens: number; reasoningOutputTokens?: number };
   usageScope?: 'provider_total' | 'message';
   messageId?: string;
@@ -14,6 +15,7 @@ export interface RunMetrics {
   version: 1;
   elapsedMs: number;
   providerStartupMs: number | null;
+  providerApiMs: number | null;
   firstValidDataMs: number | null;
   firstSuccessfulDataToolMs: number | null;
   toolCalls: number;
@@ -43,6 +45,7 @@ export class AgentRunMetrics {
   private readonly began: number;
   private spans = new Map<string, ToolSpan>();
   private startup: number | null = null;
+  private apiDuration: number | null = null;
   private firstData: number | null = null;
   private firstSuccess: number | null = null;
   private failures: Record<string, number> = {};
@@ -56,6 +59,7 @@ export class AgentRunMetrics {
 
   telemetry(value: ProviderTelemetry): void {
     if (value.model && /^[\w./:-]{1,120}$/.test(value.model)) this.models.add(value.model);
+    if (value.apiDurationMs != null && Number.isFinite(value.apiDurationMs) && value.apiDurationMs >= 0) this.apiDuration = value.apiDurationMs;
     if (value.usage && Object.values(value.usage).every(v => Number.isFinite(v) && v >= 0)) {
       if (value.usageScope === 'provider_total') this.totalUsage = value.usage;
       else if (value.messageId) this.messages.set(value.messageId, value.usage);
@@ -111,7 +115,7 @@ export class AgentRunMetrics {
       reasoningOutputTokens: (a.reasoningOutputTokens ?? 0) + (b.reasoningOutputTokens ?? 0),
     }), { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 }) : null);
     return {
-      version: 1, elapsedMs: now - this.began, providerStartupMs: this.startup,
+      version: 1, elapsedMs: now - this.began, providerStartupMs: this.startup, providerApiMs: this.apiDuration,
       firstValidDataMs: this.firstData, firstSuccessfulDataToolMs: this.firstSuccess,
       toolCalls: this.spans.size, failedToolCalls: failed, unfinishedToolCalls: unfinished,
       failureCategories: { ...this.failures }, toolWallMs,
@@ -134,6 +138,7 @@ export function claudeTelemetry(line: string): ProviderTelemetry | undefined {
     model: message.model,
     messageId: message.id,
     usageScope: row.type === 'result' ? 'provider_total' : 'message',
+    ...(row.type === 'result' && typeof row.duration_api_ms === 'number' ? { apiDurationMs: row.duration_api_ms } : {}),
     ...(usage ? { usage: {
       inputTokens: Number(usage.input_tokens ?? 0) + Number(usage.cache_creation_input_tokens ?? 0) + Number(usage.cache_read_input_tokens ?? 0),
       cachedInputTokens: Number(usage.cache_read_input_tokens ?? 0), outputTokens: Number(usage.output_tokens ?? 0),

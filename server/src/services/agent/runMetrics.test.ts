@@ -52,5 +52,9 @@ describe('research run metrics', () => {
     } }));
     expect(result?.usage?.inputTokens).toBe(35);
     expect(JSON.stringify(result)).not.toContain('private');
+    const metrics = new AgentRunMetrics();
+    metrics.telemetry(claudeTelemetry(JSON.stringify({ type: 'result', duration_api_ms: 1234 }))!);
+    metrics.telemetry({ apiDurationMs: NaN });
+    expect(metrics.snapshot().providerApiMs).toBe(1234);
   });
 });

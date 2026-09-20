@@ -50,7 +50,7 @@ try {
       try { await orchestrator.start({ runId, prompt: item.prompt, maxTurns: 0, timeoutMs: 720_000, provider: 'claude' }); }
       catch (error) { console.error(name, 'startup failed; inspect persisted terminal event'); }
       let run = await repo.getRun(runId);
-      while (run && !['completed', 'failed', 'canceled'].includes(run.status)) {
+      while (run && (orchestrator.isRunning(runId) || !['completed', 'failed', 'canceled'].includes(run.status))) {
         await delay(1000);
         run = await repo.getRun(runId);
       }
