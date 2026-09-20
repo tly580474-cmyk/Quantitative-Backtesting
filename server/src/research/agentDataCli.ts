@@ -54,7 +54,12 @@ async function main(argv: string[]): Promise<Record<string, unknown>> {
       flags.set(flag, value);
     }
     if (name === 'pe-dca') {
-      if (!flags.get('--input')) return { kind: 'research-data', ok: false, usable: false, status: 'unsupported', next: '缺少官方历史指数PE，请提供来源已核验的 --input JSON。不得用个股PE代替。' };
+      if (!flags.get('--input')) return { kind: 'research-data', ok: false, usable: false, status: 'unsupported', errorCategory: 'data_unavailable',
+        error: 'DATA_UNAVAILABLE: 缺少官方历史指数PE；其他数据的目标范围覆盖尚未核查，不能声称齐全。',
+        next: '请提供来源已核验的 --input JSON。不得用个股PE代替；不重复试探不支持的入口。',
+        inputContract: { source: {name:'来源机构',instrument:'指数标识',valuationType:'official-index-pe',priceBasis:'official-price-index',availability:'point-in-time'},
+          tradingDates:['YYYY-MM-DD（完整交易日历）'],rows:[{date:'YYYY-MM-DD',pe:'正数或null',close:'正数指数点位'}],
+          constraints:'日期唯一有序且与日历逐行匹配；最多30000行；--window 2..2520 默认252。格式校验不证明来源声明真实。' } };
       return peDca(JSON.parse(await readFile(resolve(workspace, flags.get('--input')!), 'utf8')), Number(flags.get('--window') ?? 252));
     }
     const recipe = efficientRecipeSql(name, flags);
@@ -181,7 +186,7 @@ async function run() {
     return;
   }
   const outcome = await withSourceMemory(resolve(workspace, 'tmp_output', 'source-memory', fingerprint(homedir())),
-    { version: 1, argv, files, pointer, workspace }, () => execute(argv), { refresh });
+    { version: 2, implementation: fingerprint([main.toString(), efficientRecipeSql.toString(), peDca.toString()]), argv, files, pointer, workspace }, () => execute(argv), { refresh });
   if (save) outcome.value.artifact = await saveCapsule(workspace, save, outcome.value,
     { argv, snapshotPointer: pointer, inputHashes: files.map(fingerprint) });
   process.stdout.write(`${JSON.stringify(outcome.value, null, 2)}\n`);

@@ -10,7 +10,16 @@ async function safePath(workspace: string, file: string, create: boolean) {
   const root = resolve(workspace, 'tmp_output', 'agent-runs');
   const path = resolve(workspace, file);
   if (!within(root, path) || !path.endsWith('.json')) throw new Error('INVALID_ARGUMENT: 产物须位于 tmp_output/agent-runs 下且为JSON');
-  if (create) await mkdir(dirname(path), { recursive: true });
+  if (create) {
+    const workspaceRoot = await realpath(workspace);
+    let current = workspaceRoot;
+    for (const part of relative(resolve(workspace), dirname(path)).split(sep)) {
+      current = resolve(current, part);
+      try { await mkdir(current); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+      current = await realpath(current);
+      if (!within(workspaceRoot, current)) throw new Error('INVALID_ARGUMENT: 产物目录越界');
+    }
+  }
   const realRoot = await realpath(root);
   if (!within(await realpath(workspace), realRoot) || !within(realRoot, resolve(await realpath(dirname(path)), 'placeholder'))) throw new Error('INVALID_ARGUMENT: 产物目录越界');
   if (!create && !within(realRoot, await realpath(path))) throw new Error('INVALID_ARGUMENT: 产物路径越界');

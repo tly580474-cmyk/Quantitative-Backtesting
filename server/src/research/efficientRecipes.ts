@@ -47,6 +47,9 @@ export function efficientRecipeSql(name: string, flags: Map<string, string>) {
       FROM ranked r LEFT JOIN prices e ON e.instrumentKey=r.instrumentKey AND e.day=r.day+1
       LEFT JOIN prices x ON x.instrumentKey=r.instrumentKey AND x.day=r.day+14
     ) SELECT layer,COUNT(*) AS signals,COUNT(futureReturn) AS samples,COUNT(*)-COUNT(futureReturn) AS missingExits,
+      COUNT(*) FILTER(WHERE day+14>(SELECT MAX(day) FROM calendar)) AS immatureSignals,
+      COUNT(*) FILTER(WHERE day+14<=(SELECT MAX(day) FROM calendar) AND futureReturn IS NULL) AS missingMaturedExits,
+      MAX(tradeDate) FILTER(WHERE day+14<=(SELECT MAX(day) FROM calendar)) AS latestMatureSignalDate,
       COUNT(DISTINCT tradeDate) AS signalDates,AVG(futureReturn) AS averageReturn,
       MEDIAN(futureReturn) AS medianReturn,STDDEV_SAMP(futureReturn) AS returnVolatility,
       AVG(CASE WHEN futureReturn IS NOT NULL THEN CASE WHEN futureReturn>0 THEN 1.0 ELSE 0.0 END END) AS winRate
@@ -56,7 +59,7 @@ export function efficientRecipeSql(name: string, flags: Map<string, string>) {
     factor: '20个交易日收盘动量；21个完整收盘，20个有效成交额；金额元',
     universe: '沪深60/68/00/30开头，当前名称排除ST；不是历史PIT证券池，可能有幸存者偏差',
     execution: name === 'candidate-screen' ? '截止日截面；不替换缺失截止日' : '信号当日分层，随后才连接未来价格；次日开盘入，第14交易日收盘出；缺失退出不补零',
-    limitations: '重叠持有期样本非独立；未模拟涨跌停/停牌可成交性、手续费和滑点；复权为当前快照版本，非历史发布时点版本。不是可直接实盘收益。',
+    limitations: '重叠持有期样本非独立；未模拟涨跌停/停牌可成交性、手续费和滑点；复权为当前快照版本，非历史发布时点版本。不是可直接实盘收益。未到期与到期缺价分别统计；不能因层间缺失比例相近就认定没有选择偏差，成熟信号末日以latestMatureSignalDate为准。',
   } };
 }
 

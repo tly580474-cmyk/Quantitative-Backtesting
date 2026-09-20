@@ -23,10 +23,13 @@ export async function collectReportAssets(content: string, workspace: string, ru
   if (!paths.size) return result;
   const root = await realpath(workspace);
   const task = await realpath(taskArtifactDirectory(workspace, runId));
-  if (!inside(root, task)) throw new Error('任务图片目录越界');
+  const expectedTask = taskArtifactDirectory(root, runId);
+  if (!inside(root, task) || relative(expectedTask, task) !== '') throw new Error('任务图片目录越界');
   let total = 0;
   for (const href of paths) {
-    const path = await realpath(resolve(workspace, href));
+    const requested = resolve(workspace, href);
+    if (!inside(taskArtifactDirectory(workspace, runId), requested)) throw new Error('图片不在当前任务目录内');
+    const path = await realpath(requested);
     if (!inside(task, path)) throw new Error('图片不在当前任务目录内');
     const info = await stat(path);
     if (!info.isFile() || info.size > 2 * 1024 * 1024) throw new Error('图片大小超过2MB或不是文件');

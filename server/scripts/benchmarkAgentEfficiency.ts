@@ -19,13 +19,15 @@ if (!casesPath || !outputPath || extra.length || !Number.isInteger(repeats) || r
 }
 const cases: Array<{ id: string; prompt: string; provider?: 'claude' | 'pi' }> = JSON.parse(await readFile(resolve(casesPath), 'utf8'));
 if (!Array.isArray(cases) || !cases.length || cases.some(item => !/^[a-z0-9-]+$/.test(item.id) || !item.prompt?.trim())
+  || cases.some(item => item.provider && !['claude', 'pi'].includes(item.provider))
   || new Set(cases.map(item => item.id)).size !== cases.length) throw new Error('Invalid or duplicate benchmark cases');
 const config = loadConfig();
 const output = resolve(outputPath);
 await mkdir(output, { recursive: true });
 // New output directories prevent silently overwriting evidence from an earlier run.
 await writeFile(resolve(output, 'manifest.json'), JSON.stringify({ cases, repeats, startedAt: new Date().toISOString(),
-  provider: 'claude', workingDirectory: resolve(config.AGENT_CLAUDE_WORKING_DIRECTORY), timeoutMs: 720_000,
+  providers: [...new Set(cases.map(item => item.provider ?? 'claude'))],
+  workingDirectories: { claude: resolve(config.AGENT_CLAUDE_WORKING_DIRECTORY), pi: config.AGENT_PI_WORKING_DIRECTORY }, timeoutMs: 720_000,
 }, null, 2), { flag: 'wx' });
 const pool = createPool(config);
 const repo = new AgentRepository(pool);

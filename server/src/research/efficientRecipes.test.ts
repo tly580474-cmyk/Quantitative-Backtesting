@@ -19,6 +19,9 @@ it('ranks before future availability and measures fourteen calendar trading days
     expect(Number(rows[0].signals)).toBe(30);
     expect(Number(rows[0].samples)).toBe(16);
     expect(Number(rows[0].missingExits)).toBe(14);
+    expect(Number(rows[0].immatureSignals)).toBe(14);
+    expect(Number(rows[0].missingMaturedExits)).toBe(0);
+    expect(rows[0].latestMatureSignalDate).toBe('2026-02-05');
     expect(rows[0].averageReturn).toBe(0); // Raw prices would produce a false -50% return.
   } finally { con.closeSync(); db.closeSync(); }
 });
