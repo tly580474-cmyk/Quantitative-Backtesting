@@ -22,6 +22,8 @@ def render(spec, output, revision="initial", font=None):
     kind = spec.get("type")
     if kind not in ["line", "bar", "histogram", "heatmap", "nav-drawdown", "factor-layers"]:
         raise ValueError("unsupported chart type")
+    bundled_font = root / "tmp_output" / "fonts" / "wqy-microhei.ttc"
+    if not font and bundled_font.is_file(): font = str(bundled_font)
     if font:
         font_manager.fontManager.addfont(font)
         family = font_manager.FontProperties(fname=font).get_name()

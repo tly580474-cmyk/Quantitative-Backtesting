@@ -6,7 +6,11 @@ import { tmpdir } from 'node:os';
 import { vi, it, expect } from 'vitest';
 import { spawn } from 'node:child_process';
 import { PiAgentProvider } from './piAgentProvider.js';
-vi.mock('node:child_process', async importOriginal => ({ ...await importOriginal<typeof import('node:child_process')>(), spawn: vi.fn() }));
+vi.mock('node:child_process', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  const spawn = vi.fn();
+  return { ...actual, spawn, default: { ...actual, spawn } };
+});
 it('maps Pi events, excludes thinking, preserves failures and resumes exact sessions', async () => {
   const directory = await mkdtemp(join(tmpdir(),'pi-provider-'));
   const child = Object.assign(new EventEmitter(), { stdin:new PassThrough(),stdout:new PassThrough(),stderr:new PassThrough() });
