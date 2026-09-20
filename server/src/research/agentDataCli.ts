@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { fingerprint, withSourceMemory, type ResearchOutcome } from './sourceMemory.js';
 import { saveCapsule, reuseCapsule } from './researchCapsule.js';
+import { EFFICIENT_RECIPES, efficientRecipeSql, peDca } from './efficientRecipes.js';
 
 const exec = promisify(execFile);
 const server = fileURLToPath(new URL('../../', import.meta.url));
@@ -28,6 +29,8 @@ const usage: Record<string, string> = {
   describe: 'describe <dataset>', coverage: 'coverage <dataset> [--start YYYY-MM-DD] [--end YYYY-MM-DD]',
   doctor: 'doctor <dataset>', query: 'query --sql "SELECT ..." | --file tmp_output/query.sql [--param name=value] [--params-file file.json]',
   'fund-flows': 'fund-flows [--end YYYY-MM-DD] [--days 1..60] [--group stock|industry] [--top 1..50] [--symbol 600000]',
+  recipes: 'recipes', recipe: 'recipe candidate-screen|factor-layer-14 --end YYYY-MM-DD [--start YYYY-MM-DD] [--top 20] [--min-amount 100000000] [--dry-run]; recipe pe-dca --input <官方PE及价格JSON> [--window 252]',
+  reuse: 'reuse --file tmp_output/agent-runs/<runId>/<产物.json>；查询可加 --save <产物.json>，所有命令可加 --refresh',
 };
 async function duckdb(args: string[]) {
   return exec(process.execPath, [fileURLToPath(new URL('../../node_modules/tsx/dist/cli.mjs', import.meta.url)),
@@ -35,8 +38,29 @@ async function duckdb(args: string[]) {
   { cwd: server, timeout: 60_000, maxBuffer: 8_000_000, windowsHide: true });
 }
 
-async function main(argv: string[]) {
+async function main(argv: string[]): Promise<Record<string, unknown>> {
   const [command = 'catalog', ...args] = argv;
+  if (command === 'recipes' && !args.length) return { recipes: EFFICIENT_RECIPES };
+  if (command === 'recipe' && !['--help', '-h'].includes(args[0])) {
+    const name = args[0];
+    const flags = new Map<string, string>();
+    for (let i = 1; i < args.length; i++) {
+      const flag = args[i];
+      const allowed = name === 'pe-dca' ? ['--input', '--window'] : ['--start', '--end', '--top', '--min-amount', '--dry-run'];
+      if (!allowed.includes(flag) || flags.has(flag)) throw new Error('INVALID_ARGUMENT: 配方参数无效或重复');
+      const value = flag === '--dry-run' ? 'true' : args[++i];
+      if (!value || value.startsWith('--')) throw new Error('INVALID_ARGUMENT: 配方参数缺值');
+      flags.set(flag, value);
+    }
+    if (name === 'pe-dca') {
+      if (!flags.get('--input')) return { kind: 'research-data', ok: false, usable: false, status: 'unsupported', next: '缺少官方历史指数PE，请提供来源已核验的 --input JSON。不得用个股PE代替。' };
+      return peDca(JSON.parse(await readFile(resolve(workspace, flags.get('--input')!), 'utf8')), Number(flags.get('--window') ?? 252));
+    }
+    const recipe = efficientRecipeSql(name, flags);
+    if (flags.has('--dry-run')) return { recipe: name, ...recipe, executed: false };
+    const result = await main(['query', '--sql', recipe.sql, ...Object.entries(recipe.params).flatMap(([k,v]) => ['--param', `${k}=${v}`])]);
+    return { ...result, recipe: name, semantics: recipe.semantics };
+  }
   if ((['help', '--help', '-h'].includes(command) && !args.length)
     || (usage[command] && args.length === 1 && ['--help', '-h'].includes(args[0]))) {
     return { usage: usage[command] ?? usage, prefix: 'node server/scripts/researchData.mjs',
@@ -141,7 +165,7 @@ async function run() {
   if (saveIndex >= 0 && !save) throw new Error('INVALID_ARGUMENT: --save 缺少路径');
   // File contents, scope, implementation version and published pointer all invalidate memory.
   const files: string[] = [];
-  for (let i = 0; i < argv.length; i++) if (['--file', '--params-file'].includes(argv[i]) && argv[i + 1]) {
+  for (let i = 0; i < argv.length; i++) if (['--file', '--params-file', '--input'].includes(argv[i]) && argv[i + 1]) {
     files.push(await readFile(resolve(workspace, argv[i + 1]), 'utf8').catch(() => 'missing'));
   }
   const pointer = await readFile(resolve(loadConfig().RESEARCH_SNAPSHOT_ROOT, 'current.json'), 'utf8').catch(() => 'missing');

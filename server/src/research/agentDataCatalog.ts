@@ -59,6 +59,7 @@ export function buildDataRoutingPrompt(): string {
 - describe <数据集> 返回实际 schema 与示例；coverage <数据集> --start YYYY-MM-DD --end YYYY-MM-DD 返回该数据集覆盖；doctor <数据集> 检查所选入口，不探测全部来源。fund-flows 已同时返回请求窗口的逐日覆盖，不必再并行或重复查询相同窗口的 coverage；资金流 coverage 的日期范围最多60个交易日。
 - 个股报价与最新消息：node server/scripts/agentMarketData.mjs catalog；批量分钟研究：在 server 目录 npm run duckdb -- minute --symbol 002155 --days 30 --interval 5m。
 - 推荐顺序：选择数据 → 检查字段和覆盖 → 小样本验证 → 批量执行 → 检查样本数、日期与空值。条件收益、因子分层、事件研究优先复用 npm run duckdb -- recipes；复杂多步骤用 pipeline，重复参数用 batch。
+- 常用研究快速入口：researchData.mjs recipes；recipe candidate-screen --end YYYY-MM-DD；recipe factor-layer-14 --start YYYY-MM-DD --end YYYY-MM-DD（20日动量，14交易日退出）；先加 --dry-run 检查口径。自定义因子继续用 DuckDB recipe/pipeline。recipe pe-dca --input <已核验官方PE与价格JSON>；缺官方序列会明确返回未支持，不能制造估值代理。
 - 原始价格复权使用 raw*factor+priceOffset；财报按公告时间，指数成分按有效日期；日线最大日期不能代表财报、分红等其他数据的时效。
 - 参数错误先按示例修正，字段错误查 schema，覆盖不足才考虑替代来源；零条筛选结果不等于数据缺失。相同失败且条件未改变时不要重复调用。
 - 数据入口有按用户目录、参数、文件内容及快照隔离的短期来源记忆。瞬时故障最多自动重试1次；参数/字段错误不自动重试。失败命中时先修正条件，确实变更可加 --refresh；禁止用刷新循环绕过失败上限。替代来源最多尝试1个并验证口径，仍失败则交付已完成部分和缺失原因。空结果、覆盖不足、过期、未支持的数据要分别说明，不能互相替代。
