@@ -1,0 +1,763 @@
+{
+  "date": "2026-09-20",
+  "host": "192.168.2.218",
+  "stage": "/opt/quant-backtest-efficiency-next-20260920",
+  "productionDeployed": false,
+  "codeRevision": "cc46474",
+  "notes": [
+    "real-agent runs predate final guidance and maturity metadata fixes; retained without editing",
+    "models differ; end-to-end durations are not a provider-only A/B speedup",
+    "No production restart or authoritative data write was performed"
+  ],
+  "cliTimings": [
+    {
+      "case": "screen",
+      "repeat": 1,
+      "mode": "fresh",
+      "elapsedMs": 2495,
+      "exitCode": 0,
+      "sourceMemory": {
+        "hit": false,
+        "attempts": 1
+      },
+      "rowCount": 5,
+      "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+      "errorCategory": null
+    },
+    {
+      "case": "screen",
+      "repeat": 1,
+      "mode": "cached",
+      "elapsedMs": 895,
+      "exitCode": 0,
+      "sourceMemory": {
+        "hit": true,
+        "savedAt": "2026-09-20T04:42:13.699Z",
+        "expiresAt": "2026-09-20T04:42:43.699Z",
+        "next": "命中短期同参数记录；修正参数或更换范围会重新执行，确认条件变化可加 --refresh。"
+      },
+      "rowCount": 5,
+      "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+      "errorCategory": null
+    },
+    {
+      "case": "screen",
+      "repeat": 2,
+      "mode": "fresh",
+      "elapsedMs": 2497,
+      "exitCode": 0,
+      "sourceMemory": {
+        "hit": false,
+        "attempts": 1
+      },
+      "rowCount": 5,
+      "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+      "errorCategory": null
+    },
+    {
+      "case": "screen",
+      "repeat": 2,
+      "mode": "cached",
+      "elapsedMs": 907,
+      "exitCode": 0,
+      "sourceMemory": {
+        "hit": true,
+        "savedAt": "2026-09-20T04:42:17.092Z",
+        "expiresAt": "2026-09-20T04:42:47.092Z",
+        "next": "命中短期同参数记录；修正参数或更换范围会重新执行，确认条件变化可加 --refresh。"
+      },
+      "rowCount": 5,
+      "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+      "errorCategory": null
+    },
+    {
+      "case": "screen",
+      "repeat": 3,
+      "mode": "fresh",
+      "elapsedMs": 2491,
+      "exitCode": 0,
+      "sourceMemory": {
+        "hit": false,
+        "attempts": 1
+      },
+      "rowCount": 5,
+      "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+      "errorCategory": null
+    },
+    {
+      "case": "screen",
+      "repeat": 3,
+      "mode": "cached",
+      "elapsedMs": 939,
+      "exitCode": 0,
+      "sourceMemory": {
+        "hit": true,
+        "savedAt": "2026-09-20T04:42:20.457Z",
+        "expiresAt": "2026-09-20T04:42:50.457Z",
+        "next": "命中短期同参数记录；修正参数或更换范围会重新执行，确认条件变化可加 --refresh。"
+      },
+      "rowCount": 5,
+      "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+      "errorCategory": null
+    },
+    {
+      "case": "layers",
+      "repeat": 1,
+      "mode": "fresh",
+      "elapsedMs": 2445,
+      "exitCode": 0,
+      "sourceMemory": {
+        "hit": false,
+        "attempts": 1
+      },
+      "rowCount": 5,
+      "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+      "errorCategory": null
+    },
+    {
+      "case": "layers",
+      "repeat": 1,
+      "mode": "cached",
+      "elapsedMs": 913,
+      "exitCode": 0,
+      "sourceMemory": {
+        "hit": true,
+        "savedAt": "2026-09-20T04:42:23.873Z",
+        "expiresAt": "2026-09-20T04:42:53.873Z",
+        "next": "命中短期同参数记录；修正参数或更换范围会重新执行，确认条件变化可加 --refresh。"
+      },
+      "rowCount": 5,
+      "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+      "errorCategory": null
+    },
+    {
+      "case": "layers",
+      "repeat": 2,
+      "mode": "fresh",
+      "elapsedMs": 2497,
+      "exitCode": 0,
+      "sourceMemory": {
+        "hit": false,
+        "attempts": 1
+      },
+      "rowCount": 5,
+      "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+      "errorCategory": null
+    },
+    {
+      "case": "layers",
+      "repeat": 2,
+      "mode": "cached",
+      "elapsedMs": 905,
+      "exitCode": 0,
+      "sourceMemory": {
+        "hit": true,
+        "savedAt": "2026-09-20T04:42:27.283Z",
+        "expiresAt": "2026-09-20T04:42:57.283Z",
+        "next": "命中短期同参数记录；修正参数或更换范围会重新执行，确认条件变化可加 --refresh。"
+      },
+      "rowCount": 5,
+      "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+      "errorCategory": null
+    },
+    {
+      "case": "layers",
+      "repeat": 3,
+      "mode": "fresh",
+      "elapsedMs": 2486,
+      "exitCode": 0,
+      "sourceMemory": {
+        "hit": false,
+        "attempts": 1
+      },
+      "rowCount": 5,
+      "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+      "errorCategory": null
+    },
+    {
+      "case": "layers",
+      "repeat": 3,
+      "mode": "cached",
+      "elapsedMs": 906,
+      "exitCode": 0,
+      "sourceMemory": {
+        "hit": true,
+        "savedAt": "2026-09-20T04:42:30.674Z",
+        "expiresAt": "2026-09-20T04:43:00.674Z",
+        "next": "命中短期同参数记录；修正参数或更换范围会重新执行，确认条件变化可加 --refresh。"
+      },
+      "rowCount": 5,
+      "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+      "errorCategory": null
+    },
+    {
+      "case": "invalid",
+      "repeat": 1,
+      "mode": "fresh",
+      "elapsedMs": 1787,
+      "exitCode": 1,
+      "sourceMemory": {
+        "hit": false,
+        "attempts": 1
+      },
+      "rowCount": null,
+      "snapshotId": null,
+      "errorCategory": "invalid_argument"
+    },
+    {
+      "case": "invalid",
+      "repeat": 1,
+      "mode": "cached",
+      "elapsedMs": 902,
+      "exitCode": 1,
+      "sourceMemory": {
+        "hit": true,
+        "savedAt": "2026-09-20T04:42:33.370Z",
+        "expiresAt": "2026-09-20T04:43:33.370Z",
+        "next": "命中短期同参数记录；修正参数或更换范围会重新执行，确认条件变化可加 --refresh。"
+      },
+      "rowCount": null,
+      "snapshotId": null,
+      "errorCategory": "invalid_argument"
+    },
+    {
+      "case": "invalid",
+      "repeat": 2,
+      "mode": "fresh",
+      "elapsedMs": 1776,
+      "exitCode": 1,
+      "sourceMemory": {
+        "hit": false,
+        "attempts": 1
+      },
+      "rowCount": null,
+      "snapshotId": null,
+      "errorCategory": "invalid_argument"
+    },
+    {
+      "case": "invalid",
+      "repeat": 2,
+      "mode": "cached",
+      "elapsedMs": 910,
+      "exitCode": 1,
+      "sourceMemory": {
+        "hit": true,
+        "savedAt": "2026-09-20T04:42:36.046Z",
+        "expiresAt": "2026-09-20T04:43:36.046Z",
+        "next": "命中短期同参数记录；修正参数或更换范围会重新执行，确认条件变化可加 --refresh。"
+      },
+      "rowCount": null,
+      "snapshotId": null,
+      "errorCategory": "invalid_argument"
+    },
+    {
+      "case": "invalid",
+      "repeat": 3,
+      "mode": "fresh",
+      "elapsedMs": 1767,
+      "exitCode": 1,
+      "sourceMemory": {
+        "hit": false,
+        "attempts": 1
+      },
+      "rowCount": null,
+      "snapshotId": null,
+      "errorCategory": "invalid_argument"
+    },
+    {
+      "case": "invalid",
+      "repeat": 3,
+      "mode": "cached",
+      "elapsedMs": 932,
+      "exitCode": 1,
+      "sourceMemory": {
+        "hit": true,
+        "savedAt": "2026-09-20T04:42:38.725Z",
+        "expiresAt": "2026-09-20T04:43:38.725Z",
+        "next": "命中短期同参数记录；修正参数或更换范围会重新执行，确认条件变化可加 --refresh。"
+      },
+      "rowCount": null,
+      "snapshotId": null,
+      "errorCategory": "invalid_argument"
+    }
+  ],
+  "runs": [
+    {
+      "id": "39e34f37-888f-4c98-ada8-79b0837b004a",
+      "case": {
+        "id": "claude-screen-chart",
+        "provider": "claude",
+        "prompt": "使用现成研究配方筛选截至2026-09-17的沪深非ST股票：前复权20交易日动量排名前5，20日平均成交额至少1亿元。核对口径和样本，生成一张中文动量柱状图，嵌入简洁研究报告，说明来源、日期、单位和限制。优先使用researchData.mjs的candidate-screen配方和researchPlot.py。"
+      },
+      "status": "completed",
+      "sessionId": "ee997f86-0be1-45e7-9203-cb3f28f7b7bc",
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 459314,
+          "outputTokens": 5687,
+          "cachedInputTokens": 365043
+        },
+        "models": [
+          "qwen3.8-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 3,
+            "failed": 0,
+            "toolMs": 18714
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 4,
+            "failed": 2,
+            "toolMs": 8393
+          },
+          "computation": {
+            "calls": 3,
+            "failed": 0,
+            "toolMs": 9562
+          }
+        },
+        "version": 1,
+        "elapsedMs": 131190,
+        "toolCalls": 10,
+        "toolWallMs": 36669,
+        "usageScope": "provider_total",
+        "providerApiMs": 125106,
+        "reportRenderMs": 13,
+        "unattributedMs": 94508,
+        "failedToolCalls": 2,
+        "firstValidDataMs": 40157,
+        "failureCategories": {
+          "invalid_argument": 2
+        },
+        "providerStartupMs": 8,
+        "unfinishedToolCalls": 0,
+        "fundFlowReportFallbacks": 0,
+        "firstSuccessfulDataToolMs": 24100
+      },
+      "report": {
+        "chartsCount": 1,
+        "fileSize": 101974,
+        "sha256": "b995489a6a747c5c3b48956899fc59c0e673c205af3af3d793457968b891d6c7"
+      },
+      "errors": [
+        {
+          "category": "invalid_argument",
+          "input": "{\n  \"command\": \"node server/scripts/researchData.mjs recipe candidate-screen --help 2>&1\",\n  \"description\": \"Show candidate-screen recipe options\"\n}"
+        },
+        {
+          "category": "invalid_argument",
+          "input": "{\n  \"command\": \"node server/scripts/researchData.mjs describe stock_prices_qfq 2>&1\",\n  \"description\": \"Inspect adjusted price dataset schema\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "24619581-a7f2-40a4-a385-74230b4ab17f",
+      "case": {
+        "id": "pi-screen-chart",
+        "provider": "pi",
+        "prompt": "使用现成研究配方筛选截至2026-09-17的沪深非ST股票：前复权20交易日动量排名前5，20日平均成交额至少1亿元。核对口径和样本，生成一张中文动量柱状图，嵌入简洁研究报告，说明来源、日期、单位和限制。优先使用researchData.mjs的candidate-screen配方和researchPlot.py。"
+      },
+      "status": "completed",
+      "sessionId": "01a0bd19-e0e4-7667-931f-2e7ae272eb16",
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 157693,
+          "outputTokens": 5049,
+          "cachedInputTokens": 130816,
+          "reasoningOutputTokens": 0
+        },
+        "models": [
+          "deepseek-v4.1-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 7,
+            "failed": 1,
+            "toolMs": 11358
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 2,
+            "failed": 0,
+            "toolMs": 1960
+          },
+          "computation": {
+            "calls": 9,
+            "failed": 0,
+            "toolMs": 1954
+          }
+        },
+        "version": 1,
+        "elapsedMs": 48200,
+        "toolCalls": 18,
+        "toolWallMs": 12235,
+        "usageScope": "observed_messages",
+        "providerApiMs": null,
+        "reportRenderMs": 58,
+        "unattributedMs": 35907,
+        "failedToolCalls": 1,
+        "firstValidDataMs": 14692,
+        "failureCategories": {
+          "invalid_argument": 1
+        },
+        "providerStartupMs": 17,
+        "unfinishedToolCalls": 0,
+        "fundFlowReportFallbacks": 0,
+        "firstSuccessfulDataToolMs": 5326
+      },
+      "report": {
+        "chartsCount": 1,
+        "fileSize": 98832,
+        "sha256": "503ec9f367ebddf84eed9c000ef29026bfc9cb0a05e8b65cf64e022219c4b6eb"
+      },
+      "errors": [
+        {
+          "category": "invalid_argument",
+          "input": "{\n  \"command\": \"cd /opt/quant-backtest-efficiency-next-20260920 && node server/scripts/researchData.mjs recipe candidate-screen --end 2026-09-17 --top 5 --amount 100000000 2>&1 | head -120\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "0e8b069f-e2ce-4533-aff1-505389b4ad21",
+      "case": {
+        "id": "pi-layer-custom",
+        "provider": "pi",
+        "prompt": "使用researchData.mjs的factor-layer-14配方，信号范围2026-08-01至2026-09-18，检查前复权20日动量的14交易日五分层结果。使用预置绘图工具生成一张中文分层平均收益柱图，表格给出各层signals、samples、missingExits和平均收益，不追加派生推测。生成极简白色、绿色#176b58主题、宽版图文报告，明确缺失退出及非PIT股票池限制。"
+      },
+      "status": "completed",
+      "sessionId": "01a0bd22-1a84-779d-be3c-0f5dc16e9de8",
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 130577,
+          "outputTokens": 6256,
+          "cachedInputTokens": 106496,
+          "reasoningOutputTokens": 0
+        },
+        "models": [
+          "deepseek-v4.1-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 5,
+            "failed": 0,
+            "toolMs": 8131
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 3,
+            "failed": 0,
+            "toolMs": 2912
+          },
+          "computation": {
+            "calls": 9,
+            "failed": 1,
+            "toolMs": 399
+          }
+        },
+        "version": 1,
+        "elapsedMs": 47068,
+        "toolCalls": 17,
+        "toolWallMs": 9372,
+        "usageScope": "observed_messages",
+        "providerApiMs": null,
+        "reportRenderMs": 60,
+        "unattributedMs": 37636,
+        "failedToolCalls": 1,
+        "firstValidDataMs": 17980,
+        "failureCategories": {
+          "execution_error": 1
+        },
+        "providerStartupMs": 17,
+        "unfinishedToolCalls": 0,
+        "fundFlowReportFallbacks": 0,
+        "firstSuccessfulDataToolMs": 5881
+      },
+      "report": {
+        "chartsCount": 1,
+        "fileSize": 98061,
+        "sha256": "a7c5fc9e79130771934b67b942bf1168c21a9125ce857f681c65f5770a5691e7"
+      },
+      "errors": [
+        {
+          "category": "execution_error",
+          "input": "{\n  \"command\": \"cd /opt/quant-backtest-efficiency-next-20260920 && python3 -c \\\"\\nimport json\\np='tmp_output/research-results/42c1e329-2ac6-4689-a29e-14e033c4743f.json'\\nd=json.load(open(p))\\nprint(list(d.keys()))\\nprint(json.dumps(d,ensure_ascii=False)[:3000])\\n\\\" 2>&1 | head -40\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "8a8ee453-7adf-424d-a37f-79b595f65338",
+      "case": {
+        "id": "pi-pe-missing",
+        "provider": "pi",
+        "prompt": "请先执行researchData.mjs recipe pe-dca 检查已有数据能否做官方沪深300指数PE历史分位定投。我没有提供任何PE序列，不允许用个股PE代替。若缺数据，简短说明缺口和需要的输入格式，不继续搜外部站点、不生成长报告。"
+      },
+      "status": "completed",
+      "sessionId": "01a0bd22-d29a-7764-a862-e63363711b7d",
+      "metrics": {
+        "note": "阶段按工具参数归类；并行工具时长不可相加。unattributedMs包含模型生成、请求等待和编排开销，不代表纯思考；未识别的有效取数及用量保持null。",
+        "usage": {
+          "inputTokens": 33339,
+          "outputTokens": 1967,
+          "cachedInputTokens": 20992,
+          "reasoningOutputTokens": 0
+        },
+        "models": [
+          "deepseek-v4.1-flash"
+        ],
+        "phases": {
+          "data": {
+            "calls": 1,
+            "failed": 1,
+            "toolMs": 975
+          },
+          "other": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "report": {
+            "calls": 0,
+            "failed": 0,
+            "toolMs": 0
+          },
+          "discovery": {
+            "calls": 3,
+            "failed": 0,
+            "toolMs": 2861
+          },
+          "computation": {
+            "calls": 2,
+            "failed": 0,
+            "toolMs": 94
+          }
+        },
+        "version": 1,
+        "elapsedMs": 16550,
+        "toolCalls": 6,
+        "toolWallMs": 2886,
+        "usageScope": "observed_messages",
+        "providerApiMs": null,
+        "reportRenderMs": 0,
+        "unattributedMs": 13664,
+        "failedToolCalls": 1,
+        "firstValidDataMs": null,
+        "failureCategories": {
+          "execution_error": 1
+        },
+        "providerStartupMs": 8,
+        "unfinishedToolCalls": 0,
+        "fundFlowReportFallbacks": 0,
+        "firstSuccessfulDataToolMs": null
+      },
+      "report": null,
+      "errors": [
+        {
+          "category": "execution_error",
+          "input": "{\n  \"command\": \"cd /opt/quant-backtest-efficiency-next-20260920 && node server/scripts/researchData.mjs recipe pe-dca 2>&1\"\n}"
+        }
+      ]
+    }
+  ],
+  "piLifecycle": [
+    {
+      "name": "initial",
+      "elapsedMs": 2929,
+      "completion": {
+        "status": "completed",
+        "exitCode": 0
+      },
+      "toolStarted": false
+    },
+    {
+      "name": "resume",
+      "elapsedMs": 3163,
+      "completion": {
+        "status": "completed",
+        "exitCode": 0
+      },
+      "toolStarted": false
+    },
+    {
+      "name": "cancel",
+      "elapsedMs": 2069,
+      "completion": {
+        "status": "interrupted",
+        "exitCode": 143
+      },
+      "toolStarted": true
+    }
+  ],
+  "finalLayerResults": [
+    {
+      "layer": "1",
+      "signals": "20948",
+      "samples": "12568",
+      "missingExits": "8380",
+      "immatureSignals": "8373",
+      "missingMaturedExits": "7",
+      "latestMatureSignalDate": "2026-08-31",
+      "signalDates": "35",
+      "averageReturn": 0.023373547468822573,
+      "medianReturn": 0.0017647160589938649,
+      "returnVolatility": 0.11234200974308761,
+      "winRate": 0.5058879694462126
+    },
+    {
+      "layer": "2",
+      "signals": "20938",
+      "samples": "12547",
+      "missingExits": "8391",
+      "immatureSignals": "8369",
+      "missingMaturedExits": "22",
+      "latestMatureSignalDate": "2026-08-31",
+      "signalDates": "35",
+      "averageReturn": 0.002946615532968606,
+      "medianReturn": -0.008058017727638922,
+      "returnVolatility": 0.0889679089275122,
+      "winRate": 0.44608272893918866
+    },
+    {
+      "layer": "3",
+      "signals": "20933",
+      "samples": "12554",
+      "missingExits": "8379",
+      "immatureSignals": "8365",
+      "missingMaturedExits": "14",
+      "latestMatureSignalDate": "2026-08-31",
+      "signalDates": "35",
+      "averageReturn": -0.0043740871238437855,
+      "medianReturn": -0.016341312732395696,
+      "returnVolatility": 0.08986043799918714,
+      "winRate": 0.40210291540544846
+    },
+    {
+      "layer": "4",
+      "signals": "20925",
+      "samples": "12544",
+      "missingExits": "8381",
+      "immatureSignals": "8362",
+      "missingMaturedExits": "19",
+      "latestMatureSignalDate": "2026-08-31",
+      "signalDates": "35",
+      "averageReturn": -0.005503157931139375,
+      "medianReturn": -0.018662519440124425,
+      "returnVolatility": 0.09790907172563451,
+      "winRate": 0.3987563775510204
+    },
+    {
+      "layer": "5",
+      "signals": "20920",
+      "samples": "12540",
+      "missingExits": "8380",
+      "immatureSignals": "8361",
+      "missingMaturedExits": "19",
+      "latestMatureSignalDate": "2026-08-31",
+      "signalDates": "35",
+      "averageReturn": -0.01132804536572149,
+      "medianReturn": -0.027989169675090242,
+      "returnVolatility": 0.12379996439583803,
+      "winRate": 0.38293460925039874
+    }
+  ],
+  "eligibilityAudit": [
+    {
+      "previousEligible": "2961",
+      "strictEligible": "2936",
+      "missingFactors": "25",
+      "missingAmounts": "0"
+    }
+  ],
+  "missingExitState": {
+    "usable": false,
+    "status": "insufficient-exit-coverage",
+    "rowCount": 5
+  },
+  "productionService": "active",
+  "snapshotPointer": {
+    "snapshotId": "7ee99aa8-6aa2-4ef3-99c0-c7b5dd756c4c-20260918103144",
+    "publishedAt": "2026-09-18T10:32:19.154Z"
+  },
+  "finalCodeRevision": "dd861f1",
+  "syntheticPeCli": {
+    "source": {
+      "name": "synthetic-audit-not-market-data",
+      "instrument": "fixture-index",
+      "valuationType": "official-index-pe",
+      "priceBasis": "official-price-index",
+      "availability": "point-in-time"
+    },
+    "window": 5,
+    "strategy": {
+      "highAction": "sell-fraction",
+      "sellFraction": 0.25
+    },
+    "invested": 2000,
+    "cash": 550,
+    "value": 2200,
+    "profit": 200,
+    "series": [
+      {
+        "date": "2026-02-02",
+        "signalDate": "2026-01-30",
+        "percentile": 0.2,
+        "contribution": 2000,
+        "action": "buy",
+        "unitsSold": 0,
+        "proceeds": 0,
+        "cash": 0,
+        "units": 20,
+        "invested": 2000,
+        "value": 2000,
+        "fixedInvested": 1000,
+        "fixedValue": 1000
+      },
+      {
+        "date": "2026-03-02",
+        "signalDate": "2026-02-27",
+        "percentile": 1,
+        "contribution": 0,
+        "action": "sell",
+        "unitsSold": 5,
+        "proceeds": 550,
+        "cash": 550,
+        "units": 15,
+        "invested": 2000,
+        "value": 2200,
+        "fixedInvested": 2000,
+        "fixedValue": 2100.0000000000005
+      }
+    ]
+  }
+}
