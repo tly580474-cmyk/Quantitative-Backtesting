@@ -16,6 +16,7 @@ import { inspectMaterializedArtifacts } from '../research/materializedArtifactHe
 import { readCurrentSnapshot } from '../research/snapshotManifest.js';
 import { listAdminConfig } from './envConfig.js';
 import { metricsHistory } from './metricsHistory.js';
+import { createAdminCoverageReader } from './coverageCache.js';
 
 export type HealthLevel = 'healthy' | 'warning' | 'critical' | 'disabled';
 
@@ -395,7 +396,21 @@ async function inspectDataGovernance(pool: Pool, dbOnline: boolean, config: EnvC
     .sort();
   const [coverage, materialized, collectorState] = await Promise.all([
     dbOnline
-      ? loadAdminCoverage(pool, config).catch((error) => {
+      ? loadAdminCoverage(pool, config).then(result => {
+          if (result.refreshing || result.failed) {
+            checks.push({
+              id: 'data-coverage-refresh', title: '数据覆盖矩阵刷新', level: 'warning',
+              summary: result.refreshing
+                ? '数据覆盖矩阵正在后台更新；其他管理功能可正常使用。'
+                : '数据覆盖矩阵后台更新失败，稍后重试；其他管理功能可正常使用。',
+              resolution: '等待后台扫描完成后刷新；持续失败时运行 npm run data:coverage 检查。',
+              details: [{ label: '当前展示数据', value: result.matrix
+                ? `上次检测结果（${result.matrix.checkedAt}），尚未刷新`
+                : '暂无检测结果，不代表覆盖正常' }],
+            });
+          }
+          return result.matrix;
+        }).catch((error) => {
           checks.push({
             id: 'data-coverage',
             title: '数据覆盖矩阵',
@@ -497,13 +512,26 @@ async function inspectDataGovernance(pool: Pool, dbOnline: boolean, config: EnvC
   };
 }
 
-async function loadAdminCoverage(pool: Pool, config: EnvConfig) {
+const coverageReaders = new WeakMap<Pool, Map<string, ReturnType<typeof createAdminCoverageReader>>>();
+
+function loadAdminCoverage(pool: Pool, config: EnvConfig) {
   const cachePath = resolve('.cache/data-coverage.json');
-  const cached = await readCoverageMatrixCache(cachePath, 15 * 60_000);
-  if (cached?.rows.some((row) => row.key === 'dragon_tiger')) return cached;
-  const matrix = await buildDataCoverageMatrix(pool, config.MINUTE_DATA_ROOT);
-  await writeCoverageMatrixCache(cachePath, matrix);
-  return matrix;
+  let readers = coverageReaders.get(pool);
+  if (!readers) { readers = new Map(); coverageReaders.set(pool, readers); }
+  const key = JSON.stringify([cachePath, resolve(config.MINUTE_DATA_ROOT)]);
+  let read = readers.get(key);
+  if (!read) {
+    read = createAdminCoverageReader({
+      read: maxAgeMs => readCoverageMatrixCache(cachePath, maxAgeMs),
+      rebuild: async () => {
+        const matrix = await buildDataCoverageMatrix(pool, config.MINUTE_DATA_ROOT);
+        await writeCoverageMatrixCache(cachePath, matrix);
+        return matrix;
+      },
+    });
+    readers.set(key, read);
+  }
+  return read();
 }
 
 async function inspectDatabase(pool: Pool, dbOnline: boolean) {

@@ -214,7 +214,9 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
   const [backupExport, setBackupExport] = useState<DatabaseBackupExportStatus | null>(null);
   const [backupStarting, setBackupStarting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [moduleError, setError] = useState('');
+  const [overviewError, setOverviewError] = useState('');
+  const error = [overviewError, moduleError].filter(Boolean).join('；');
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editing, setEditing] = useState<AdminConfigItem | null>(null);
@@ -245,11 +247,14 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
   const refreshOverview = useCallback(async () => {
     setLoading(true);
     setError('');
+    setOverviewError('');
     const failures: string[] = [];
     async function load<T>(label: string, fetchValue: () => Promise<T>, apply: (value: T) => void) {
       try { apply(await fetchValue()); }
       catch (cause) {
-        failures.push(`${label}：${cause instanceof Error ? cause.message : '读取失败'}`);
+        const message = `${label}：${cause instanceof Error ? cause.message : '读取失败'}`;
+        if (label === '运行总览') setOverviewError(message);
+        else failures.push(message);
         if (cause instanceof AdminApiError && cause.status === 401) onLogout();
       }
     }
@@ -266,6 +271,19 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
     ]);
     setError(failures.join('；'));
     setLoading(false);
+  }, [onLogout, token]);
+
+  const recoverOverview = useCallback(async () => {
+    try {
+      const value = await getAdminOverview(token);
+      setOverview(value);
+      setOverviewError('');
+      setLastRefresh(new Date());
+      prevOverallRef.current = value.overall;
+    } catch (cause) {
+      if (cause instanceof AdminApiError && cause.status === 401) onLogout();
+      throw cause;
+    }
   }, [onLogout, token]);
 
   // §2 轻量健康轮询（15 秒间隔，只调 /health）
@@ -355,6 +373,10 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
   }, [backupExport, token]);
 
   useEffect(() => { void refreshOverview(); }, [refreshOverview]);
+  // Retry a missing overview and pick up background coverage results without
+  // restarting every optional probe. Hidden tabs pause and failures back off.
+  useAdaptivePolling(recoverOverview, 15_000, false, !loading && section === 'overview'
+    && (!overview || overview.checks.some(check => check.id === 'data-coverage-refresh')));
   useAdaptivePolling(() => refreshHealth(true), 15_000, false);
   useAdaptivePolling(refreshMetrics, 30_000, true, section === 'overview');
   const hasActiveUpdates = dataUpdates.some(item => item.status === 'running' || item.status === 'pending');

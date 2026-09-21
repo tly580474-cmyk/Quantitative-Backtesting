@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App, { AdminShell } from './App';
 import type { AdminHealth, AdminOverview, AgentOperations } from './types';
@@ -253,6 +253,18 @@ describe('admin operations states', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
     expect(screen.getByText(/模拟连接失败/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /重新连接/ })).toBeInTheDocument();
+  });
+
+  it('recovers an initially failed overview automatically without rerunning optional probes', async () => {
+    api.getAdminOverview.mockRejectedValueOnce(new Error('request timed out'));
+    render(<AdminShell token="test-token" onLogout={vi.fn()} />);
+    await screen.findByText('无法读取管理台状态');
+    // Becoming visible triggers the same recovery callback as the scheduled retry.
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(await screen.findByText('所有核心服务运行正常')).toBeInTheDocument();
+    expect(screen.queryByText(/request timed out/)).not.toBeInTheDocument();
+    expect(api.getAdminOverview).toHaveBeenCalledTimes(2);
+    expect(api.getAgentOperations).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the Agent empty state explicit when no provider is returned', async () => {

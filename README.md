@@ -278,6 +278,7 @@ AGENT_ATTACHMENT_MAX_FILES=8
 > 详细配置与隔离运行说明见：
 > - [Codex 运行时与隔离手册](./docs/agent-codex-runtime.md)
 > - [Pi Agent 运行时配置说明](./docs/agent-pi-runtime.md)
+> - [a-stock-data 技能拆分与按需加载](./docs/a-stock-data-skill-layout.md)
 > - [智能体数据路由与配方说明](./docs/agent-data-routing.md)
 
 ### 4. 市场数据自动同步配置

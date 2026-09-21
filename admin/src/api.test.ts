@@ -1,7 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { downloadDatabaseBackupExport } from './api';
+import { downloadDatabaseBackupExport, getAdminOverview } from './api';
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.innerHTML = ''; vi.useRealTimers(); });
+
+it('distinguishes a slow request from an unreachable backend', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('timeout', 'TimeoutError')));
+  await expect(getAdminOverview('token')).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+  await expect(getAdminOverview('token')).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+});
 
 it('hands a one-time ticket to a native form download without fetching backup bytes', async () => {
   vi.useFakeTimers();

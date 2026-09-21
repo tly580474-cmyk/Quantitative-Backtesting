@@ -139,17 +139,22 @@ async function request<T>(
   token?: string,
 ): Promise<T> {
   let response: Response;
+  const signal = options.signal ?? AbortSignal.timeout(20_000);
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
-      signal: options.signal ?? AbortSignal.timeout(20_000),
+      signal,
       headers: {
         ...options.headers,
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     });
-  } catch {
-    throw new AdminApiError('无法连接后端服务，请确认 3001 端口上的服务正在运行', 0, 'NETWORK_ERROR');
+  } catch (cause) {
+    if (signal.reason?.name === 'TimeoutError' || (cause instanceof Error && cause.name === 'TimeoutError')) {
+      throw new AdminApiError('请求超过 20 秒未完成，请稍后重试；这不表示后端服务已停止', 0, 'REQUEST_TIMEOUT');
+    }
+    if (signal.aborted) throw new AdminApiError('请求已取消', 0, 'REQUEST_ABORTED');
+    throw new AdminApiError('无法连接管理接口，请检查网络或反向代理服务', 0, 'NETWORK_ERROR');
   }
 
   const body = await response.json().catch(() => ({})) as {
