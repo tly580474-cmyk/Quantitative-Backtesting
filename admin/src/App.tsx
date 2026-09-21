@@ -19,7 +19,6 @@ import {
   KeyOutlined,
   LockOutlined,
   LogoutOutlined,
-  MenuOutlined,
   PoweroffOutlined,
   ReloadOutlined,
   RobotOutlined,
@@ -218,7 +217,6 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
   const [overviewError, setOverviewError] = useState('');
   const error = [overviewError, moduleError].filter(Boolean).join('；');
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editing, setEditing] = useState<AdminConfigItem | null>(null);
   const [notice, setNotice] = useState('');
   const [configSearch, setConfigSearch] = useState('');
@@ -385,7 +383,6 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
 
   const navigate = (next: Section) => {
     setSection(next);
-    setSidebarOpen(false);
   };
 
   const performRestart = async () => {
@@ -440,18 +437,13 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
 
   return (
     <div className="admin-shell">
-      <aside className={`admin-sidebar ${sidebarOpen ? 'is-open' : ''}`}>
+      <a className="skip-link" href="#admin-main">跳转到主要内容</a>
+      <header className="cockpit-nav">
         <div className="brand-block">
           <div className="brand-mark"><SafetyCertificateOutlined /></div>
-          <div>
-            <strong>Quant Ops</strong>
-            <span>运行保障中心</span>
-          </div>
-          <button className="icon-button sidebar-close" aria-label="关闭导航" onClick={() => setSidebarOpen(false)}>
-            <CloseOutlined />
-          </button>
+          <div><strong>QUANT OPS</strong><span>数字化运维驾驶舱</span></div>
         </div>
-        <nav aria-label="管理台导航">
+        <nav className="cockpit-tabs" aria-label="管理台导航">
           <NavButton active={section === 'overview'} icon={<DashboardOutlined />} onClick={() => navigate('overview')}>
             运行总览
           </NavButton>
@@ -469,23 +461,6 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
             配置与密钥
           </NavButton>
         </nav>
-        <div className="sidebar-meta">
-          <span>自动刷新</span>
-          <strong>15 秒 · 健康轮询</strong>
-        </div>
-      </aside>
-
-      {sidebarOpen && <button className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />}
-
-      <main className="admin-main">
-        <header className="admin-header">
-          <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebarOpen(true)}>
-            <MenuOutlined />
-          </button>
-          <div className="admin-header-copy">
-            <span className="eyebrow">Operations Console</span>
-            <h1>{section === 'overview' ? '运行总览' : section === 'agents' ? 'Agent 运维' : section === 'diagnostics' ? '问题诊断' : '配置与密钥'}</h1>
-          </div>
           <div className="header-actions">
             <div className="refresh-meta">
               <span>上次刷新</span>
@@ -493,6 +468,7 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
             </div>
             <button
               className="secondary-button restart-trigger"
+              aria-label={restarting ? '重启中' : '重启后端'}
               disabled={restarting || restartStatus?.available !== true}
               title={restartStatus?.available ? '优雅重启后端服务' : restartStatus?.reason ?? '正在读取重启能力'}
               onClick={() => setRestartDialogOpen(true)}
@@ -500,7 +476,7 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
               <PoweroffOutlined spin={restarting} />
               <span>{restarting ? '重启中' : '重启后端'}</span>
             </button>
-            <button className="secondary-button" disabled={loading} onClick={() => void refreshOverview()}>
+            <button className="secondary-button" aria-label="刷新" disabled={loading} onClick={() => void refreshOverview()}>
               <ReloadOutlined spin={loading} />
               <span>刷新</span>
             </button>
@@ -508,8 +484,15 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
               <LogoutOutlined />
             </button>
           </div>
-        </header>
-
+      </header>
+      <main className="admin-main" id="admin-main" tabIndex={-1}>
+        <div className="page-heading">
+          <div>
+            <span className="eyebrow">Operations / {section === 'overview' ? 'Overview' : section === 'agents' ? 'Agents' : section === 'diagnostics' ? 'Diagnostics' : 'Configuration'}</span>
+            <h1>{section === 'overview' ? '运行总览' : section === 'agents' ? 'Agent 运维' : section === 'diagnostics' ? '问题诊断' : '配置与密钥'}</h1>
+          </div>
+          <span className="polling-note"><ClockCircleOutlined /> 健康状态每 15 秒更新 · 后台标签页暂停</span>
+        </div>
         <div className="admin-content">
           {error && (overview || section !== 'overview') && <InlineMessage level="critical">{error}</InlineMessage>}
           {notice && <InlineMessage level="warning" onClose={() => setNotice('')}>{notice}</InlineMessage>}
@@ -726,15 +709,6 @@ function OverviewSection({ overview, metrics, dataUpdates, backupExport, backupS
         <StatusBadge level={overview.overall} />
       </section>
 
-      <DataUpdateProgressPanel items={dataUpdates} />
-
-      <DatabaseBackupPanel
-        status={backupExport}
-        starting={backupStarting}
-        onStart={onStartBackup}
-        onDownload={onDownloadBackup}
-      />
-
       <section className="metric-grid" aria-label="核心运行指标">
         <MetricCard
           icon={<CloudServerOutlined />}
@@ -743,6 +717,7 @@ function OverviewSection({ overview, metrics, dataUpdates, backupExport, backupS
           detail={`RSS 内存 · PID ${overview.service.pid}`}
           level="healthy"
           progress={heapUsage}
+          gaugeLabel="堆内存使用率"
           sparkline={<Sparkline data={rssData} color={sparkColor} />}
         />
         <MetricCard
@@ -752,6 +727,7 @@ function OverviewSection({ overview, metrics, dataUpdates, backupExport, backupS
           detail={overview.database.version ? `MySQL ${overview.database.version}` : '连接失败'}
           level={overview.database.status}
           progress={connectionUsage ?? undefined}
+          gaugeLabel="数据库连接使用率"
           sparkline={<Sparkline data={dbLatencyData} color={sparkColor} />}
         />
         <MetricCard
@@ -762,6 +738,7 @@ function OverviewSection({ overview, metrics, dataUpdates, backupExport, backupS
           level={overview.storage.disk && overview.storage.disk.usedPercent >= 0.9
             ? 'critical' : overview.storage.disk && overview.storage.disk.usedPercent >= 0.8 ? 'warning' : 'healthy'}
           progress={overview.storage.disk?.usedPercent}
+          gaugeLabel="磁盘使用率"
           sparkline={<Sparkline data={diskData} color={sparkColor} />}
         />
         <MetricCard
@@ -771,9 +748,19 @@ function OverviewSection({ overview, metrics, dataUpdates, backupExport, backupS
           detail={overview.duckdb.queued > 0 ? `${overview.duckdb.queued} 个查询排队` : '当前无等待查询'}
           level={overview.duckdb.queued > 0 ? 'warning' : 'healthy'}
           progress={overview.duckdb.limit > 0 ? overview.duckdb.active / overview.duckdb.limit : 0}
+          gaugeLabel="会话池使用率"
           sparkline={<Sparkline data={queueData} color={sparkColor} />}
         />
       </section>
+
+      <DataUpdateProgressPanel items={dataUpdates} />
+
+      <DatabaseBackupPanel
+        status={backupExport}
+        starting={backupStarting}
+        onStart={onStartBackup}
+        onDownload={onDownloadBackup}
+      />
 
       {/* §4.1 最近 1 小时趋势 */}
       {metrics.length >= 2 && (
@@ -959,7 +946,7 @@ export function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressIt
   return (
     <Panel
       title="数据更新进度"
-      subtitle={`每 2 秒刷新 · ${runningCount > 0 ? `${runningCount} 项运行中` : '当前无运行任务'} · ${issueCount > 0 ? `${issueCount} 项需留意` : '未发现异常'}`}
+      subtitle={`${runningCount > 0 ? '每 10 秒刷新' : '每 60 秒刷新'} · ${runningCount > 0 ? `${runningCount} 项运行中` : '当前无运行任务'} · ${issueCount > 0 ? `${issueCount} 项需留意` : '未发现异常'}`}
       icon={<ClockCircleOutlined />}
     >
       <div className="data-update-grid" aria-live="polite" aria-atomic="false">
@@ -1571,6 +1558,7 @@ function MetricCard({
   level,
   progress,
   sparkline,
+  gaugeLabel,
 }: {
   icon: ReactNode;
   label: string;
@@ -1579,7 +1567,29 @@ function MetricCard({
   level: HealthLevel;
   progress?: number;
   sparkline?: ReactNode;
+  gaugeLabel?: string;
 }) {
+  if (gaugeLabel) {
+    const percentage = progress != null && Number.isFinite(progress) ? Math.round(Math.min(1, Math.max(0, progress)) * 100) : null;
+    return (
+      <article className={`metric-card gauge-card gauge-${level}`}>
+        <div className="metric-gauge" role="img" aria-label={`${gaugeLabel}：${percentage == null ? '暂无数据' : `${percentage}%`}`}>
+          <svg viewBox="0 0 72 72" aria-hidden="true">
+            <circle className="gauge-track" cx="36" cy="36" r="29" />
+            <circle className="gauge-fill" cx="36" cy="36" r="29" pathLength="100" strokeDasharray={`${percentage ?? 0} 100`} />
+          </svg>
+          <span>{percentage == null ? '—' : `${percentage}%`}</span>
+        </div>
+        <div className="gauge-copy">
+          <div className="gauge-heading"><span className="metric-label">{label}</span><StatusBadge level={level} compact /></div>
+          <strong className="metric-value">{value}</strong>
+          <span className="metric-detail">{detail}</span>
+          <span className="gauge-caption">{gaugeLabel}</span>
+        </div>
+        {sparkline && <div className="metric-sparkline">{sparkline}</div>}
+      </article>
+    );
+  }
   return (
     <article className="metric-card">
       <div className="metric-card-head">

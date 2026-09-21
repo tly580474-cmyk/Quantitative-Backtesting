@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>方案二：量化金融控制台 | Quant Ops Terminal</title>
+  <style>
+    :root {
+      --bg: #070a0f;
+      --panel-bg: #0d121c;
+      --panel-bg-alt: #111827;
+      --border: #1e2838;
+      --border-bright: #2d3d54;
+      --cyan: #00e5ff;
+      --cyan-glow: rgba(0, 229, 255, 0.15);
+      --green: #10b981;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --mono: "Cascadia Code", "JetBrains Mono", Consolas, Courier, monospace;
+      --sans: "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 13px;
+      line-height: 1.4;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Terminal Ticker Ribbon */
+    .ticker-ribbon {
+      background: #0b0f17;
+      border-bottom: 1px solid var(--border);
+      height: 32px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      font-family: var(--mono);
+      font-size: 11px;
+      gap: 20px;
+      overflow-x: auto;
+      white-space: nowrap;
+      z-index: 50;
+    }
+    .ticker-item { display: flex; align-items: center; gap: 6px; }
+    .ticker-label { color: var(--text-dim); }
+    .ticker-val { font-weight: 600; }
+    .ticker-val.green { color: var(--green); }
+    .ticker-val.cyan { color: var(--cyan); }
+    .ticker-val.amber { color: var(--amber); }
+
+    /* Top Console Header */
+    .header {
+      height: 52px;
+      background: var(--panel-bg);
+      border-bottom: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--mono);
+    }
+    .brand-box {
+      background: var(--cyan);
+      color: #000;
+      font-weight: 900;
+      font-size: 11px;
+      padding: 3px 6px;
+      border-radius: 2px;
+      letter-spacing: 1px;
+    }
+    .brand-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #fff;
+    }
+
+    /* Tab navigation */
+    .nav-tabs {
+      display: flex;
+      height: 100%;
+      margin-left: 30px;
+    }
+    .nav-tab {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 18px;
+      height: 100%;
+      border-right: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 12.5px;
+      font-weight: 600;
+      font-family: var(--mono);
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .nav-tab:hover { background: rgba(255, 255, 255, 0.03); color: #fff; }
+    .nav-tab.active {
+      background: #070a0f;
+      color: var(--cyan);
+      border-top: 2px solid var(--cyan);
+    }
+    .nav-badge {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 2px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .term-btn {
+      background: transparent;
+      border: 1px solid var(--border-bright);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 5px 12px;
+      border-radius: 2px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+    .term-btn:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+    .term-btn-danger {
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #f87171;
+    }
+    .term-btn-danger:hover {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: #ef4444;
+      color: #fff;
+    }
+
+    /* Main Workspace */
+    .workspace {
+      padding: 16px 20px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex: 1;
+    }
+
+    /* Status Ribbon Banner */
+    .status-bar {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--green);
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .status-left { display: flex; align-items: center; gap: 14px; }
+    .status-code {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--green);
+      padding: 2px 8px;
+      border-radius: 2px;
+      font-weight: 700;
+    }
+    .status-msg { font-size: 13px; font-weight: 600; }
+    .status-sub { font-size: 11.5px; color: var(--text-dim); margin-left: 8px; font-family: var(--mono); }
+
+    /* Density Matrix Cards */
+    .matrix-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+    .m-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      padding: 14px;
+      position: relative;
+    }
+    .m-card:hover { border-color: var(--border-bright); }
+    .m-card-tag {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-dim);
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    .m-card-val {
+      font-family: var(--mono);
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+    .m-card-foot {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .m-progress {
+      height: 3px;
+      background: #1e2838;
+      margin-top: 8px;
+      position: relative;
+    }
+    .m-progress-fill { height: 100%; background: var(--cyan); }
+    .m-progress-fill.green { background: var(--green); }
+    .m-progress-fill.amber { background: var(--amber); }
+
+    /* Terminal Grid Panels */
+    .term-panel {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+    }
+    .term-panel-header {
+      background: #0a0e17;
+      border-bottom: 1px solid var(--border);
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--mono);
+      font-size: 11.5px;
+    }
+    .term-panel-title {
+      font-weight: 700;
+      color: var(--cyan);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .term-panel-body { padding: 12px 14px; }
+
+    /* Dense Data Table */
+    .term-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    .term-table th {
+      text-align: left;
+      color: var(--text-dim);
+      font-size: 10.5px;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+      text-transform: uppercase;
+    }
+    .term-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      color: var(--text);
+    }
+    .term-table tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+    /* Progress bar in table */
+    .tbl-progress-wrap {
+      width: 120px;
+      display: inline-block;
+      vertical-align: middle;
+      height: 6px;
+      background: #1f2937;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-right: 8px;
+    }
+    .tbl-progress-bar { height: 100%; background: var(--cyan); }
+    .tbl-progress-bar.green { background: var(--green); }
+    .tbl-progress-bar.amber { background: var(--amber); }
+
+    /* Tag & Badge */
+    .term-badge {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 2px;
+      text-transform: uppercase;
+    }
+    .term-badge.green { background: rgba(16, 185, 129, 0.15); color: var(--green); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .term-badge.amber { background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .term-badge.red { background: rgba(239, 68, 68, 0.15); color: var(--red); border: 1px solid rgba(239, 68, 68, 0.3); }
+
+    /* Two column grid */
+    .grid-2col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    /* Modal Backdrop */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .term-modal {
+      width: 520px;
+      background: #0c1017;
+      border: 1px solid var(--cyan);
+      box-shadow: 0 0 30px rgba(0, 229, 255, 0.15);
+      padding: 20px;
+    }
+    .term-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--cyan);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+    }
+
+    /* Tab switcher */
+    .tab-pane { display: none; }
+    .tab-pane.active { display: flex; flex-direction: column; gap: 14px; }
+  </style>
+</head>
+<body>
+
+  <!-- Live Ticker Ribbon -->
+  <div class="ticker-ribbon">
+    <div class="ticker-item">
+      <span class="ticker-label">HOST_STATUS:</span>
+      <span class="ticker-val green">SYS_OK</span>
+    </div>
+    <div class="ticker-item">
+      <span class="ticker-label">PID:</span>
+      <span class="ticker-val">14820</span>
+    </div>
+    <div class="ticker-item">
+      <span class="ticker-label">MYSQL_LATENCY:</span>
+      <span class="ticker-val green">2.4ms</span>
+    </div>
+    <div class="ticker-item">
+      <span class="ticker-label">DUCKDB_SESSION:</span>
+      <span class="ticker-val cyan">1/4 [QUEUE: 0]</span>
+    </div>
+    <div class="ticker-item">
+      <span class="ticker-label">STORAGE_USAGE:</span>
+      <span class="ticker-val">42% (286GB FREE)</span>
+    </div>
+    <div class="ticker-item">
+      <span class="ticker-label">FUND_FLOW_BATCH:</span>
+      <span class="ticker-val amber">RUNNING (68%)</span>
+    </div>
+    <div class="ticker-item">
+      <span class="ticker-label">LAKE_DATE:</span>
+      <span class="ticker-val">2026-09-18</span>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header class="header">
+    <div style="display: flex; align-items: center;">
+      <div class="brand">
+        <span class="brand-box">TERMINAL</span>
+        <span class="brand-title">QUANT_OPS_CONSOLE</span>
+      </div>
+
+      <nav class="nav-tabs">
+        <div class="nav-tab active" onclick="switchTab('overview', this)">
+          <span>[F1] 运行总览</span>
+        </div>
+        <div class="nav-tab" onclick="switchTab('agents', this)">
+          <span>[F2] AGENT 运维</span>
+        </div>
+        <div class="nav-tab" onclick="switchTab('diagnostics', this)">
+          <span>[F3] 诊断矩阵</span>
+          <span class="nav-badge">2 WARN</span>
+        </div>
+        <div class="nav-tab" onclick="switchTab('config', this)">
+          <span>[F4] 环境密钥</span>
+        </div>
+      </nav>
+    </div>
+
+    <div class="header-actions">
+      <span style="font-family: var(--mono); font-size: 11px; color: var(--text-dim);" id="timeClock">16:20:53 CST</span>
+      <button class="term-btn term-btn-danger" onclick="openModal('restartModal')">RESTART_BACKEND</button>
+      <button class="term-btn" onclick="triggerRefresh()">POLL_NOW</button>
+    </div>
+  </header>
+
+  <!-- Workspace -->
+  <div class="workspace">
+
+    <!-- ================= TAB 1: OVERVIEW ================= -->
+    <div id="tab-overview" class="tab-pane active">
+      <!-- Status Bar -->
+      <div class="status-bar">
+        <div class="status-left">
+          <span class="status-code">SYS_OPTIMAL</span>
+          <span class="status-msg">量化计算服务与主从数据湖运行正常</span>
+          <span class="status-sub">UPTIME: 18H 45M · DIAG_RTT: 18MS</span>
+        </div>
+        <div style="font-family: var(--mono); font-size: 11px; color: var(--text-dim);">
+          NODE: 22.12.0 · PLATFORM: WIN32_X64
+        </div>
+      </div>
+
+      <!-- Density Matrix Cards -->
+      <div class="matrix-grid">
+        <div class="m-card">
+          <div class="m-card-tag"><span>SERVICE_MEMORY</span><span>PID 14820</span></div>
+          <div class="m-card-val">142.5 MB</div>
+          <div class="m-progress"><div class="m-progress-fill green" style="width: 45%;"></div></div>
+          <div class="m-card-foot"><span>HEAP: 65MB</span><span>USAGE: 45%</span></div>
+        </div>
+
+        <div class="m-card">
+          <div class="m-card-tag"><span>MYSQL_AUTHORITATIVE</span><span>PORT 3306</span></div>
+          <div class="m-card-val">2.4 ms</div>
+          <div class="m-progress"><div class="m-progress-fill green" style="width: 12%;"></div></div>
+          <div class="m-card-foot"><span>CONN: 12 / 100</span><span>VER: 8.4.1</span></div>
+        </div>
+
+        <div class="m-card">
+          <div class="m-card-tag"><span>STORAGE_PARQUET</span><span>DRIVE D:\</span></div>
+          <div class="m-card-val">42.0 %</div>
+          <div class="m-progress"><div class="m-progress-fill amber" style="width: 42%;"></div></div>
+          <div class="m-card-foot"><span>FREE: 286.4 GB</span><span>TOTAL: 493.5 GB</span></div>
+        </div>
+
+        <div class="m-card">
+          <div class="m-card-tag"><span>DUCKDB_ENGINE</span><span>MAX_CONN 4</span></div>
+          <div class="m-card-val">1 / 4</div>
+          <div class="m-progress"><div class="m-progress-fill cyan" style="width: 25%;"></div></div>
+          <div class="m-card-foot"><span>ACTIVE: 1</span><span>QUEUED: 0</span></div>
+        </div>
+      </div>
+
+      <!-- Data Update Pipelines Table -->
+      <div class="term-panel">
+        <div class="term-panel-header">
+          <div class="term-panel-title">PIPELINE_MONITOR // 数据流水线执行状态</div>
+          <div style="color: var(--text-dim);">POLL_INTERVAL: 2000MS</div>
+        </div>
+        <div class="term-panel-body" style="padding: 0;">
+          <table class="term-table">
+            <thead>
+              <tr>
+                <th>PIPELINE_KEY</th>
+                <th>LABEL / DESCRIPTION</th>
+                <th>PROGRESS</th>
+                <th>PROCESSED</th>
+                <th>STATUS</th>
+                <th>ETA</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="color: var(--cyan);">fund_flow</td>
+                <td><strong>资金流历史回补</strong> · Tinyshare 历史回补 (当前 2024-03-15)</td>
+                <td>
+                  <div class="tbl-progress-wrap"><div class="tbl-progress-bar amber" style="width: 68%;"></div></div>
+                  <span>68%</span>
+                </td>
+                <td>3,210 / 4,720 日</td>
+                <td><span class="term-badge amber">RUNNING</span></td>
+                <td>17:45</td>
+              </tr>
+              <tr>
+                <td style="color: var(--cyan);">instrument_master</td>
+                <td><strong>证券代码表与标的池</strong> · 全市场股票与 ETF 映射</td>
+                <td>
+                  <div class="tbl-progress-wrap"><div class="tbl-progress-bar green" style="width: 100%;"></div></div>
+                  <span>100%</span>
+                </td>
+                <td>5,340 / 5,340 标的</td>
+                <td><span class="term-badge green">COMPLETED</span></td>
+                <td>—</td>
+              </tr>
+              <tr>
+                <td style="color: var(--cyan);">minute_lake</td>
+                <td><strong>分钟数据湖</strong> · TDX TCP / 在线增量 Parquet 归档</td>
+                <td>
+                  <div class="tbl-progress-wrap"><div class="tbl-progress-bar green" style="width: 100%;"></div></div>
+                  <span>100%</span>
+                </td>
+                <td>5,340 / 5,340 标的</td>
+                <td><span class="term-badge green">COMPLETED</span></td>
+                <td>—</td>
+              </tr>
+              <tr>
+                <td style="color: var(--cyan);">daily_kline</td>
+                <td><strong>日 K 线历史库</strong> · 复权因子计算与收盘增量落库</td>
+                <td>
+                  <div class="tbl-progress-wrap"><div class="tbl-progress-bar green" style="width: 100%;"></div></div>
+                  <span>100%</span>
+                </td>
+                <td>5,340 / 5,340 标的</td>
+                <td><span class="term-badge green">COMPLETED</span></td>
+                <td>—</td>
+              </tr>
+              <tr>
+                <td style="color: var(--cyan);">financial_reports</td>
+                <td><strong>申万财务报表</strong> · 资产负债表、利润表现金流</td>
+                <td>
+                  <div class="tbl-progress-wrap"><div class="tbl-progress-bar amber" style="width: 42%;"></div></div>
+                  <span>42%</span>
+                </td>
+                <td>2,240 / 5,340 标的</td>
+                <td><span class="term-badge amber">RUNNING</span></td>
+                <td>18:10</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Backup & Coverage (2 cols) -->
+      <div class="grid-2col">
+        <!-- Database Backup -->
+        <div class="term-panel">
+          <div class="term-panel-header">
+            <div class="term-panel-title">DATABASE_BACKUP_MANAGER</div>
+            <span class="term-badge green">STANDBY</span>
+          </div>
+          <div class="term-panel-body">
+            <table class="term-table">
+              <tr>
+                <td style="color: var(--text-dim);">LAST_FILE</td>
+                <td style="font-weight: 600;">quant_backup_20260921_120000.sql.gz</td>
+              </tr>
+              <tr>
+                <td style="color: var(--text-dim);">FILE_SIZE</td>
+                <td>842.6 MB (SHA-256: 7f8c9b2a1e4d...)</td>
+              </tr>
+              <tr>
+                <td style="color: var(--text-dim);">SNAPSHOT_TYPE</td>
+                <td>Single Transaction Consistent Snapshot</td>
+              </tr>
+            </table>
+            <div style="margin-top: 14px; display: flex; gap: 8px;">
+              <button class="term-btn" onclick="alert('触发后台一致性导出任务')">[ENTER] 导出新备份</button>
+              <button class="term-btn" onclick="alert('开始下载 SQL 文件')">[DL] 下载 SQL 备份</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lineage & Roots -->
+        <div class="term-panel">
+          <div class="term-panel-header">
+            <div class="term-panel-title">LINEAGE_INTEGRITY_CHECK</div>
+            <span class="term-badge green">ALIGNED</span>
+          </div>
+          <div class="term-panel-body">
+            <table class="term-table">
+              <tr>
+                <td style="color: var(--text-dim);">MYSQL_AUTH_DATE</td>
+                <td style="color: var(--cyan); font-weight: 700;">2026-09-18</td>
+              </tr>
+              <tr>
+                <td style="color: var(--text-dim);">SNAPSHOT_PARQUET</td>
+                <td>2026-09-18 (snap_20260918_e8f2)</td>
+              </tr>
+              <tr>
+                <td style="color: var(--text-dim);">1M_DATA_LAKE</td>
+                <td>2026-09-18 (GENERATED AT 16:05:22)</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= TAB 2: AGENTS ================= -->
+    <div id="tab-agents" class="tab-pane">
+      <div class="status-bar">
+        <div class="status-left">
+          <span class="status-code">AGENT_CORE_ONLINE</span>
+          <span class="status-msg">项目多 Agent 协同系统正常运转 · DEFAULT_PROVIDER: CLAUDE</span>
+          <span class="status-sub">ACTIVE: 1/4 · PENDING_APPROVALS: 0</span>
+        </div>
+      </div>
+
+      <div class="matrix-grid">
+        <div class="m-card">
+          <div class="m-card-tag"><span>DEFAULT_PROVIDER</span></div>
+          <div class="m-card-val" style="color: var(--cyan);">CLAUDE</div>
+          <div class="m-card-foot"><span>CLI: v1.0.18</span><span>WORKSPACE_WRITE</span></div>
+        </div>
+        <div class="m-card">
+          <div class="m-card-tag"><span>AVAILABLE_PROVIDERS</span></div>
+          <div class="m-card-val">3 / 3</div>
+          <div class="m-card-foot"><span>CLAUDE · CODEX · PI</span></div>
+        </div>
+        <div class="m-card">
+          <div class="m-card-tag"><span>APPROVAL_QUEUE</span></div>
+          <div class="m-card-val">0</div>
+          <div class="m-card-foot"><span>NO_PENDING_ACTIONS</span></div>
+        </div>
+        <div class="m-card">
+          <div class="m-card-tag"><span>PERSISTED_EVENTS</span></div>
+          <div class="m-card-val">1,482</div>
+          <div class="m-card-foot"><span>126 CONVERSATIONS</span></div>
+        </div>
+      </div>
+
+      <div class="term-panel">
+        <div class="term-panel-header">
+          <div class="term-panel-title">AGENT_PROVIDER_MATRIX</div>
+        </div>
+        <div class="term-panel-body" style="padding: 0;">
+          <table class="term-table">
+            <thead>
+              <tr>
+                <th>PROVIDER</th>
+                <th>VERSION</th>
+                <th>MODEL</th>
+                <th>SANDBOX_PERMS</th>
+                <th>STATUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="color: var(--cyan); font-weight: 700;">claude</td>
+                <td>v1.0.18</td>
+                <td>claude-3-5-sonnet</td>
+                <td>Git Bash Execution, Tool Probing, Multi-file Write</td>
+                <td><span class="term-badge green">ONLINE</span></td>
+              </tr>
+              <tr>
+                <td style="color: var(--cyan); font-weight: 700;">codex</td>
+                <td>v0.12.0</td>
+                <td>gpt-5-codex</td>
+                <td>workspace-write, network-enabled, market-cli</td>
+                <td><span class="term-badge green">ONLINE</span></td>
+              </tr>
+              <tr>
+                <td style="color: var(--cyan); font-weight: 700;">pi</td>
+                <td>v0.8.2</td>
+                <td>claude-3-5-sonnet</td>
+                <td>Lightweight Dialog, Session Resumption</td>
+                <td><span class="term-badge green">ONLINE</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= TAB 3: DIAGNOSTICS ================= -->
+    <div id="tab-diagnostics" class="tab-pane">
+      <div class="term-panel">
+        <div class="term-panel-header">
+          <div class="term-panel-title">DIAGNOSTIC_HEALTH_CHECKS // 自动化巡检结果</div>
+          <div>
+            <span class="term-badge green">10 PASS</span>
+            <span class="term-badge amber">2 WARN</span>
+            <span class="term-badge red">0 CRIT</span>
+          </div>
+        </div>
+        <div class="term-panel-body" style="padding: 0;">
+          <table class="term-table">
+            <thead>
+              <tr>
+                <th>LEVEL</th>
+                <th>CHECK_ID</th>
+                <th>SUMMARY & IMPACT</th>
+                <th>RESOLUTION_ACTION</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="term-badge amber">WARN</span></td>
+                <td style="color: var(--amber);">financial_coverage</td>
+                <td>部分 2026 年新股缺少 2023 之前历史季报 (当前覆盖率 96.2%)</td>
+                <td style="color: var(--cyan);">执行 financial:backfill 或确认新股属于正常免报</td>
+              </tr>
+              <tr>
+                <td><span class="term-badge amber">WARN</span></td>
+                <td style="color: var(--amber);">stale_materialized</td>
+                <td>检测到 3 份旧快照失效的 DuckDB 物化因子结果 (128.4 MB)</td>
+                <td style="color: var(--cyan);">运行 npm run research:artifacts:prune 进行清理</td>
+              </tr>
+              <tr>
+                <td><span class="term-badge green">PASS</span></td>
+                <td>mysql_latency</td>
+                <td>主库连接与事务延迟正常 (&lt; 3ms)</td>
+                <td>无需干预</td>
+              </tr>
+              <tr>
+                <td><span class="term-badge green">PASS</span></td>
+                <td>parquet_manifest</td>
+                <td>Parquet 分钟湖与快照清单 SHA-256 对账一致</td>
+                <td>无需干预</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= TAB 4: CONFIG ================= -->
+    <div id="tab-config" class="tab-pane">
+      <!-- Public Access -->
+      <div class="term-panel">
+        <div class="term-panel-header">
+          <div class="term-panel-title">NETWORK_INGRESS_STATUS // 公网通道控制</div>
+          <span class="term-badge green">PUBLIC_ONLINE</span>
+        </div>
+        <div class="term-panel-body" style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-family: var(--mono); font-size: 14px; color: #fff; font-weight: 700;">https://stock.clical.xin</div>
+            <div style="color: var(--text-dim); font-size: 11.5px; margin-top: 4px;">FRPC_CLIENT: RUNNING · SSH_TUNNEL: ACTIVE · NGINX_PROXY: OK</div>
+          </div>
+          <button class="term-btn term-btn-danger" onclick="alert('切换公网访问通道')">SHUTDOWN_PUBLIC_TUNNEL</button>
+        </div>
+      </div>
+
+      <!-- Env Config -->
+      <div class="term-panel">
+        <div class="term-panel-header">
+          <div class="term-panel-title">SYSTEM_ENV_PARAMETERS // server/.env 配置字典</div>
+        </div>
+        <div class="term-panel-body" style="padding: 0;">
+          <table class="term-table">
+            <thead>
+              <tr>
+                <th>PARAM_KEY</th>
+                <th>CURRENT_MASKED_VALUE</th>
+                <th>RESTART_SCOPE</th>
+                <th>ACTION</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="color: var(--cyan); font-weight: 700;">DB_HOST</td>
+                <td>127.0.0.1</td>
+                <td><span class="term-badge amber">RESTART_DB</span></td>
+                <td><button class="term-btn" onclick="openConfigModal('DB_HOST', '127.0.0.1', 'MySQL 主机地址')">EDIT</button></td>
+              </tr>
+              <tr>
+                <td style="color: var(--cyan); font-weight: 700;">DB_PORT</td>
+                <td>3306</td>
+                <td><span class="term-badge amber">RESTART_DB</span></td>
+                <td><button class="term-btn" onclick="openConfigModal('DB_PORT', '3306', 'MySQL 端口 (1-65535)')">EDIT</button></td>
+              </tr>
+              <tr>
+                <td style="color: var(--cyan); font-weight: 700;">TINYSHARE_TOKEN</td>
+                <td>••••••••••••••••</td>
+                <td><span class="term-badge green">IMMEDIATE</span></td>
+                <td><button class="term-btn" onclick="openConfigModal('TINYSHARE_TOKEN', '', 'Tinyshare API 授权密钥')">EDIT</button></td>
+              </tr>
+              <tr>
+                <td style="color: var(--cyan); font-weight: 700;">FUND_FLOW_UPDATE_TIME</td>
+                <td>16:20</td>
+                <td><span class="term-badge green">IMMEDIATE</span></td>
+                <td><button class="term-btn" onclick="openConfigModal('FUND_FLOW_UPDATE_TIME', '16:20', '每日定时回补时间 (HH:mm)')">EDIT</button></td>
+              </tr>
+              <tr>
+                <td style="color: var(--cyan); font-weight: 700;">OPENAI_MODEL</td>
+                <td>gpt-4o;claude-3-5-sonnet;deepseek-chat</td>
+                <td><span class="term-badge amber">RESTART_AI</span></td>
+                <td><button class="term-btn" onclick="openConfigModal('OPENAI_MODEL', 'gpt-4o;claude-3-5-sonnet;deepseek-chat', 'AI 投研模型列表')">EDIT</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Restart Modal -->
+  <div id="restartModal" class="modal-backdrop">
+    <div class="term-modal">
+      <div class="term-modal-header">
+        <span>CONFIRM_SERVICE_RESTART // PID 14820</span>
+        <span style="cursor: pointer;" onclick="closeModal('restartModal')">[ESC]</span>
+      </div>
+      <p style="font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--text);">
+        当前 Fastify 进程 PID 14820 将优雅断开数据库连接与调度任务，并由服务守护管理器重载。预计网络请求中断 3~15 秒。
+      </p>
+      <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="term-btn" onclick="closeModal('restartModal')">ABORT</button>
+        <button class="term-btn term-btn-danger" onclick="alert('重启指令已执行！'); closeModal('restartModal');">EXECUTE_RESTART</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Config Modal -->
+  <div id="configModal" class="modal-backdrop">
+    <div class="term-modal">
+      <div class="term-modal-header">
+        <span id="cfgModalKey">UPDATE_PARAM</span>
+        <span style="cursor: pointer;" onclick="closeModal('configModal')">[ESC]</span>
+      </div>
+      <div style="margin: 14px 0;">
+        <label id="cfgModalDesc" style="display: block; font-family: var(--mono); font-size: 11px; color: var(--text-dim); margin-bottom: 6px;"></label>
+        <input type="text" id="cfgModalVal" style="width: 100%; height: 34px; background: #000; border: 1px solid var(--border-bright); color: var(--cyan); font-family: var(--mono); padding: 0 10px; font-size: 12px;" />
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="term-btn" onclick="closeModal('configModal')">CANCEL</button>
+        <button class="term-btn" style="border-color: var(--cyan); color: var(--cyan);" onclick="alert('参数已保存写入 server/.env'); closeModal('configModal');">COMMIT</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function switchTab(tabId, el) {
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+      document.getElementById('tab-' + tabId).classList.add('active');
+      el.classList.add('active');
+    }
+
+    function openModal(id) {
+      document.getElementById(id).classList.add('open');
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('open');
+    }
+
+    function triggerRefresh() {
+      const d = new Date();
+      document.getElementById('timeClock').innerText = d.toTimeString().split(' ')[0] + ' CST';
+      alert('已重新获取全系统健康快照');
+    }
+
+    function openConfigModal(key, val, desc) {
+      document.getElementById('cfgModalKey').innerText = 'SET ' + key;
+      document.getElementById('cfgModalDesc').innerText = desc;
+      document.getElementById('cfgModalVal').value = val;
+      openModal('configModal');
+    }
+  </script>
+</body>
+</html>

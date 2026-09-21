@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>方案一：极简现代工程风 | Quant Ops Console</title>
+  <style>
+    :root {
+      --bg: #09090b;
+      --sidebar-bg: #0d0e12;
+      --card-bg: #121318;
+      --card-bg-hover: #181920;
+      --border: rgba(255, 255, 255, 0.07);
+      --border-hover: rgba(255, 255, 255, 0.14);
+      --border-active: rgba(99, 102, 241, 0.4);
+      --text: #f4f4f5;
+      --text-muted: #a1a1aa;
+      --text-dim: #71717a;
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --primary-glow: rgba(99, 102, 241, 0.15);
+      --healthy: #10b981;
+      --healthy-bg: rgba(16, 185, 129, 0.1);
+      --healthy-border: rgba(16, 185, 129, 0.25);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.1);
+      --warning-border: rgba(245, 158, 11, 0.25);
+      --critical: #f43f5e;
+      --critical-bg: rgba(244, 63, 94, 0.1);
+      --critical-border: rgba(244, 63, 94, 0.25);
+      --font-mono: "Cascadia Code", "SF Mono", Consolas, Menlo, monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      --sidebar-w: 240px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 13.5px;
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Layout */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border);
+      position: fixed;
+      top: 0; bottom: 0; left: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 16px 12px;
+      z-index: 40;
+    }
+
+    .main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      height: 60px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(9, 9, 11, 0.85);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px;
+    }
+
+    .content {
+      padding: 24px 28px 48px;
+      max-width: 1440px;
+      width: 100%;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Brand */
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 10px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      display: grid;
+      place-items: center;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+    }
+    .brand-title { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
+    .brand-sub { font-size: 11px; color: var(--text-dim); }
+
+    /* Navigation */
+    .nav {
+      margin-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .nav-item:hover {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+    }
+    .nav-item.active {
+      background: var(--primary-glow);
+      color: #a5b4fc;
+      border-color: rgba(99, 102, 241, 0.3);
+    }
+    .nav-badge {
+      margin-left: auto;
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(244, 63, 94, 0.15);
+      color: #fb7185;
+      font-weight: 600;
+    }
+    .sidebar-footer {
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .sidebar-footer strong { display: block; color: var(--text-muted); margin-top: 2px; font-family: var(--font-mono); }
+
+    /* Topbar details */
+    .topbar-left { display: flex; align-items: center; gap: 12px; }
+    .page-title { font-size: 15px; font-weight: 600; }
+    .eyebrow {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--primary);
+      font-weight: 700;
+    }
+    .topbar-right { display: flex; align-items: center; gap: 10px; }
+    .refresh-chip {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      margin-right: 6px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 32px;
+      padding: 0 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      transition: all 0.15s ease;
+    }
+    .btn:hover { background: rgba(255, 255, 255, 0.07); border-color: var(--border-hover); }
+    .btn-primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-danger {
+      background: rgba(244, 63, 94, 0.1);
+      border-color: rgba(244, 63, 94, 0.25);
+      color: #fb7185;
+    }
+    .btn-danger:hover { background: rgba(244, 63, 94, 0.2); }
+    .btn-icon { width: 32px; padding: 0; justify-content: center; }
+
+    /* Banner */
+    .banner {
+      border-radius: 8px;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      border: 1px solid;
+    }
+    .banner-healthy { background: var(--healthy-bg); border-color: var(--healthy-border); }
+    .banner-critical { background: var(--critical-bg); border-color: var(--critical-border); }
+    .banner-warning { background: var(--warning-bg); border-color: var(--warning-border); }
+    .banner-icon { font-size: 20px; }
+    .banner-text h2 { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+    .banner-text p { font-size: 12px; color: var(--text-muted); }
+    .status-pill {
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-pill.healthy { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .status-pill.warning { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+    .status-pill.critical { background: rgba(244, 63, 94, 0.2); color: #fb7185; }
+    .pulse-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    /* Cards Grid */
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .card:hover { border-color: var(--border-hover); }
+    .card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .card-label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+    .card-value {
+      font-size: 24px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      font-family: var(--font-mono);
+      margin-bottom: 4px;
+    }
+    .card-sub { font-size: 11px; color: var(--text-dim); }
+    .progress-bar {
+      height: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 10px 0 8px;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--primary);
+    }
+    .progress-fill.healthy { background: var(--healthy); }
+    .progress-fill.warning { background: var(--warning); }
+    .progress-fill.critical { background: var(--critical); }
+
+    /* Sparkline SVG */
+    .sparkline-svg {
+      width: 100%;
+      height: 28px;
+      margin-top: 8px;
+    }
+
+    /* Section Panel */
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .panel-title { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .panel-sub { font-size: 11.5px; color: var(--text-dim); }
+    .panel-body { padding: 16px 18px; }
+
+    /* Pipeline updates */
+    .pipeline-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .pipeline-item {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 14px;
+    }
+    .pipeline-item.active-run {
+      border-color: rgba(99, 102, 241, 0.35);
+      background: rgba(99, 102, 241, 0.03);
+    }
+    .pipeline-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .pipeline-name { font-weight: 600; font-size: 12.5px; }
+    .pipeline-phase { font-size: 11px; color: var(--text-muted); }
+    .pipeline-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 6px;
+      font-family: var(--font-mono);
+    }
+
+    /* Two columns */
+    .grid-2col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    /* Data table rows */
+    .data-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 12.5px;
+    }
+    .data-row:last-child { border-bottom: none; }
+    .data-label { color: var(--text); font-weight: 500; }
+    .data-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+    .data-value { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+
+    /* Configuration table */
+    .config-search {
+      position: relative;
+      margin-bottom: 14px;
+    }
+    .config-search input {
+      width: 100%;
+      height: 36px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0 12px 0 34px;
+      color: var(--text);
+      font-size: 12.5px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+    .config-search input:focus { border-color: var(--primary); }
+    .config-search-icon {
+      position: absolute;
+      left: 11px;
+      top: 10px;
+      color: var(--text-dim);
+    }
+
+    .config-row {
+      display: grid;
+      grid-template-columns: 2fr 3fr 2fr 100px;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s ease;
+    }
+    .config-row:hover { background: rgba(255, 255, 255, 0.02); }
+    .config-key { font-family: var(--font-mono); font-size: 11.5px; color: #a5b4fc; }
+    .config-val {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 3px 8px;
+      border-radius: 4px;
+      display: inline-block;
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .scope-tag {
+      font-size: 10.5px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-dim);
+    }
+    .scope-tag.restart { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+
+    /* Modal Backdrop & Dialog */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      width: 100%;
+      max-width: 500px;
+      background: #14151b;
+      border: 1px solid var(--border-hover);
+      border-radius: 10px;
+      padding: 22px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .modal-title { font-size: 15px; font-weight: 600; }
+    .modal-close {
+      background: none; border: none; color: var(--text-dim); font-size: 18px; cursor: pointer;
+    }
+    .modal-close:hover { color: var(--text); }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+    .form-control {
+      width: 100%;
+      height: 38px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0 12px;
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      outline: none;
+    }
+    .form-control:focus { border-color: var(--primary); }
+    .form-help { font-size: 11px; color: var(--text-dim); margin-top: 5px; }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    /* Diagnostics Issue Card */
+    .issue-item {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px;
+      margin-bottom: 10px;
+      background: rgba(255, 255, 255, 0.015);
+    }
+    .issue-item.is-warn { border-left: 3px solid var(--warning); }
+    .issue-item.is-crit { border-left: 3px solid var(--critical); }
+    .issue-item.is-pass { border-left: 3px solid var(--healthy); }
+    .issue-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+    }
+    .issue-title { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+    .issue-body { margin-top: 10px; font-size: 12px; color: var(--text-muted); }
+    .issue-resolution {
+      margin-top: 8px;
+      padding: 8px 12px;
+      border-radius: 4px;
+      background: rgba(99, 102, 241, 0.08);
+      color: #c7d2fe;
+      font-size: 11.5px;
+    }
+
+    /* Tab views */
+    .tab-content { display: none; }
+    .tab-content.active { display: flex; flex-direction: column; gap: 20px; }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      </div>
+      <div>
+        <div class="brand-title">Quant Ops</div>
+        <div class="brand-sub">运行保障中心</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-item active" onclick="switchTab('overview', this)">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        <span>运行总览</span>
+      </div>
+      <div class="nav-item" onclick="switchTab('agents', this)">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><line x1="8" y1="16" x2="8" y2="16"></line><line x1="16" y1="16" x2="16" y2="16"></line></svg>
+        <span>Agent 运维</span>
+      </div>
+      <div class="nav-item" onclick="switchTab('diagnostics', this)">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        <span>问题诊断</span>
+        <span class="nav-badge">2</span>
+      </div>
+      <div class="nav-item" onclick="switchTab('config', this)">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        <span>配置与密钥</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <span>轻量轮询守护</span>
+      <strong>15s 间隔 · 正常</strong>
+    </div>
+  </aside>
+
+  <!-- Main Area -->
+  <div class="main">
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div>
+          <div class="eyebrow">Design Proposal 1 · Linear/Vercel Style</div>
+          <div class="page-title" id="pageTitle">极简现代工程风 · 运行总览</div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span class="refresh-chip" id="lastRefresh">上次刷新 16:20:53</span>
+        <button class="btn btn-danger" onclick="openModal('restartModal')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg>
+          <span>重启后端</span>
+        </button>
+        <button class="btn" onclick="triggerRefresh()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <span>刷新</span>
+        </button>
+        <button class="btn btn-icon" title="安全退出">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Tabs -->
+    <div class="content">
+
+      <!-- ================= 1. OVERVIEW TAB ================= -->
+      <section id="tab-overview" class="tab-content active">
+        <!-- Banner -->
+        <div class="banner banner-healthy">
+          <div class="banner-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          </div>
+          <div class="banner-text">
+            <h2>所有核心量化与数据服务运行正常</h2>
+            <p>健康诊断耗时 18ms · 后端连续平稳运行 18 小时 45 分钟 · MySQL 主库与 DuckDB 数据湖处于同步态</p>
+          </div>
+          <div class="status-pill healthy">
+            <span class="pulse-dot"></span>
+            <span>HEALTHY</span>
+          </div>
+        </div>
+
+        <!-- Metric Grid -->
+        <div class="metric-grid">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-label">后端 Fastify</span>
+              <span class="status-pill healthy"><span class="pulse-dot"></span>PID 14820</span>
+            </div>
+            <div class="card-value">142.5 MB</div>
+            <div class="card-sub">RSS 内存 · Heap 使用率 45%</div>
+            <div class="progress-bar"><div class="progress-fill healthy" style="width: 45%;"></div></div>
+            <svg class="sparkline-svg" viewBox="0 0 100 25" preserveAspectRatio="none">
+              <path d="M0,18 L15,16 L30,19 L45,12 L60,15 L75,10 L90,12 L100,8" fill="none" stroke="#6366f1" stroke-width="2"/>
+            </svg>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <span class="card-label">MySQL 权威库</span>
+              <span class="status-pill healthy"><span class="pulse-dot"></span>2.4 ms</span>
+            </div>
+            <div class="card-value">8.4.1</div>
+            <div class="card-sub">连接池 12 / 100 (12%)</div>
+            <div class="progress-bar"><div class="progress-fill healthy" style="width: 12%;"></div></div>
+            <svg class="sparkline-svg" viewBox="0 0 100 25" preserveAspectRatio="none">
+              <path d="M0,12 L20,15 L40,8 L60,10 L80,7 L100,9" fill="none" stroke="#10b981" stroke-width="2"/>
+            </svg>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <span class="card-label">量化存储磁盘</span>
+              <span class="status-pill healthy"><span class="pulse-dot"></span>42%</span>
+            </div>
+            <div class="card-value">286.4 GB</div>
+            <div class="card-sub">可用剩余空间 (总量 493.5 GB)</div>
+            <div class="progress-bar"><div class="progress-fill healthy" style="width: 42%;"></div></div>
+            <svg class="sparkline-svg" viewBox="0 0 100 25" preserveAspectRatio="none">
+              <path d="M0,15 L25,14 L50,14 L75,13 L100,12" fill="none" stroke="#a855f7" stroke-width="2"/>
+            </svg>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <span class="card-label">DuckDB 会话</span>
+              <span class="status-pill healthy"><span class="pulse-dot"></span>0 队列</span>
+            </div>
+            <div class="card-value">1 / 4</div>
+            <div class="card-sub">并发查询池占用 · 最大限制 4</div>
+            <div class="progress-bar"><div class="progress-fill healthy" style="width: 25%;"></div></div>
+            <svg class="sparkline-svg" viewBox="0 0 100 25" preserveAspectRatio="none">
+              <path d="M0,20 L30,20 L60,10 L80,20 L100,20" fill="none" stroke="#38bdf8" stroke-width="2"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Data Update Pipeline -->
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                <span>数据更新流水线</span>
+              </div>
+              <div class="panel-sub">2 秒自动轮询 · 2 项同步中 · 3 项已达最新</div>
+            </div>
+            <button class="btn" onclick="alert('触发后台全量差分扫描')">手动核对</button>
+          </div>
+          <div class="panel-body">
+            <div class="pipeline-grid">
+              <div class="pipeline-item active-run">
+                <div class="pipeline-head">
+                  <span class="pipeline-name">资金流历史回补</span>
+                  <span class="status-pill warning"><span class="pulse-dot"></span>RUNNING 68%</span>
+                </div>
+                <div class="pipeline-phase">Tinyshare 历史回补 · 当前 2024-03-15</div>
+                <div class="progress-bar"><div class="progress-fill warning" style="width: 68%;"></div></div>
+                <div class="pipeline-meta">
+                  <span>3,210 / 4,720 日</span>
+                  <span>预计完成 17:45</span>
+                </div>
+              </div>
+
+              <div class="pipeline-item">
+                <div class="pipeline-head">
+                  <span class="pipeline-name">证券代码表</span>
+                  <span class="status-pill healthy"><span class="pulse-dot"></span>COMPLETED</span>
+                </div>
+                <div class="pipeline-phase">全市场股票、ETF 与指数清单已同步</div>
+                <div class="progress-bar"><div class="progress-fill healthy" style="width: 100%;"></div></div>
+                <div class="pipeline-meta">
+                  <span>5,340 / 5,340 标的</span>
+                  <span>今日 09:15 已就绪</span>
+                </div>
+              </div>
+
+              <div class="pipeline-item">
+                <div class="pipeline-head">
+                  <span class="pipeline-name">分钟数据湖</span>
+                  <span class="status-pill healthy"><span class="pulse-dot"></span>COMPLETED</span>
+                </div>
+                <div class="pipeline-phase">TDX TCP / 在线分钟增量已落盘 Parquet</div>
+                <div class="progress-bar"><div class="progress-fill healthy" style="width: 100%;"></div></div>
+                <div class="pipeline-meta">
+                  <span>5,340 / 5,340 标的</span>
+                  <span>最新交易日 2026-09-18</span>
+                </div>
+              </div>
+
+              <div class="pipeline-item active-run">
+                <div class="pipeline-head">
+                  <span class="pipeline-name">财务报表</span>
+                  <span class="status-pill warning"><span class="pulse-dot"></span>RUNNING 42%</span>
+                </div>
+                <div class="pipeline-phase">申万行业资产负债表与利润表补录</div>
+                <div class="progress-bar"><div class="progress-fill warning" style="width: 42%;"></div></div>
+                <div class="pipeline-meta">
+                  <span>2,240 / 5,340 标的</span>
+                  <span>处理中...</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Backup & Lineage (2 Cols) -->
+        <div class="grid-2col">
+          <!-- Backup -->
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>数据库备份</span>
+              </div>
+              <span class="status-pill healthy"><span class="pulse-dot"></span>就绪</span>
+            </div>
+            <div class="panel-body">
+              <div class="data-row">
+                <div>
+                  <div class="data-label">最新备份文件</div>
+                  <div class="data-desc">quant_backup_20260921_120000.sql.gz</div>
+                </div>
+                <div class="data-value">842.6 MB</div>
+              </div>
+              <div class="data-row">
+                <div>
+                  <div class="data-label">校验和 (SHA-256)</div>
+                  <div class="data-desc">7f8c9b2a1e4d82f01948ba92…</div>
+                </div>
+                <span class="scope-tag">已通过</span>
+              </div>
+              <div style="margin-top: 14px; display: flex; gap: 10px;">
+                <button class="btn btn-primary" onclick="alert('后台已发起单事务一致性快照导出任务')">导出新备份</button>
+                <button class="btn" onclick="alert('开始下载 SQL 备份文件')">下载 SQL</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Data Lineage -->
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                <span>数据血缘与一致性</span>
+              </div>
+              <span class="status-pill healthy"><span class="pulse-dot"></span>三层对齐</span>
+            </div>
+            <div class="panel-body">
+              <div class="data-row">
+                <div>
+                  <div class="data-label">MySQL 权威日期</div>
+                  <div class="data-desc">daily_candles 最新行情时间戳</div>
+                </div>
+                <div class="data-value">2026-09-18</div>
+              </div>
+              <div class="data-row">
+                <div>
+                  <div class="data-label">研究快照 Snapshot</div>
+                  <div class="data-desc">ID: snap_20260918_e8f2</div>
+                </div>
+                <div class="data-value">2026-09-18</div>
+              </div>
+              <div class="data-row">
+                <div>
+                  <div class="data-label">分钟湖 Lake</div>
+                  <div class="data-desc">Parquet 湖生成于 16:05</div>
+                </div>
+                <div class="data-value">2026-09-18</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 2. AGENTS TAB ================= -->
+      <section id="tab-agents" class="tab-content">
+        <div class="banner banner-healthy">
+          <div class="banner-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path></svg>
+          </div>
+          <div class="banner-text">
+            <h2>项目 Agent 服务运行中 · 默认 Provider: Claude</h2>
+            <p>当前活跃任务 1/4 · 待审批 0 · 持久化会话 126 个 · 3 个 Provider 均已就绪</p>
+          </div>
+          <div class="status-pill healthy"><span class="pulse-dot"></span>READY</div>
+        </div>
+
+        <div class="metric-grid">
+          <div class="card">
+            <div class="card-label">默认 Provider</div>
+            <div class="card-value" style="font-size: 20px; color: #a5b4fc;">claude</div>
+            <div class="card-sub">用于新建对话 · 具备 Bash/Code 运行权</div>
+          </div>
+          <div class="card">
+            <div class="card-label">可用 Provider</div>
+            <div class="card-value">3 / 3</div>
+            <div class="card-sub">claude · codex · pi</div>
+          </div>
+          <div class="card">
+            <div class="card-label">待人工审批</div>
+            <div class="card-value">0</div>
+            <div class="card-sub">无挂起的危险命令或工具申请</div>
+          </div>
+          <div class="card">
+            <div class="card-label">持久化事件</div>
+            <div class="card-value">1,482</div>
+            <div class="card-sub">涵盖 126 场投研历史对话</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Provider 运行环境就绪详情</div>
+          </div>
+          <div class="panel-body">
+            <div class="data-row">
+              <div>
+                <div class="data-label">Claude CLI 运行环境</div>
+                <div class="data-desc">CLI 版本: v1.0.18 · 默认工作目录已配置 · Git Bash 终端已就绪</div>
+              </div>
+              <span class="status-pill healthy">就绪</span>
+            </div>
+            <div class="data-row">
+              <div>
+                <div class="data-label">Codex 运行环境</div>
+                <div class="data-desc">模型: gpt-5-codex · 沙箱模式: workspace-write · 审批开启 · 网络开放</div>
+              </div>
+              <span class="status-pill healthy">就绪</span>
+            </div>
+            <div class="data-row">
+              <div>
+                <div class="data-label">Pi 极简辅助运行环境</div>
+                <div class="data-desc">版本: v0.8.2 · 模型: claude-3-5-sonnet · 认证文件已校验</div>
+              </div>
+              <span class="status-pill healthy">就绪</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 3. DIAGNOSTICS TAB ================= -->
+      <section id="tab-diagnostics" class="tab-content">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">系统自动化诊断检查</div>
+              <div class="panel-sub">12 项常规检查 · 10 项通过 · 2 项警告 · 0 项严重</div>
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-primary" style="font-size: 11px;">全部 (12)</button>
+              <button class="btn" style="font-size: 11px;">严重 (0)</button>
+              <button class="btn" style="font-size: 11px;">警告 (2)</button>
+              <button class="btn" style="font-size: 11px;">正常 (10)</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="issue-item is-warn">
+              <div class="issue-header" onclick="toggleIssue('issue-1')">
+                <div class="issue-title">
+                  <span class="status-pill warning">WARNING</span>
+                  <span>财务报表部分新股历史缺失</span>
+                </div>
+                <span style="font-size: 11px; color: var(--text-dim);">展开详情 ▼</span>
+              </div>
+              <div class="issue-body" id="issue-1">
+                <p>检测到 31 只在 2026 年新上市的股票缺少 2023 年之前的资产负债表与现金流量表。当前覆盖率 96.2%。</p>
+                <div class="issue-resolution">
+                  <strong>建议处置方案：</strong>新股本身无上市前财报属于正常现象，可执行 `npm run financial:backfill` 进行二次拉取，确认无遗漏后可忽略此警告。
+                </div>
+              </div>
+            </div>
+
+            <div class="issue-item is-warn">
+              <div class="issue-header" onclick="toggleIssue('issue-2')">
+                <div class="issue-title">
+                  <span class="status-pill warning">WARNING</span>
+                  <span>存在 3 份过期的物化因子结果文件</span>
+                </div>
+                <span style="font-size: 11px; color: var(--text-dim);">展开详情 ▼</span>
+              </div>
+              <div class="issue-body" id="issue-2">
+                <p>因研究快照由 snap_20260911 滚动发布至 snap_20260918，旧快照关联的 128.4 MB DuckDB 物化中间产物已失效。</p>
+                <div class="issue-resolution">
+                  <strong>建议处置方案：</strong>建议在低峰期运行 `npm run research:artifacts:prune` 释放失效的 Parquet 缓存空间。
+                </div>
+              </div>
+            </div>
+
+            <div class="issue-item is-pass">
+              <div class="issue-header">
+                <div class="issue-title">
+                  <span class="status-pill healthy">HEALTHY</span>
+                  <span>DuckDB 湖与快照清单签名校验一致</span>
+                </div>
+                <span style="font-size: 11px; color: var(--text-dim);">通过</span>
+              </div>
+            </div>
+
+            <div class="issue-item is-pass">
+              <div class="issue-header">
+                <div class="issue-title">
+                  <span class="status-pill healthy">HEALTHY</span>
+                  <span>MySQL 权威库与主从复制延迟正常 (&lt; 5ms)</span>
+                </div>
+                <span style="font-size: 11px; color: var(--text-dim);">通过</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 4. CONFIG TAB ================= -->
+      <section id="tab-config" class="tab-content">
+        <!-- Public Access Card -->
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                <span>公网外部访问通道 (stock.clical.xin)</span>
+              </div>
+              <div class="panel-sub">本地网站、SSH 隧道与 frpc 守护进程正在运行</div>
+            </div>
+            <button class="btn btn-danger" onclick="openModal('publicAccessModal')">关闭公网访问</button>
+          </div>
+        </div>
+
+        <!-- Config Table -->
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">环境配置与加密密钥</div>
+              <div class="panel-sub">修改将写入 server/.env · 部分项需重启后端以重载连接池</div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="config-search">
+              <svg class="config-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="configSearchInput" placeholder="输入键名、说明搜索配置项..." oninput="filterConfig(this.value)" />
+            </div>
+
+            <div class="config-list" id="configList">
+              <div class="config-row" data-key="DB_HOST">
+                <div>
+                  <div class="config-key">DB_HOST</div>
+                  <div class="data-desc">MySQL 数据库主机地址</div>
+                </div>
+                <div><span class="config-val">127.0.0.1</span></div>
+                <div><span class="scope-tag restart">需重启后端</span></div>
+                <div><button class="btn" onclick="openEditModal('DB_HOST', '127.0.0.1', 'MySQL 数据库主机地址', false)">更新</button></div>
+              </div>
+
+              <div class="config-row" data-key="DB_PORT">
+                <div>
+                  <div class="config-key">DB_PORT</div>
+                  <div class="data-desc">MySQL 端口</div>
+                </div>
+                <div><span class="config-val">3306</span></div>
+                <div><span class="scope-tag restart">需重启后端</span></div>
+                <div><button class="btn" onclick="openEditModal('DB_PORT', '3306', 'MySQL 端口 (1-65535)', false)">更新</button></div>
+              </div>
+
+              <div class="config-row" data-key="TINYSHARE_TOKEN">
+                <div>
+                  <div class="config-key">TINYSHARE_TOKEN</div>
+                  <div class="data-desc">Tinyshare 资金流历史数据接口令牌</div>
+                </div>
+                <div><span class="config-val">••••••••••••••••</span></div>
+                <div><span class="scope-tag">立即生效</span></div>
+                <div><button class="btn" onclick="openEditModal('TINYSHARE_TOKEN', '', 'Tinyshare 资金流令牌 (密钥)', true)">更新</button></div>
+              </div>
+
+              <div class="config-row" data-key="FUND_FLOW_UPDATE_TIME">
+                <div>
+                  <div class="config-key">FUND_FLOW_UPDATE_TIME</div>
+                  <div class="data-desc">每日盘后资金流定时增量采集时间</div>
+                </div>
+                <div><span class="config-val">16:20</span></div>
+                <div><span class="scope-tag">立即生效</span></div>
+                <div><button class="btn" onclick="openEditModal('FUND_FLOW_UPDATE_TIME', '16:20', '每日更新时间 (HH:mm)', false)">更新</button></div>
+              </div>
+
+              <div class="config-row" data-key="OPENAI_MODEL">
+                <div>
+                  <div class="config-key">OPENAI_MODEL</div>
+                  <div class="data-desc">量化 AI 研报模型列表 (英文分号分隔)</div>
+                </div>
+                <div><span class="config-val">gpt-4o;claude-3-5-sonnet;deepseek-chat</span></div>
+                <div><span class="scope-tag restart">需重启后端</span></div>
+                <div><button class="btn" onclick="openEditModal('OPENAI_MODEL', 'gpt-4o;claude-3-5-sonnet;deepseek-chat', '模型列表，分号分隔', false)">更新</button></div>
+              </div>
+
+              <div class="config-row" data-key="DUCKDB_MAX_CONCURRENT">
+                <div>
+                  <div class="config-key">DUCKDB_MAX_CONCURRENT</div>
+                  <div class="data-desc">DuckDB 引擎最大并发查询数 (1~8)</div>
+                </div>
+                <div><span class="config-val">4</span></div>
+                <div><span class="scope-tag restart">需重启后端</span></div>
+                <div><button class="btn" onclick="openEditModal('DUCKDB_MAX_CONCURRENT', '4', 'DuckDB 并发上限 (1-8)', false)">更新</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- Restart Dialog Modal -->
+  <div id="restartModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" style="color: #fb7185; display: flex; align-items: center; gap: 8px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path></svg>
+          <span>确认优雅重启后端服务？</span>
+        </div>
+        <button class="modal-close" onclick="closeModal('restartModal')">&times;</button>
+      </div>
+      <p style="color: var(--text-muted); font-size: 13px; line-height: 1.6;">
+        当前进程 PID <strong style="color: #fff; font-family: var(--font-mono);">14820</strong> 将先平稳关闭数据库连接池和定时调度器，再由守护进程拉起新实例。预计服务短暂停顿 3~15 秒。
+      </p>
+      <div style="background: rgba(244, 63, 94, 0.08); border-left: 3px solid var(--critical); padding: 10px 12px; border-radius: 4px; font-size: 12px; color: #fca5a5; margin: 14px 0;">
+        ⚠️ 注意：正在执行的大规模回测或行情落盘任务可能被中断，请确认当前无高优先级任务。
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal('restartModal')">取消</button>
+        <button class="btn btn-danger" onclick="confirmRestart()">确认重启</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Public Access Modal -->
+  <div id="publicAccessModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">公网访问切换确认</div>
+        <button class="modal-close" onclick="closeModal('publicAccessModal')">&times;</button>
+      </div>
+      <p style="color: var(--text-muted); font-size: 13px; line-height: 1.6;">
+        确定要关闭 <strong style="color: #fff;">stock.clical.xin</strong> 的公网隧道连接吗？关闭后公网将无法访问平台，内网及本地不受影响。
+      </p>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal('publicAccessModal')">取消</button>
+        <button class="btn btn-danger" onclick="alert('公网隧道已断开'); closeModal('publicAccessModal');">确认关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Config Edit Modal -->
+  <div id="editConfigModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="editConfigTitle">更新配置</div>
+        <button class="modal-close" onclick="closeModal('editConfigModal')">&times;</button>
+      </div>
+      <form onsubmit="saveConfig(event)">
+        <div class="form-group">
+          <label id="editConfigDesc">配置值</label>
+          <input type="text" class="form-control" id="editConfigValue" required />
+          <div class="form-help" id="editConfigHelp">修改将直接写入 server/.env 并触发环境感知</div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" onclick="closeModal('editConfigModal')">取消</button>
+          <button type="submit" class="btn btn-primary">保存配置</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    function switchTab(tabId, el) {
+      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+      document.getElementById('tab-' + tabId).classList.add('active');
+      el.classList.add('active');
+
+      const titles = {
+        'overview': '极简现代工程风 · 运行总览',
+        'agents': '极简现代工程风 · Agent 运维',
+        'diagnostics': '极简现代工程风 · 问题诊断',
+        'config': '极简现代工程风 · 配置与密钥'
+      };
+      document.getElementById('pageTitle').innerText = titles[tabId] || 'Quant Ops Console';
+    }
+
+    function openModal(id) {
+      document.getElementById(id).classList.add('open');
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('open');
+    }
+
+    function triggerRefresh() {
+      const now = new Date();
+      const timeStr = now.toTimeString().split(' ')[0];
+      document.getElementById('lastRefresh').innerText = '上次刷新 ' + timeStr;
+      alert('已重新请求 /api/admin/overview 与核心指标');
+    }
+
+    function confirmRestart() {
+      closeModal('restartModal');
+      alert('优雅重启请求已发送！系统正在平稳重启，页面将自动重试连接...');
+    }
+
+    function toggleIssue(id) {
+      const el = document.getElementById(id);
+      el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function filterConfig(val) {
+      const term = val.trim().toLowerCase();
+      document.querySelectorAll('.config-row').forEach(row => {
+        const text = row.innerText.toLowerCase();
+        row.style.display = text.includes(term) ? 'grid' : 'none';
+      });
+    }
+
+    let currentEditingKey = '';
+    function openEditModal(key, val, desc, isSecret) {
+      currentEditingKey = key;
+      document.getElementById('editConfigTitle').innerText = '更新 ' + key;
+      document.getElementById('editConfigDesc').innerText = desc;
+      const input = document.getElementById('editConfigValue');
+      input.type = isSecret ? 'password' : 'text';
+      input.value = val;
+      input.placeholder = isSecret ? '输入新密钥（不显示旧密钥）' : '';
+      openModal('editConfigModal');
+    }
+
+    function saveConfig(e) {
+      e.preventDefault();
+      const val = document.getElementById('editConfigValue').value;
+      closeModal('editConfigModal');
+      alert('已保存配置 ' + currentEditingKey + ' = ' + (val ? val.slice(0, 3) + '***' : '(空)'));
+    }
+  </script>
+</body>
+</html>
