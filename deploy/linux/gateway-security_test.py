@@ -207,7 +207,9 @@ http {{
         self.assertEqual(headers['X-Frame-Options'], 'DENY')
         self.assertIn("frame-ancestors 'none'", headers['Content-Security-Policy'])
         self.assertEqual(headers['Cache-Control'], 'no-store')
-        self.assertEqual(headers['Referrer-Policy'], 'no-referrer')
+        # Unlike no-referrer, this permits a native same-origin form POST to
+        # carry its real Origin. Null/missing origins remain forbidden above.
+        self.assertEqual(headers['Referrer-Policy'], 'same-origin')
 
 
 if __name__ == '__main__':

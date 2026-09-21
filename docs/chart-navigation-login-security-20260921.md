@@ -48,3 +48,11 @@
 参照 [OWASP 会话管理建议](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html) 和 [CSRF防护建议](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html) 检查传输、Cookie、会话生命周期和来源验证。
 
 复测：`python3 deploy/linux/gateway-session_test.py`、`python3 deploy/linux/gateway-security_test.py`。部署前备份位于 `/var/backups/quant-chart-login-audit-20260921-220500/`，包含源文件/前端与Nginx配置。
+
+## 登录表单403兼容性修复
+
+用户反馈未登录设备在HTTP 8080提交账号密码后出现403。复核发现本次加固引入的 `Referrer-Policy: no-referrer` 与原生HTML表单来源检查冲突：浏览器在此策略下提交表单会将 Origin 序列化为 null，而后端按预期拒绝null来源。此前HTTP客户端测试自行指定了合法Origin，没有覆盖浏览器的这个行为。[MDN对该行为的说明](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Referrer-Policy#effect_on_the_origin_header)。
+
+已仅将登录响应策略改为 `same-origin`，保留同源原生表单的Origin，并继续阻止空来源、跨源请求。未恢复用户要求撤销的Host白名单。13项原有认证测试通过；线上核实8080/8081的 `/` 与 `/auth/login` 均返回200及新策略，null/跨源POST均在密码验证前返回403。密码文件与会话库未修改，备份位于 `/var/backups/quant-login-form-403-20260921-225554/`。
+
+浏览器自动化连接再次因request-header policy加载失败而不可用，未完成真实浏览器表单复验。用户需重新打开登录页，让文档加载新策略；不能把本轮HTTP测试等同于浏览器端登录确认。
