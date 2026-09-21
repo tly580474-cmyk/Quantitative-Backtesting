@@ -1,0 +1,20 @@
+[Unit]
+Description=Quant gateway device sessions
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+ExecStart=/usr/bin/python3 /opt/quant-backtest/deploy/linux/gateway-session.py
+StateDirectory=quant-gateway
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

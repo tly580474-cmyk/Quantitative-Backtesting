@@ -20,6 +20,7 @@ interface MarketDataPageCache {
   reports: Record<string, ResearchReport[]>;
   sevenLayer: Record<string, Partial<Record<SevenLayerSection['key'], SevenLayerSection>>>;
   indexQuotes?: StockQuote[];
+  indexPreviews: Record<string, { items: KlinePoint[]; checkedAt: number }>;
   marketSentiment?: MarketSentimentOverview;
   marketHealth?: MarketHealthOverview;
   marketHealthCachedAt?: number;
@@ -45,6 +46,7 @@ export const marketDataCache: MarketDataPageCache = {
   reports: {},
   sevenLayer: {},
   indexQuotes: undefined,
+  indexPreviews: {},
   marketSentiment: undefined,
   marketHealth: undefined,
   marketHealthCachedAt: undefined,

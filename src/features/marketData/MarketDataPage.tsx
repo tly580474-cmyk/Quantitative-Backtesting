@@ -16,7 +16,8 @@ import HotSectorPanel from './HotSectorPanel';
 import DragonTigerPanel from './DragonTigerPanel';
 import MarketNewsPanel from './MarketNewsPanel';
 import IndexConstituentDrawer from './IndexConstituentDrawer';
-import { klineCacheKey, marketDataCache, readIndexIntradayCache, readIndexKlineCache, writeIndexIntradayCache, writeIndexKlineCache } from './marketDataCache';
+import { klineCacheKey, marketDataCache } from './marketDataCache';
+import { loadIndexPreview, peekIndexPreview } from './indexPreviewCache';
 import { exportMarketKlinesToExcel, toCandles } from './exportMarketData';
 import type { AgentStatus, KlinePoint, MarketBreadthBucket, MarketBreadthStock, MarketHealthIndicator, MarketHealthOverview, MarketKlinePeriod, MarketOverviewIndicatorKey, MarketSentimentOverview, ResearchReport, SevenLayerRecord, SevenLayerSection, StockQuote, StockSearchItem, TradingStyleId, TradingStyleOption } from './types';
 import type { ImportResult } from '@/models';
@@ -1090,7 +1091,14 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   const [draftIndexKeys, setDraftIndexKeys] = useState<string[]>(readMarketIndexSelection);
   const [indexConfigOpen, setIndexConfigOpen] = useState(false);
   const [indexConstituentOpen, setIndexConstituentOpen] = useState(false);
-  const [indexPreviewKlines, setIndexPreviewKlines] = useState<Record<string, KlinePoint[]>>({});
+  const [indexPreviewKlines, setIndexPreviewKlines] = useState<Record<string, KlinePoint[]>>(() => {
+    const entries: Record<string, KlinePoint[]> = {};
+    for (const option of MARKET_INDEX_OPTIONS) {
+      const cached = peekIndexPreview(marketIndexInstrumentCode(option));
+      if (cached) entries[option.key] = cached;
+    }
+    return entries;
+  });
   const [indexLoading, setIndexLoading] = useState(false);
   const [marketSentiment, setMarketSentiment] = useState<MarketSentimentOverview | null>(() => marketDataCache.marketSentiment ?? null);
   const [marketSentimentLoading, setMarketSentimentLoading] = useState(false);
@@ -1401,81 +1409,28 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
   useEffect(() => {
     if (!isOverviewView) return undefined;
     let cancelled = false;
-    void Promise.all(selectedIndexKeys.map(async (key) => {
+    for (const key of selectedIndexKeys) {
       const option = MARKET_INDEX_OPTIONS.find((item) => item.key === key);
-      if (!option) return [key, []] as const;
+      if (!option) continue;
       const instrumentCode = marketIndexInstrumentCode(option);
-      // 优先读取分时缓存
-      const intradayCacheKey = klineCacheKey(instrumentCode, 'intraday' as const);
-      const cachedIntraday = readIndexIntradayCache(intradayCacheKey);
-      if (cachedIntraday && cachedIntraday.length > 0) {
-        return [key, cachedIntraday] as const;
-      }
-      // 分时缓存失效，先拉分时数据
-      try {
-        const intradayData = await apiFetch<{ items: KlinePoint[] }>(
-          `/api/market-data/stocks/${instrumentCode}/kline?period=intraday`,
-        );
-        const intradayItems = intradayData.items ?? [];
-        if (intradayItems.length > 0) {
-          writeIndexIntradayCache(intradayCacheKey, intradayItems);
-          return [key, intradayItems] as const;
-        }
-        // 非交易时间或无分时数据 → 回退日线
-      } catch {
-        // 分时接口失败，继续回退日线
-      }
-      // 回退日线数据
-      const dayCacheKey = klineCacheKey(instrumentCode, 'day');
-      const cachedDay = readIndexKlineCache(dayCacheKey);
-      if (cachedDay) return [key, cachedDay] as const;
-      try {
-        const dayData = await apiFetch<{ items: KlinePoint[] }>(
-          `/api/market-data/stocks/${instrumentCode}/kline?period=day`,
-        );
-        const dayItems = dayData.items ?? [];
-        writeIndexKlineCache(dayCacheKey, dayItems);
-        return [key, dayItems] as const;
-      } catch {
-        return [key, []] as const;
-      }
-    })).then((entries) => {
-      if (!cancelled) setIndexPreviewKlines((current) => ({ ...current, ...Object.fromEntries(entries) }));
-    });
+      const cached = peekIndexPreview(instrumentCode);
+      if (cached) setIndexPreviewKlines((current) => ({ ...current, [key]: cached }));
+      void loadIndexPreview(instrumentCode).then((items) => {
+        if (!cancelled) setIndexPreviewKlines((current) => ({ ...current, [key]: items }));
+      });
+    }
     return () => { cancelled = true; };
   }, [isOverviewView, selectedIndexKeys]);
 
   /** 强制刷新指数预览（分时优先，日线回退） */
   const refreshIndexPreviewKlines = useCallback(async () => {
     if (!isOverviewView) return;
-    const entries = await Promise.all(selectedIndexKeys.map(async (key) => {
+    await Promise.all(selectedIndexKeys.map(async (key) => {
       const option = MARKET_INDEX_OPTIONS.find((item) => item.key === key);
-      if (!option) return [key, []] as const;
-      const instrumentCode = marketIndexInstrumentCode(option);
-      // 优先拉分时
-      try {
-        const intradayData = await apiFetch<{ items: KlinePoint[] }>(
-          `/api/market-data/stocks/${instrumentCode}/kline?period=intraday`,
-        );
-        const intradayItems = intradayData.items ?? [];
-        if (intradayItems.length > 0) {
-          writeIndexIntradayCache(klineCacheKey(instrumentCode, 'intraday' as const), intradayItems);
-          return [key, intradayItems] as const;
-        }
-      } catch { /* 分时失败则回退日线 */ }
-      // 回退日线
-      try {
-        const dayData = await apiFetch<{ items: KlinePoint[] }>(
-          `/api/market-data/stocks/${instrumentCode}/kline?period=day`,
-        );
-        const dayItems = dayData.items ?? [];
-        writeIndexKlineCache(klineCacheKey(instrumentCode, 'day'), dayItems);
-        return [key, dayItems] as const;
-      } catch {
-        return [key, []] as const;
-      }
+      if (!option) return;
+      const items = await loadIndexPreview(marketIndexInstrumentCode(option), true);
+      setIndexPreviewKlines((current) => ({ ...current, [key]: items }));
     }));
-    setIndexPreviewKlines((current) => ({ ...current, ...Object.fromEntries(entries) }));
   }, [isOverviewView, selectedIndexKeys]);
   useEffect(() => {
     if (!isOverviewView) return undefined;

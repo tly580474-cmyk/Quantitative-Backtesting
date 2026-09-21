@@ -98,14 +98,14 @@ export default function Csi1000LowPbPanel({
         <Space size={8} wrap>
           <Tag color="gold">{history.strategy}</Tag>
           <Tag>{history.methodology.rebalance} · {history.methodology.weighting}</Tag>
-          <Text type="secondary">数据截至 {history.dataAsOf}</Text>
+          <Text type="secondary">结果数据截至 {history.dataAsOf} · 保留最近三期</Text>
         </Space>
         <Tooltip title={`锁定 ${batch.constituentDate} 的真实中证1000成分快照，按正PB升序取前 ${history.methodology.selectionSize} 只。`}>
           <Text type="secondary">真实成分 · 低PB前 {history.methodology.selectionSize} 名</Text>
         </Tooltip>
       </div>
-      <Tooltip title="基于当前研究快照重新计算">
-        <Button icon={<ReloadOutlined />} loading={loading} onClick={onRefresh}>刷新结果</Button>
+      <Tooltip title="月度结果已保存，进入页面直接读取；新月份自动更新，也可手动重新计算最近三期。价格与收益截至结果数据日期。">
+        <Button icon={<ReloadOutlined />} loading={loading} onClick={onRefresh}>重新计算</Button>
       </Tooltip>
     </div>
 

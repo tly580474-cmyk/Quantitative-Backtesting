@@ -5,7 +5,7 @@ import { checkConnection, closePool, createPool } from '../db/connection.js';
 import { closeDb, initDb } from '../db/index.js';
 import { EmailSender } from './emailSender.js';
 import { MarketOpinionAgent, type MarketOpinionDigestKind } from './marketOpinionAgent.js';
-import { MarketOpinionPushService } from './marketOpinionPushService.js';
+import { collectFreshMarketOpinionInputs, MarketOpinionPushService } from './marketOpinionPushService.js';
 
 const kinds = ['morning', 'midday', 'close'] as const;
 
@@ -20,6 +20,7 @@ async function main(): Promise<void> {
   const kind = requested as MarketOpinionDigestKind;
   const simulation = process.argv.includes('--simulation');
   const correction = process.argv.includes('--correction');
+  const dryRun = process.argv.includes('--dry-run');
   if (simulation && correction) throw new Error('--simulation 与 --correction 不能同时使用');
   const recipients = config.MAIL_TO.split(',').map((item) => item.trim()).filter(Boolean);
   const pool = createPool(config);
@@ -36,6 +37,22 @@ async function main(): Promise<void> {
       from: config.MAIL_FROM || config.SMTP_USER,
       to: recipients,
     });
+    const agent = new MarketOpinionAgent(
+      config.OPENAI_API_KEY, config.OPENAI_BASE_URL, opinionAiModel, parseInt(config.OPENAI_TIMEOUT_MS, 10),
+    );
+    if (dryRun) {
+      await email.verify();
+      const inputs = await collectFreshMarketOpinionInputs();
+      const report = await agent.generateDigest(inputs.news, kind, inputs.context, opinionAiModel);
+      console.log(JSON.stringify({
+        dryRun: true, sent: false, smtpVerified: true, model: opinionAiModel, kind,
+        generatedAt: report.generatedAt, reportCharacters: report.content.length,
+        newsCount: report.newsCount, sourceCount: report.sourceCount, recipients: recipients.length,
+        newsFetchedAt: inputs.newsSnapshot.updatedAt,
+        marketContext: inputs.context,
+      }));
+      return;
+    }
     const service = new MarketOpinionPushService({
       enabled: true,
       schedules: {
@@ -44,12 +61,7 @@ async function main(): Promise<void> {
         close: config.MARKET_OPINION_CLOSE_TIME,
       },
       recipientCount: recipients.length,
-      agent: new MarketOpinionAgent(
-        config.OPENAI_API_KEY,
-        config.OPENAI_BASE_URL,
-        opinionAiModel,
-        parseInt(config.OPENAI_TIMEOUT_MS, 10),
-      ),
+      agent,
       email,
       model: opinionAiModel,
     });

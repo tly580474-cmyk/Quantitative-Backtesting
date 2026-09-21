@@ -22,7 +22,7 @@ function row(rebalanceDate: string, symbol: string, pb: number): RawCsi1000LowPb
 }
 
 describe('CSI 1000 low-PB stock selection', () => {
-  it('keeps six month ends, ranks ascending PB, and assigns equal weights', () => {
+  it('keeps three month ends, ranks ascending PB, and assigns equal weights', () => {
     const dates = ['2026-01-30', '2026-02-27', '2026-03-31', '2026-04-30', '2026-05-29', '2026-06-30', '2026-07-31'];
     const rows = dates.flatMap((date) => [
       row(date, '600001', 1.5),
@@ -36,9 +36,10 @@ describe('CSI 1000 low-PB stock selection', () => {
       selectionSize: 2,
     });
 
-    expect(result.batches).toHaveLength(6);
+    expect(result.batches).toHaveLength(3);
+    expect(result.methodology.retainedMonths).toBe(3);
     expect(result.batches[0].rebalanceDate).toBe('2026-07-31');
-    expect(result.batches.at(-1)?.rebalanceDate).toBe('2026-02-27');
+    expect(result.batches.at(-1)?.rebalanceDate).toBe('2026-05-29');
     expect(result.batches[0].items.map((item) => item.code)).toEqual(['000002', '300003']);
     expect(result.batches[0].items.every((item) => item.portfolioWeightPct === 50)).toBe(true);
     expect(result.batches[0].averageReturnPct).toBeCloseTo(10);

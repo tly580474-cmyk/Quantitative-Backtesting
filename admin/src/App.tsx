@@ -51,6 +51,7 @@ import {
 import type { AdminConfigItem, AdminHealth, AdminOverview, AgentOperations, BackendRestartStatus, DatabaseBackupExportStatus, DataUpdateProgressItem, DiagnosticCheck, HealthLevel, MetricSample, PublicAccessStatus } from './types';
 import { sanitizeSecretReplacement } from './secretInput';
 import { DataUpdateMessage } from './DataUpdateMessage';
+import { groupAiConfig } from './aiConfigGroups';
 
 type Section = 'overview' | 'agents' | 'diagnostics' | 'configuration';
 
@@ -1165,7 +1166,9 @@ function ConfigurationSection({
               {category === 'market' && fundFlowItems.length > 0 && standardItems.length > 0 && (
                 <ConfigGroupHeading title="基础行情配置" description="证券、K 线、分钟数据与财务报表" />
               )}
-              {standardItems.map((item) => <ConfigRow item={item} onEdit={onEdit} key={item.key} />)}
+              {category === 'ai' ? (
+                <AiConfigGroups items={items} search={searchLower} onEdit={onEdit} />
+              ) : standardItems.map((item) => <ConfigRow item={item} onEdit={onEdit} key={item.key} />)}
             </div>
           </Panel>
         );
@@ -1273,6 +1276,50 @@ function FundFlowConfigSummary({ progress, items }: {
       {progress?.etaAt && <p>预计完成：{new Date(progress.etaAt).toLocaleString('zh-CN', { hour12: false, dateStyle: 'short', timeStyle: 'short' })}</p>}
     </article>
   );
+}
+
+function AiConfigGroups({ items, search, onEdit }: {
+  items: AdminConfigItem[];
+  search: string;
+  onEdit: (item: AdminConfigItem) => void;
+}) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  return groupAiConfig(items).map((group) => {
+    const visibleItems = group.items.filter((item) => !search ||
+      [item.label, item.key, item.description].some((value) => value.toLowerCase().includes(search)));
+    if (!visibleItems.length) return null;
+    if (group.id === 'core') return (
+      <div className="ai-config-core" key={group.id}>
+        <ConfigGroupHeading title={group.title} description={group.description} />
+        {visibleItems.map((item) => <ConfigRow key={item.key} item={item} onEdit={onEdit} />)}
+      </div>
+    );
+    const open = expanded[`${search}:${group.id}`] ?? Boolean(search);
+    const panelId = `ai-config-${group.id}`;
+    return (
+      <section className={`ai-config-group${group.isDefault ? ' is-default' : ''}`} key={group.id}>
+        <h3 className="ai-config-group-title">
+          <button type="button" id={`${panelId}-toggle`} className="ai-config-toggle"
+            aria-expanded={open} aria-controls={panelId}
+            onClick={() => setExpanded((previous) => ({ ...previous, [`${search}:${group.id}`]: !open }))}>
+            <span className="ai-config-group-copy">
+              <span className="ai-config-group-name">{group.title}
+                {group.isDefault && <span className="ai-config-default">默认 Provider</span>}
+              </span>
+              <span className="ai-config-group-description">{group.description}</span>
+            </span>
+            <span className="ai-config-group-count">
+              {search ? `匹配 ${visibleItems.length} 项` : `${group.items.filter((item) => item.configured).length}/${group.items.length} 项已配置`}
+            </span>
+            <DownOutlined className={open ? 'is-expanded' : ''} aria-hidden="true" />
+          </button>
+        </h3>
+        <div id={panelId} role="region" aria-labelledby={`${panelId}-toggle`} hidden={!open}>
+          {visibleItems.map((item) => <ConfigRow key={item.key} item={item} onEdit={onEdit} />)}
+        </div>
+      </section>
+    );
+  });
 }
 
 function ConfigGroupHeading({ title, description }: { title: string; description: string }) {

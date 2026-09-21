@@ -290,6 +290,27 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .resolution { margin-top: 10px; padding: 9px 11px; border-radius: 7px; background: #172135; color: #c5d0df; font-size: 12px; line-height: 1.55; }
 
 .config-list { margin-top: 4px; }
+.ai-config-core { margin-top: 16px; }
+.ai-config-group { margin-top: 12px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: rgba(15, 23, 42, .35); }
+.ai-config-group.is-default { border-color: rgba(167, 139, 250, .5); }
+.ai-config-group-title { margin: 0; font-size: 14px; }
+.ai-config-toggle { width: 100%; min-height: 76px; padding: 16px; display: flex; align-items: center; gap: 14px; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; transition: background 150ms ease; }
+.ai-config-toggle:hover { background: rgba(139, 92, 246, .1); }
+.ai-config-toggle:focus-visible { outline: 2px solid #a78bfa; outline-offset: -3px; }
+.ai-config-group-copy { flex: 1; min-width: 0; }
+.ai-config-group-name { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-weight: 600; }
+.ai-config-default { padding: 3px 8px; border-radius: 20px; background: rgba(139, 92, 246, .18); color: #d8cbff; font-size: 11px; }
+.ai-config-group-description { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; line-height: 1.5; font-weight: 400; }
+.ai-config-group-count { color: var(--muted); font-size: 12px; font-weight: 400; white-space: nowrap; }
+.ai-config-toggle > .anticon { transition: transform 150ms ease; }
+.ai-config-toggle > .is-expanded { transform: rotate(180deg); }
+.ai-config-group > [role="region"] { padding: 0 16px; border-top: 1px solid var(--border); }
+@media (max-width: 760px) {
+  .ai-config-toggle { flex-wrap: wrap; gap: 8px; padding: 14px; }
+  .ai-config-group-copy { flex-basis: calc(100% - 30px); }
+  .ai-config-group-count { order: 3; width: 100%; }
+  .ai-config-group > [role="region"] { padding: 0 12px; }
+}
 .fund-flow-summary { margin: 16px 0 18px; padding: 18px; border: 1px solid var(--border); border-radius: 12px; }
 .fund-flow-summary-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .fund-flow-summary-title { display: flex; align-items: center; gap: 12px; min-width: 0; }

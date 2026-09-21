@@ -90,12 +90,16 @@ export function assertFreshMarketOpinionInputs(
 export function formatMarketOpinionFreshnessEvidence(inputs: FreshMarketOpinionInputs): string {
   const names = new Map<string, string>(inputs.news.map((item) => [item.sourceKey, item.sourceName]));
   const sources = inputs.newsSnapshot.sources.map((source) => `${names.get(source) ?? source}(${source})`);
+  const capitalFlow = record(inputs.context.capitalFlow);
+  const hotSectors = record(inputs.context.hotSectors);
   return [
     '## 数据新鲜度',
     '',
     `- 新闻采集快照：${inputs.newsSnapshot.updatedAt}`,
     `- 新闻来源：${sources.join('、')}`,
     `- 行情快照：${inputs.context.capturedAt}`,
+    `- 资金数据来源：${capitalFlow?.source ?? '未提供'}`,
+    `- 板块数据来源：${hotSectors?.source ?? '未提供'}`,
     `- 当前会话交易日：${inputs.context.sessionTradeDate ?? inputs.context.session.slice(0, 10)}`,
     `- 上一已完成交易日：${inputs.context.referenceTradeDate ?? inputs.context.dataTradeDate ?? '未知'}`,
   ].join('\n');

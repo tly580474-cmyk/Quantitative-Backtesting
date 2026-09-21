@@ -42,6 +42,7 @@ describe('StockSelectionPage low-PB loading', () => {
       String(path).includes('csi1000-low-pb-selection')
     ));
     await waitFor(() => expect(lowPbCalls()).toHaveLength(1));
+    expect(fetchMock.mock.calls.some(([path]) => String(path).includes('/factor-selection?'))).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: '重新计算' }));
     await waitFor(() => expect(lowPbCalls()).toHaveLength(2));

@@ -45,8 +45,9 @@ Node、Claude 和 Codex CLI 需提前安装到服务账户 PATH 中；本次 VM 
 
 ## 访问和权限
 
-- 前台：`http://192.168.171.140:8080`，需 nginx Basic 登录。
-- 管理台：`http://192.168.171.140:8081`，页面 Basic 登录，管理 API 另需 `ADMIN_API_TOKEN`。
+- 前台：`http://192.168.171.140:8080`，使用网页登录；同一浏览器连续 72 小时未访问后重新登录。
+- 管理台：`http://192.168.171.140:8081`，同主机共享设备登录 Cookie，管理 API 另需 `ADMIN_API_TOKEN`。
+- `quant-gateway.service` 仅监听回环 `3002`，沿用 `/etc/nginx/quant.htpasswd` 账号；会话保存在 `/var/lib/quant-gateway/sessions.sqlite`，服务重启不清除。初次切换机制需要登录一次；密码文件变化会使旧会话失效。
 - 首次安装生成的访问凭据仅写入 VM `/root/quant-test-access.txt`（0600），通过 SSH 查看。
 - API 仅监听 `127.0.0.1:3001`；MySQL 保持本地连接。不要将这两个端口直接发布。
 - 公网开关控制独立的 `quant-public.service`，关闭 8080 后，8081 管理入口保留。测试 VM 不配置原 Windows FRP 隧道，也不更改原公网域名。

@@ -8,6 +8,7 @@ import { getChinaMarketSession, type ChinaMarketSession } from '../marketData/jo
 import { EmailSender, reportEmailHtml, type EmailDeliveryResult } from './emailSender.js';
 import { MarketOpinionAgent, type MarketOpinionDigestKind, type MarketOpinionMarketContext, type MarketOpinionReport } from './marketOpinionAgent.js';
 import { assessOpinionNews } from './marketOpinionNewsRanker.js';
+import { fetchOpinionCapitalFlow, fetchOpinionHotSectors, withFreshFallback, type OpinionCapitalFlowSnapshot } from './marketOpinionFallback.js';
 import {
   assertFreshMarketOpinionInputs,
   DEFAULT_MARKET_OPINION_FRESHNESS_POLICY,
@@ -218,12 +219,15 @@ export async function buildMarketContext(
   const [indices, sentiment, capitalFlow, hotSectors] = await Promise.allSettled([
     fetchMarketIndexQuotes(),
     fetchCachedMarketSentimentOverview(forceRefresh),
-    fetchCachedMarketCapitalFlow(
+    withFreshFallback<OpinionCapitalFlowSnapshot>(fetchCachedMarketCapitalFlow(
       forceRefresh,
       semantics.quoteTradeDate,
       session.phase === 'pre_open' || !forceRefresh,
-    ),
-    fetchCachedHotSectors(forceRefresh),
+    ), () => fetchOpinionCapitalFlow(semantics.quoteTradeDate, now), (value) =>
+      (session.phase === 'pre_open' || session.phase === 'closed') && value.tradeDate === referenceTradeDate),
+    withFreshFallback(fetchCachedHotSectors(forceRefresh), fetchOpinionHotSectors, (value) =>
+      (session.phase === 'pre_open' || session.phase === 'closed')
+      && inferStoredSnapshotTradeDate(value.updatedAt, referenceTradeDate) === referenceTradeDate),
   ]);
   const unavailable: string[] = [];
   if (indices.status === 'rejected') unavailable.push('指数行情');

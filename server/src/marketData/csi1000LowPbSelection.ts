@@ -1,11 +1,12 @@
 import { join, resolve } from 'node:path';
 import { openManagedDuckDB } from '../research/duckdbRuntime.js';
 import { readCurrentSnapshot } from '../research/snapshotManifest.js';
+import { createMonthlySelectionStore } from './monthlySelectionStore.js';
 
 const INDEX_CODE = '000852';
 const DEFAULT_SELECTION_SIZE = 200;
 const MAX_SELECTION_SIZE = 200;
-const HISTORY_MONTHS = 6;
+const HISTORY_MONTHS = 3;
 
 export interface RawCsi1000LowPbRow {
   constituentSnapshotId: string;
@@ -66,28 +67,27 @@ export interface Csi1000LowPbSelectionHistory {
   batches: Csi1000LowPbSelectionBatch[];
 }
 
-const resultCache = new Map<string, Promise<Csi1000LowPbSelectionHistory>>();
+const loadMonthlyResult = createMonthlySelectionStore<Csi1000LowPbSelectionHistory>();
 
 export async function getCsi1000LowPbSelectionHistory(
   snapshotRoot: string,
   options: { force?: boolean; selectionSize?: number } = {},
 ): Promise<Csi1000LowPbSelectionHistory> {
   const root = resolve(snapshotRoot);
-  const current = await readCurrentSnapshot(root);
-  if (!current) throw new Error('尚未发布可用的研究快照');
   const selectionSize = Math.max(10, Math.min(MAX_SELECTION_SIZE, Math.trunc(
     options.selectionSize ?? DEFAULT_SELECTION_SIZE,
   )));
-  const cacheKey = `${current.manifest.snapshotId}:${selectionSize}`;
-  if (options.force) resultCache.delete(cacheKey);
-  const cached = resultCache.get(cacheKey);
-  if (cached) return cached;
-  const task = buildHistory(root, current, selectionSize).catch((error) => {
-    resultCache.delete(cacheKey);
-    throw error;
+  let current: Awaited<ReturnType<typeof readCurrentSnapshot>>;
+  const readSource = async () => {
+    current ??= await readCurrentSnapshot(root);
+    if (!current) throw new Error('尚未发布可用的研究快照');
+    return current;
+  };
+  return loadMonthlyResult(join(root, 'selection-results', `csi1000-low-pb-${selectionSize}.json`), {
+    force: options.force,
+    sourceMonth: async () => (await readSource()).manifest.maxDate.slice(0, 7),
+    build: async () => buildHistory(root, await readSource(), selectionSize),
   });
-  resultCache.set(cacheKey, task);
-  return task;
 }
 
 async function buildHistory(

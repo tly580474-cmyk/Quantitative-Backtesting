@@ -64,6 +64,7 @@ export default function StockSelectionPage() {
   const strategyTriggerRef = useRef<HTMLButtonElement>(null);
   const selectedOptionRef = useRef<HTMLButtonElement>(null);
   const lowPbInitialLoadStartedRef = useRef(false);
+  const factorInitialLoadStartedRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist));
@@ -96,8 +97,10 @@ export default function StockSelectionPage() {
   }, [message]);
 
   useEffect(() => {
+    if (activeStrategy === 'csi1000-low-pb' || history || factorInitialLoadStartedRef.current) return;
+    factorInitialLoadStartedRef.current = true;
     void loadFactorHistory(false);
-  }, [loadFactorHistory]);
+  }, [activeStrategy, history, loadFactorHistory]);
 
   const loadLowPbHistory = useCallback(async (force = false) => {
     setLowPbLoading(true);

@@ -74,6 +74,10 @@ EOF
 install -m 0644 deploy/linux/nginx-public.conf /etc/nginx/quant-public.conf
 install -m 0644 deploy/linux/nginx-admin.conf /etc/nginx/conf.d/quant-admin.conf
 install -m 0644 deploy/linux/nginx-proxy.conf /etc/nginx/quant-proxy.conf
+install -m 0644 deploy/linux/nginx-session.conf /etc/nginx/quant-session.conf
+install -m 0644 deploy/linux/quant-gateway.service /etc/systemd/system/quant-gateway.service
+systemctl daemon-reload
+systemctl enable --now quant-gateway.service
 nginx -t
 nginx -t -c /etc/nginx/quant-public.conf
 chown -R quant:quant "$ROOT"
@@ -103,4 +107,4 @@ else
   for job in research minute fund-flow tdx-shadow; do systemctl disable --now "quant-job@$job.timer"; done
 fi
 systemctl reload nginx
-echo 'Installed. UI :8080, admin :8081. Gateway Basic auth file: /etc/nginx/quant.htpasswd'
+echo 'Installed. UI :8080, admin :8081. Device login expires after 72 hours idle; accounts: /etc/nginx/quant.htpasswd'
