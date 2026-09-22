@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Button, Empty, Segmented, Skeleton, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import { Button, Empty, Segmented, Skeleton, Table, Tooltip, Typography } from 'antd';
 import { PlusOutlined, ReloadOutlined, RightOutlined } from '@ant-design/icons';
 import type {
   FactorSelectionBatch,
@@ -83,15 +83,7 @@ export default function FactorSelectionPanel({
 
   return <div className="factor-selection-panel">
     <div className="factor-selection-toolbar">
-      <div>
-        <Space size={8} wrap>
-          <Tag color="blue">{history.strategy}</Tag>
-          <Text type="secondary">数据截至 {history.dataAsOf}</Text>
-        </Space>
-        <Tooltip title={`选取综合得分前 ${history.methodology.selectionSize} 名；保留今日及此前 5 个交易日，收益按入选收盘价至最新收盘价计算。`}>
-          <Text type="secondary">前 {history.methodology.selectionSize} 名 · 收盘价口径</Text>
-        </Tooltip>
-      </div>
+      <Text type="secondary">数据截至 {history.dataAsOf}</Text>
       <Tooltip title="基于当前研究快照重新计算">
         <Button icon={<ReloadOutlined />} loading={loading} onClick={onRefresh}>刷新结果</Button>
       </Tooltip>
@@ -195,10 +187,5 @@ export default function FactorSelectionPanel({
       ]}
     />
 
-    <div className="factor-method-note">
-      <Text type="secondary">
-        处理流程：{history.methodology.processing.join(' → ')}。今日批次尚无持有期，因此入选收益显示为 0。
-      </Text>
-    </div>
   </div>;
 }

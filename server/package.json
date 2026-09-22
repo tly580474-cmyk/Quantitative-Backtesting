@@ -21,6 +21,8 @@
     "schedule:trading-day:check": "tsx src/research/scheduledResearchGuardCli.ts",
     "data:gate": "tsx src/research/dataHealthGateCli.ts",
     "data:coverage": "tsx src/research/dataCoverageMatrixCli.ts",
+    "data:adjustments:check": "tsx src/marketData/jobs/adjustmentBaselineCli.ts",
+    "data:adjustments:repair": "tsx src/marketData/jobs/adjustmentBaselineCli.ts --apply",
     "data:reconcile": "tsx src/research/dataReconciliationCli.ts",
     "data:volume-units:check": "tsx src/marketData/quality/volumeUnitRepairCli.ts",
     "data:volume-units:repair": "tsx src/marketData/quality/volumeUnitRepairCli.ts --apply",

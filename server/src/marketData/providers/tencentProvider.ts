@@ -15,6 +15,7 @@ import type {
 import { ProviderError } from './provider.js';
 
 const BASE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';
+const BJ_BASE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/newfqkline/get';
 const QUOTE_URL = 'https://qt.gtimg.cn/q=';
 const MAX_WINDOW_DAYS = 700;
 const MIN_REQUEST_INTERVAL_MS = 1800;
@@ -164,7 +165,9 @@ export class TencentMarketDataProvider implements MarketDataProvider {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 20000);
       try {
-        const response = await fetch(`${BASE_URL}?${params.toString()}`, {
+        // The legacy endpoint returns only the latest quote for Beijing stocks.
+        const baseUrl = code.startsWith('bj') ? BJ_BASE_URL : BASE_URL;
+        const response = await fetch(`${baseUrl}?${params.toString()}`, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
             Referer: 'https://stock.qq.com/',
@@ -260,7 +263,8 @@ export function parseCandles(
 ): ProviderCandle[] {
   const key = adjustment === 'none' ? 'day' : `${adjustment}day` as 'qfqday' | 'hfqday';
   const node = payload.data?.[code];
-  const rows = node?.[key] ?? [];
+  // Securities without adjustment events are returned under `day`, even for qfq/hfq requests.
+  const rows = node?.[key] ?? node?.day ?? [];
   const quote = node?.qt?.[code];
   const quoteDate = normalizeQuoteDate(quote?.[30]);
   const quotePreviousClose = Number(quote?.[4]);
@@ -383,13 +387,15 @@ function isIndexTencentCode(code: string): boolean {
 
 export function toTencentCode(symbol: string, market?: string): string {
   const value = symbol.trim().toLowerCase();
-  if (/^(sh|sz)\d{6}$/.test(value)) return value;
-  const suffixMatch = value.match(/^(\d{6})\.(sh|sz)$/);
+  if (/^(sh|sz|bj)\d{6}$/.test(value)) return value;
+  const suffixMatch = value.match(/^(\d{6})\.(sh|sz|bj)$/);
   if (suffixMatch) return `${suffixMatch[2]}${suffixMatch[1]}`;
   if (!/^\d{6}$/.test(value)) {
     throw new ProviderError(`暂不支持的腾讯证券代码：${symbol}`, 'invalid_params', false);
   }
-  const prefix = market?.toUpperCase() === 'SH'
+  const prefix = market?.toUpperCase() === 'BJ' || /^(920|[48])/.test(value)
+    ? 'bj'
+    : market?.toUpperCase() === 'SH'
     ? 'sh'
     : market?.toUpperCase() === 'SZ'
       ? 'sz'
@@ -425,11 +431,11 @@ function splitDateRange(start: string, end: string): Array<{ start: string; end:
 }
 
 function stripMarketPrefix(code: string): string {
-  return code.replace(/^(sh|sz)/, '');
+  return code.replace(/^(sh|sz|bj)/, '');
 }
 
 function marketFromCode(code: string): string {
-  return code.startsWith('sh') ? 'SH' : 'SZ';
+  return code.startsWith('bj') ? 'BJ' : code.startsWith('sh') ? 'SH' : 'SZ';
 }
 
 function inferInstrumentType(code: string): string {

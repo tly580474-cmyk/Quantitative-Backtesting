@@ -1,0 +1,24 @@
+{
+  "checkedAt": "2026-09-21T15:18:31.127Z",
+  "published": 82,
+  "bars": 4633,
+  "prices": 18532,
+  "within": 18532,
+  "withinTickRatio": 1,
+  "factors": 92,
+  "nonIdentity": 9,
+  "maxError": 0.0003448279316700109,
+  "coverage": {
+    "total": 5565,
+    "covered": 5565
+  },
+  "activeJobs": [
+    {
+      "job_type": "dataset-index-incremental",
+      "status": "running",
+      "n": 1
+    }
+  ],
+  "activeAgents": [],
+  "reportRoot": "/opt/quant-backtest/server/.cache/adjustment-baseline/1790003743526-23b0f828-5f83-4bc7-ab14-eb303c4403f5"
+}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Alert, Button, Empty, Segmented, Skeleton, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, Empty, Segmented, Skeleton, Table, Tooltip, Typography } from 'antd';
 import { PlusOutlined, ReloadOutlined, RightOutlined } from '@ant-design/icons';
 import type {
   Csi1000LowPbSelectionBatch,
@@ -94,16 +94,7 @@ export default function Csi1000LowPbPanel({
 
   return <div className="factor-selection-panel">
     <div className="factor-selection-toolbar">
-      <div>
-        <Space size={8} wrap>
-          <Tag color="gold">{history.strategy}</Tag>
-          <Tag>{history.methodology.rebalance} · {history.methodology.weighting}</Tag>
-          <Text type="secondary">结果数据截至 {history.dataAsOf} · 保留最近三期</Text>
-        </Space>
-        <Tooltip title={`锁定 ${batch.constituentDate} 的真实中证1000成分快照，按正PB升序取前 ${history.methodology.selectionSize} 只。`}>
-          <Text type="secondary">真实成分 · 低PB前 {history.methodology.selectionSize} 名</Text>
-        </Tooltip>
-      </div>
+      <Text type="secondary">数据截至 {history.dataAsOf}</Text>
       <Tooltip title="月度结果已保存，进入页面直接读取；新月份自动更新，也可手动重新计算最近三期。价格与收益截至结果数据日期。">
         <Button icon={<ReloadOutlined />} loading={loading} onClick={onRefresh}>重新计算</Button>
       </Tooltip>
@@ -188,7 +179,7 @@ export default function Csi1000LowPbPanel({
 
     <div className="factor-method-note">
       <Text type="secondary">
-        处理流程：{history.methodology.processing.join(' → ')}。成分快照：{batch.constituentSnapshotId.slice(0, 8)}…；结果未计交易成本与冲击成本。
+        收益未计交易及冲击成本。
       </Text>
     </div>
   </div>;

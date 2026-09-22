@@ -11,6 +11,38 @@ afterEach(() => {
 });
 
 describe('Tencent market data provider', () => {
+  it('accepts the day field for an unadjusted new listing requested as qfq/hfq', () => {
+    const node = { day: [['2026-09-21', '10', '11', '12', '9', '100']] };
+    for (const adjustment of ['qfq', 'hfq'] as const) {
+      expect(parseCandles({ data: { sz301531: node } }, 'sz301531', '301531', adjustment))
+        .toMatchObject([{ open: 10, close: 11 }]);
+    }
+    expect(parseCandles({ data: { sz301531: {
+      ...node, qfqday: [['2026-09-21', '8', '9', '10', '7', '100']],
+    } } }, 'sz301531', '301531', 'qfq')[0].open).toBe(8);
+  });
+
+  it('maps Beijing symbols and preserves Shanghai index routing', () => {
+    for (const symbol of ['920107', 'bj920107', '920107.BJ']) {
+      expect(toTencentCode(symbol)).toBe('bj920107');
+    }
+    expect(toTencentCode('430047')).toBe('bj430047');
+    expect(toTencentCode('832000')).toBe('bj832000');
+    expect(toTencentCode('932000')).toBe('sh932000');
+  });
+
+  it('uses the full-history endpoint for Beijing candles', async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request) => new Response(JSON.stringify({
+      code: 0, data: { bj920107: { day: [['2026-09-21', '10', '11', '12', '9', '100']] } },
+    })));
+    vi.stubGlobal('fetch', fetchMock);
+    const rows = await new TencentMarketDataProvider().fetchDailyCandles({
+      symbols: ['920107'], startDate: '2026-09-21', endDate: '2026-09-21', adjustment: 'qfq',
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/newfqkline/get?');
+    expect(rows).toMatchObject([{ symbol: '920107', close: 11 }]);
+  });
+
   it('maps Tencent OHLC rows using the live field order', () => {
     const candles = parseCandles({
       code: 0,

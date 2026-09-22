@@ -1,0 +1,14 @@
+[Unit]
+Description=Validate and publish missing stock adjustment baselines
+After=mysql.service network-online.target
+
+[Service]
+Type=oneshot
+User=quant
+Group=quant
+WorkingDirectory=/opt/quant-backtest/server
+Environment=TZ=Asia/Shanghai
+ExecStart=/usr/bin/node --import tsx src/marketData/jobs/adjustmentBaselineCli.ts --apply
+ExecStartPost=/usr/bin/node --import tsx src/research/dataCoverageMatrixCli.ts
+TimeoutStartSec=30min
+UMask=0077

@@ -683,9 +683,6 @@ export default function PaperTradingPage() {
             <Title level={3}>模拟交易</Title>
             <Tag color="blue" icon={<SafetyCertificateOutlined />}>仅模拟，不连接真实资金</Tag>
           </Space>
-          <Text type="secondary">
-            本地分钟数据优先 · A 股 T+1 · 订单与账本持久化
-          </Text>
         </div>
         <Space className="paper-trading-header-actions">
           <Select

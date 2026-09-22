@@ -1,0 +1,10 @@
+[Unit]
+Description=Check missing adjustment baselines after daily price sync
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 18:45:00 Asia/Shanghai
+Persistent=true
+Unit=quant-adjustment-baseline.service
+
+[Install]
+WantedBy=timers.target
