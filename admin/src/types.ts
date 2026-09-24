@@ -219,6 +219,8 @@ export interface DataUpdateProgressItem {
   currentDate?: string | null;
   processedRows?: number | null;
   etaAt?: string | null;
+  failureDetails?: Array<{ period: string | null; symbol: string | null; stage: string | null; message: string }>;
+  failureDetailsTotal?: number;
 }
 
 export interface DataUpdateProgressResponse {

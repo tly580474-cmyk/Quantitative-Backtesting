@@ -1,5 +1,5 @@
 import { useAdaptivePolling } from './useAdaptivePolling';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import {
   AlertOutlined,
   BarChartOutlined,
@@ -25,6 +25,7 @@ import {
   SafetyCertificateOutlined,
   SearchOutlined,
   SettingOutlined,
+  BulbOutlined,
   UpOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
@@ -205,6 +206,11 @@ function App() {
 }
 
 export function AdminShell({ token, onLogout }: { token: string; onLogout: () => void }) {
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => localStorage.getItem('quant-admin-theme') === 'light' ? 'light' : 'dark');
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('quant-admin-theme', theme);
+  }, [theme]);
   const [section, setSection] = useState<Section>('overview');
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [config, setConfig] = useState<AdminConfigItem[]>([]);
@@ -463,6 +469,9 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
           </NavButton>
         </nav>
           <div className="header-actions">
+            <button className="icon-button theme-toggle" type="button" aria-label={theme === 'dark' ? '切换到亮色主题' : '切换到深色主题'} title={theme === 'dark' ? '亮色主题' : '深色主题'} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+              <BulbOutlined /><span>{theme === 'dark' ? '亮色' : '深色'}</span>
+            </button>
             <div className="refresh-meta">
               <span>上次刷新</span>
               <strong>{lastRefresh ? lastRefresh.toLocaleTimeString('zh-CN', { hour12: false }) : '—'}</strong>
@@ -765,24 +774,12 @@ function OverviewSection({ overview, metrics, dataUpdates, backupExport, backupS
 
       {/* §4.1 最近 1 小时趋势 */}
       {metrics.length >= 2 && (
-        <Panel title="最近 1 小时趋势" subtitle={`${metrics.length} 个采样点`} icon={<DashboardOutlined />}>
+        <Panel title="最近 1 小时趋势" subtitle={`${metrics.length} 个采样点 · ${new Date(metrics[0].timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}—${new Date(metrics[metrics.length - 1].timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}`} icon={<DashboardOutlined />}>
           <div className="sparkline-grid">
-            <div className="sparkline-cell">
-              <span className="sparkline-label">RSS 内存</span>
-              <Sparkline data={rssData} color="var(--accent-primary)" width={200} height={40} />
-            </div>
-            <div className="sparkline-cell">
-              <span className="sparkline-label">堆使用</span>
-              <Sparkline data={heapData} color="var(--accent-primary)" width={200} height={40} />
-            </div>
-            <div className="sparkline-cell">
-              <span className="sparkline-label">磁盘使用率</span>
-              <Sparkline data={diskData} color="var(--status-warning)" width={200} height={40} />
-            </div>
-            <div className="sparkline-cell">
-              <span className="sparkline-label">DuckDB 队列</span>
-              <Sparkline data={queueData} color="var(--accent-primary)" width={200} height={40} />
-            </div>
+            <TrendPreview label="RSS 内存" data={rssData} color="var(--primary)" format={formatBytes} />
+            <TrendPreview label="堆使用" data={heapData} color="var(--cyan)" format={formatBytes} />
+            <TrendPreview label="磁盘使用率" data={diskData} color="var(--warning)" format={(value) => `${(value * 100).toFixed(1)}%`} />
+            <TrendPreview label="DuckDB 队列" data={queueData} color="var(--purple)" format={(value) => `${value} 个`} />
           </div>
         </Panel>
       )}
@@ -942,6 +939,25 @@ function DatabaseBackupPanel({ status, starting, onStart, onDownload }: {
 }
 
 export function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressItem[] }) {
+  const [detailKey, setDetailKey] = useState<DataUpdateProgressItem['key'] | null>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const detailItem = items.find((item) => item.key === detailKey) ?? null;
+  useEffect(() => {
+    if (!detailKey) return;
+    closeRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setDetailKey(null);
+        triggerRef.current?.focus();
+      } else if (event.key === 'Tab') {
+        event.preventDefault();
+        closeRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [detailKey]);
   const runningCount = items.filter((item) => item.status === 'running' || item.status === 'pending').length;
   const issueCount = items.filter((item) => item.status === 'failed' || item.failed > 0).length;
   return (
@@ -996,10 +1012,51 @@ export function DataUpdateProgressPanel({ items }: { items: DataUpdateProgressIt
                 </dl>
               )}
               <DataUpdateMessage message={item.message} updatedAt={item.updatedAt} />
+              {item.key === 'financial_reports' && (
+                <div className="data-update-card-footer">
+                  <button ref={triggerRef} className="data-update-detail-button" type="button" onClick={() => setDetailKey(item.key)}>
+                    查看详情 <span aria-hidden="true">→</span>
+                  </button>
+                </div>
+              )}
             </article>
           );
         })}
       </div>
+      {detailItem && (
+        <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetailKey(null); }}>
+          <section className="config-dialog financial-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="financial-detail-title">
+            <div className="dialog-header">
+              <div><span className="eyebrow">Financial reports</span><h2 id="financial-detail-title">财务报表更新详情</h2></div>
+              <button ref={closeRef} className="icon-button" type="button" aria-label="关闭详情" onClick={() => { setDetailKey(null); triggerRef.current?.focus(); }}><CloseOutlined /></button>
+            </div>
+            <div className="financial-detail-summary">
+              <div><span>成功</span><strong>{detailItem.completed.toLocaleString('zh-CN')}</strong></div>
+              <div><span>失败或部分完成</span><strong>{detailItem.failed.toLocaleString('zh-CN')}</strong></div>
+              <div><span>更新时间</span><strong>{detailItem.updatedAt ? new Date(detailItem.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '—'}</strong></div>
+            </div>
+            {detailItem.message && <p className="financial-detail-message">{detailItem.message}</p>}
+            <h3>已记录失败内容 {detailItem.failureDetailsTotal ? `(${detailItem.failureDetailsTotal})` : ''}</h3>
+            {detailItem.failureDetails?.length ? (
+              <>
+                <ul className="financial-failure-list">
+                  {detailItem.failureDetails.map((failure, index) => (
+                    <li key={`${failure.period}-${failure.symbol}-${failure.stage}-${index}`}>
+                      <div className="financial-failure-meta">
+                        {failure.period && <span>报告期 {failure.period}</span>}
+                        {failure.symbol && <strong>{failure.symbol}</strong>}
+                        {failure.stage && <span>{failure.stage}</span>}
+                      </div>
+                      <p>{failure.message}</p>
+                    </li>
+                  ))}
+                </ul>
+                {Math.max(detailItem.failureDetailsTotal ?? 0, detailItem.failed) > detailItem.failureDetails.length && <p className="financial-detail-note">当前展示 {detailItem.failureDetails.length} 条记录；更多明细请查任务日志。</p>}
+              </>
+            ) : <p className="financial-detail-empty">{detailItem.failed > 0 || detailItem.status === 'failed' ? '本次任务没有保存逐项失败明细，请参考上方错误摘要和任务日志。' : '本次任务没有失败内容。'}</p>}
+          </section>
+        </div>
+      )}
     </Panel>
   );
 }
@@ -1590,10 +1647,53 @@ function Sparkline({
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(' ');
+  const lastValue = data[data.length - 1];
+  const lastY = height - ((lastValue - min) / range) * (height - 4) - 2;
   return (
-    <svg className="sparkline" width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    <svg className="sparkline" width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+      <polygon points={`0,${height} ${points} ${width},${height}`} fill="color-mix(in srgb, var(--gauge) 12%, transparent)" />
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={width} cy={lastY} r="2.6" fill={color} />
     </svg>
+  );
+}
+
+function TrendPreview({ label, data, color, format }: {
+  label: string;
+  data: number[];
+  color: string;
+  format: (value: number) => string;
+}) {
+  const id = useId().replace(/:/g, '');
+  if (data.length < 2) return <div className="sparkline-cell"><span className="sparkline-label">{label}</span><p className="trend-empty">暂无足够采样</p></div>;
+  const first = data[0];
+  const latest = data[data.length - 1];
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const padding = Math.max((max - min) * .18, Math.abs(max) * .015, 1);
+  const low = min - padding;
+  const range = max - min + padding * 2;
+  const points = data.map((value, index) => ({
+    x: 4 + index / (data.length - 1) * 312,
+    y: 90 - (value - low) / range * 78,
+  }));
+  const line = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
+  const end = points[points.length - 1];
+  const delta = latest - first;
+  const hasVisibleChange = format(Math.abs(delta)) !== format(0);
+  return (
+    <div className="sparkline-cell" style={{ '--trend-color': color } as CSSProperties}>
+      <div className="trend-topline"><span className="sparkline-label">{label}</span><span className="trend-sample-count">{data.length} 点</span></div>
+      <div className="trend-value-line"><strong>{format(latest)}</strong><span className={hasVisibleChange && delta > 0 ? 'trend-delta is-up' : hasVisibleChange && delta < 0 ? 'trend-delta is-down' : 'trend-delta'}>{hasVisibleChange ? `${delta > 0 ? '+' : '−'}${format(Math.abs(delta))} 较起点` : '较起点持平'}</span></div>
+      <svg className="trend-chart" viewBox="0 0 320 100" preserveAspectRatio="none" role="img" aria-label={`${label}，当前 ${format(latest)}，区间最低 ${format(min)}，最高 ${format(max)}`}>
+        <defs><linearGradient id={`trend-fill-${id}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity=".23" /><stop offset="100%" stopColor={color} stopOpacity="0" /></linearGradient></defs>
+        <path className="trend-grid-line" d="M4 26 H316 M4 52 H316 M4 78 H316" />
+        <polygon points={`4,100 ${line} 316,100`} fill={`url(#trend-fill-${id})`} />
+        <polyline points={line} fill="none" stroke={color} strokeWidth="2.3" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        <circle cx={end.x} cy={end.y} r="4.5" fill={color} stroke="var(--surface-raised)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <div className="trend-range"><span>低 {format(min)}</span><span>高 {format(max)}</span></div>
+    </div>
   );
 }
 

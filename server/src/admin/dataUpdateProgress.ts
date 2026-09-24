@@ -27,6 +27,15 @@ export interface DataUpdateProgressItem {
   currentDate?: string | null;
   processedRows?: number | null;
   etaAt?: string | null;
+  failureDetails?: FinancialFailureDetail[];
+  failureDetailsTotal?: number;
+}
+
+export interface FinancialFailureDetail {
+  period: string | null;
+  symbol: string | null;
+  stage: string | null;
+  message: string;
 }
 
 interface MinuteProgressFile {
@@ -269,6 +278,7 @@ export function normalizeFinancialProgress(run: CollectorRun | null): DataUpdate
       undisclosed > 0 ? `${undisclosed} ${unit}尚未披露，已跳过` : null,
       failed > 0 ? `${failed} 只股票失败` : null,
     ].filter(Boolean).join(' · ') || null;
+  const failureDetails = collectFinancialFailureDetails(details);
   return {
     key: 'financial_reports',
     label: '财务报表',
@@ -284,7 +294,50 @@ export function normalizeFinancialProgress(run: CollectorRun | null): DataUpdate
     updatedAt: validTimestamp(run.finishedAt ?? details.updatedAt ?? run.startedAt),
     finishedAt: validTimestamp(run.finishedAt),
     message: summary,
+    failureDetails: failureDetails.items,
+    failureDetailsTotal: failureDetails.total,
   };
+}
+
+function collectFinancialFailureDetails(details: Record<string, unknown>): { items: FinancialFailureDetail[]; total: number } {
+  const items: FinancialFailureDetail[] = [];
+  let total = 0;
+  const add = (period: string | null, symbol: unknown, stage: unknown, message: unknown) => {
+    total += 1;
+    if (items.length >= 100) return;
+    items.push({
+      period,
+      symbol: typeof symbol === 'string' ? symbol : null,
+      stage: typeof stage === 'string' ? stage : null,
+      message: typeof message === 'string' ? message.slice(0, 1000) : String(message ?? '未知错误'),
+    });
+  };
+  if (Array.isArray(details.periods)) {
+    for (const rawPeriod of details.periods) {
+      if (!isRecord(rawPeriod)) continue;
+      const period = typeof rawPeriod.reportPeriod === 'string' ? rawPeriod.reportPeriod : null;
+      if (Array.isArray(rawPeriod.failures)) {
+        for (const raw of rawPeriod.failures) {
+          if (!isRecord(raw)) continue;
+          const symbols = Array.isArray(raw.symbols) ? raw.symbols : [raw.symbol];
+          for (const symbol of symbols) add(period, symbol, raw.stage, raw.error);
+        }
+      }
+      if (Array.isArray(rawPeriod.incomplete)) {
+        for (const raw of rawPeriod.incomplete) {
+          if (!isRecord(raw)) continue;
+          add(period, raw.symbol, '字段缺失', Array.isArray(raw.missing) ? raw.missing.join('、') : raw.missing);
+        }
+      }
+    }
+  }
+  if (Array.isArray(details.failures)) {
+    for (const raw of details.failures) {
+      if (!isRecord(raw)) continue;
+      add(null, raw.symbol, raw.stage, raw.error);
+    }
+  }
+  return { items, total };
 }
 
 function summarizeLegacyFinancialError(run: CollectorRun): string {

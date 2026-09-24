@@ -162,6 +162,22 @@ describe('admin data update progress', () => {
     expect(partial.failed).toBe(1);
   });
 
+  it('exposes the recorded financial failures by report period and symbol', () => {
+    const progress = normalizeFinancialProgress({
+      runKey: 'financial_reports:details', jobType: 'financial_reports', status: 'failed', attempts: 1,
+      startedAt: '2026-09-23T08:00:00Z', details: {
+        status: 'partial', apiRows: { symbols: 8, partialSymbols: 1, failedStages: 1 },
+        periods: [{ reportPeriod: '2026-06-30', failures: [{ stage: 'RPT_BALANCE', error: '接口超时' }],
+          incomplete: [{ symbol: '600426', missing: ['net_profit', 'revenue'] }] }],
+      },
+    });
+    expect(progress.failureDetails).toEqual([
+      { period: '2026-06-30', symbol: null, stage: 'RPT_BALANCE', message: '接口超时' },
+      { period: '2026-06-30', symbol: '600426', stage: '字段缺失', message: 'net_profit、revenue' },
+    ]);
+    expect(progress.failureDetailsTotal).toBe(2);
+  });
+
   it('uses the target count and heartbeat while a financial batch is running', () => {
     const progress = normalizeFinancialProgress({
       runKey: 'financial_reports:test', jobType: 'financial_reports', status: 'running',
