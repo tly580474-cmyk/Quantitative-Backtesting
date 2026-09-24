@@ -1,0 +1,47 @@
+{
+  "runId": "3378c931-a50d-4673-b99c-18eccfc1325c",
+  "status": "completed",
+  "reportId": 65,
+  "title": "研究报告：全A股市场宏观盈利质量分析（剔除金融与石油石化行业）",
+  "chartsCount": 12,
+  "bytes": 1495624,
+  "validation": {
+    "valid": true
+  },
+  "checks": [
+    {
+      "base": "http://127.0.0.1:3001",
+      "route": "html",
+      "http": 200,
+      "bytes": 1495534,
+      "images": 12,
+      "validation": {
+        "valid": true
+      }
+    },
+    {
+      "base": "http://127.0.0.1:3001",
+      "route": "download",
+      "http": 200,
+      "bytes": 1495624,
+      "images": 12,
+      "validation": {
+        "valid": true
+      }
+    },
+    {
+      "base": "http://127.0.0.1:8080",
+      "route": "html",
+      "http": 401,
+      "authenticatedAccessRequired": true
+    },
+    {
+      "base": "http://127.0.0.1:8080",
+      "route": "download",
+      "http": 401,
+      "authenticatedAccessRequired": true
+    }
+  ],
+  "verifiedAt": "2026-09-22T14:06:26.428Z",
+  "note": "Rendered the agent final answer from its research title onward; removed only operational preamble. Historical agent events were preserved."
+}

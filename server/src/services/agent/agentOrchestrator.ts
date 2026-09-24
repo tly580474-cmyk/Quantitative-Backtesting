@@ -8,7 +8,7 @@ import { AgentRepository } from './agentRepository.js';
 import { buildResearchContext } from './researchContext.js';
 import { validateAgentReport } from './reportValidator.js';
 import { renderStaticAgentReport } from './reportRenderer.js';
-import { collectReportAssets, taskArtifactDirectory } from './reportAssets.js';
+import { collectReportAssets, ReportAssetError, taskArtifactDirectory } from './reportAssets.js';
 import { detectToolFailure, isExecutedCommand } from './toolOutcome.js';
 import { AgentRunMetrics } from './runMetrics.js';
 import { fundFlowAmountMismatch, verifiedFundFlowReport, type FundFlowEvidence } from './fundFlowReportGuard.js';
@@ -337,14 +337,14 @@ export class AgentOrchestrator {
     let targetErrorMessage = errorMessage;
     if (status === 'completed' && active.shouldGenerateReport === true) {
       const renderStarted = Date.now();
-      const reportSaved = active.finalContent
+      const reportResult = active.finalContent
         ? await this.createStaticReport(runId, active.finalContent, repo, active.templateStyle, active.workingDirectory!, active.presentation)
-        : false;
+        : { saved: false, reason: '智能体未返回报告正文' };
       active.metrics.reportRenderMs = Date.now() - renderStarted;
-      if (!reportSaved) {
+      if (!reportResult.saved) {
         targetStatus = 'failed';
         targetErrorCode = 'REPORT_INVALID_OR_MISSING';
-        targetErrorMessage = '报告缺失或未通过静态安全校验';
+        targetErrorMessage = reportResult.reason ?? '报告生成失败，请查看服务端日志';
       }
     }
     const transitioned = await repo.transitionRun(
@@ -370,19 +370,24 @@ export class AgentOrchestrator {
 
   private async createStaticReport(
     runId: string, content: string, repo: AgentRepository, templateStyle: TemplateStyle, workingDirectory: string, presentation?: ReportPresentation,
-  ): Promise<boolean> {
+  ): Promise<{ saved: boolean; reason?: string }> {
     try {
       const assets = await collectReportAssets(content, workingDirectory, runId);
       const rendered = renderStaticAgentReport(content, templateStyle, assets, presentation);
       const bytes = Buffer.byteLength(rendered.html);
       const validation = validateAgentReport(rendered.html, bytes);
-      if (!validation.valid) return false;
+      if (!validation.valid) {
+        console.error(`[Agent] Report validation failed for ${runId}: ${validation.reason}`);
+        return { saved: false, reason: validation.reason ?? '报告未通过静态安全校验' };
+      }
       const reportPath = resolve(this.config.reportRoot, 'reports', `${runId}.html`);
       await writeFile(reportPath, rendered.html, 'utf8');
       await repo.saveReport(runId, rendered.title, reportPath, bytes, rendered.summary, rendered.chartsCount);
-      return true;
-    } catch {
-      return false;
+      return { saved: true };
+    } catch (error) {
+      console.error(`[Agent] Report generation failed for ${runId}:`, error);
+      return { saved: false, reason: error instanceof ReportAssetError
+        ? error.message : '报告生成失败，请查看服务端日志' };
     }
   }
 

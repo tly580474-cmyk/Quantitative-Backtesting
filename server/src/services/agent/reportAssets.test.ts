@@ -24,6 +24,15 @@ it('embeds only current task raster assets, counts them and rejects traversal an
     await expect(collectReportAssets('![秘密](private.png)', root, 'run-1')).rejects.toThrow('当前任务');
     await expect(collectReportAssets('![图](tmp_output/agent-runs/run-1/bad.svg)', root, 'run-1')).rejects.toThrow('PNG/JPEG');
     expect((await collectReportAssets('![图](https://evil.test/x.png)', root, 'run-1')).size).toBe(0);
+    const references: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      await writeFile(join(task, `chart${i}.png`), png);
+      references.push(`![图${i}](tmp_output/agent-runs/run-1/chart${i}.png)`);
+    }
+    expect((await collectReportAssets(references.join('\n'), root, 'run-1')).size).toBe(12);
+    await expect(collectReportAssets([...references,
+      '![第13张](tmp_output/agent-runs/run-1/chart13.png)'].join('\n'), root, 'run-1'))
+      .rejects.toThrow('引用了13张图，最多允许12张');
     if (process.platform !== 'win32') {
       await symlink(join(root, 'private.png'), join(task, 'escape.png'));
       await expect(collectReportAssets('![图](tmp_output/agent-runs/run-1/escape.png)', root, 'run-1')).rejects.toThrow('当前任务');

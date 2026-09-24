@@ -67,6 +67,27 @@ function harness() {
 }
 
 describe('AgentOrchestrator provider contract', () => {
+  it('preserves actionable report asset failures in the run and terminal event', async () => {
+    const { orchestrator, provider, execute, terminalPayloads } = harness();
+    const events: any[] = [];
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      orchestrator.addEventListener('run-too-many-images', event => events.push(event));
+      await orchestrator.start({ runId: 'run-too-many-images', prompt: '生成报告', maxTurns: 1, timeoutMs: 5000 });
+      await provider.sink!.reportDecision(true);
+      await provider.sink!.event({ type: 'assistant_final', timestamp: new Date().toISOString(),
+        publicContent: '# 研究报告\n' + Array.from({ length: 13 }, (_, i) =>
+          `![图${i}](tmp_output/agent-runs/run-too-many-images/chart${i}.png)`).join('\n') });
+      provider.complete();
+      for (let i = 0; i < 100 && orchestrator.isRunning('run-too-many-images'); i++) await new Promise(resolve => setTimeout(resolve, 10));
+      expect(terminalPayloads).toEqual([expect.objectContaining({ status: 'failed', errorCode: 'REPORT_INVALID_OR_MISSING' })]);
+      expect(events.find(event => event.type === 'terminal').publicContent).toContain('引用了13张图，最多允许12张');
+      expect(execute.mock.calls.some(([sql, values]) => sql.includes('UPDATE agent_runs')
+        && values?.some(value => String(value).includes('引用了13张图')))).toBe(true);
+      expect(execute.mock.calls.some(([sql]) => sql.includes('INSERT INTO agent_reports'))).toBe(false);
+      expect(log).toHaveBeenCalled();
+    } finally { log.mockRestore(); }
+  });
   it('replaces a tenfold fund-flow table error in both the public answer and saved report', async () => {
     const { orchestrator, provider, terminalPayloads, root } = harness();
     const publicEvents: any[] = [];
