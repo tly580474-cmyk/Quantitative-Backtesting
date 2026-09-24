@@ -9,7 +9,7 @@ import type { PriceRow } from '../../historyImport/factor.js';
 import { TencentMarketDataProvider } from '../providers/tencentProvider.js';
 import { buildAdjustmentBaseline } from './adjustmentBaseline.js';
 
-interface Target extends RowDataPacket { instrument_key: number; symbol: string; name: string }
+interface Target extends RowDataPacket { instrument_key: number; symbol: string; name: string; market: string }
 interface RawRow extends RowDataPacket, PriceRow {}
 const rawSql = `SELECT DATE_FORMAT(trade_date,'%Y-%m-%d') AS tradeDate, open,high,low,close
   FROM daily_bars_v2 WHERE instrument_key=? ORDER BY trade_date`;
@@ -26,7 +26,7 @@ async function main() {
     const [locks] = await lock.query<RowDataPacket[]>("SELECT GET_LOCK('adjustment-baseline',0) AS acquired");
     if (Number(locks[0].acquired) !== 1) throw new Error('Another baseline run holds the lock');
     await mkdir(reportRoot, { recursive: true });
-    const [targets] = await pool.query<Target[]>(`SELECT i.instrument_key,i.symbol,i.name
+    const [targets] = await pool.query<Target[]>(`SELECT i.instrument_key,i.symbol,i.name,i.market
       FROM instruments i LEFT JOIN adjustment_factor_publications p ON p.instrument_key=i.instrument_key
       WHERE i.type='stock' AND i.status='active' AND p.instrument_key IS NULL ORDER BY i.symbol`);
     const provider = new TencentMarketDataProvider();
@@ -35,7 +35,7 @@ async function main() {
       try {
         const [raw] = await pool.query<RawRow[]>(rawSql, [target.instrument_key]);
         if (!raw.length) throw new Error('No raw history');
-        const reference = await provider.fetchDailyCandles({ symbols: [target.symbol],
+        const reference = await provider.fetchDailyCandles({ symbols: [`${target.symbol}.${target.market}`],
           startDate: raw[0].tradeDate, endDate: raw.at(-1)!.tradeDate, adjustment: 'qfq' });
         const qfq = reference.map(row => ({ tradeDate: row.date, open: row.open,
           high: row.high, low: row.low, close: row.close }));

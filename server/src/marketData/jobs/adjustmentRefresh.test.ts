@@ -2,9 +2,29 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAdjustmentRefreshPlan,
   hasCorporateActionSignal,
+  latestCorporateActionSignal,
 } from './adjustmentRefresh.js';
 
 describe('incremental adjustment refresh', () => {
+  it('detects a corporate action before the last day of a history backfill', () => {
+    const bars = [
+      { tradeDate: '2026-07-09', close: 24.27, previousClose: 24.89, sourceKey: 2 },
+      { tradeDate: '2026-07-10', close: 18.63, previousClose: 18.48, sourceKey: 2 },
+      { tradeDate: '2026-07-13', close: 18.7, previousClose: 18.63, sourceKey: 2 },
+    ];
+    expect(latestCorporateActionSignal(bars, new Set(['2026-07-10', '2026-07-13'])))
+      .toEqual({ tradeDate: '2026-07-10', previousClose: 24.27, exReference: 18.48 });
+    expect(latestCorporateActionSignal(bars.map(b => ({ ...b, sourceKey: 1 })), new Set(bars.map(b => b.tradeDate))))
+      .toBeNull();
+  });
+  it('rejects a truncated qfq reference instead of calling a matching subset unchanged', () => {
+    const raw = [
+      { tradeDate: '2026-07-09', open: 24, high: 25, low: 23, close: 24.27 },
+      { tradeDate: '2026-07-10', open: 18.4, high: 18.99, low: 17.88, close: 18.63 },
+    ];
+    const plan = buildAdjustmentRefreshPlan([{ effectiveDate: '2020-01-01', factor: 1, offset: 0 }], raw, raw.slice(-1));
+    expect(plan).toMatchObject({ changed: false, reason: 'insufficient_reference' });
+  });
   it('detects an official ex-right reference price change', () => {
     expect(hasCorporateActionSignal(10, 9.5)).toBe(true);
     expect(hasCorporateActionSignal(10, 10)).toBe(false);

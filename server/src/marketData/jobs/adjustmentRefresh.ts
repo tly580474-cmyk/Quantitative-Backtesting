@@ -45,6 +45,12 @@ export function buildAdjustmentRefreshPlan(
   if (existingFactors.length === 0) {
     return emptyPlan('missing_baseline');
   }
+  const rawDates = new Set(rawRows.map(r => r.tradeDate));
+  const qfqDates = new Set(qfqRows.map(r => r.tradeDate));
+  if (!rawRows.length || rawDates.size !== rawRows.length || qfqDates.size !== qfqRows.length
+    || rawDates.size !== qfqDates.size || rawRows.some(r => !qfqDates.has(r.tradeDate))) {
+    return emptyPlan('insufficient_reference');
+  }
 
   const existingValidation = validateReconstruction(
     rawRows,
@@ -56,6 +62,7 @@ export function buildAdjustmentRefreshPlan(
   if (
     existingValidation.comparedPrices > 0
     && existingValidation.withinTickRatio >= QUALITY_RATIO
+    && existingValidation.maxAbsoluteError <= tickSize * 2.5
   ) {
     return {
       changed: false,
@@ -72,6 +79,7 @@ export function buildAdjustmentRefreshPlan(
     derived.factors.length < 2
     || derived.latestAnchorMismatch
     || derived.qfqStats.withinTickRatio < QUALITY_RATIO
+    || derived.qfqStats.maxAbsoluteError > tickSize * 2.5
   ) {
     return {
       ...emptyPlan('insufficient_reference'),
@@ -112,6 +120,7 @@ export function buildAdjustmentRefreshPlan(
   if (
     validation.comparedPrices === 0
     || validation.withinTickRatio < QUALITY_RATIO
+    || validation.maxAbsoluteError > tickSize * 2.5
   ) {
     return {
       ...emptyPlan('quality_failed'),
@@ -131,6 +140,20 @@ export function buildAdjustmentRefreshPlan(
     validation,
     reason: 'changed',
   };
+}
+
+export function latestCorporateActionSignal(bars: Array<{
+  tradeDate: string; close: number; previousClose?: number | null; sourceKey?: number;
+}>, fetchedDates: Set<string>) {
+  const sorted = [...bars].sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+  for (let index = sorted.length - 1; index > 0; index--) {
+    const row = sorted[index]; const prior = sorted[index - 1];
+    if (fetchedDates.has(row.tradeDate) && row.sourceKey !== 1
+      && hasCorporateActionSignal(prior.close, row.previousClose)) {
+      return { tradeDate: row.tradeDate, previousClose: prior.close, exReference: row.previousClose! };
+    }
+  }
+  return null;
 }
 
 function findLatestBoundary(factors: CompressedFactor[]): string | null {

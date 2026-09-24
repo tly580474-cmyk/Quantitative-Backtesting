@@ -484,6 +484,7 @@ export async function getPublishedFactorState(instrumentKey: number) {
 
 export async function publishHistoryAdjustment(input: {
   instrumentKey: number;
+  expectedFactorVersion: string;
   factorVersion: string;
   sourceBatchId: string;
   sourceRoot: string;
@@ -501,6 +502,13 @@ export async function publishHistoryAdjustment(input: {
 }): Promise<void> {
   const now = new Date().toISOString().slice(0, 23).replace('T', ' ');
   await getDb().transaction(async (tx) => {
+    const [current] = await tx.select({ factorVersion: adjustmentFactorPublications.factorVersion })
+      .from(adjustmentFactorPublications)
+      .where(eq(adjustmentFactorPublications.instrumentKey, input.instrumentKey))
+      .for('update');
+    if (current?.factorVersion !== input.expectedFactorVersion) {
+      throw new Error('ADJUSTMENT_PUBLICATION_CHANGED: revalidate before publishing');
+    }
     await tx.insert(dataImportBatches).values({
       id: input.sourceBatchId,
       sourceRoot: input.sourceRoot,

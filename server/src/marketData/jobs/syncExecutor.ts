@@ -41,7 +41,7 @@ import {
   assertStockDailyUpdateAfterClose,
   getChinaMarketSession,
 } from './marketSession.js';
-import { hasCorporateActionSignal } from './adjustmentRefresh.js';
+import { hasCorporateActionSignal, latestCorporateActionSignal } from './adjustmentRefresh.js';
 import {
   refreshAdjustmentAfterCorporateAction,
   sourceKeyForProvider,
@@ -698,6 +698,7 @@ async function executeIncrementalSync(
         instrumentId: instrument.id,
         instrumentKey: instrument.instrumentKey,
         symbol: instrument.symbol,
+        market: instrument.market,
         tradeDate: quote.date,
         storedPreviousClose: prior.close,
         officialPreviousClose: quote.previousClose!,
@@ -776,7 +777,7 @@ async function processSymbolCandles(
   // Fetch raw candles from provider
   const rawCandles = rawCandlesOverride ?? await fetchWithRetry(
     () => provider.fetchDailyCandles({
-      symbols: [symbol],
+      symbols: [`${instrument.symbol}.${instrument.market}`],
       startDate,
       endDate,
       adjustment: 'none',
@@ -823,31 +824,30 @@ async function processSymbolCandles(
       isFinal: candle.date < today || finalizeDailyBar,
     })));
 
-    const latestFetched = [...rawCandles].sort((a, b) =>
+    const latestFetched = rawCandles.filter(candle => candle.date < today || finalizeDailyBar).sort((a, b) =>
       a.date.localeCompare(b.date)).at(-1);
     if (
       latestFetched
       && (latestFetched.date < today || finalizeDailyBar)
-      && latestFetched.previousClose != null
     ) {
-      const lookbackStart = addDays(latestFetched.date, -14);
+      const earliestFetchedDate = rawCandles.map(row => row.date).sort()[0];
+      const lookbackStart = addDays(earliestFetchedDate, -14);
       const recentBars = await getHistoryDailyBarsInRange(
         instrument.instrumentKey,
         lookbackStart,
         latestFetched.date,
       );
-      const priorBar = [...recentBars]
-        .filter((bar) => bar.tradeDate < latestFetched.date)
-        .at(-1);
-      if (hasCorporateActionSignal(priorBar?.close, latestFetched.previousClose)) {
+      const signal = latestCorporateActionSignal(recentBars, new Set(rawCandles.map(row => row.date)));
+      if (signal) {
         try {
           await refreshAdjustmentAfterCorporateAction({
             instrumentId,
             instrumentKey: instrument.instrumentKey,
             symbol,
+            market: instrument.market,
             tradeDate: latestFetched.date,
-            storedPreviousClose: priorBar!.close,
-            officialPreviousClose: latestFetched.previousClose,
+            storedPreviousClose: signal.previousClose,
+            officialPreviousClose: signal.exReference,
             provider,
           });
         } catch (error) {

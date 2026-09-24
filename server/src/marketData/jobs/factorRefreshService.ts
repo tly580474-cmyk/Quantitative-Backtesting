@@ -16,6 +16,7 @@ export async function refreshAdjustmentAfterCorporateAction(input: {
   instrumentId: string;
   instrumentKey: number;
   symbol: string;
+  market: string;
   tradeDate: string;
   storedPreviousClose: number;
   officialPreviousClose: number;
@@ -23,20 +24,13 @@ export async function refreshAdjustmentAfterCorporateAction(input: {
 }): Promise<AdjustmentRefreshPlan> {
   const published = await getPublishedFactorState(input.instrumentKey);
   if (!published || published.factors.length === 0) {
-    return {
-      changed: false,
-      factors: [],
-      eventDate: null,
-      priorTransform: { factor: 1, offset: 0 },
-      validation: emptyValidation(),
-      reason: 'missing_baseline',
-    };
+    throw new Error('ADJUSTMENT_REFRESH_REJECTED: missing_baseline');
   }
 
-  const startDate = addDays(input.tradeDate, -LOOKBACK_CALENDAR_DAYS);
+  const startDate = adjustmentRefreshStart(input.tradeDate, published.publication.lastCheckedDate);
   const [rawBars, qfqBars] = await Promise.all([
     getHistoryDailyBarsInRange(input.instrumentKey, startDate, input.tradeDate),
-    fetchQfqWithRetry(input.provider, input.symbol, startDate, input.tradeDate),
+    fetchQfqWithRetry(input.provider, `${input.symbol}.${input.market}`, startDate, input.tradeDate),
   ]);
   const rawRows = rawBars.map((bar) => ({
     tradeDate: bar.tradeDate,
@@ -57,7 +51,11 @@ export async function refreshAdjustmentAfterCorporateAction(input: {
     rawRows,
     qfqRows,
   );
-  if (!plan.changed || !plan.eventDate) return plan;
+  if (!plan.changed) {
+    if (plan.reason !== 'unchanged') throw new Error(`ADJUSTMENT_REFRESH_REJECTED: ${plan.reason}`);
+    return plan;
+  }
+  if (!plan.eventDate) throw new Error('ADJUSTMENT_REFRESH_REJECTED: missing_event_date');
 
   const sourceFingerprint = createHash('sha256')
     .update(JSON.stringify({
@@ -72,6 +70,7 @@ export async function refreshAdjustmentAfterCorporateAction(input: {
 
   await publishHistoryAdjustment({
     instrumentKey: input.instrumentKey,
+    expectedFactorVersion: published.publication.factorVersion,
     factorVersion,
     sourceBatchId,
     sourceRoot: `provider:${input.provider.id}`,
@@ -128,13 +127,9 @@ function addDays(value: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-function emptyValidation() {
-  return {
-    comparedPrices: 0,
-    withinTickPrices: 0,
-    withinTickRatio: 0,
-    meanAbsoluteError: 0,
-    maxAbsoluteError: 0,
-    firstMismatchDate: null,
-  };
+export function adjustmentRefreshStart(tradeDate: string, lastCheckedDate: string | null) {
+  const recent = addDays(tradeDate, -LOOKBACK_CALENDAR_DAYS);
+  if (!lastCheckedDate || lastCheckedDate > tradeDate) return addDays(tradeDate, -190);
+  const beforeLastCheck = addDays(lastCheckedDate, -14);
+  return beforeLastCheck < recent ? beforeLastCheck : recent;
 }
