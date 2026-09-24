@@ -1,7 +1,7 @@
 import type { ResearchSnapshotManifest } from './snapshotManifest.js';
 
 export const DATASETS = [
-  { id: 'fund_flows', task: 'fund-flow', view: '', source: 'stock_fund_flows', date: 'tradeDate', purpose: '今日、近N交易日资金流及个股/行业排名', semantics: '主力=超大单+大单，金额亿元；按交易日历选择日期，逐日检查覆盖；行业为当前分类。' },
+  { id: 'fund_flows', task: 'fund-flow', view: '', source: 'stock_fund_flows_web_datacenter', date: 'tradeDate', purpose: '今日、近N交易日资金流及个股/行业排名', semantics: '默认eastmoney_web_datacenter：仅沪深，不含北交所、中小单；上游只提供最新日。主力=超大单+大单，金额亿元。历史单独选择--source akshare_eastmoney、tinyshare_moneyflow或tushare_gateway_eastmoney；禁止跨来源拼接或混算。按交易日历检查覆盖；行业为当前分类。' },
   { id: 'index_valuations', task: 'factor', view: '', source: 'unsupported', date: 'tradeDate', purpose: '官方指数历史PE/PB序列的可用性说明', semantics: '当前没有统一的官方指数历史估值入口；stock_valuations是个股估值，不能默认当作指数估值。' },
   { id: 'adjustments', task: 'cross-sectional', view: 'adjustment_factors', source: 'adjustment_factors', date: 'effectiveDate', purpose: '价格复权与除权处理', semantics: '按生效日匹配，使用 raw*factor+priceOffset。' },
   { id: 'index_prices', task: 'cross-sectional', view: 'index_bars', source: 'index_bars', date: 'tradeDate', purpose: '指数基准收益', semantics: '使用官方指数序列，明确价格或全收益口径。' },
@@ -53,7 +53,7 @@ export function datasetCoverage(id: string, manifest: ResearchSnapshotManifest |
 export function buildDataRoutingPrompt(): string {
   return `## 共享研究数据选择（Claude / Codex）
 - 统一发现入口：在项目根目录运行 node server/scripts/researchData.mjs catalog；只按任务需要选择 fund-flow、cross-sectional、factor、fundamental、event、intraday、quote。已知入口可直接使用，不必每轮重新读取完整目录。
-- 资金流直接执行 node server/scripts/researchData.mjs fund-flows --days 5 --group stock --top 10；--days 1 查最近交易日，--end YYYY-MM-DD 固定截止日，--group industry 查当前行业聚合，--symbol 600000 查单股。返回实际来源、逐日样本、日期、亿元金额和流入/流出排名。缺失交易日不自动回填更早日期。
+- 资金流直接执行 node server/scripts/researchData.mjs fund-flows --days 5 --group stock --top 10；--days 1 查最近交易日，--end YYYY-MM-DD 固定截止日，--group industry 查当前行业聚合，--symbol 600000 查单股。默认eastmoney_web_datacenter仅沪深主力、超大单及大单，不含北交所和中小单；从2026-09-24起独立积累，上游只提供最新日。旧历史必须显式--source akshare_eastmoney、tinyshare_moneyflow或tushare_gateway_eastmoney，禁止跨来源拼接或混算，缺失日期不能静默回退旧来源。返回实际来源、版本、逐日样本、日期、亿元金额和排名。
 - 全市场历史规律、筛选和因子验证优先 DuckDB；不要逐股调用行情 API。根目录直接执行 node server/scripts/researchData.mjs query --sql "SELECT ..." 或 query --file tmp_output/query.sql；文件路径相对项目根目录。查看字段用 describe daily_bars；复杂查询可在 server 目录使用 npm run duckdb -- query --file <文件> --dry-run。
 - 数据映射：${DATASETS.map(item => `${item.id} → ${item.view || item.source}（${item.purpose}）`).join('；')}。
 - describe <数据集> 返回实际 schema 与示例；coverage <数据集> --start YYYY-MM-DD --end YYYY-MM-DD 返回该数据集覆盖；doctor <数据集> 检查所选入口，不探测全部来源。fund-flows 已同时返回请求窗口的逐日覆盖，不必再并行或重复查询相同窗口的 coverage；资金流 coverage 的日期范围最多60个交易日。

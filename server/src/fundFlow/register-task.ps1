@@ -1,7 +1,6 @@
 param(
   [string]$TaskName = 'QuantBacktest-FundFlowUpdate',
-  [string]$At = '',
-  [string]$RetryAt = ''
+  [string]$At = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,18 +18,16 @@ function Resolve-ScheduleTime {
   return $Fallback
 }
 $At = Resolve-ScheduleTime $At 'FUND_FLOW_UPDATE_TIME' '16:20'
-$RetryAt = Resolve-ScheduleTime $RetryAt 'FUND_FLOW_RETRY_TIME' '17:20'
 $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
 $runner = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'run-fund-flow-update.ps1')).Path
 $argument = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runner`""
 $action = New-ScheduledTaskAction -Execute $powershell -Argument $argument -WorkingDirectory $serverRoot
 $triggers = @(
   New-ScheduledTaskTrigger -Daily -At $At
-  New-ScheduledTaskTrigger -Daily -At $RetryAt
 )
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew `
   -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -WakeToRun `
   -ExecutionTimeLimit (New-TimeSpan -Hours 2)
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers -Settings $settings `
-  -Description 'Persist daily A-share main, super-large, large, medium, and small order fund flows.' -Force | Out-Null
-Write-Output "Scheduled task '$TaskName' registered at $At and $RetryAt; working directory: $serverRoot"
+  -Description 'Persist isolated Eastmoney web datacenter SH/SZ main, super-large and large net flows. Failures require manual recovery.' -Force | Out-Null
+Write-Output "Scheduled task '$TaskName' registered at $At; working directory: $serverRoot"

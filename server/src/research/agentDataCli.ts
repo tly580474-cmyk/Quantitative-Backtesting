@@ -21,14 +21,14 @@ const exec = promisify(execFile);
 const server = fileURLToPath(new URL('../../', import.meta.url));
 const workspace = resolve(server, '..');
 const commands: Record<string, string[]> = {
-  catalog: ['--task'], describe: [], coverage: ['--start', '--end'], doctor: [],
-  'fund-flows': ['--end', '--days', '--top', '--group', '--symbol'],
+  catalog: ['--task'], describe: [], coverage: ['--start', '--end', '--source'], doctor: [],
+  'fund-flows': ['--end', '--days', '--top', '--group', '--symbol', '--source'],
 };
 const usage: Record<string, string> = {
   catalog: 'catalog [--task fund-flow|cross-sectional|factor|fundamental|event|intraday|quote]',
   describe: 'describe <dataset>', coverage: 'coverage <dataset> [--start YYYY-MM-DD] [--end YYYY-MM-DD]',
   doctor: 'doctor <dataset>', query: 'query --sql "SELECT ..." | --file tmp_output/query.sql [--param name=value] [--params-file file.json]',
-  'fund-flows': 'fund-flows [--end YYYY-MM-DD] [--days 1..60] [--group stock|industry] [--top 1..50] [--symbol 600000]',
+  'fund-flows': 'fund-flows [--end YYYY-MM-DD] [--days 1..60] [--group stock|industry] [--top 1..50] [--symbol 600000] [--source eastmoney_web_datacenter|akshare_eastmoney|tinyshare_moneyflow|tushare_gateway_eastmoney]；默认仅查询新数据中心来源，禁止混算',
   recipes: 'recipes', recipe: 'recipe candidate-screen|factor-layer-14 --end YYYY-MM-DD [--start YYYY-MM-DD] [--top 20] [--min-amount 100000000] [--dry-run]; recipe pe-dca --input <官方PE及价格JSON> [--window 252]',
   reuse: 'reuse --file tmp_output/agent-runs/<runId>/<产物.json>；查询可加 --save <产物.json>，所有命令可加 --refresh',
 };
@@ -127,7 +127,7 @@ async function main(argv: string[]): Promise<Record<string, unknown>> {
       return await queryFundFlows(pool, {
         end: flags.get('--end') ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
         days: Number(flags.get('--days') ?? 5), top: Number(flags.get('--top') ?? 10),
-        group: (flags.get('--group') ?? 'stock') as 'stock' | 'industry', symbol: flags.get('--symbol'),
+        group: (flags.get('--group') ?? 'stock') as 'stock' | 'industry', symbol: flags.get('--symbol'), source: flags.get('--source'),
         ...(command === 'coverage' && flags.has('--start') ? { start: flags.get('--start') } : {}),
       });
     } finally { await pool.end(); }

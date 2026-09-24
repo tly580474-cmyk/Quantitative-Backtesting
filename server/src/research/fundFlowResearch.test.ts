@@ -34,9 +34,27 @@ describe('fund flow read-only research', () => {
     await expect(queryFundFlows({ getConnection: async () => connection } as unknown as Pool, options)).rejects.toThrow('query failed');
     expect(query.mock.calls[0][0]).toBe('SET TRANSACTION READ ONLY');
     expect(query.mock.calls[1][1]).toEqual(['2026-09-20', 2]);
-    expect(query.mock.calls[2][1]).toEqual(['2026-09-18']);
+    expect(query.mock.calls[2][1]).toEqual(['2026-09-18', 'eastmoney_web_datacenter']);
+    expect(query.mock.calls[2][0]).toContain('FROM stock_fund_flows_web_datacenter');
+    expect(query.mock.calls[2][0]).toContain("i.market IN ('SH','SZ')");
     expect(connection.rollback).toHaveBeenCalledOnce();
     expect(connection.release).toHaveBeenCalledOnce();
+  });
+  it('selects exactly one legacy source and rejects combined or injected sources', async () => {
+    const query = vi.fn().mockResolvedValue([[]]).mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([rows([{ tradeDate: '2026-09-18' }])]);
+    const connection = { query, beginTransaction: vi.fn(), rollback: vi.fn(), release: vi.fn() };
+    const result = await queryFundFlows({ getConnection: async () => connection } as unknown as Pool,
+      { ...options, source: 'akshare_eastmoney' });
+    expect(result.source).toMatchObject({ table: 'stock_fund_flows', sourceKey: 'akshare_eastmoney' });
+    for (const call of [query.mock.calls[2],query.mock.calls[4],query.mock.calls[5]]) {
+      expect(call[0]).toContain('AND f.source_key=?');
+      expect(call[1]).toEqual(['2026-09-18','akshare_eastmoney']);
+    }
+    expect(query.mock.calls[3][1]).toEqual(['2026-09-18']);
+    for (const source of ['all','akshare_eastmoney,tinyshare_moneyflow',"x' OR 1=1"]) {
+      expect(() => validateFundFlowOptions({...options,source})).toThrow('INVALID_ARGUMENT');
+    }
   });
   it('checks a bounded explicit coverage range without requiring the default last-N length', async () => {
     const dateRows = rows([{ tradeDate: '2026-09-17' }, { tradeDate: '2026-09-18' }]);

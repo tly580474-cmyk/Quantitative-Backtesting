@@ -30,7 +30,7 @@ export function fundFlowEvidence(output: unknown): FundFlowEvidence | undefined 
         return { symbol: row.symbol, name: clean(row.name), net: row.mainNetInYi, days: row.daysCovered };
       });
     };
-    return { scope: JSON.stringify([data.requested.symbol ?? '*', daily]), daily,
+    return { scope: JSON.stringify([data.requested.symbol ?? '*', data.source?.sourceKey ?? data.source?.providers, daily]), daily,
       inflows: ranks(data.topInflow), outflows: ranks(data.topOutflow), complete: data.windowComplete === true,
       sources: (Array.isArray(data.source?.providers) ? data.source.providers : []).slice(0, 10).map((row: any) =>
         `${clean(row.sourceKey)} / ${clean(row.sourceVersion)}；最新采集 ${clean(row.latestFetchedAtShanghai ?? row.latestFetchedAtUtc ?? '未知时区')}（带显式时区）`),
@@ -69,7 +69,7 @@ export function verifiedFundFlowReport(data: FundFlowEvidence): string {
   const table = (rows: Rank[]) => ['| 代码 | 名称 | 净额（亿元） | 有数据天数 |', '|---|---|---:|---:|',
     ...rows.map(row => `| ${row.symbol} | ${row.name} | ${row.net.toFixed(2)} | ${row.days} |`)].join('\n');
   return `# A股主力资金流向核验简报\n\n> 模型草稿的每日金额未通过一致性检查；以下正文直接由本轮工具数据生成，未采用有误草稿。\n\n`
-    + `业务日期：${data.daily[0].date} 至 ${data.daily.at(-1)!.date}。本地 stock_fund_flows，只读查询；主力为超大单与大单净额之和，库内元除以 100000000 后为亿元。\n\n`
+    + `业务日期：${data.daily[0].date} 至 ${data.daily.at(-1)!.date}。本地资金流单一来源，只读查询；主力为超大单与大单净额之和，库内元除以 100000000 后为亿元。\n\n`
     + `实际来源：${data.sources.join('；') || '工具未提供来源明细'}。\n\n`
     + `## 每日主力净额（亿元）\n\n| 交易日 | 主力净额 | 实际样本数 | 本地日线参照数 |\n|---|---:|---:|---:|\n`
     + data.daily.map(row => `| ${row.date} | ${row.net?.toFixed(2) ?? '缺失'} | ${row.samples} | ${row.expected ?? '未知'} |`).join('\n')

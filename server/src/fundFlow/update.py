@@ -6,6 +6,7 @@ import math
 import os
 import sys
 import time
+from zoneinfo import ZoneInfo
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -15,10 +16,15 @@ import pandas as pd
 import pymysql
 import requests
 from pymysql.cursors import DictCursor
+if __package__:
+    from .sources import WEB_SOURCE, WEB_TABLE, WEB_VERSION, fetch_web_rows, web_record
+else:
+    from sources import WEB_SOURCE, WEB_TABLE, WEB_VERSION, fetch_web_rows, web_record
 
 
 SERVER_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PROGRESS = SERVER_ROOT / ".logs" / "fund-flow" / "progress.json"
+LEGACY_FROZEN = SERVER_ROOT / ".logs" / "fund-flow" / "legacy-frozen.json"
 PROCESS_STARTED_AT = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 UPSERT_FIELDS = (
     "instrument_key", "trade_date", "close_price", "change_pct",
@@ -208,7 +214,7 @@ def completed_stored_rows(connection: pymysql.Connection, source_key: str,
 
 def record_sync_date(connection: pymysql.Connection, source_key: str, trade_date: str,
                      status: str, provider_rows: int, stored_rows: int,
-                     expected_market_rows: int, error_message: str | None = None) -> None:
+                     expected_market_rows: int, error_message: str | None = None, *, commit: bool = True) -> None:
     coverage = stored_rows / expected_market_rows * 100 if expected_market_rows else None
     with connection.cursor() as cursor:
         cursor.execute(
@@ -227,24 +233,33 @@ def record_sync_date(connection: pymysql.Connection, source_key: str, trade_date
              expected_market_rows, coverage, error_message,
              datetime.now(UTC).replace(tzinfo=None)),
         )
-    connection.commit()
+    if commit:
+        connection.commit()
 
 
-def upsert_records(connection: pymysql.Connection, records: Iterable[dict[str, Any]], batch_size: int = 1000) -> int:
+def upsert_records(connection: pymysql.Connection, records: Iterable[dict[str, Any]], batch_size: int = 1000,
+                   table: str = "stock_fund_flows", *, commit: bool = True) -> int:
+    if table not in {"stock_fund_flows", WEB_TABLE}:
+        raise ValueError("unsupported fund-flow table")
+    if table == "stock_fund_flows" and LEGACY_FROZEN.exists():
+        raise RuntimeError("legacy fund-flow data is frozen; use the web datacenter source")
     records = list(records)
+    if table == WEB_TABLE and any(row.get("source_key") != WEB_SOURCE for row in records):
+        raise ValueError("cannot mix sources in datacenter storage")
     if not records:
         return 0
     placeholders = ",".join(["%s"] * len(UPSERT_FIELDS))
     updates = ",".join(f"{field}=VALUES({field})" for field in UPSERT_FIELDS[2:])
     sql = (
-        f"INSERT INTO stock_fund_flows ({','.join(UPSERT_FIELDS)}) VALUES ({placeholders}) "
+        f"INSERT INTO {table} ({','.join(UPSERT_FIELDS)}) VALUES ({placeholders}) "
         f"ON DUPLICATE KEY UPDATE {updates}"
     )
     with connection.cursor() as cursor:
         for offset in range(0, len(records), batch_size):
             batch = records[offset:offset + batch_size]
             cursor.executemany(sql, [[record.get(field) for field in UPSERT_FIELDS] for record in batch])
-    connection.commit()
+    if commit:
+        connection.commit()
     return len(records)
 
 
@@ -377,14 +392,14 @@ def run_tinyshare_backfill(args: argparse.Namespace) -> int:
 
 
 def infer_market(symbol: str) -> str:
-    if symbol.startswith(("4", "8")):
+    if symbol.startswith(("4", "8", "92")):
         return "BJ"
     if symbol.startswith(("6", "9")):
         return "SH"
     return "SZ"
 
 
-def fetch_eastmoney_rank_fallback() -> pd.DataFrame:
+def fetch_legacy_eastmoney_rank_fallback() -> pd.DataFrame:
     endpoints = (
         "https://push2delay.eastmoney.com/api/qt/clist/get",
         "https://push2.eastmoney.com/api/qt/clist/get",
@@ -440,7 +455,15 @@ def fetch_akshare_daily_frame() -> pd.DataFrame:
     except Exception as primary_error:
         print(json.dumps({"warning": "AKShare wrapper failed; using its Eastmoney source with endpoint rotation",
                           "error": str(primary_error)}, ensure_ascii=False), file=sys.stderr, flush=True)
-        return fetch_eastmoney_rank_fallback()
+        return fetch_legacy_eastmoney_rank_fallback()
+
+
+def fetch_eastmoney_rank_fallback(trade_date: str | None = None) -> pd.DataFrame:
+    """Different API family with its own contract; never label these rows as AKShare."""
+    trade_date = trade_date or datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    frame = pd.DataFrame(fetch_web_rows(trade_date))
+    frame.attrs.update(source_key=WEB_SOURCE, source_version=WEB_VERSION)
+    return frame
 
 
 def resolve_daily_trade_date(connection: pymysql.Connection, requested: str | None) -> str:
@@ -462,50 +485,74 @@ def resolve_daily_trade_date(connection: pymysql.Connection, requested: str | No
 
 
 def run_akshare_daily(args: argparse.Namespace) -> int:
+    raise RuntimeError("AKShare daily updates retired; daily now uses eastmoney_web_datacenter")
+
+
+def run_web_daily(args: argparse.Namespace) -> int:
     connection = connect_db()
     progress = Path(args.progress_file)
+    trade_date = None
+    owns_lock = False
     try:
-        _, by_symbol_market = load_instruments(connection)
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT GET_LOCK('fund-flow-web-daily', 0) AS acquired")
+            if cursor.fetchone()["acquired"] != 1:
+                raise RuntimeError("another web fund-flow update is running")
+            owns_lock = True
+        by_provider, _ = load_instruments(connection)
         trade_date = resolve_daily_trade_date(connection, args.trade_date)
-        write_progress(progress, status="running", phase="akshare-daily", completed=0,
-                       total=1, failed=0, inserted=0, currentDate=trade_date)
+        today = datetime.now(ZoneInfo("Asia/Shanghai"))
+        if trade_date > today.date().isoformat() or (trade_date == today.date().isoformat() and today.hour < 15):
+            raise ValueError("daily final fund flows must be collected after market close")
+        if not args.dry_run:
+            write_progress(progress, status="running", phase="web-datacenter-daily", completed=0,
+                           total=1, failed=0, inserted=0, currentDate=trade_date)
         frame = call_with_retries(
-            fetch_akshare_daily_frame,
+            lambda: fetch_eastmoney_rank_fallback(trade_date),
             args.attempts,
             args.retry_delay,
         )
         fetched_at = datetime.now(UTC).replace(tzinfo=None)
         records = []
         unmatched = 0
-        invalid = 0
-        for row in frame.itertuples(index=False, name=None):
-            symbol = str(row[1]).split(".")[0].zfill(6)
-            instrument = by_symbol_market.get(f"{infer_market(symbol)}:{symbol}")
+        for row in frame.to_dict("records"):
+            instrument = by_provider.get(str(row.get("SECUCODE", "")))
             if not instrument:
                 unmatched += 1
                 continue
-            try:
-                records.append(akshare_record(list(row), instrument.instrument_key, trade_date, fetched_at))
-            except ValueError:
-                invalid += 1
-        expected = len([item for item in by_symbol_market.values() if item.market in {"SH", "SZ", "BJ"}])
-        coverage = len(records) / expected if expected else 0
+            records.append(web_record(row, instrument.instrument_key, trade_date, fetched_at))
+        if unmatched:
+            raise ValueError(f"unmapped datacenter securities: {unmatched}; refresh instrument master first")
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT b.instrument_key FROM daily_bars_v2 b JOIN instruments i "
+                           "ON i.instrument_key=b.instrument_key WHERE b.trade_date=%s "
+                           "AND i.type='stock' AND i.market IN ('SH','SZ')", (trade_date,))
+            expected_keys = {r['instrument_key'] for r in cursor.fetchall()}
+        expected = len(expected_keys)
+        coverage = len(expected_keys & {r['instrument_key'] for r in records}) / expected if expected else 0
         if coverage < args.min_coverage:
             raise RuntimeError(
                 f"coverage {coverage:.2%} below {args.min_coverage:.2%} "
-                f"(records={len(records)}, instruments={expected}, unmatched={unmatched}, invalid={invalid})"
+                f"(records={len(records)}, SH/SZ reference={expected}, unmatched={unmatched})"
             )
-        inserted = upsert_records(connection, records)
-        write_progress(progress, status="completed", phase="akshare-daily", completed=1,
+        if args.dry_run:
+            print(json.dumps({"status": "validated", "date": trade_date, "rows": len(records), "source": WEB_SOURCE}))
+            return 0
+        inserted = upsert_records(connection, records, table=WEB_TABLE, commit=False)
+        record_sync_date(connection, WEB_SOURCE, trade_date, "completed", len(frame), inserted, expected, commit=False)
+        connection.commit()
+        write_progress(progress, status="completed", phase="web-datacenter-daily", completed=1,
                        total=1, failed=0, inserted=inserted, currentDate=trade_date,
-                       coverage=round(coverage, 4))
+                       coverage=round(coverage, 4), sourceKey=WEB_SOURCE, sourceVersion=WEB_VERSION,
+                       message=f"东财数据中心：沪深 {inserted:,} 只；不含北交所，中小单未提供；旧来源已停止更新。")
         print(json.dumps({"date": trade_date, "rows": inserted, "coverage": round(coverage, 4),
-                          "unmatched": unmatched, "invalid": invalid}, ensure_ascii=False))
+                          "sourceKey": WEB_SOURCE, "unmatched": unmatched}, ensure_ascii=False))
         return 0
     except Exception as exc:
         connection.rollback()
-        write_progress(progress, status="failed", phase="akshare-daily", completed=0,
-                       total=1, failed=1, inserted=0, currentDate=args.trade_date, message=str(exc))
+        if not args.dry_run and owns_lock:
+            write_progress(progress, status="failed", phase="web-datacenter-daily", completed=0,
+                           total=1, failed=1, inserted=0, currentDate=trade_date, message=str(exc))
         raise
     finally:
         connection.close()
@@ -523,12 +570,13 @@ def build_parser() -> argparse.ArgumentParser:
     backfill.add_argument("--request-interval", type=float, default=0.3)
     backfill.add_argument("--continue-on-error", action="store_true")
     backfill.add_argument("--progress-file", default=str(DEFAULT_PROGRESS))
-    daily = subparsers.add_parser("daily", help="update one completed trade date from AKShare")
+    daily = subparsers.add_parser("daily", help="update latest SH/SZ date from the isolated web datacenter source")
     daily.add_argument("--trade-date")
-    daily.add_argument("--min-coverage", type=float, default=0.85)
-    daily.add_argument("--attempts", type=int, default=4)
+    daily.add_argument("--min-coverage", type=float, default=0.95)
+    daily.add_argument("--attempts", type=int, default=1)
     daily.add_argument("--retry-delay", type=float, default=5.0)
     daily.add_argument("--progress-file", default=str(DEFAULT_PROGRESS))
+    daily.add_argument("--dry-run", action="store_true")
     return parser
 
 
@@ -536,8 +584,8 @@ def main() -> int:
     load_env()
     args = build_parser().parse_args()
     if args.command == "backfill":
-        return run_tinyshare_backfill(args)
-    return run_akshare_daily(args)
+        raise RuntimeError("legacy backfill command retired; use the audited one-time gap backfill")
+    return run_web_daily(args)
 
 
 if __name__ == "__main__":

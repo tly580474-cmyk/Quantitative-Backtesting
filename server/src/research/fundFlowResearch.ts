@@ -1,6 +1,10 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 
-export interface FundFlowOptions { end: string; days: number; top: number; group: 'stock' | 'industry'; symbol?: string; start?: string; }
+export const FUND_FLOW_SOURCES = ['eastmoney_web_datacenter', 'akshare_eastmoney', 'tinyshare_moneyflow', 'tushare_gateway_eastmoney'] as const;
+export const DEFAULT_FUND_FLOW_SOURCE = FUND_FLOW_SOURCES[0];
+export interface FundFlowOptions { end: string; days: number; top: number; group: 'stock' | 'industry'; symbol?: string; start?: string; source?: string; }
+const sourceTable = (source?: string) => (source ?? DEFAULT_FUND_FLOW_SOURCE) === DEFAULT_FUND_FLOW_SOURCE
+  ? 'stock_fund_flows_web_datacenter' : 'stock_fund_flows';
 export const FUND_FLOW_FIELDS = {
   tradeDate: '交易日 YYYY-MM-DD，最近N日按SH交易日历选择，缺数据不向更早日期补齐',
   mainNetInYi: '主力净流入，超大单+大单；库内main_net_in单位为元，除以100000000后输出亿元；负数为净流出',
@@ -14,6 +18,7 @@ export const FUND_FLOW_FIELDS = {
 };
 
 export function validateFundFlowOptions(input: FundFlowOptions): void {
+  if (input.source != null && !FUND_FLOW_SOURCES.includes(input.source as typeof FUND_FLOW_SOURCES[number])) throw new Error('INVALID_ARGUMENT: source 必须为单一已登记资金流来源');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.end) || !Number.isFinite(Date.parse(input.end))
     || new Date(input.end).toISOString().slice(0, 10) !== input.end) throw new Error('INVALID_ARGUMENT: end 必须为有效 YYYY-MM-DD');
   if (!Number.isInteger(input.days) || input.days < 1 || input.days > 60) throw new Error('INVALID_ARGUMENT: days 必须为 1..60 个交易日');
@@ -55,7 +60,10 @@ export function buildFundFlowResult(input: FundFlowOptions, dates: string[], dai
     kind: 'research-data', ok: true, usable: known.length > 0, dataset: 'fund_flows',
     status: !known.length ? 'no-data' : partial ? 'partial' : 'available',
     retrievedAt: capturedAt, requested: { ...input, ...(input.start ? { days: undefined } : {}) }, unit: '亿元', fields: FUND_FLOW_FIELDS,
-    source: { table: 'stock_fund_flows', scope: '本地落库A股（SH/SZ/BJ stock）；只读，不触发上游更新', providers: sources },
+    source: { table: sourceTable(input.source), sourceKey: input.source ?? DEFAULT_FUND_FLOW_SOURCE,
+      scope: (input.source ?? DEFAULT_FUND_FLOW_SOURCE) === DEFAULT_FUND_FLOW_SOURCE
+        ? '沪深A股；不含北交所、中单、小单及净额占比；仅采集当日，缺失历史不回退其他来源'
+        : '已冻结历史来源；只读查询单一source_key，不与其他来源拼接或汇总', providers: sources },
     dates, missingDates, calendarDaysFound: dates.length, windowComplete: !partial,
     coverageNote: 'available仅表示选定交易日有记录；逐日样本数、覆盖率、非最终记录及排名对象daysCovered需单独检查。样本差异的原因尚未逐股核实，不得归因为停牌或来源遗漏。',
     classification: input.group === 'industry' ? {
@@ -93,17 +101,20 @@ export async function queryFundFlows(pool: Pool, input: FundFlowOptions) {
     if (input.start && dates.length > 60) throw new Error('INVALID_ARGUMENT: 资金流 coverage 范围最多60个交易日，请缩小 start/end');
     if (!dates.length) return buildFundFlowResult(input, [], [], [], [], [], new Date().toISOString());
     const marks = dates.map(() => '?').join(',');
-    const filter = `i.type='stock' AND i.market IN ('SH','SZ','BJ')${input.symbol ? ' AND i.symbol=?' : ''}`;
+    const source = input.source ?? DEFAULT_FUND_FLOW_SOURCE;
+    const markets = source === DEFAULT_FUND_FLOW_SOURCE ? "'SH','SZ'" : "'SH','SZ','BJ'";
+    const filter = `i.type='stock' AND i.market IN (${markets})${input.symbol ? ' AND i.symbol=?' : ''}`;
     const params = [...dates, ...(input.symbol ? [input.symbol] : [])];
+    const flowParams = [...params, source];
     // Bound work by the requested dates. The production optimizer otherwise chooses
     // instruments first and scans every instrument's multi-year primary-key history.
-    const from = `FROM stock_fund_flows f FORCE INDEX (idx_sff_trade_date_instrument)
+    const from = `FROM ${sourceTable(source)} f FORCE INDEX (idx_sff_trade_date_instrument)
       STRAIGHT_JOIN instruments i ON i.instrument_key=f.instrument_key
-      WHERE f.trade_date IN (${marks}) AND ${filter}`;
+      WHERE f.trade_date IN (${marks}) AND ${filter} AND f.source_key=?`;
     const daily = await rows(connection, `SELECT /*+ MAX_EXECUTION_TIME(30000) */
       DATE_FORMAT(f.trade_date,'%Y-%m-%d') tradeDate, COUNT(*) sampleCount,
       SUM(f.main_net_in)/100000000 mainNetInYi, SUM(f.super_large_net_in)/100000000 superLargeNetInYi,
-      SUM(f.large_net_in)/100000000 largeNetInYi, SUM(f.is_final<>1) nonFinalCount ${from} GROUP BY f.trade_date`, params);
+      SUM(f.large_net_in)/100000000 largeNetInYi, SUM(f.is_final<>1) nonFinalCount ${from} GROUP BY f.trade_date`, flowParams);
     const expected = await rows(connection, `SELECT /*+ MAX_EXECUTION_TIME(30000) */
       DATE_FORMAT(b.trade_date,'%Y-%m-%d') tradeDate, COUNT(*) expectedCount
       FROM daily_bars_v2 b FORCE INDEX (idx_dbv2_trade_date_instrument)
@@ -114,11 +125,11 @@ export async function queryFundFlows(pool: Pool, input: FundFlowOptions) {
     const group = input.group === 'industry' ? `COALESCE(NULLIF(i.industry,''),'未分类')` : 'i.market,i.symbol,i.name';
     const rankings = await rows(connection, `SELECT /*+ MAX_EXECUTION_TIME(30000) */ ${identity},
       SUM(f.main_net_in)/100000000 mainNetInYi, COUNT(DISTINCT f.trade_date) daysCovered,
-      COUNT(DISTINCT f.instrument_key) sampleCount ${from} GROUP BY ${group}`, params);
+      COUNT(DISTINCT f.instrument_key) sampleCount ${from} GROUP BY ${group}`, flowParams);
     const sources = await rows(connection, `SELECT f.source_key sourceKey, f.source_version sourceVersion,
       COUNT(*) rowsCount, DATE_FORMAT(MAX(f.fetched_at),'%Y-%m-%dT%H:%i:%sZ') latestFetchedAtUtc,
       DATE_FORMAT(DATE_ADD(MAX(f.fetched_at), INTERVAL 8 HOUR),'%Y-%m-%dT%H:%i:%s+08:00') latestFetchedAtShanghai
-      ${from} GROUP BY f.source_key,f.source_version`, params);
+      ${from} GROUP BY f.source_key,f.source_version`, flowParams);
     return buildFundFlowResult(input, dates, daily, expected, rankings, sources, new Date().toISOString());
   } finally {
     try { await connection.rollback(); } finally { connection.release(); }

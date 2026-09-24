@@ -1,0 +1,193 @@
+{
+  "legacySources": [
+    {
+      "source_key": "tinyshare_moneyflow",
+      "source_version": "moneyflow-v1-main=lg+elg",
+      "n": 13889865
+    },
+    {
+      "source_key": "akshare_eastmoney",
+      "source_version": "stock_individual_fund_flow_rank-today",
+      "n": 156198
+    },
+    {
+      "source_key": "tushare_gateway_eastmoney",
+      "source_version": "jiaoch:moneyflow_dc-v1-wanyuan-to-yuan",
+      "n": 16656
+    }
+  ],
+  "backfillDates": [
+    {
+      "trade_date": "2026-08-20",
+      "n": 5541
+    },
+    {
+      "trade_date": "2026-09-23",
+      "n": 5557
+    },
+    {
+      "trade_date": "2026-09-24",
+      "n": 5558
+    }
+  ],
+  "webSource": [
+    {
+      "source_key": "eastmoney_web_datacenter",
+      "source_version": "RPT_DMSK_TS_STOCKNEW-v1-yuan-main=elg+lg",
+      "trade_date": "2026-09-24",
+      "n": 5199,
+      "missingClose": "4",
+      "missingChange": "16",
+      "inventedSizes": "0",
+      "maxIdentityError": 0.0
+    }
+  ],
+  "webMissingFromDailyBars": [
+    {
+      "symbol": "601123",
+      "market": "SH",
+      "name": "马矿股份"
+    },
+    {
+      "symbol": "301677",
+      "market": "SZ",
+      "name": "欣兴工具"
+    },
+    {
+      "symbol": "301688",
+      "market": "SZ",
+      "name": "格林生物"
+    },
+    {
+      "symbol": "301686",
+      "market": "SZ",
+      "name": "C中塑"
+    },
+    {
+      "symbol": "301655",
+      "market": "SZ",
+      "name": "绿控传动"
+    },
+    {
+      "symbol": "301583",
+      "market": "SZ",
+      "name": "托伦斯"
+    },
+    {
+      "symbol": "001232",
+      "market": "SZ",
+      "name": "嘉立创"
+    },
+    {
+      "symbol": "688836",
+      "market": "SH",
+      "name": "宇树科技"
+    },
+    {
+      "symbol": "301717",
+      "market": "SZ",
+      "name": "超纯应材"
+    },
+    {
+      "symbol": "688837",
+      "market": "SH",
+      "name": "C信诺维"
+    },
+    {
+      "symbol": "688825",
+      "market": "SH",
+      "name": "长鑫科技"
+    },
+    {
+      "symbol": "688806",
+      "market": "SH",
+      "name": "泰诺麦博"
+    },
+    {
+      "symbol": "688835",
+      "market": "SH",
+      "name": "高凯技术"
+    },
+    {
+      "symbol": "688826",
+      "market": "SH",
+      "name": "频准激光"
+    },
+    {
+      "symbol": "301707",
+      "market": "SZ",
+      "name": "展芯股份"
+    },
+    {
+      "symbol": "688828",
+      "market": "SH",
+      "name": "国仪公司"
+    },
+    {
+      "symbol": "301699",
+      "market": "SZ",
+      "name": "洛轴股份"
+    },
+    {
+      "symbol": "601091",
+      "market": "SH",
+      "name": "C沈鼓集团"
+    },
+    {
+      "symbol": "301697",
+      "market": "SZ",
+      "name": "贝特利"
+    },
+    {
+      "symbol": "603448",
+      "market": "SH",
+      "name": "天博智能科技"
+    },
+    {
+      "symbol": "301689",
+      "market": "SZ",
+      "name": "电科思仪"
+    },
+    {
+      "symbol": "688801",
+      "market": "SH",
+      "name": "燧原科技"
+    },
+    {
+      "symbol": "603468",
+      "market": "SH",
+      "name": "津富士达"
+    }
+  ],
+  "webBeijingRows": 0,
+  "legacyMissingWholeTradingDates": 0,
+  "syncDates": [
+    {
+      "source_key": "eastmoney_web_datacenter",
+      "trade_date": "2026-09-24",
+      "status": "completed",
+      "stored_rows": 5199
+    },
+    {
+      "source_key": "tushare_gateway_eastmoney",
+      "trade_date": "2026-08-20",
+      "status": "completed",
+      "stored_rows": 5541
+    },
+    {
+      "source_key": "tushare_gateway_eastmoney",
+      "trade_date": "2026-09-23",
+      "status": "completed",
+      "stored_rows": 5557
+    },
+    {
+      "source_key": "tushare_gateway_eastmoney",
+      "trade_date": "2026-09-24",
+      "status": "completed",
+      "stored_rows": 5558
+    }
+  ],
+  "legacyExistingSourceCountsUnchanged": true,
+  "credentialRemoved": true,
+  "legacyFrozen": true
+}

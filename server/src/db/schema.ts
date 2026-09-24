@@ -731,6 +731,33 @@ export const stockFundFlows = mysqlTable('stock_fund_flows', {
   sourceDateIdx: index('idx_sff_source_date').on(table.sourceKey, table.tradeDate),
 }));
 
+export const stockFundFlowsWebDatacenter = mysqlTable('stock_fund_flows_web_datacenter', {
+  instrumentKey: int('instrument_key', { unsigned: true }).notNull(),
+  tradeDate: date('trade_date', { mode: 'string' }).notNull(),
+  closePrice: double('close_price'),
+  changePct: double('change_pct'),
+  mainNetIn: double('main_net_in').notNull(),
+  mainNetRatio: double('main_net_ratio'),
+  superLargeNetIn: double('super_large_net_in').notNull(),
+  superLargeNetRatio: double('super_large_net_ratio'),
+  largeNetIn: double('large_net_in').notNull(),
+  largeNetRatio: double('large_net_ratio'),
+  mediumNetIn: double('medium_net_in'),
+  mediumNetRatio: double('medium_net_ratio'),
+  smallNetIn: double('small_net_in'),
+  smallNetRatio: double('small_net_ratio'),
+  providerNetIn: double('provider_net_in'),
+  sourceKey: varchar('source_key', { length: 32 }).notNull(),
+  sourceVersion: varchar('source_version', { length: 64 }).notNull(),
+  fetchedAt: datetime('fetched_at', { mode: 'string' }).notNull(),
+  isFinal: int('is_final', { unsigned: true }).notNull().default(1),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.instrumentKey, table.tradeDate] }),
+  tradeDateIdx: index('idx_sff_trade_date_instrument').on(table.tradeDate, table.instrumentKey),
+  tradeDateMainIdx: index('idx_sff_trade_date_main').on(table.tradeDate, table.mainNetIn),
+  sourceDateIdx: index('idx_sff_source_date').on(table.sourceKey, table.tradeDate),
+}));
+
 export const fundFlowSyncDates = mysqlTable('fund_flow_sync_dates', {
   sourceKey: varchar('source_key', { length: 32 }).notNull(),
   tradeDate: date('trade_date', { mode: 'string' }).notNull(),

@@ -1,0 +1,28 @@
+-- Separate storage prevents latest-only SH/SZ observations from replacing legacy full-order data.
+CREATE TABLE IF NOT EXISTS stock_fund_flows_web_datacenter (
+  instrument_key INT UNSIGNED NOT NULL,
+  trade_date DATE NOT NULL,
+  close_price DOUBLE NULL,
+  change_pct DOUBLE NULL,
+  main_net_in DOUBLE NOT NULL,
+  main_net_ratio DOUBLE NULL,
+  super_large_net_in DOUBLE NOT NULL,
+  super_large_net_ratio DOUBLE NULL,
+  large_net_in DOUBLE NOT NULL,
+  large_net_ratio DOUBLE NULL,
+  medium_net_in DOUBLE NULL,
+  medium_net_ratio DOUBLE NULL,
+  small_net_in DOUBLE NULL,
+  small_net_ratio DOUBLE NULL,
+  provider_net_in DOUBLE NULL,
+  source_key VARCHAR(32) NOT NULL,
+  source_version VARCHAR(64) NOT NULL,
+  fetched_at DATETIME NOT NULL,
+  is_final TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  PRIMARY KEY (instrument_key, trade_date),
+  INDEX idx_sff_trade_date_instrument (trade_date, instrument_key),
+  INDEX idx_sff_trade_date_main (trade_date, main_net_in),
+  INDEX idx_sff_source_date (source_key, trade_date),
+  CONSTRAINT chk_web_fund_flow_source CHECK (source_key = 'eastmoney_web_datacenter'),
+  CONSTRAINT chk_web_fund_flow_missing_sizes CHECK (medium_net_in IS NULL AND small_net_in IS NULL)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

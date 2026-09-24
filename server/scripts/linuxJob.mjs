@@ -8,7 +8,7 @@ const job = process.argv[2];
 const schedules = {
   research: ['RESEARCH_SNAPSHOT_MORNING_RETRY_TIME=08:30', 'RESEARCH_SNAPSHOT_UPDATE_TIME=18:00', 'RESEARCH_SNAPSHOT_RETRY_TIME=18:30'],
   minute: ['MINUTE_DATA_UPDATE_TIME=16:30', 'MINUTE_DATA_RETRY_TIME=17:30'],
-  'fund-flow': ['FUND_FLOW_UPDATE_TIME=16:20', 'FUND_FLOW_RETRY_TIME=17:20'],
+  'fund-flow': ['FUND_FLOW_UPDATE_TIME=16:20'],
   'tdx-shadow': ['MINUTE_TDX_TCP_SHADOW_TIME=17:00'],
 };
 if (!schedules[job]) throw new Error('Unknown Linux job');

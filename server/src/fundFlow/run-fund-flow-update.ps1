@@ -26,7 +26,7 @@ if (-not [bool]$decision.shouldRun) {
   exit 0
 }
 
-"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Starting AKShare daily fund-flow update." |
+"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Starting isolated Eastmoney web datacenter daily update." |
   Out-File -LiteralPath $logPath -Append -Encoding utf8
 & $npm run fund-flow:update 2>&1 | Out-File -LiteralPath $logPath -Append -Encoding utf8
 exit $LASTEXITCODE

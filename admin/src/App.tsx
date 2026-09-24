@@ -1070,7 +1070,7 @@ function formatUpdatePhase(phase: string): string {
     pending: '排队准备', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消',
     '采集财务报表': '采集财务报表', '等待财报更新': '等待财报更新',
     '排队准备': '排队准备', '更新行情': '更新个股日 K 行情', '等待计划任务': '等待计划任务', '等待盘后更新': '等待盘后更新',
-    'tinyshare-backfill': 'Tinyshare 历史回补', 'akshare-daily': 'AKShare 盘后增量', '等待资金流更新': '等待盘后资金流更新',
+    'tinyshare-backfill': 'Tinyshare 历史回补', 'akshare-daily': 'AKShare（已停止更新）', 'web-datacenter-daily': '东财数据中心 · 沪深盘后更新', '等待资金流更新': '等待盘后资金流更新',
   };
   return labels[phase] ?? phase;
 }
@@ -1301,7 +1301,7 @@ function FundFlowConfigSummary({ progress, items }: {
           <span className="fund-flow-summary-icon"><BarChartOutlined /></span>
           <div>
             <strong>资金数据</strong>
-            <span>Tinyshare 历史回补 · AKShare 每日增量</span>
+            <span>东财数据中心 · 旧来源已冻结</span>
           </div>
         </div>
         {progress ? (
