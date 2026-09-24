@@ -47,3 +47,8 @@ scripts/gen_email_preview.ts
 
 # Playwright CLI 临时产物
 .playwright-cli/
+
+# 原始审计结果和运行日志：保留于 tmp_output/operations-audits，文档只提交摘要与校验索引
+doc/03-运维监控/adjustment_audit_*.json
+doc/03-运维监控/adjustment_snapshot_verification_*.log
+doc/03-运维监控/eastmoney_endpoint_audit_*.json
