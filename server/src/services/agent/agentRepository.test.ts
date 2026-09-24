@@ -3,6 +3,27 @@ import type { Pool } from 'mysql2/promise';
 import { AgentRepository } from './agentRepository.js';
 
 describe('AgentRepository state machine', () => {
+  it('pages history to an initial sequence boundary without chasing new live events', async () => {
+    const execute = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('MAX(seq)')) return [[{ seq: 1002 }]];
+      const after = Number(params?.[1]);
+      return [Array.from({ length: 1000 }, (_, index) => ({
+        run_id: 'run-1', seq: after + index + 1, event_type: 'progress', protocol_version: 2,
+      }))];
+    });
+    const repo = new AgentRepository({ execute } as unknown as Pool);
+    const events = await repo.getHistoryEvents('run-1');
+    expect(events).toHaveLength(1003); // Includes a legacy sequence zero.
+    expect(events.at(-1)?.seq).toBe(1002);
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(execute.mock.calls[1][0]).toContain('LIMIT 1000');
+    expect(execute.mock.calls[2][1]).toEqual(['run-1', 999]);
+  });
+
+  it('finishes empty history without manufacturing a stored event', async () => {
+    const execute = vi.fn().mockResolvedValueOnce([[{ seq: 0 }]]).mockResolvedValueOnce([[]]);
+    expect(await new AgentRepository({ execute } as unknown as Pool).getHistoryEvents('run-1')).toEqual([]);
+  });
   it('persists sanitized tool details for history replay', async () => {
     const execute = vi.fn().mockResolvedValue([{ affectedRows: 1 }]);
     const repo = new AgentRepository({ execute } as unknown as Pool);

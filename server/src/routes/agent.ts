@@ -418,7 +418,7 @@ export function registerAgentRoutes(
     const selected = hasMore ? runs.slice(1) : runs;
     const turns = await Promise.all(selected.map(async run => ({
       run,
-      events: eventsWithTerminal(run, await repo.getEvents(run.id, -1, 300)),
+      events: eventsWithTerminal(run, await repo.getHistoryEvents(run.id)),
       report: await repo.getReport(run.id),
       attachments: await attachmentService.listForRun(run.id),
     })));
@@ -447,7 +447,7 @@ export function registerAgentRoutes(
     const runs = await repo.getRunChain((request.params as { runId: string }).runId);
     if (!runs.length) return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '对话不存在'));
     const turns = await Promise.all(runs.map(async run => ({ run,
-      events: eventsWithTerminal(run, await repo.getEvents(run.id)), report: await repo.getReport(run.id),
+      events: eventsWithTerminal(run, await repo.getHistoryEvents(run.id)), report: await repo.getReport(run.id),
       attachments: await attachmentService.listForRun(run.id) })));
     return reply.send({ turns });
   });
@@ -456,7 +456,7 @@ export function registerAgentRoutes(
     const repo = new AgentRepository(deps.pool);
     const run = await repo.getRun(runId);
     if (!run) return reply.code(404).send(apiError(ErrorCodes.INTERNAL_ERROR, '运行不存在'));
-    return reply.send({ run, events: eventsWithTerminal(run, await repo.getEvents(runId)),
+    return reply.send({ run, events: eventsWithTerminal(run, await repo.getHistoryEvents(runId)),
       report: await repo.getReport(runId), attachments: await attachmentService.listForRun(runId) });
   });
 

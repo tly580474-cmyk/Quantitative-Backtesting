@@ -308,6 +308,25 @@ export class AgentRepository {
     return Number((rows as Array<{ seq: number }>)[0]?.seq ?? 0);
   }
 
+  /** Complete history, read in bounded pages up to the sequence observed on entry.
+   * A page limit is not a transcript limit: final answers usually occur at the end.
+   * Keep raw records together so the v1 adapter identifies the final text globally.
+   */
+  async getHistoryEvents(runId: string): Promise<AgentEventRecord[]> {
+    const throughSeq = await this.getLastSeq(runId);
+    const records: AgentEventRecord[] = [];
+    let afterSeq = -1;
+    while (afterSeq < throughSeq) {
+      const page = await this.getEvents(runId, afterSeq, 1000);
+      const snapshot = page.filter(record => record.seq <= throughSeq);
+      if (!snapshot.length) break;
+      records.push(...snapshot);
+      afterSeq = snapshot.at(-1)!.seq;
+      if (page.length < 1000) break;
+    }
+    return records;
+  }
+
   async getRecentResearchEvents(parentRunId: string): Promise<AgentEventRecord[]> {
     const [rows] = await this.pool.execute(
       `SELECT e.* FROM agent_events e JOIN agent_runs r ON r.id = e.run_id
