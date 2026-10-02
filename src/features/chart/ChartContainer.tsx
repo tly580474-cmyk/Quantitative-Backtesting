@@ -24,7 +24,6 @@ import { calculateAllIndicators } from '@/features/indicators/calculator';
 import type { IndicatorResult, StrategySignal } from '@/models';
 import { isWeekend } from '@/utils/date';
 import {
-  CHART_COLORS,
   INDICATOR_PANE_HEIGHT,
   MAIN_CHART_MIN_HEIGHT,
   VOLUME_PRICE_FORMAT,
@@ -38,6 +37,10 @@ import { calculateChipDistribution } from '@/features/marketData/chipDistributio
 import ChipProfile from '@/features/marketData/ChipProfile';
 import { analyzeChanlun } from '@/features/chanlun';
 import { ChanStructurePrimitive } from './ChanStructurePrimitive';
+import { SupertrendPrimitive } from './SupertrendPrimitive';
+import { candleColorOptions } from '@/priceColors';
+import { usePriceColors } from '@/stores/usePriceColorStore';
+import { resolveSupertrendParams } from '@/features/indicators/supertrend';
 import { chartTimeKey, toChartTime } from './chartTime';
 import type { Candle } from '@/models';
 import { getChartSurfaceColors } from '@/theme';
@@ -184,6 +187,9 @@ export default function ChartContainer({
   showChanPenCenters = false,
   showChanSegmentCenters = false,
 }: ChartContainerProps) {
+  const priceColors = usePriceColors();
+  const priceColorsRef = useRef(priceColors);
+  priceColorsRef.current = priceColors;
   const chartSurface = useMemo(() => getChartSurfaceColors(), []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
@@ -192,6 +198,7 @@ export default function ChartContainer({
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const overlayLinesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
+  const supertrendRef = useRef<SupertrendPrimitive | null>(null);
   const indicatorPanesRef = useRef<Map<string, IndicatorPaneEntry>>(new Map());
   const [mainChartHeight, setMainChartHeight] = useState(MAIN_CHART_MIN_HEIGHT);
   const [intradaySelection, setIntradaySelection] = useState<{ date: string; symbol: string } | null>(null);
@@ -284,9 +291,13 @@ export default function ChartContainer({
   }, [drawingEnabled, drawingTool]);
 
   const indicatorResults = useMemo(
-    () => calculateAllIndicators(candles, actives),
-    [candles, actives],
+    () => calculateAllIndicators(candles, actives, period),
+    [candles, actives, period],
   );
+  const supertrendActive = actives.find((active) => active.id === 'supertrend' && active.visible);
+  const supertrendParams = resolveSupertrendParams(period, supertrendActive?.paramValues);
+  const supertrend = indicatorResults.find((result) => result.id === 'supertrend');
+  const latestSupertrend = supertrend?.series.up[candles.length - 1] ?? supertrend?.series.down[candles.length - 1];
   const chanAnalysis = useMemo(
     () => analyzeChanlun(candles),
     [candles],
@@ -482,13 +493,15 @@ export default function ChartContainer({
             label,
             value,
             color: result.id === 'macd' && seriesConfig.key === 'histogram'
-              ? getMacdHistogramColor(value)
-              : seriesConfig.color,
+              ? getMacdHistogramColor(value, priceColorsRef.current)
+              : result.id === 'supertrend' ? priceColorsRef.current[seriesConfig.key === 'up' ? 'up' : 'down'] : seriesConfig.color,
           }];
       });
 
       return values.length > 0
-        ? [{ id: result.id, name: active.definition.name, values }]
+        ? [{ id: result.id, name: result.id === 'supertrend'
+          ? `Supertrend(${Object.values(resolveSupertrendParams(periodRef.current, active.paramValues)).join(', ')})`
+          : active.definition.name, values }]
         : [];
     });
     setCrosshairIndicators(indicatorDetails);
@@ -533,12 +546,7 @@ export default function ChartContainer({
     });
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: CHART_COLORS.up,
-      downColor: CHART_COLORS.down,
-      borderUpColor: CHART_COLORS.up,
-      borderDownColor: CHART_COLORS.down,
-      wickUpColor: CHART_COLORS.wickUp,
-      wickDownColor: CHART_COLORS.wickDown,
+      ...candleColorOptions(priceColorsRef.current),
     });
     candleSeriesRef.current = candleSeries;
     chipPriceToCoordinateRef.current = (price) => candleSeries.priceToCoordinate(price);
@@ -552,7 +560,7 @@ export default function ChartContainer({
 
     const volSeries = chart.addSeries(HistogramSeries, {
       priceScaleId: 'volume',
-      color: CHART_COLORS.volume,
+      color: priceColorsRef.current.up + '80',
       priceFormat: VOLUME_PRICE_FORMAT,
     });
     chart.priceScale('volume').applyOptions({
@@ -953,6 +961,8 @@ export default function ChartContainer({
         entry.container.remove();
       }
       indicatorPanesRef.current.clear();
+      if (supertrendRef.current) candleSeries.detachPrimitive(supertrendRef.current);
+      supertrendRef.current = null;
       chart.remove();
       chipPriceToCoordinateRef.current = null;
       mainChartRef.current = null;
@@ -1030,7 +1040,7 @@ export default function ChartContainer({
     const volData: HistogramData[] = candles.map((c) => ({
       time: toChartTime(c.time),
       value: c.volume ?? 0,
-      color: c.close >= c.open ? CHART_COLORS.volume : CHART_COLORS.volumeDown,
+      color: (c.close >= c.open ? priceColorsRef.current.up : priceColorsRef.current.down) + '80',
     }));
 
     candleSeriesRef.current.setData(candleData);
@@ -1041,6 +1051,18 @@ export default function ChartContainer({
       revision: current.revision + 1,
     }));
   }, [candles]);
+
+  // Repaint colors in place: retain the visible range, drawings and crosshair.
+  useEffect(() => {
+    candleSeriesRef.current?.applyOptions(candleColorOptions(priceColors));
+    volumeSeriesRef.current?.setData(candlesRef.current.map((bar) => ({
+      time: toChartTime(bar.time), value: bar.volume ?? 0,
+      color: (bar.close >= bar.open ? priceColors.up : priceColors.down) + '80',
+    })));
+    supertrendRef.current?.setColors(priceColors);
+    const time = useChartStore.getState().crosshairTime;
+    if (time) publishCrosshairDetails(toChartTime(time));
+  }, [priceColors]);
 
   // Keep the custom Chan structure layer independent from candle and indicator series.
   useEffect(() => {
@@ -1094,6 +1116,23 @@ export default function ChartContainer({
     }
   }, [signals, candles, period]);
 
+  useEffect(() => {
+    const series = candleSeriesRef.current;
+    if (!series) return;
+    if (!supertrendRef.current) {
+      supertrendRef.current = new SupertrendPrimitive();
+      series.attachPrimitive(supertrendRef.current);
+    }
+    const primitive = supertrendRef.current;
+    primitive.setColors(priceColorsRef.current);
+    primitive.setVisible(supertrend != null);
+    primitive.setData(candles.map((bar) => toChartTime(bar.time)), candles, {
+      value: candles.map((_, index) => supertrend?.series.up[index] ?? supertrend?.series.down[index] ?? null),
+      direction: candles.map((_, index) => supertrend?.series.up[index] != null ? 1
+        : supertrend?.series.down[index] != null ? -1 : null),
+    });
+  }, [candles, supertrend]);
+
   // Update overlay indicator series
   useEffect(() => {
     const chart = mainChartRef.current;
@@ -1102,6 +1141,7 @@ export default function ChartContainer({
     const usedIds = new Set<string>();
 
     for (const result of overlays) {
+      if (result.id === 'supertrend') continue;
       const active = actives.find((a) => a.id === result.id);
       if (!active) continue;
 
@@ -1251,7 +1291,7 @@ export default function ChartContainer({
                 time: toChartTime(candles[i].time),
                 value,
                 color: result.id === 'macd' && cfg.key === 'histogram'
-                  ? getMacdHistogramColor(value)
+                  ? getMacdHistogramColor(value, priceColors)
                   : cfg.color,
               });
             }
@@ -1295,7 +1335,7 @@ export default function ChartContainer({
         existingPanes.delete(id);
       }
     }
-  }, [separates, candles, actives, chartSurface]);
+  }, [separates, candles, actives, chartSurface, priceColors]);
 
   return (
     <div
@@ -1323,6 +1363,12 @@ export default function ChartContainer({
         }}
       >
         <div ref={mainRef} className="analysis-main-chart" />
+        {supertrendActive && <div className="supertrend-chart-legend" aria-label="超级趋势指标"
+          style={{ position: 'absolute', top: 8, left: 12, zIndex: 2, pointerEvents: 'none',
+            color: supertrend?.series.up[candles.length - 1] != null ? priceColors.up : priceColors.down }}>
+          SUPERTREND({supertrendParams.period}, {supertrendParams.multiplier}) {latestSupertrend?.toFixed(3) ?? '—'}
+          <small style={{ marginLeft: 8 }}> {supertrendActive.paramValues.auto !== 0 ? '自动' : '手动'}</small>
+        </div>}
         {period === 'day' && sourceCandles[0]?.symbol && <span className="daily-kline-drilldown-hint">
           {supportsHistoricalIntraday(instrumentType ?? sourceCandles[0]?.instrumentType)
             ? '双击 K 线查看分时'

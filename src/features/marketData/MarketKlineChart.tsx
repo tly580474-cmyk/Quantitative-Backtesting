@@ -17,6 +17,10 @@ import { calculateChipDistribution } from './chipDistribution';
 import ChipProfile from './ChipProfile';
 import { analyzeChanlun } from '@/features/chanlun';
 import { ChanStructurePrimitive } from '@/features/chart/ChanStructurePrimitive';
+import { SupertrendPrimitive } from '@/features/chart/SupertrendPrimitive';
+import { calculateSupertrend, resolveSupertrendParams } from '@/features/indicators/supertrend';
+import { candleColorOptions } from '@/priceColors';
+import { usePriceColors } from '@/stores/usePriceColorStore';
 import { getChartSurfaceColors } from '@/theme';
 import DailyIntradayModal, { hitsCandle, supportsHistoricalIntraday, type IntradayInstrumentType } from '@/features/chart/DailyIntradayModal';
 
@@ -184,6 +188,7 @@ export interface MarketIndicatorVisibility {
   ma: boolean;
   rsi: boolean;
   macd: boolean;
+  supertrend?: boolean;
 }
 
 export interface MarketChanVisibility {
@@ -198,6 +203,7 @@ const DEFAULT_INDICATOR_VISIBILITY: MarketIndicatorVisibility = {
   ma: true,
   rsi: true,
   macd: true,
+  supertrend: true,
 };
 
 const DEFAULT_CHAN_VISIBILITY: MarketChanVisibility = {
@@ -220,6 +226,12 @@ export default function MarketKlineChart({
   indicatorVisibility = DEFAULT_INDICATOR_VISIBILITY,
   chanVisibility = DEFAULT_CHAN_VISIBILITY,
 }: MarketKlineChartProps) {
+  const priceColors = usePriceColors();
+  const colorsRef = useRef(priceColors);
+  colorsRef.current = priceColors;
+  const dailyRecolorRef = useRef<(() => void) | null>(null);
+  const intradayRecolorRef = useRef<(() => void) | null>(null);
+  const subRecolorRef = useRef<(() => void) | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const rsiRef = useRef<HTMLDivElement>(null);
   const macdRef = useRef<HTMLDivElement>(null);
@@ -230,6 +242,7 @@ export default function MarketKlineChart({
   const chanStructureRef = useRef<ChanStructurePrimitive | null>(null);
   const dailyChartRef = useRef<IChartApi | null>(null);
   const maSeriesRef = useRef<Map<'ma5' | 'ma10' | 'ma20', ISeriesApi<'Line'>>>(new Map());
+  const supertrendRef = useRef<SupertrendPrimitive | null>(null);
   const dailyVisibleRangesRef = useRef<Map<string, IRange<number>>>(new Map());
   const [chipChartLayout, setChipChartLayout] = useState({ height: 0, revision: 0 });
   const [hover, setHover] = useState<HoverPoint | null>(null);
@@ -239,6 +252,11 @@ export default function MarketKlineChart({
   const indicators = useMemo(() => calculateIndicators(data), [data]);
   const latest = indicators[indicators.length - 1];
   const isIntraday = period === 'intraday';
+  const supertrendParams = resolveSupertrendParams(isIntraday ? 'minute1' : period);
+  const supertrend = useMemo(() => isIntraday ? null
+    : calculateSupertrend(data, resolveSupertrendParams(period)), [data, isIntraday, period]);
+  const supertrendIndex = hover ? data.findIndex((bar) => bar.date === hover.date) : data.length - 1;
+  const showSupertrend = indicatorVisibility.supertrend !== false;
   const avgPrices = useMemo(() => averagePrice(data), [data]);
   const volumeRatios = useMemo(() => intradayVolumeRatio(data), [data]);
   const chipEndIndex = useMemo(() => {
@@ -304,11 +322,14 @@ export default function MarketKlineChart({
     }
 
     const volumeSeries = volumeChart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceLineVisible: false });
-    volumeSeries.setData(data.map((item, index) => {
+    const repaint: Array<() => void> = [];
+    const paintVolume = () => volumeSeries.setData(data.map((item, index) => {
       const previous = data[index - 1]?.close ?? previousClose ?? item.close;
-      return { time: times[index], value: item.volume, color: item.close >= previous ? '#ef4444cc' : '#06b6d4cc' };
+      return { time: times[index], value: item.volume, color: (item.close >= previous ? colorsRef.current.up : colorsRef.current.down) + 'cc' };
     }));
 
+    paintVolume();
+    repaint.push(paintVolume);
     if (indicatorChart) {
       if (subIndicator === 'volumeRatio') {
         const ratio = indicatorChart.addSeries(LineSeries, { color: '#64748b', lineWidth: 1, priceLineVisible: false });
@@ -318,7 +339,9 @@ export default function MarketKlineChart({
         rsiLine.setData(indicators.flatMap((item, index) => item.rsi14 == null ? [] : [{ time: times[index], value: item.rsi14 }]));
       } else if (subIndicator === 'macd') {
         const macdBars = indicatorChart.addSeries(HistogramSeries, { priceLineVisible: false });
-        macdBars.setData(indicators.flatMap((item, index) => item.macd == null ? [] : [{ time: times[index], value: item.macd, color: item.macd >= 0 ? '#ef4444cc' : '#22c55ecc' }]));
+        const paintMacd = () => macdBars.setData(indicators.flatMap((item, index) => item.macd == null ? [] : [{ time: times[index], value: item.macd, color: (item.macd >= 0 ? colorsRef.current.up : colorsRef.current.down) + 'cc' }]));
+        paintMacd();
+        repaint.push(paintMacd);
         const difLine = indicatorChart.addSeries(LineSeries, { color: '#38bdf8', lineWidth: 1, priceLineVisible: false });
         difLine.setData(indicators.flatMap((item, index) => item.dif == null ? [] : [{ time: times[index], value: item.dif }]));
         const deaLine = indicatorChart.addSeries(LineSeries, { color: '#f59e0b', lineWidth: 1, priceLineVisible: false });
@@ -327,6 +350,7 @@ export default function MarketKlineChart({
     }
 
     const indexByDate = new Map(data.map((_item, index) => [timeKey(times[index]), index]));
+    intradayRecolorRef.current = () => repaint.forEach((paint) => paint());
     priceChart.subscribeCrosshairMove((param) => {
       if (!param.time || !param.point || param.point.x < 0 || param.point.y < 0 || param.point.x > priceEl.clientWidth || param.point.y > priceEl.clientHeight) {
         setHover(null);
@@ -368,6 +392,7 @@ export default function MarketKlineChart({
     if (indicatorEl) observer.observe(indicatorEl);
     return () => {
       observer.disconnect();
+      intradayRecolorRef.current = null;
       priceChart.remove();
       volumeChart.remove();
       indicatorChart?.remove();
@@ -398,8 +423,14 @@ export default function MarketKlineChart({
       },
     });
     dailyChartRef.current = chart;
-    const candles = chart.addSeries(CandlestickSeries, { upColor: '#ef4444', downColor: '#16a34a', borderVisible: false, wickUpColor: '#ef4444', wickDownColor: '#16a34a' });
+    const candles = chart.addSeries(CandlestickSeries, { ...candleColorOptions(colorsRef.current), borderVisible: false });
     candles.setData(data.map((item, index) => ({ time: times[index], open: item.open, high: item.high, low: item.low, close: item.close })));
+    const supertrendPrimitive = new SupertrendPrimitive();
+    supertrendRef.current = supertrendPrimitive;
+    supertrendPrimitive.setColors(colorsRef.current);
+    candles.attachPrimitive(supertrendPrimitive);
+    if (supertrend) supertrendPrimitive.setData(times, data, supertrend);
+    supertrendPrimitive.setVisible(showSupertrend);
     const chanStructure = new ChanStructurePrimitive();
     chanStructureRef.current = chanStructure;
     candles.attachPrimitive(chanStructure);
@@ -407,7 +438,13 @@ export default function MarketKlineChart({
     chanStructure.setVisibility(chanVisibility);
     const volume = chart.addSeries(HistogramSeries, { priceScaleId: 'volume', priceFormat: { type: 'volume' } });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-    volume.setData(data.map((item, index) => ({ time: times[index], value: item.volume, color: item.close >= item.open ? '#ef444466' : '#16a34a66' })));
+    dailyRecolorRef.current = () => {
+      candles.applyOptions(candleColorOptions(colorsRef.current));
+      supertrendPrimitive.setColors(colorsRef.current);
+      volume.setData(data.map((item, index) => ({ time: times[index], value: item.volume,
+        color: (item.close >= item.open ? colorsRef.current.up : colorsRef.current.down) + '66' })));
+    };
+    dailyRecolorRef.current();
 
     const maConfigs = [
       { key: 'ma5' as const, color: '#f59e0b' },
@@ -502,6 +539,9 @@ export default function MarketKlineChart({
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(rememberVisibleRange);
       chipPriceToCoordinateRef.current = null;
       candles.detachPrimitive(chanStructure);
+      candles.detachPrimitive(supertrendPrimitive);
+      dailyRecolorRef.current = null;
+      supertrendRef.current = null;
       chanStructureRef.current = null;
       maSeriesRef.current.clear();
       dailyChartRef.current = null;
@@ -516,8 +556,13 @@ export default function MarketKlineChart({
     indicators,
     instrumentType,
     isIntraday,
+    supertrend,
     symbol,
   ]);
+
+  useEffect(() => {
+    supertrendRef.current?.setVisible(showSupertrend);
+  }, [showSupertrend]);
 
   useEffect(() => {
     const times = data.map((item) => chartTime(item.date));
@@ -535,6 +580,8 @@ export default function MarketKlineChart({
     const mainChart = dailyChartRef.current;
     if (!mainChart) return undefined;
     const times = data.map((item) => chartTime(item.date));
+    const repaint: Array<() => void> = [];
+    subRecolorRef.current = () => repaint.forEach((paint) => paint());
     const subcharts: IChartApi[] = [];
     const cleanups: Array<() => void> = [];
     const createSubchart = (container: HTMLDivElement, showTimeScale: boolean) => {
@@ -605,13 +652,15 @@ export default function MarketKlineChart({
         priceLineVisible: false,
         lastValueVisible: false,
       });
-      histogram.setData(indicators.map((item, index) => item.macd == null
+      const paintMacd = () => histogram.setData(indicators.map((item, index) => item.macd == null
         ? { time: times[index] }
         : {
           time: times[index],
           value: item.macd,
-          color: item.macd >= 0 ? '#ef4444b3' : '#16a34ab3',
+          color: (item.macd >= 0 ? colorsRef.current.up : colorsRef.current.down) + 'b3',
         }));
+      paintMacd();
+      repaint.push(paintMacd);
       const dif = macdChart.addSeries(LineSeries, {
         color: '#2563eb',
         lineWidth: 1,
@@ -632,7 +681,7 @@ export default function MarketKlineChart({
         : { time: times[index], value: item.dea }));
     }
 
-    if (subcharts.length === 0) return undefined;
+    if (subcharts.length === 0) { subRecolorRef.current = null; return undefined; }
     let syncing = false;
     const synchronize = (source: IChartApi, targets: IChartApi[]) => (range: IRange<number> | null) => {
       if (!range || syncing) return;
@@ -657,6 +706,7 @@ export default function MarketKlineChart({
       for (const { chart, handler } of subscriptions) {
         chart.timeScale().unsubscribeVisibleLogicalRangeChange(handler);
       }
+      subRecolorRef.current = null;
       for (const cleanup of cleanups) cleanup();
       for (const chart of subcharts) chart.remove();
     };
@@ -668,6 +718,12 @@ export default function MarketKlineChart({
     indicators,
     isIntraday,
   ]);
+
+  useEffect(() => {
+    dailyRecolorRef.current?.();
+    intradayRecolorRef.current?.();
+    subRecolorRef.current?.();
+  }, [priceColors]);
 
   useEffect(() => {
     const primitive = chanStructureRef.current;
@@ -739,6 +795,9 @@ export default function MarketKlineChart({
     hasMacdPane ? 'has-macd-pane' : '',
   ].filter(Boolean).join(' ')}>
     <div className="market-indicator-legend" aria-label="最新技术指标">
+      {showSupertrend && <span style={{ color: supertrend?.direction[supertrendIndex] === 1 ? priceColors.up : priceColors.down }}>
+        SUPERTREND({supertrendParams.period}, {supertrendParams.multiplier}) {fmt(supertrend?.value[supertrendIndex] ?? null, 3)} · 自动
+      </span>}
       {indicatorVisibility.ma && <span className="ma5">MA5 {fmt(latest?.ma5 ?? null)}</span>}
       {indicatorVisibility.ma && <span className="ma10">MA10 {fmt(latest?.ma10 ?? null)}</span>}
       {indicatorVisibility.ma && <span className="ma20">MA20 {fmt(latest?.ma20 ?? null)}</span>}
@@ -810,6 +869,9 @@ export default function MarketKlineChart({
         {indicatorVisibility.rsi && <><dt>RSI14</dt><dd>{fmt(hover.rsi14)}</dd></>}
         {indicatorVisibility.ma && <><dt>MA5/10/20</dt><dd>{fmt(hover.ma5)} / {fmt(hover.ma10)} / {fmt(hover.ma20)}</dd></>}
         {indicatorVisibility.macd && <><dt>MACD</dt><dd>{fmt(hover.macd)}</dd></>}
+        {showSupertrend && <><dt>Supertrend</dt><dd style={{ color: supertrend?.direction[supertrendIndex] === 1 ? priceColors.up : priceColors.down }}>
+          {fmt(supertrend?.value[supertrendIndex] ?? null, 3)}
+        </dd></>}
       </dl>
     </div>}
     <DailyIntradayModal

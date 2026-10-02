@@ -1,3 +1,5 @@
+import type { PriceColors } from '@/priceColors';
+
 export const CHART_COLORS = {
   up: '#EF4444',       // Red for up (Chinese market)
   down: '#22C55E',     // Green for down (Chinese market)
@@ -34,6 +36,6 @@ export const VOLUME_PRICE_FORMAT = {
   formatter: formatVolumeInYi,
 };
 
-export function getMacdHistogramColor(value: number): string {
-  return value >= 0 ? CHART_COLORS.up : CHART_COLORS.down;
+export function getMacdHistogramColor(value: number, colors: PriceColors = CHART_COLORS): string {
+  return value >= 0 ? colors.up : colors.down;
 }

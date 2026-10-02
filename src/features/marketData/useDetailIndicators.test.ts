@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { useDetailIndicators } from './useDetailIndicators';
 
 const STORAGE_KEY = 'quant-mobile-detail-indicators-v1';
-const MOBILE_DEFAULT = { ma: true, rsi: false, macd: false };
-const DESKTOP_DEFAULT = { ma: true, rsi: true, macd: true };
+const MOBILE_DEFAULT = { ma: true, rsi: false, macd: false, supertrend: true };
+const DESKTOP_DEFAULT = { ma: true, rsi: true, macd: true, supertrend: true };
 
 beforeEach(() => localStorage.clear());
 afterEach(() => {
@@ -17,13 +17,13 @@ describe('useDetailIndicators', () => {
     const first = renderHook(() => useDetailIndicators(true));
     expect(first.result.current[0]).toEqual(MOBILE_DEFAULT);
 
-    act(() => first.result.current[1]({ ma: false, rsi: true, macd: false }));
-    expect(first.result.current[0]).toEqual({ ma: false, rsi: true, macd: false });
-    expect(localStorage.getItem(STORAGE_KEY)).toBe(JSON.stringify({ ma: false, rsi: true, macd: false }));
+    act(() => first.result.current[1]({ ma: false, rsi: true, macd: false, supertrend: false }));
+    expect(first.result.current[0]).toEqual({ ma: false, rsi: true, macd: false, supertrend: false });
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(JSON.stringify({ ma: false, rsi: true, macd: false, supertrend: false }));
     first.unmount();
 
     const second = renderHook(() => useDetailIndicators(true));
-    expect(second.result.current[0]).toEqual({ ma: false, rsi: true, macd: false });
+    expect(second.result.current[0]).toEqual({ ma: false, rsi: true, macd: false, supertrend: false });
   });
 
   it('keeps desktop defaults and updates isolated from mobile preference storage', () => {
@@ -38,7 +38,7 @@ describe('useDetailIndicators', () => {
 
     desktop.unmount();
     const mobile = renderHook(() => useDetailIndicators(true));
-    expect(mobile.result.current[0]).toEqual(mobilePreference);
+    expect(mobile.result.current[0]).toEqual({ ...mobilePreference, supertrend: true });
   });
 
   it('falls back to the mobile default when stored JSON is malformed or incomplete', () => {

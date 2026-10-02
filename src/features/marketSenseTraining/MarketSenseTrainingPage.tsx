@@ -24,6 +24,7 @@ import { toCandles } from '@/features/marketData/exportMarketData';
 import type { KlinePoint } from '@/features/marketData/types';
 import type { ImportResult } from '@/models';
 import { useCandleStore } from '@/stores/useCandleStore';
+import { usePriceColors, usePriceColorStore } from '@/stores/usePriceColorStore';
 import { useDarkMode } from '@/theme';
 import { createUuid } from '@/utils/uuid';
 import TrainingChart, {
@@ -207,6 +208,8 @@ async function loadCandidateSession(candidate: TrainingCandidate): Promise<Kline
 }
 
 export default function MarketSenseTrainingPage() {
+  const priceColors = usePriceColors();
+  const priceMode = usePriceColorStore((state) => state.mode);
   const { message } = AntApp.useApp();
   const navigate = useNavigate();
   const isDark = useDarkMode();
@@ -218,7 +221,7 @@ export default function MarketSenseTrainingPage() {
   const [lots, setLots] = useState(initialCache?.lots ?? 1);
   const [portfolio, setPortfolio] = useState<TrainingPortfolio>(initialCache?.portfolio ?? createTrainingPortfolio());
   const [error, setError] = useState('');
-  const [indicators, setIndicators] = useState<TrainingIndicator[]>(initialCache?.indicators ?? ['ma']);
+  const [indicators, setIndicators] = useState<TrainingIndicator[]>(initialCache?.indicators ?? ['ma', 'supertrend']);
   const [drawingMode, setDrawingMode] = useState<TrainingDrawingMode>(initialCache?.drawingMode ?? 'none');
   const [drawings, setDrawings] = useState<TrainingDrawing[]>(initialCache?.drawings ?? []);
   const [draftPoint, setDraftPoint] = useState<TrainingDrawingPoint | null>(initialCache?.draftPoint ?? null);
@@ -527,14 +530,18 @@ export default function MarketSenseTrainingPage() {
                 </>}
                 {chartSnapshot && indicators.includes('rsi') &&
                   <span className="rsi">RSI14 <b>{chartNumber(chartSnapshot.indicator.rsi14)}</b></span>}
+                {chartSnapshot && indicators.includes('supertrend') && <span
+                  style={{ color: chartSnapshot.indicator.supertrendDirection === 1 ? priceColors.up : priceColors.down }}>
+                  SUPERTREND(10, 3) <b>{chartNumber(chartSnapshot.indicator.supertrend, 3)}</b> · 自动
+                </span>}
                 {chartSnapshot && indicators.includes('macd') && <>
                   <span className="dif">DIF <b>{chartNumber(chartSnapshot.indicator.macdDif, 3)}</b></span>
                   <span className="dea">DEA <b>{chartNumber(chartSnapshot.indicator.macdDea, 3)}</b></span>
-                  <span className="macd">MACD <b>{chartNumber(chartSnapshot.indicator.macdHistogram, 3)}</b></span>
+                  <span className="macd" style={{ color: chartSnapshot.indicator.macdHistogram >= 0 ? priceColors.up : priceColors.down }}>MACD <b>{chartNumber(chartSnapshot.indicator.macdHistogram, 3)}</b></span>
                 </>}
               </div>}
             </div>
-            <div className="market-sense-legend"><span className="up">红涨</span><span className="down">绿跌</span><span>前复权日 K</span></div>
+            <div className="market-sense-legend"><span className="up">{priceMode === 'red-up' ? '红涨' : '绿涨'}</span><span className="down">{priceMode === 'red-up' ? '绿跌' : '红跌'}</span><span>前复权日 K</span></div>
           </div>
           <div className="market-sense-chart-tools" aria-label="图表工具栏">
             <Popover
@@ -547,6 +554,7 @@ export default function MarketSenseTrainingPage() {
                 className="market-sense-indicator-picker"
                 options={[
                   { label: 'MA 均线', value: 'ma' },
+                  { label: 'Supertrend 超级趋势', value: 'supertrend' },
                   { label: 'BOLL 布林带', value: 'boll' },
                   { label: 'RSI14', value: 'rsi' },
                   { label: 'MACD', value: 'macd' },

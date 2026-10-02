@@ -1,6 +1,24 @@
 import type { IndicatorDefinition } from '@/models';
+import { getPriceColors } from '@/priceColors';
+const SUPERTREND_COLORS = getPriceColors('red-up');
 
 export const INDICATOR_REGISTRY: IndicatorDefinition[] = [
+  {
+    id: 'supertrend',
+    name: 'Supertrend 超级趋势',
+    params: [
+      { name: 'auto', label: '按 K 线周期自动适配', defaultValue: 1, min: 0, max: 1, step: 1 },
+      { name: 'period', label: '手动 ATR 周期', defaultValue: 10, min: 1, max: 500, step: 1 },
+      { name: 'multiplier', label: '手动 ATR 倍数', defaultValue: 3, min: 0.1, max: 20, step: 0.1 },
+    ],
+    display: {
+      pane: 'overlay',
+      series: [
+        { type: 'line', color: SUPERTREND_COLORS.up, key: 'up', label: '上涨支撑' },
+        { type: 'line', color: SUPERTREND_COLORS.down, key: 'down', label: '下跌阻力' },
+      ],
+    },
+  },
   {
     id: 'sma',
     name: 'SMA 简单移动平均',

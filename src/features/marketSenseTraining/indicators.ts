@@ -1,4 +1,5 @@
 import type { KlinePoint } from '@/features/marketData/types';
+import { calculateSupertrend } from '@/features/indicators/supertrend';
 
 export interface IndicatorValue {
   date: string;
@@ -12,6 +13,8 @@ export interface IndicatorValue {
   macdDif: number;
   macdDea: number;
   macdHistogram: number;
+  supertrend: number | null;
+  supertrendDirection: 1 | -1 | null;
 }
 
 function sma(values: number[], period: number): Array<number | null> {
@@ -65,6 +68,7 @@ export function calculateTrainingIndicators(data: KlinePoint[]): IndicatorValue[
   const ema26 = ema(closes, 26);
   const dif = closes.map((_value, index) => ema12[index] - ema26[index]);
   const dea = ema(dif, 9);
+  const supertrend = calculateSupertrend(data);
 
   return data.map((bar, index) => {
     const middle = ma20[index];
@@ -84,6 +88,8 @@ export function calculateTrainingIndicators(data: KlinePoint[]): IndicatorValue[
       macdDif: dif[index],
       macdDea: dea[index],
       macdHistogram: (dif[index] - dea[index]) * 2,
+      supertrend: supertrend.value[index],
+      supertrendDirection: supertrend.direction[index],
     };
   });
 }

@@ -9,6 +9,7 @@ import {
   type Time,
 } from 'lightweight-charts';
 import { apiFetch } from '@/api/client';
+import { usePriceColors } from '@/stores/usePriceColorStore';
 import { getChartSurfaceColors } from '@/theme';
 import './daily-intraday-modal.css';
 
@@ -163,6 +164,10 @@ function formatVolume(value: number) {
 }
 
 function DailyIntradayChart({ data, previousClose }: { data: IntradayBar[]; previousClose?: number | null }) {
+  const colors = usePriceColors();
+  const colorsRef = useRef(colors);
+  colorsRef.current = colors;
+  const recolorRef = useRef<(() => void) | null>(null);
   const priceRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef<HTMLDivElement>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -223,12 +228,13 @@ function DailyIntradayChart({ data, previousClose }: { data: IntradayBar[]; prev
     const times = data.map((item) => chartTime(item.date));
     price.setData(data.map((item, index) => ({ time: times[index], value: item.close })));
     average.setData(averagePrices.map((value, index) => ({ time: times[index], value })));
-    volume.setData(data.map((item, index) => ({
+    recolorRef.current = () => volume.setData(data.map((item, index) => ({
       time: times[index],
       value: item.volume,
-      color: item.close >= item.open ? '#ef444477' : '#16a34a77',
+      color: (item.close >= item.open ? colorsRef.current.up : colorsRef.current.down) + '77',
     })));
 
+    recolorRef.current();
     const indexByTime = new Map(times.map((time, index) => [String(time), index]));
     let synchronizing = false;
     const syncRange = (source: IChartApi, target: IChartApi) => () => {
@@ -264,6 +270,7 @@ function DailyIntradayChart({ data, previousClose }: { data: IntradayBar[]; prev
     observer.observe(priceElement);
     observer.observe(volumeElement);
     return () => {
+      recolorRef.current = null;
       observer.disconnect();
       priceChart.timeScale().unsubscribeVisibleLogicalRangeChange(priceRangeHandler);
       volumeChart.timeScale().unsubscribeVisibleLogicalRangeChange(volumeRangeHandler);
@@ -271,6 +278,8 @@ function DailyIntradayChart({ data, previousClose }: { data: IntradayBar[]; prev
       volumeChart.remove();
     };
   }, [averagePrices, chartSurface, data]);
+
+  useEffect(() => { recolorRef.current?.(); }, [colors]);
 
   const active = data[hoverIndex ?? data.length - 1];
   const average = averagePrices[hoverIndex ?? data.length - 1];

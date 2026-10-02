@@ -3,16 +3,19 @@ import {
   CandlestickSeries, ColorType, createChart, createSeriesMarkers, HistogramSeries,
   LineSeries, LineStyle, type SeriesMarker, type Time,
 } from 'lightweight-charts';
+import { candleColorOptions, priceColorLabel } from '@/priceColors';
+import { usePriceColors, usePriceColorStore } from '@/stores/usePriceColorStore';
 import type { KlinePoint } from '@/features/marketData/types';
 import type { TrainingTrade } from './engine';
 import { calculateTrainingIndicators, type IndicatorValue } from './indicators';
+import { SupertrendPrimitive } from '@/features/chart/SupertrendPrimitive';
 import {
   TrainingDrawingPrimitive,
   type TrainingDrawing,
   type TrainingDrawingPoint,
 } from './TrainingDrawingPrimitive';
 
-export type TrainingIndicator = 'ma' | 'boll' | 'rsi' | 'macd';
+export type TrainingIndicator = 'ma' | 'boll' | 'rsi' | 'macd' | 'supertrend';
 export type TrainingDrawingMode = 'none' | 'horizontal' | 'trend';
 
 export interface TrainingChartSnapshot {
@@ -44,6 +47,11 @@ export default function TrainingChart({
   data, trades, revealTrades = false, theme, indicators, drawingMode, drawings, onChartPoint,
   onCrosshairChange,
 }: TrainingChartProps) {
+  const priceColors = usePriceColors();
+  const priceMode = usePriceColorStore((state) => state.mode);
+  const recolorRef = useRef<(() => void) | null>(null);
+  const colorsRef = useRef(priceColors);
+  colorsRef.current = priceColors;
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -78,7 +86,7 @@ export default function TrainingChart({
       localization: { locale: 'zh-CN' },
     });
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#ef4444', downColor: '#16a34a', wickUpColor: '#ef4444', wickDownColor: '#16a34a',
+      ...candleColorOptions(colorsRef.current),
       borderVisible: false, priceLineVisible: false,
     }, 0);
     candleSeries.setData(data.map((bar) => ({
@@ -86,6 +94,17 @@ export default function TrainingChart({
     })));
 
     const computed = calculateTrainingIndicators(data);
+    const repaint: Array<() => void> = [() => candleSeries.applyOptions(candleColorOptions(colorsRef.current))];
+    if (indicators.includes('supertrend')) {
+      const supertrend = new SupertrendPrimitive();
+      supertrend.setColors(colorsRef.current);
+      repaint.push(() => supertrend.setColors(colorsRef.current));
+      supertrend.setData(data.map((bar) => bar.date as Time), data, {
+        value: computed.map((point) => point.supertrend),
+        direction: computed.map((point) => point.supertrendDirection),
+      });
+      candleSeries.attachPrimitive(supertrend);
+    }
     const snapshots = data.map((bar, index): TrainingChartSnapshot => {
       const previousClose = bar.previousClose ?? data[index - 1]?.close;
       const suppliedChange = bar.changePct;
@@ -127,10 +146,12 @@ export default function TrainingChart({
     const volume = chart.addSeries(HistogramSeries, {
       priceScaleId: 'right', priceFormat: { type: 'volume' }, priceLineVisible: false, lastValueVisible: false,
     }, paneIndex);
-    volume.setData(data.map((bar) => ({
+    const paintVolume = () => volume.setData(data.map((bar) => ({
       time: bar.date as Time, value: bar.volume,
-      color: bar.close >= bar.open ? 'rgba(239,68,68,.45)' : 'rgba(22,163,74,.45)',
+      color: (bar.close >= bar.open ? colorsRef.current.up : colorsRef.current.down) + '73',
     })));
+    paintVolume();
+    repaint.push(paintVolume);
     paneIndex += 1;
 
     if (indicators.includes('rsi')) {
@@ -157,10 +178,12 @@ export default function TrainingChart({
       const histogram = chart.addSeries(HistogramSeries, {
         priceLineVisible: false, lastValueVisible: false, title: 'MACD',
       }, macdPane);
-      histogram.setData(computed.map((value) => ({
+      const paintMacd = () => histogram.setData(computed.map((value) => ({
         time: value.date as Time, value: value.macdHistogram,
-        color: value.macdHistogram >= 0 ? 'rgba(239,68,68,.7)' : 'rgba(22,163,74,.7)',
+        color: (value.macdHistogram >= 0 ? colorsRef.current.up : colorsRef.current.down) + 'b3',
       })));
+      paintMacd();
+      repaint.push(paintMacd);
       const dif = chart.addSeries(LineSeries, {
         color: '#0ea5e9', lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
       }, macdPane);
@@ -204,6 +227,7 @@ export default function TrainingChart({
     };
     chart.subscribeCrosshairMove(handleCrosshairMove);
 
+    recolorRef.current = () => repaint.forEach((paint) => paint());
     chart.timeScale().fitContent();
     const panes = chart.panes();
     panes[volumePane]?.setHeight(78);
@@ -213,15 +237,18 @@ export default function TrainingChart({
     });
     observer.observe(container);
     return () => {
+      recolorRef.current = null;
       observer.disconnect();
       chart.unsubscribeCrosshairMove(handleCrosshairMove);
       chart.remove();
     };
   }, [data, drawingMode, drawings, indicators, onChartPoint, onCrosshairChange, revealTrades, theme, trades]);
 
+  useEffect(() => { recolorRef.current?.(); }, [priceColors]);
+
   return <div
     ref={containerRef}
     className={`market-sense-chart${drawingMode === 'none' ? '' : ' is-drawing'}`}
-    aria-label={`盘感训练 K 线图，红涨绿跌${drawingMode === 'none' ? '' : '，画线模式已启用'}`}
+    aria-label={`盘感训练 K 线图，${priceColorLabel(priceMode)}${drawingMode === 'none' ? '' : '，画线模式已启用'}`}
   />;
 }

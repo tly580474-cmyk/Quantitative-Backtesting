@@ -1758,6 +1758,7 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
             {indicatorVisibility.ma && <Tag color="gold">MA5/10/20</Tag>}
             {indicatorVisibility.rsi && <Tag color="blue">RSI14</Tag>}
             {indicatorVisibility.macd && <Tag color="purple">MACD</Tag>}
+            {period !== 'intraday' && indicatorVisibility.supertrend !== false && <Tag color="green">Supertrend · 自动</Tag>}
             {isEnhancedStockView && period !== 'intraday' && <Tag color="green">数据库优先 · {klines.length} 根</Tag>}
             {isEnhancedStockView && period !== 'intraday' && klines.length > 0 && (
               <Tag>{klines[0].date} ~ {klines[klines.length - 1].date}</Tag>
@@ -1784,6 +1785,15 @@ export default function MarketDataPage({ view = 'overview', instrumentCode, onOp
                 title="技术指标"
                 content={(
                   <div className="market-layer-options" aria-label="技术指标选择">
+                    <Checkbox
+                      checked={indicatorVisibility.supertrend !== false}
+                      disabled={period === 'intraday'}
+                      onChange={(event) => setIndicatorVisibility((current) => ({
+                        ...current, supertrend: event.target.checked,
+                      }))}
+                    >
+                      Supertrend（主图 · 周期自动适配）
+                    </Checkbox>
                     <Checkbox
                       checked={indicatorVisibility.ma}
                       onChange={(event) => setIndicatorVisibility((current) => ({

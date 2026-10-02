@@ -33,12 +33,12 @@ function createActive(indicatorId: string): ActiveIndicator | null {
 }
 
 export const useIndicatorStore = create<IndicatorState>((set, get) => ({
-  actives: [],
+  actives: [createActive('supertrend')!],
   availableIds: [
-    'sma', 'ema', 'boll', 'macd', 'rsi', 'kdj',
+    'supertrend', 'sma', 'ema', 'boll', 'macd', 'rsi', 'kdj',
     'atr', 'cci', 'wr', 'obv', 'volumeMa',
   ],
-  usedIds: [],
+  usedIds: ['supertrend'],
 
   add: (indicatorId) => {
     const state = get();

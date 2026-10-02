@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Modal, Slider, InputNumber, Space, Typography } from 'antd';
+import { Button, Modal, Slider, InputNumber, Space, Typography, Switch } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useIndicatorStore } from '@/stores/useIndicatorStore';
 import { getIndicatorById } from '@/features/indicators/registry';
@@ -118,6 +118,14 @@ export default function IndicatorParamEditor({
         ) : (
           definition.params.map((param) => {
             const currentValue = active.paramValues[param.name] ?? param.defaultValue;
+            if (indicatorId === 'supertrend' && param.name === 'auto') {
+              return <div key={param.name} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Text strong>{param.label}</Text>
+                <Switch aria-label={param.label} checked={currentValue !== 0}
+                  onChange={(checked) => updateParam(indicatorId, param.name, checked ? 1 : 0)} />
+              </div>;
+            }
+            const disabled = indicatorId === 'supertrend' && active.paramValues.auto !== 0;
             return (
               <div key={param.name}>
                 <Text strong>{param.label}</Text>
@@ -125,6 +133,7 @@ export default function IndicatorParamEditor({
                   style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}
                 >
                   <Slider
+                    disabled={disabled}
                     style={{ flex: 1 }}
                     min={param.min}
                     max={param.max}
@@ -133,6 +142,7 @@ export default function IndicatorParamEditor({
                     onChange={(value) => updateParam(indicatorId, param.name, value)}
                   />
                   <InputNumber
+                    disabled={disabled}
                     style={{ width: 80 }}
                     min={param.min}
                     max={param.max}
@@ -149,7 +159,9 @@ export default function IndicatorParamEditor({
         )}
 
         <Text type="secondary" style={{ fontSize: 11 }}>
-          {isMovingAverage
+          {indicatorId === 'supertrend'
+            ? '自动模式随 K 线周期切换参数；关闭自动适配后可手动设置 ATR 周期与倍数'
+            : isMovingAverage
             ? '周期范围为 2–500；删除后可继续添加新的均线周期'
             : '拖动滑块或直接输入数值调整参数'}
         </Text>

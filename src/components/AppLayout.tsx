@@ -11,6 +11,7 @@ import {
   MoonOutlined,
   SunOutlined,
 } from '@ant-design/icons';
+import PriceColorPreference from './PriceColorPreference';
 import { BrandLogo } from './BrandLogo';
 import type { ColorMode } from '../theme';
 import MobileAppLayout from './mobile/MobileAppLayout';
@@ -91,6 +92,7 @@ function DesktopAppLayout({
           onClick={({ key }) => handleNavigate(key)}
         />
         <div className="app-nav-footer">
+          <PriceColorPreference />
           <Tooltip title={collapsed ? '展开导航' : '收起导航'} placement="right">
             <Button
               aria-label={collapsed ? '展开导航' : '收起导航'}
@@ -216,6 +218,7 @@ function DesktopAppLayout({
             onClick={({ key }) => handleNavigate(key)}
           />
           <div className="app-mobile-nav-footer">
+            <PriceColorPreference block />
             <Button
               block
               icon={colorMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}

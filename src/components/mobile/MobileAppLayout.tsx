@@ -3,6 +3,7 @@ import { Button, Drawer, Menu } from 'antd';
 import { AppstoreOutlined, ArrowLeftOutlined, BarChartOutlined, DotChartOutlined, MoreOutlined,
   MoonOutlined, RobotOutlined, StarOutlined, SunOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import PriceColorPreference from '../PriceColorPreference';
 import type { AppLayoutProps } from '../AppLayout';
 
 const TABS = [
@@ -116,7 +117,8 @@ export default function MobileAppLayout({ activeKey, activeTitle, navigationItem
         onClose={() => setMoreOpen(false)} rootClassName="mobile-navigation-sheet">
         <Menu mode="inline" selectedKeys={[activeKey]} items={navigationItems}
           onClick={({ key }) => { setMoreOpen(false); onNavigate(key); }} />
-        <Button block icon={colorMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+        <PriceColorPreference block />
+        <Button block style={{ marginTop: 12 }} icon={colorMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
           onClick={onToggleColorMode}>{colorMode === 'dark' ? '切换为亮色模式' : '切换为暗色模式'}</Button>
       </Drawer>
       <Drawer title="导入与数据工具" placement="bottom" size="85dvh" open={toolsOpen}

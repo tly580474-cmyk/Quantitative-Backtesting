@@ -10,6 +10,8 @@ import { calculateCCI } from './cci';
 import { calculateWR } from './wr';
 import { calculateOBV } from './obv';
 import { calculateVolumeMA } from './volumeMa';
+import { calculateSupertrend, resolveSupertrendParams } from './supertrend';
+import type { ChartPeriod } from '@/features/chart/timeframe';
 import {
   calculateBIAS,
   calculateHold,
@@ -30,16 +32,21 @@ import {
 export function calculateAllIndicators(
   candles: Candle[],
   actives: ActiveIndicator[],
+  timeframe: ChartPeriod = 'day',
 ): IndicatorResult[] {
   return actives
     .filter(a => a.visible)
-    .map(a => calculateOne(candles, a));
+    .map(a => calculateOne(candles, a, timeframe));
 }
 
-function calculateOne(candles: Candle[], active: ActiveIndicator): IndicatorResult {
+function calculateOne(candles: Candle[], active: ActiveIndicator, timeframe: ChartPeriod): IndicatorResult {
   const { id, paramValues } = active;
 
   switch (id) {
+    case 'supertrend': {
+      const result = calculateSupertrend(candles, resolveSupertrendParams(timeframe, paramValues));
+      return { id, series: { up: result.up, down: result.down } };
+    }
     case 'sma': {
       const legacyPeriod = paramValues.period;
       const periods = Array.from({ length: 8 }, (_, index) =>

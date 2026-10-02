@@ -14,6 +14,8 @@ server/data/research-snapshots/
 server/data/backups/
 server/data/factor-research/
 server/data/minute-data/
+/data/out/
+/server/data/out/
 server/.tmp/
 server/.logs/
 .claude/

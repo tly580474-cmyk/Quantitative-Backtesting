@@ -2,19 +2,20 @@ import { useEffect, useState } from 'react';
 import type { MarketIndicatorVisibility } from './MarketKlineChart';
 
 const KEY = 'quant-mobile-detail-indicators-v1';
-const MOBILE_DEFAULT = { ma: true, rsi: false, macd: false };
+const MOBILE_DEFAULT = { ma: true, rsi: false, macd: false, supertrend: true };
 function readMobileIndicators(): MarketIndicatorVisibility {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null');
     if (saved && ['ma', 'rsi', 'macd'].every(key => typeof saved[key] === 'boolean')) {
-      return { ma: saved.ma, rsi: saved.rsi, macd: saved.macd };
+      return { ma: saved.ma, rsi: saved.rsi, macd: saved.macd,
+        supertrend: typeof saved.supertrend === 'boolean' ? saved.supertrend : true };
     }
   } catch { /* Storage can be unavailable; indicators still work in memory. */ }
   return { ...MOBILE_DEFAULT };
 }
 
 export function useDetailIndicators(mobile: boolean) {
-  const [desktop, setDesktop] = useState<MarketIndicatorVisibility>({ ma: true, rsi: true, macd: true });
+  const [desktop, setDesktop] = useState<MarketIndicatorVisibility>({ ma: true, rsi: true, macd: true, supertrend: true });
   const [compact, setCompact] = useState<MarketIndicatorVisibility>(readMobileIndicators);
   useEffect(() => {
     if (!mobile) return;

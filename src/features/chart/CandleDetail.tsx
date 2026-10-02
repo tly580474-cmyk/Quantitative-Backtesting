@@ -1,7 +1,9 @@
 import { useChartStore } from '@/stores/useChartStore';
+import { usePriceColors } from '@/stores/usePriceColorStore';
 import { roundTo } from '@/utils/number';
 
 export default function CandleDetail({ left = 8 }: { left?: number }) {
+  const colors = usePriceColors();
   const time = useChartStore((s) => s.crosshairTime);
   const data = useChartStore((s) => s.crosshairData);
   const indicators = useChartStore((s) => s.crosshairIndicators);
@@ -9,7 +11,7 @@ export default function CandleDetail({ left = 8 }: { left?: number }) {
   if (!time || !data) return null;
 
   const changeColor =
-    (data.change ?? 0) >= 0 ? '#EF4444' : '#22C55E';
+    (data.change ?? 0) >= 0 ? colors.up : colors.down;
 
   return (
     <div
