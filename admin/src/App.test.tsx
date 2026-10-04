@@ -291,3 +291,30 @@ describe('admin operations states', () => {
     expect(api.verifyAdminToken).toHaveBeenCalledWith('user-supplied-token');
   });
 });
+
+
+describe('admin theme switching', () => {
+  it('toggles both ways and restores light mode after a remount', async () => {
+    const previous = localStorage.getItem('quant-admin-theme');
+    localStorage.removeItem('quant-admin-theme');
+    try {
+      const first = render(<AdminShell token="test-token" onLogout={vi.fn()} />);
+      fireEvent.click(await screen.findByRole('button', { name: '切换到亮色主题' }));
+      await waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'));
+      expect(localStorage.getItem('quant-admin-theme')).toBe('light');
+      expect(screen.getByRole('button', { name: '切换到深色主题' })).toBeInTheDocument();
+      first.unmount();
+      const second = render(<AdminShell token="test-token" onLogout={vi.fn()} />);
+      expect(await screen.findByRole('button', { name: '切换到深色主题' })).toBeInTheDocument();
+      expect(document.documentElement.dataset.theme).toBe('light');
+      fireEvent.click(screen.getByRole('button', { name: '切换到深色主题' }));
+      await waitFor(() => expect(document.documentElement.dataset.theme).toBe('dark'));
+      expect(localStorage.getItem('quant-admin-theme')).toBe('dark');
+      second.unmount();
+    } finally {
+      if (previous == null) localStorage.removeItem('quant-admin-theme');
+      else localStorage.setItem('quant-admin-theme', previous);
+      delete document.documentElement.dataset.theme;
+    }
+  });
+});

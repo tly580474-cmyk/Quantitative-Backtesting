@@ -209,6 +209,7 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
   const [theme, setTheme] = useState<'dark' | 'light'>(() => localStorage.getItem('quant-admin-theme') === 'light' ? 'light' : 'dark');
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f3f5fb' : '#040712');
     localStorage.setItem('quant-admin-theme', theme);
   }, [theme]);
   const [section, setSection] = useState<Section>('overview');
@@ -469,7 +470,7 @@ export function AdminShell({ token, onLogout }: { token: string; onLogout: () =>
           </NavButton>
         </nav>
           <div className="header-actions">
-            <button className="icon-button theme-toggle" type="button" aria-label={theme === 'dark' ? '切换到亮色主题' : '切换到深色主题'} title={theme === 'dark' ? '亮色主题' : '深色主题'} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+            <button className="icon-button theme-toggle" type="button" aria-label={theme === 'dark' ? '切换到亮色主题' : '切换到深色主题'} title={theme === 'dark' ? '亮色主题' : '深色主题'} onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}>
               <BulbOutlined /><span>{theme === 'dark' ? '亮色' : '深色'}</span>
             </button>
             <div className="refresh-meta">

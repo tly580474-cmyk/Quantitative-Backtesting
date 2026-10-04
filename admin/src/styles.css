@@ -117,7 +117,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .nav-button.is-active > span:first-child { color: #d8b4fe; }
 .nav-count { min-width: 20px; padding: 1px 5px; border-radius: 99px; background: rgba(244,63,94,.2); color: #fda4af; font-size: 11px; }
 .header-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-.header-actions .theme-toggle { width: 76px; min-width: 76px; padding: 0 10px; white-space: nowrap; font-weight: 700; }
+.header-actions .theme-toggle { width: 80px; min-width: 80px; padding: 0 12px; white-space: nowrap; font-weight: 700; }
 .refresh-meta { color: var(--faint); font-size: 10px; text-align: right; padding-right: 6px; }
 .refresh-meta strong { display: block; font-size: 12px; font-family: var(--font-mono); color: #cbd5e1; }
 .admin-main { max-width: 1440px; margin: 0 auto; min-width: 0; outline: none; }

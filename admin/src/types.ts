@@ -203,7 +203,16 @@ export interface MetricsHistoryResponse {
   samples: MetricSample[];
 }
 
+export interface FinancialFailureDetail {
+  period: string | null;
+  symbol: string | null;
+  stage: string | null;
+  message: string;
+}
+
 export interface DataUpdateProgressItem {
+  failureDetails?: FinancialFailureDetail[];
+  failureDetailsTotal?: number;
   key: 'fund_flow' | 'instrument_master' | 'minute_lake' | 'daily_kline' | 'financial_reports';
   label: string;
   status: 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -219,8 +228,6 @@ export interface DataUpdateProgressItem {
   currentDate?: string | null;
   processedRows?: number | null;
   etaAt?: string | null;
-  failureDetails?: Array<{ period: string | null; symbol: string | null; stage: string | null; message: string }>;
-  failureDetailsTotal?: number;
 }
 
 export interface DataUpdateProgressResponse {
