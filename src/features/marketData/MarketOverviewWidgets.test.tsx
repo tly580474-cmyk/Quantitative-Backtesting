@@ -1,7 +1,10 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketBreadthChart, SentimentMetricStrip } from './MarketDataPage';
 import type { MarketSentimentOverview } from './types';
+import { usePriceColorStore } from '@/stores/usePriceColorStore';
+
+const initialPriceColorMode = usePriceColorStore.getState().mode;
 
 const overview: MarketSentimentOverview = {
   modelVersion: 2, total: 5346, flat: 133, mainNetInYi: null, mainNetSampleCount: 0,
@@ -25,7 +28,10 @@ beforeEach(() => {
     addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn(),
   })) });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  usePriceColorStore.getState().setMode(initialPriceColorMode);
+});
 
 describe('Market overview widgets', () => {
   it('retains all five summary metrics', () => {
@@ -54,5 +60,18 @@ describe('Market overview widgets', () => {
     for (const bar of container.querySelectorAll<HTMLElement>('.market-breadth-bar i')) {
       expect(bar.style.getPropertyValue('--breadth-width')).toBe('0%');
     }
+  });
+
+  it('updates an open breadth detail label when the price color preference changes', async () => {
+    usePriceColorStore.getState().setMode('red-up');
+    render(<MarketBreadthChart overview={overview} onSelectStock={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '查看跌停的10只股票' }));
+    const label = await screen.findByText('10 只');
+    expect(label.style.color).toBe('#16a34a');
+    act(() => usePriceColorStore.getState().setMode('green-up'));
+    expect(label.style.color).toBe('#ef4444');
+    expect(screen.getByText('跌停股票明细')).toBeTruthy();
+    act(() => usePriceColorStore.getState().setMode('red-up'));
+    expect(label.style.color).toBe('#16a34a');
   });
 });

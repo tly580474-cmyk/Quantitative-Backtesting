@@ -9,8 +9,8 @@
   --wb-muted: #526174;
   --wb-accent: #1d4ed8;
   --wb-selected: #eff6ff;
-  --wb-positive: #c62828;
-  --wb-negative: #15803d;
+  --wb-positive: var(--market-up, #ef4444);
+  --wb-negative: var(--market-down, #16a34a);
   --wb-risk: #b45309;
   --wb-radius: 10px;
 }
@@ -24,8 +24,8 @@ html[data-theme='dark'] {
   --wb-muted: #a8b6c9;
   --wb-accent: #93c5fd;
   --wb-selected: #172c49;
-  --wb-positive: #ff8585;
-  --wb-negative: #66dba0;
+  --wb-positive: var(--market-up, #ef4444);
+  --wb-negative: var(--market-down, #16a34a);
   --wb-risk: #fbbf24;
 }
 

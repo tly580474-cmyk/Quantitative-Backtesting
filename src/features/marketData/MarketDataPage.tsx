@@ -11,6 +11,7 @@ import MarketKlineChart, {
 } from './MarketKlineChart';
 import StockSelectionScore from './StockSelectionScore';
 import { getChartSurfaceColors } from '@/theme';
+import { usePriceColors } from '@/stores/usePriceColorStore';
 import StockSelectionWorkspace from './StockSelectionWorkspace';
 import HotSectorPanel from './HotSectorPanel';
 import DragonTigerPanel from './DragonTigerPanel';
@@ -361,6 +362,7 @@ export function MarketBreadthChart({
   overview: MarketSentimentOverview;
   onSelectStock: (stock: StockSearchItem) => void;
 }) {
+  const priceColors = usePriceColors();
   const [selectedBucket, setSelectedBucket] = useState<MarketBreadthBucket | null>(null);
   const [stockQuery, setStockQuery] = useState('');
   const maxCount = Math.max(1, ...overview.distribution.map((item) => item.count));
@@ -412,14 +414,14 @@ export function MarketBreadthChart({
       <div className="market-breadth-scale">
         <div>
           <span><i />涨 {overview.advancers} 家</span>
-          <em style={{ background: `linear-gradient(90deg, #ef4444 0%, #ef4444 ${advanceRatio}%, #16a34a ${advanceRatio}%, #16a34a 100%)` }} />
+          <em style={{ background: `linear-gradient(90deg, var(--market-up, #ef4444) 0%, var(--market-up, #ef4444) ${advanceRatio}%, var(--market-down, #16a34a) ${advanceRatio}%, var(--market-down, #16a34a) 100%)` }} />
           <strong>跌 {overview.decliners} 家</strong>
         </div>
       </div>
     </div>
     <Drawer
       className="market-breadth-drawer"
-      title={<Space><span>{selectedBucket?.label ?? '涨跌区间'}股票明细</span>{selectedBucket && <Tag color={selectedBucket.tone === 'up' ? 'red' : selectedBucket.tone === 'down' ? 'green' : 'default'}>{selectedBucket.count} 只</Tag>}</Space>}
+      title={<Space><span>{selectedBucket?.label ?? '涨跌区间'}股票明细</span>{selectedBucket && <Tag color={selectedBucket.tone === 'up' ? priceColors.up : selectedBucket.tone === 'down' ? priceColors.down : 'default'}>{selectedBucket.count} 只</Tag>}</Space>}
       open={selectedBucket != null}
       onClose={() => setSelectedBucket(null)}
       size="min(900px, 92vw)"
