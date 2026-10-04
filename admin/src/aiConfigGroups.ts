@@ -25,7 +25,7 @@ export function groupAiConfig(items: AdminConfigItem[]) {
       matches: (key: string) => key.startsWith(`AGENT_${provider.toUpperCase()}_`),
     })),
     { id: 'reports', title: '市场观点与邮件推送', description: '推送开关、报告模型、收件人与发送计划',
-      keys: ['MARKET_OPINION_PUSH_ENABLED', 'MARKET_OPINION_MODEL', 'MAIL_TO', 'SMTP_USER', 'SMTP_PASSWORD',
+      keys: ['MARKET_OPINION_PUSH_ENABLED', 'MARKET_OPINION_PUSH_SKIP_NON_TRADING_DAYS', 'MARKET_OPINION_MODEL', 'MAIL_TO', 'SMTP_USER', 'SMTP_PASSWORD',
         'MARKET_OPINION_MORNING_TIME', 'MARKET_OPINION_MIDDAY_TIME', 'MARKET_OPINION_CLOSE_TIME'],
       matches: (key: string) => key.startsWith('MARKET_OPINION_') || key.startsWith('SMTP_') || key === 'MAIL_TO' },
     { id: 'attachments', title: '附件与容量限制', description: '上传数量、文件大小与存储目录',

@@ -4,7 +4,6 @@ import { dueDigestKinds } from './marketOpinionPushScheduler.js';
 const schedule = {
   times: { morning: '09:00', midday: '12:00', close: '16:00' },
   graceMinutes: 20,
-  weekdaysOnly: true,
 } as const;
 
 describe('market opinion push scheduler', () => {
@@ -15,7 +14,7 @@ describe('market opinion push scheduler', () => {
     expect(dueDigestKinds(new Date('2026-07-20T08:21:00Z'), schedule)).toEqual([]);
   });
 
-  it('does not send weekday reports on weekends', () => {
-    expect(dueDigestKinds(new Date('2026-07-19T01:05:00Z'), schedule)).toEqual([]);
+  it('keeps weekend slots eligible so the calendar policy can choose to skip or send news', () => {
+    expect(dueDigestKinds(new Date('2026-07-19T01:05:00Z'), schedule)).toEqual(['morning']);
   });
 });

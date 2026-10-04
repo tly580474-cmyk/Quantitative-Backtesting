@@ -107,6 +107,7 @@ async function main(): Promise<void> {
   });
   const opinionPushService = new MarketOpinionPushService({
     enabled: config.MARKET_OPINION_PUSH_ENABLED === 'true',
+    skipNonTradingDays: config.MARKET_OPINION_PUSH_SKIP_NON_TRADING_DAYS === 'true',
     schedules: opinionPushTimes,
     recipientCount: opinionRecipients.length,
     agent: new MarketOpinionAgent(
@@ -278,7 +279,6 @@ async function main(): Promise<void> {
         startMarketOpinionPushScheduler(opinionPushService, {
           times: opinionPushTimes,
           graceMinutes: Math.max(1, parseInt(config.MARKET_OPINION_PUSH_GRACE_MINUTES, 10) || 20),
-          weekdaysOnly: config.MARKET_OPINION_PUSH_WEEKDAYS_ONLY === 'true',
         });
         console.log(`[MarketOpinionPush] Scheduler started at ${Object.values(opinionPushTimes).join('/')}`);
       }

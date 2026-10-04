@@ -44,6 +44,14 @@ export function assertFreshMarketOpinionInputs(
     failures.push(`本次新闻采集仅有 ${sources.size} 个有效来源，至少需要 ${Math.max(1, Math.floor(policy.minNewsSources))} 个`);
   }
 
+  if (inputs.context.digestMode === 'non_trading') {
+    // Still enforce fresh news and a freshly collected context. Overseas markets
+    // may also be closed; their latest available quotes are labelled as references.
+    checkTimestamp('外盘采集快照', inputs.context.capturedAt, marketMaxAgeMs, now, failures);
+    if (failures.length) throw new Error(`观点智能体数据新鲜度门禁未通过：${failures.join('；')}`);
+    return;
+  }
+
   const unavailable = Array.isArray(inputs.context.unavailable) ? inputs.context.unavailable : [];
   if (unavailable.length) failures.push(`行情上下文缺失：${unavailable.join('、')}`);
   checkTimestamp('行情快照', inputs.context.capturedAt, marketMaxAgeMs, now, failures);
@@ -90,6 +98,16 @@ export function assertFreshMarketOpinionInputs(
 export function formatMarketOpinionFreshnessEvidence(inputs: FreshMarketOpinionInputs): string {
   const names = new Map<string, string>(inputs.news.map((item) => [item.sourceKey, item.sourceName]));
   const sources = inputs.newsSnapshot.sources.map((source) => `${names.get(source) ?? source}(${source})`);
+  if (inputs.context.digestMode === 'non_trading') {
+    return [
+      '## 数据新鲜度', '',
+      `- 新闻采集快照：${inputs.newsSnapshot.updatedAt}`,
+      `- 新闻来源：${sources.join('、')}`,
+      `- 外盘采集时间：${inputs.context.capturedAt}（不代表报价时间）`,
+      `- A 股休市日期：${inputs.context.sessionTradeDate}`,
+      '- 外盘使用最近可用快照；报价时间与来源见外盘概览。缺失时仅提供新闻分析。',
+    ].join('\n');
+  }
   const capitalFlow = record(inputs.context.capitalFlow);
   const hotSectors = record(inputs.context.hotSectors);
   return [

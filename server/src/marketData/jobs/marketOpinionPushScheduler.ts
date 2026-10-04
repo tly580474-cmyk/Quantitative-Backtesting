@@ -14,7 +14,6 @@ let ticking = false;
 export interface MarketOpinionPushSchedule {
   times: Record<MarketOpinionDigestKind, string>;
   graceMinutes: number;
-  weekdaysOnly: boolean;
 }
 
 export function startMarketOpinionPushScheduler(service: MarketOpinionPushService, schedule: MarketOpinionPushSchedule): void {
@@ -31,7 +30,6 @@ export function stopMarketOpinionPushScheduler(): void {
 
 export function dueDigestKinds(now: Date, schedule: MarketOpinionPushSchedule): MarketOpinionDigestKind[] {
   const session = getChinaMarketSession(now);
-  if (schedule.weekdaysOnly && (session.weekday === 0 || session.weekday === 6)) return [];
   return (Object.entries(schedule.times) as Array<[MarketOpinionDigestKind, string]>)
     .filter(([, time]) => {
       const due = parseMinute(time);
@@ -47,7 +45,9 @@ async function tick(service: MarketOpinionPushService, schedule: MarketOpinionPu
     const now = new Date();
     await expireStaleCollectorRuns('market_opinion_push', 5);
     const session = getChinaMarketSession(now);
-    for (const kind of dueDigestKinds(now, schedule)) {
+    const kinds = dueDigestKinds(now, schedule);
+    if (!kinds.length || await service.dayMode(now) === 'skip') return;
+    for (const kind of kinds) {
       const runKey = `market_opinion_push:${session.tradeDate}:${kind}`;
       if (!await tryStartCollectorRun(runKey, 'market_opinion_push', {
         maxAttempts: 3,
@@ -68,6 +68,8 @@ async function tick(service: MarketOpinionPushService, schedule: MarketOpinionPu
         console.error(`[marketOpinionPushScheduler] ${runKey} failed: ${message}`);
       }
     }
+  } catch (error) {
+    console.error('[marketOpinionPushScheduler] tick failed:', error instanceof Error ? error.message : String(error));
   } finally {
     ticking = false;
   }

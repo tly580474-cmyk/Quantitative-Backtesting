@@ -151,6 +151,18 @@ export const ADMIN_CONFIG_DEFINITIONS: AdminConfigDefinition[] = [
     defaultValue: 'false',
   },
   {
+    key: 'MARKET_OPINION_PUSH_SKIP_NON_TRADING_DAYS',
+    label: '跳过非交易日推送',
+    category: 'ai',
+    description: '开启：按 A 股交易日历跳过周末及节假日。关闭：非交易日按原定时点推送外盘与高价值新闻摘要，不生成 A 股午盘或收盘复盘。保存后重启后端生效。',
+    secret: false,
+    editable: true,
+    restartRequired: true,
+    restartScope: 'ai',
+    inputType: 'boolean',
+    defaultValue: 'true',
+  },
+  {
     key: 'MARKET_OPINION_MODEL',
     label: '市场观点邮件模型',
     category: 'ai',

@@ -7,6 +7,7 @@ import { normalizeMarketNewsUrl } from '../marketData/marketNewsUrl.js';
 import { getChinaMarketSession, type ChinaMarketSession } from '../marketData/jobs/marketSession.js';
 import { EmailSender, reportEmailHtml, type EmailDeliveryResult } from './emailSender.js';
 import { MarketOpinionAgent, type MarketOpinionDigestKind, type MarketOpinionMarketContext, type MarketOpinionReport } from './marketOpinionAgent.js';
+import { resolveMarketOpinionDayMode, type MarketOpinionDayMode } from './marketOpinionTradingDay.js';
 import { assessOpinionNews } from './marketOpinionNewsRanker.js';
 import { fetchOpinionCapitalFlow, fetchOpinionHotSectors, withFreshFallback, type OpinionCapitalFlowSnapshot } from './marketOpinionFallback.js';
 import {
@@ -32,8 +33,18 @@ export interface MarketOpinionPushResult {
   newsSources: string[];
 }
 
+export interface MarketOpinionPushSkipped {
+  skipped: true;
+  kind: MarketOpinionDigestKind;
+  tradeDate: string;
+  reason: 'non_trading_day';
+}
+
+export type MarketOpinionPushOutcome = MarketOpinionPushResult | MarketOpinionPushSkipped;
+
 export interface MarketOpinionPushStatus {
   enabled: boolean;
+  skipNonTradingDays: boolean;
   configured: boolean;
   schedules: Record<MarketOpinionDigestKind, string>;
   recipients: number;
@@ -52,18 +63,22 @@ export class MarketOpinionPushService {
   constructor(
     private options: {
       enabled: boolean;
+      skipNonTradingDays?: boolean;
       schedules: Record<MarketOpinionDigestKind, string>;
       recipientCount: number;
       agent: MarketOpinionAgent;
       email: EmailSender;
       model: string;
       freshnessPolicy?: MarketOpinionFreshnessPolicy;
+      resolveDayMode?: typeof resolveMarketOpinionDayMode;
+      collectInputs?: typeof collectFreshMarketOpinionInputs;
     },
   ) {}
 
   status(): MarketOpinionPushStatus {
     return {
       enabled: this.options.enabled,
+      skipNonTradingDays: this.options.skipNonTradingDays ?? true,
       configured: this.options.email.isConfigured(),
       schedules: this.options.schedules,
       recipients: this.options.recipientCount,
@@ -73,6 +88,10 @@ export class MarketOpinionPushService {
     };
   }
 
+  dayMode(now = new Date()): Promise<MarketOpinionDayMode> {
+    return (this.options.resolveDayMode ?? resolveMarketOpinionDayMode)(now, this.options.skipNonTradingDays ?? true);
+  }
+
   async send(
     kind: MarketOpinionDigestKind,
     now = new Date(),
@@ -80,13 +99,19 @@ export class MarketOpinionPushService {
       subjectPrefix?: string;
       onStage?: (stage: MarketOpinionPushStage) => void | Promise<void>;
     } = {},
-  ): Promise<MarketOpinionPushResult> {
+  ): Promise<MarketOpinionPushOutcome> {
     if (this.running) throw new Error('已有市场观点邮件正在生成');
     this.running = true;
     try {
+      const mode = await this.dayMode(now);
+      if (mode === 'skip') {
+        return { skipped: true, kind, tradeDate: getChinaMarketSession(now).tradeDate, reason: 'non_trading_day' };
+      }
       await sendOptions.onStage?.('refreshing');
       const inputs = await withStageTimeout(
-        collectFreshMarketOpinionInputs(now, this.options.freshnessPolicy),
+        (this.options.collectInputs ?? collectFreshMarketOpinionInputs)(now, this.options.freshnessPolicy, {
+          buildContext: mode === 'non_trading' ? buildNonTradingMarketContext : buildMarketContext,
+        }),
         120_000,
         '观点推送数据准备超过 120 秒',
       );
@@ -142,7 +167,7 @@ export async function collectFreshMarketOpinionInputs(
   dependencies: {
     refreshNews?: typeof refreshMarketNews;
     loadRecentNews?: typeof getMarketOpinionNews;
-    buildContext?: typeof buildMarketContext;
+    buildContext?: (now: Date) => Promise<MarketOpinionMarketContext>;
   } = {},
 ): Promise<FreshMarketOpinionInputs> {
   const newsSnapshot = await (dependencies.refreshNews ?? refreshMarketNews)(true, 50);
@@ -205,6 +230,33 @@ function safeArticleUrl(value?: string): string | null {
 
 function escapeMarkdownLabel(value: string): string {
   return value.replace(/([\\[\]*_`])/g, '\\$1');
+}
+
+export async function buildNonTradingMarketContext(
+  now: Date,
+  loadIndices = fetchMarketIndexQuotes,
+): Promise<MarketOpinionMarketContext> {
+  const session = getChinaMarketSession(now);
+  // A-share sentiment, capital flows and sectors have no current session on a holiday.
+  // Fetch only the existing global index feed; retain source/time uncertainty explicitly.
+  const quotes = await loadIndices().catch(() => []);
+  const overseasIndices = quotes
+    .filter((item) => !['SH', 'SZ', 'BJ'].includes(item.market) && item.price != null)
+    .map((item) => ({
+      code: item.code, name: item.name, market: item.market, price: item.price, changePct: item.changePct,
+      quoteTime: item.quoteTime ?? null, fetchedAt: item.updatedAt, source: item.source,
+      snapshotType: 'latest_available_reference',
+    }));
+  return {
+    capturedAt: new Date().toISOString(),
+    session: `${session.tradeDate} closed`,
+    sessionTradeDate: session.tradeDate,
+    marketPhase: 'closed',
+    isTradingDay: false,
+    digestMode: 'non_trading',
+    overseasIndices,
+    unavailable: overseasIndices.length ? [] : ['外盘指数行情'],
+  };
 }
 
 export async function buildMarketContext(
@@ -390,7 +442,9 @@ function previousWeekday(date: string): string {
 }
 
 function buildSubject(kind: MarketOpinionDigestKind, context: MarketOpinionMarketContext): string {
-  const label = { morning: '消息早报', midday: '财经午报', close: '盘后总结' }[kind];
+  const label = context.digestMode === 'non_trading'
+    ? `非交易日外盘与新闻${{ morning: '早报', midday: '午报', close: '晚报' }[kind]}`
+    : { morning: '消息早报', midday: '财经午报', close: '盘后总结' }[kind];
   return `【市场观点智能体】${context.session.slice(0, 10)} ${label}`;
 }
 

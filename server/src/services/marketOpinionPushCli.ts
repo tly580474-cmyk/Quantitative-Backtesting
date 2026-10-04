@@ -5,7 +5,8 @@ import { checkConnection, closePool, createPool } from '../db/connection.js';
 import { closeDb, initDb } from '../db/index.js';
 import { EmailSender } from './emailSender.js';
 import { MarketOpinionAgent, type MarketOpinionDigestKind } from './marketOpinionAgent.js';
-import { collectFreshMarketOpinionInputs, MarketOpinionPushService } from './marketOpinionPushService.js';
+import { resolveMarketOpinionDayMode } from './marketOpinionTradingDay.js';
+import { buildNonTradingMarketContext, collectFreshMarketOpinionInputs, MarketOpinionPushService } from './marketOpinionPushService.js';
 
 const kinds = ['morning', 'midday', 'close'] as const;
 
@@ -41,8 +42,15 @@ async function main(): Promise<void> {
       config.OPENAI_API_KEY, config.OPENAI_BASE_URL, opinionAiModel, parseInt(config.OPENAI_TIMEOUT_MS, 10),
     );
     if (dryRun) {
+      const mode = await resolveMarketOpinionDayMode(new Date(), config.MARKET_OPINION_PUSH_SKIP_NON_TRADING_DAYS === 'true');
+      if (mode === 'skip') {
+        console.log(JSON.stringify({ dryRun: true, sent: false, skipped: true, reason: 'non_trading_day' }));
+        return;
+      }
       await email.verify();
-      const inputs = await collectFreshMarketOpinionInputs();
+      const inputs = await collectFreshMarketOpinionInputs(new Date(), undefined, {
+        buildContext: mode === 'non_trading' ? buildNonTradingMarketContext : undefined,
+      });
       const report = await agent.generateDigest(inputs.news, kind, inputs.context, opinionAiModel);
       console.log(JSON.stringify({
         dryRun: true, sent: false, smtpVerified: true, model: opinionAiModel, kind,
@@ -55,6 +63,7 @@ async function main(): Promise<void> {
     }
     const service = new MarketOpinionPushService({
       enabled: true,
+      skipNonTradingDays: config.MARKET_OPINION_PUSH_SKIP_NON_TRADING_DAYS === 'true',
       schedules: {
         morning: config.MARKET_OPINION_MORNING_TIME,
         midday: config.MARKET_OPINION_MIDDAY_TIME,
@@ -68,6 +77,10 @@ async function main(): Promise<void> {
     const result = await service.send(kind, new Date(), {
       subjectPrefix: simulation ? '【模拟推送】' : correction ? '【更正版】' : undefined,
     });
+    if ('skipped' in result) {
+      console.log(JSON.stringify({ sent: false, ...result }));
+      return;
+    }
     console.log(JSON.stringify({
       sent: true,
       simulation,

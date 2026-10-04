@@ -131,13 +131,17 @@ describe('admin env config', () => {
       'MINUTE_DATA_UPDATE_TIME',
       'MINUTE_DATA_RETRY_TIME',
       'FUND_FLOW_UPDATE_TIME',
-      'FUND_FLOW_RETRY_TIME',
     ]) {
       expect(items.find((item) => item.key === key)).toMatchObject({
         editable: true,
         inputType: 'time',
       });
     }
+    expect(items.find((item) => item.key === 'FUND_FLOW_RETRY_TIME')).toMatchObject({
+      editable: false,
+      inputType: 'time',
+      restartRequired: false,
+    });
   });
 
   it('masks the Tinyshare authorization code in admin responses', () => {
@@ -197,5 +201,36 @@ describe('admin env config', () => {
       maskedValue: 'true',
       restartRequired: false,
     });
+  });
+});
+
+
+describe('non-trading-day push setting', () => {
+  it('exposes an editable enabled boolean option with a restart notice', () => {
+    expect(listAdminConfig({}).find(item => item.key === 'MARKET_OPINION_PUSH_SKIP_NON_TRADING_DAYS')).toMatchObject({
+      inputType: 'boolean', editable: true, secret: false, maskedValue: 'true', restartRequired: true,
+    });
+    expect(listAdminConfig({ MARKET_OPINION_PUSH_SKIP_NON_TRADING_DAYS: 'false' }).find(item => item.key === 'MARKET_OPINION_PUSH_SKIP_NON_TRADING_DAYS')?.maskedValue).toBe('false');
+  });
+});
+
+
+describe('non-trading-day push persistence', () => {
+  it('saves either boolean value and rejects invalid values', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'admin-opinion-env-'));
+    roots.push(root);
+    const path = join(root, '.env');
+    const key = 'MARKET_OPINION_PUSH_SKIP_NON_TRADING_DAYS';
+    const original = process.env[key];
+    try {
+      for (const value of ['true', 'false']) {
+        await updateEnvFile(path, { [key]: value });
+        expect(await readFile(path, 'utf8')).toContain(`${key}=${value}`);
+      }
+      await expect(updateEnvFile(path, { [key]: 'yes' })).rejects.toThrow('true 或 false');
+    } finally {
+      if (original === undefined) delete process.env[key];
+      else process.env[key] = original;
+    }
   });
 });
