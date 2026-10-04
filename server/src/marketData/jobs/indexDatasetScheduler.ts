@@ -17,13 +17,19 @@ interface SchedulerState {
   running: boolean;
   activeKeys: Set<string>;
   completedKeys: Set<string>;
+  /** 失败重试退避：runKey -> 下次可重试时间戳，避免每 60s 疯狂重试拖垮上游。 */
+  failedUntil: Map<string, number>;
 }
+
+// 上游失败后至少等待 15 分钟再重试，而不是每分钟一次。
+const FAILED_RETRY_BACKOFF_MS = 15 * 60_000;
 
 const state: SchedulerState = {
   intervalId: null,
   running: false,
   activeKeys: new Set(),
   completedKeys: new Set(),
+  failedUntil: new Map(),
 };
 
 export function startIndexDatasetScheduler(
@@ -93,6 +99,8 @@ async function tick(
 
     const activeKey = `${trigger.group}:${shanghaiDate}`;
     if (state.activeKeys.has(activeKey) || state.completedKeys.has(activeKey)) continue;
+    const retryAt = state.failedUntil.get(activeKey);
+    if (retryAt != null && retryAt > now.getTime()) continue;
     state.activeKeys.add(activeKey);
 
     void updateIndexDatasets(trigger.group, provider, now)
@@ -103,9 +111,13 @@ async function tick(
         );
         if (result.failed === 0) {
           state.completedKeys.add(activeKey);
+          state.failedUntil.delete(activeKey);
+        } else {
+          state.failedUntil.set(activeKey, Date.now() + FAILED_RETRY_BACKOFF_MS);
         }
       })
       .catch((error) => {
+        state.failedUntil.set(activeKey, Date.now() + FAILED_RETRY_BACKOFF_MS);
         console.error(`[indexDatasetScheduler] ${trigger.group} update failed:`, error);
       })
       .finally(() => {

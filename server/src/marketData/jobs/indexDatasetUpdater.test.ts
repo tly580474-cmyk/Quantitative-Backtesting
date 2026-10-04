@@ -3,6 +3,8 @@ import {
   amountYuanToYi,
   parseCsindexPerformanceRows,
   parseEastmoneyLatestIndexCandle,
+  parseSinaUsIndexDailyCandles,
+  parseTencentUsIndexDailyCandles,
   resolveIndexTargetDate,
 } from './indexDatasetUpdater.js';
 
@@ -78,6 +80,56 @@ describe('parseCsindexPerformanceRows', () => {
       tradingVol: 1,
       tradingValue: 1,
     }], '932000')).toEqual([]);
+  });
+});
+
+describe('parseTencentUsIndexDailyCandles', () => {
+  const payload = {
+    data: {
+      usNDX: {
+        day: [
+          // Tencent 列序：date, open, close, high, low, volume
+          ['2026-09-08', '29645.18', '29507.70', '29655.73', '29400.70', '1315063152.00'],
+          ['2026-09-09', '29431.94', '29421.55', '29563.60', '29334.41', '1158162386.00'],
+          ['2026-09-11', '29331.48', '29368.44', '29473.12', '29313.51', '1109496376.00'],
+        ],
+      },
+    },
+  };
+
+  it('maps Tencent rows into the NDX candle contract within the window', () => {
+    expect(parseTencentUsIndexDailyCandles(payload, 'usNDX', 'NDX', '2026-09-09', '2026-09-11'))
+      .toEqual([
+        { time: '2026-09-09', symbol: 'NDX', open: 29431.94, high: 29563.60, low: 29334.41, close: 29421.55, volume: 1158162386 },
+        { time: '2026-09-11', symbol: 'NDX', open: 29331.48, high: 29473.12, low: 29313.51, close: 29368.44, volume: 1109496376 },
+      ]);
+  });
+
+  it('drops malformed rows and rows outside the window', () => {
+    expect(parseTencentUsIndexDailyCandles(
+      { data: { usNDX: { day: [['2026-09-10', '1', '2'], ['bad', '1', '2', '3', '4', '5'], ['2026-08-01', '1', '2', '3', '4', '5']] } } },
+      'usNDX', 'NDX', '2026-09-09', '2026-09-11',
+    )).toEqual([]);
+  });
+
+  it('returns an empty list when the upstream payload is missing', () => {
+    expect(parseTencentUsIndexDailyCandles({}, 'usNDX', 'NDX', '2026-09-01', '2026-09-11')).toEqual([]);
+  });
+});
+
+describe('parseSinaUsIndexDailyCandles', () => {
+  it('parses the Sina JSONP payload and filters by date window', () => {
+    const payload = 'var_data=(['
+      + '{"d":"2026-09-08","o":"29645.18","h":"29655.73","l":"29400.70","c":"29507.70","v":"1224093226","a":"0"},'
+      + '{"d":"2026-09-11","o":"29331.48","h":"29473.12","l":"29313.51","c":"29368.44","v":"1082419792","a":"0"}'
+      + ']);';
+    expect(parseSinaUsIndexDailyCandles(payload, 'NDX', '2026-09-09', '2026-09-11')).toEqual([
+      { time: '2026-09-11', symbol: 'NDX', open: 29331.48, high: 29473.12, low: 29313.51, close: 29368.44, volume: 1082419792 },
+    ]);
+  });
+
+  it('returns an empty list for a non-JSONP response', () => {
+    expect(parseSinaUsIndexDailyCandles('<html>blocked</html>', 'NDX', '2026-09-01', '2026-09-11')).toEqual([]);
   });
 });
 

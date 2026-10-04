@@ -36,6 +36,20 @@ const EASTMONEY_INDEX_SECIDS: Record<string, string> = {
   '000985': '1.000985',
 };
 
+// 美股指数（纳斯达克100）走国内可达的腾讯/新浪数据源。
+// Yahoo(query1.finance.yahoo.com) 在国内网络下常返回 403 反爬页，不可用。
+const NASDAQ100_SYMBOL = 'NDX';
+const NASDAQ100_TENCENT_CODE = 'usNDX';
+const NASDAQ100_SINA_SYMBOL = '.NDX';
+// 腾讯 usfqkline 单次最多返回的日线条数；取足够覆盖 7 天对账窗口 + 长假缓冲。
+const TENCENT_US_KLINE_BARS = 640;
+const TENCENT_US_KLINE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/usfqkline/get';
+const SINA_US_DAILY_URL = 'https://stock.finance.sina.com.cn/usstock/api/jsonp.php/var_data=/US_MinKService.getDailyK';
+
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
+};
+
 type DatasetRow = typeof marketDatasets.$inferSelect;
 type CandleInsert = typeof candles.$inferInsert;
 type IndexGroup = 'cn-index' | 'us-index';
@@ -360,49 +374,136 @@ async function fetchEastmoneyLatestIndexCandle(symbol: string, time: string) {
   return parseEastmoneyLatestIndexCandle(payload.data, time, symbol);
 }
 
-async function fetchNasdaq100Candles(startDate: string, endDate: string) {
-  const period1 = Math.floor(Date.parse(`${startDate}T00:00:00Z`) / 1000);
-  const period2 = Math.floor(Date.parse(`${addDays(endDate, 1)}T00:00:00Z`) / 1000);
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/%5ENDX?period1=${period1}&period2=${period2}&interval=1d`;
-  const payload = await fetchJsonWithRetry<{
-    chart?: {
-      result?: Array<{
-        timestamp?: number[];
-        indicators?: { quote?: Array<{ open?: number[]; high?: number[]; low?: number[]; close?: number[]; volume?: number[] }> };
-      }>;
-      error?: { description?: string };
-    };
-  }>(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
-      Accept: 'application/json',
-    },
-  }, 'Nasdaq100 上游接口');
-  const result = payload.chart?.result?.[0];
-  if (!result) throw new Error(payload.chart?.error?.description ?? 'Nasdaq100 上游暂无数据');
-  const quote = result.indicators?.quote?.[0];
-  const timestamps = result.timestamp ?? [];
-  if (!quote || timestamps.length === 0) return [];
-
-  return timestamps.flatMap((timestamp, index) => {
-    const open = quote.open?.[index];
-    const high = quote.high?.[index];
-    const low = quote.low?.[index];
-    const close = quote.close?.[index];
-    if (![open, high, low, close].every((value) => typeof value === 'number' && Number.isFinite(value))) return [];
-    return [{
-      time: new Date(timestamp * 1000).toISOString().slice(0, 10),
-      symbol: 'NDX',
-      open: open as number,
-      high: high as number,
-      low: low as number,
-      close: close as number,
-      volume: quote.volume?.[index] ?? 0,
-    }];
-  });
+interface TencentUsKlinePayload {
+  data?: Record<string, { day?: unknown[][] }>;
 }
 
-async function appendDatasetCandles(
+interface SinaUsDailyRow {
+  d?: string;
+  o?: string;
+  h?: string;
+  l?: string;
+  c?: string;
+  v?: string;
+  a?: string;
+}
+
+type IndexCandleRow = {
+  time: string;
+  symbol: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
+
+/**
+ * 腾讯美股指数日线列序为 [date, open, close, high, low, volume, ...]。
+ * 与腾讯 A 股 K 线一致，仅保留目标日期窗口内的行。
+ */
+export function parseTencentUsIndexDailyCandles(
+  payload: TencentUsKlinePayload,
+  code: string,
+  symbol: string,
+  startDate: string,
+  endDate: string,
+): IndexCandleRow[] {
+  const rows = payload.data?.[code]?.day ?? [];
+  return rows.flatMap((row) => {
+    if (!Array.isArray(row) || row.length < 6) return [];
+    const [date, open, close, high, low, volume] = row;
+    const values = [open, high, low, close, volume].map(Number);
+    if (typeof date !== 'string' || values.some((value) => !Number.isFinite(value))) return [];
+    if (date < startDate || date > endDate) return [];
+    return [{
+      time: date,
+      symbol,
+      open: values[0],
+      high: values[1],
+      low: values[2],
+      close: values[3],
+      volume: values[4],
+    }];
+  }).sort((a, b) => a.time.localeCompare(b.time));
+}
+
+/** 解析新浪美股指数日线 JSONP：`var_data=([{d,o,h,l,c,v,a}, ...]);` */
+export function parseSinaUsIndexDailyCandles(
+  payload: string,
+  symbol: string,
+  startDate: string,
+  endDate: string,
+): IndexCandleRow[] {
+  const match = payload.match(/=\((\[[\s\S]*\])\);?\s*$/);
+  if (!match) return [];
+  let rows: SinaUsDailyRow[];
+  try {
+    rows = JSON.parse(match[1]) as SinaUsDailyRow[];
+  } catch {
+    return [];
+  }
+  return rows.flatMap((row) => {
+    const values = [row.o, row.h, row.l, row.c, row.v].map(Number);
+    if (!row.d || values.some((value) => !Number.isFinite(value))) return [];
+    if (row.d < startDate || row.d > endDate) return [];
+    return [{
+      time: row.d,
+      symbol,
+      open: values[0],
+      high: values[1],
+      low: values[2],
+      close: values[3],
+      volume: values[4],
+    }];
+  }).sort((a, b) => a.time.localeCompare(b.time));
+}
+
+function isValidUsCandleWindow(rows: IndexCandleRow[], startDate: string): boolean {
+  return rows.length > 0 && rows.every((row) => row.time >= startDate);
+}
+
+/**
+ * 纳斯达克100 日线：腾讯美股 K 线为主源，新浪美股指数日线为兜底。
+ * 两者均为国内直连可达，且与历史 Yahoo 口径的收盘价一致。
+ */
+async function fetchNasdaq100Candles(startDate: string, endDate: string): Promise<IndexCandleRow[]> {
+  try {
+    const params = new URLSearchParams({
+      // 美股必须使用 qfq；传 0 时腾讯仅返回 version，不含日线。
+      param: `${NASDAQ100_TENCENT_CODE},day,,,${TENCENT_US_KLINE_BARS},qfq`,
+      r: Math.random().toString(),
+    });
+    const payload = await fetchJsonWithRetry<TencentUsKlinePayload>(
+      `${TENCENT_US_KLINE_URL}?${params.toString()}`,
+      { headers: { ...BROWSER_HEADERS, Referer: 'https://stock.qq.com/', Accept: 'application/json' } },
+      '腾讯美股指数日线',
+    );
+    const candles = parseTencentUsIndexDailyCandles(
+      payload,
+      NASDAQ100_TENCENT_CODE,
+      NASDAQ100_SYMBOL,
+      startDate,
+      endDate,
+    );
+    if (candles.length > 0) return candles;
+  } catch {
+    // 腾讯异常时静默降级到新浪，保证美股指数更新不被单一上游拖垮。
+  }
+
+  const text = await fetchTextWithRetry(
+    `${SINA_US_DAILY_URL}?symbol=${encodeURIComponent(NASDAQ100_SINA_SYMBOL)}`,
+    { headers: { ...BROWSER_HEADERS, Referer: 'https://finance.sina.com.cn/' } },
+    '新浪美股指数日线',
+  );
+  const candles = parseSinaUsIndexDailyCandles(text, NASDAQ100_SYMBOL, startDate, endDate);
+  if (!isValidUsCandleWindow(candles, startDate)) {
+    throw new Error('纳斯达克100 上游（腾讯/新浪）暂无新交易日数据');
+  }
+  return candles;
+}
+
+export async function appendDatasetCandles(
   dataset: DatasetRow,
   rows: Array<Omit<CandleInsert, 'datasetId'>>,
 ): Promise<void> {
@@ -466,7 +567,9 @@ async function appendDatasetCandles(
         ? dataset.symbol === '932000'
           ? 'csindex:index-perf'
           : 'tencent+eastmoney:reconciled'
-        : dataset.sourceFileName,
+        : dataset.symbol.toUpperCase() === NASDAQ100_SYMBOL
+          ? 'tencent:usNDX'
+          : dataset.sourceFileName,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(marketDatasets.id, dataset.id));
@@ -505,7 +608,7 @@ async function createRun(jobId: string, group: IndexGroup, runKey: string, targe
     id: jobId,
     jobType: 'dataset-index-incremental',
     status: 'running',
-    providerId: group === 'cn-index' ? 'tencent' : 'yahoo',
+    providerId: group === 'cn-index' ? 'tencent' : 'tencent',
     requestSnapshot: { group, runKey, targetDate },
     totalItems: 0,
     completedItems: 0,
@@ -613,6 +716,29 @@ async function fetchJsonWithRetry<T>(
       });
       if (!response.ok) throw new Error(`${label} HTTP ${response.status}`);
       return await response.json() as T;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await sleep(900 * attempt);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`${label} 请求失败`);
+}
+
+async function fetchTextWithRetry(
+  url: string,
+  init: RequestInit,
+  label: string,
+  attempts = 3,
+): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!response.ok) throw new Error(`${label} HTTP ${response.status}`);
+      return await response.text();
     } catch (error) {
       lastError = error;
       if (attempt < attempts) await sleep(900 * attempt);
